@@ -84,7 +84,18 @@ function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={stat
        return response({ok:true,result:{state:'stored_unverified',providerId:input.providerId,
          activation:'requires_original_stop_and_host_restart',originalAccountUnchanged:true}});
      }
-if(key==='/host/models'){
+if(key==='/host/catalog'){
+      mutations.push({kind:'host-catalog'});
+      return response({ok:true,providers:[
+        {id:'native-router',name:'聚合路由',state:'ready',
+          models:[{id:'autofree',name:'AutoFree'}]},
+        {id:'workbuddy',name:'WorkBuddy',state:'ready',
+          models:[{id:'hy4-free',name:'Hy4 · x0.00',freeHint:'WorkBuddy x0.00'}]},
+        {id:'lingxi',name:'Lingxi',state:'ready',
+          models:[{id:'lingxi-flash',name:'DeepSeek Flash'}]},
+      ]});
+    }
+    if(key==='/host/models'){
       const input=JSON.parse(options.body);mutations.push({kind:'host-model-query',providerId:input.providerId});
       return response({ok:true,result:hostModelResult??{state:'ready',providerId:input.providerId,
         models:[{id:'wb-native-flash',name:'WorkBuddy Native Flash'}],loginVerified:false}});
@@ -169,7 +180,7 @@ test('host channel click shows the original full model list on the right, not at
  const rig=createUiRig(new Map(),null,{state:'disabled'},{},host);await rig.init();
  rig.find(rig.render(),'button','复用管理')[0].props.onClick();
  rig.find(rig.render(),'button','宿主路由与模型')[0].props.onClick();
- const selected=rig.find(rig.render(),'button','WorkBuddy 国际原插件托管 · 登录待核验自动接入')[0];
+ const selected=rig.find(rig.render(),'button','WorkBuddy 国际已接入')[0];
  assert.ok(selected,'selectable original provider exists in left pane');
  await selected.props.onClick();
  assert.ok(rig.mutations.some(x=>x.kind==='host-model-query'&&x.providerId==='workbuddy-global'));
@@ -188,7 +199,7 @@ test('unavailable original provider model catalog cannot invent a model, but ori
  await rig.init();
  rig.find(rig.render(),'button','复用管理')[0].props.onClick();
  rig.find(rig.render(),'button','宿主路由与模型')[0].props.onClick();
- const selected=rig.find(rig.render(),'button','deepseek-official原插件托管 · 登录待核验自动接入')[0];
+ const selected=rig.find(rig.render(),'button','deepseek-official已接入')[0];
  assert.ok(selected);
  await selected.props.onClick();
  assert.match(rig.flatten(rig.render()).join(' '),/未提供可读取的模型目录/);
@@ -486,4 +497,104 @@ test('malformed upstream JSON errors are not forwarded with secret-bearing parse
   assert.doesNotMatch(message,/SECRET_FROM_UNSAFE_JSON/);
   assert.match(message,/上游 DSH 响应不是有效 JSON/);
   assert.equal(rig.find(page,'a','打开授权链接（先核对域名）').length,0);
+});
+
+test('narrow settings layout uses responsive channel pills instead of the 136px squeeze regression',async()=>{
+ const host=[{providerId:'workbuddy-global'}, {providerId:'deepseek-account'},
+   {providerId:'lingxi'}, {providerId:'minimax'}];
+ const rig=createUiRig(new Map(),null,{state:'disabled'},{},host);
+ await rig.init();
+ rig.find(rig.render(),'button','复用管理')[0].props.onClick();
+ rig.find(rig.render(),'button','宿主路由与模型')[0].props.onClick();
+ const tree=rig.render(),nodes=[];
+ const visit=node=>{
+  if(Array.isArray(node))return node.forEach(visit);
+  if(!node||typeof node!=='object')return;
+  nodes.push(node);visit(node.children);
+ };
+ visit(tree);
+ const layout=nodes.find(n=>typeof n.props?.style?.gridTemplateColumns==='string'
+   &&n.props.style.gridTemplateColumns.includes('repeat(auto-fit'));
+ assert.ok(layout,'Responsive 1/2-column layout required, never force a 136px column');
+ assert.doesNotMatch(layout.props.style.gridTemplateColumns,/136px/);
+ const channel=rig.find(tree,'button','WorkBuddy 国际已接入')[0];
+ assert.ok(channel);
+ assert.notEqual(channel.props.style.width,'100%');
+ assert.equal(channel.props.style.display,'inline-flex');
+ assert.ok(channel.props.style.minHeight>=34);
+});
+test('channel card Manage Account Pool opens a real provider-filtered account management view',async()=>{
+ const rig=createUiRig();await rig.init();
+ rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
+ const page=rig.render(),managers=rig.find(page,'button','管理账号池');
+ assert.ok(managers.length>0);
+ managers[0].props.onClick();
+ const screen=rig.flatten(rig.render()).join(' ');
+ assert.match(screen,/渠道账号池/);
+ assert.match(screen,/账号来源管理/);
+ assert.match(screen,/返回渠道账号/);
+ assert.ok(rig.find(rig.render(),'button','返回渠道账号')[0]);
+ rig.find(rig.render(),'button','返回渠道账号')[0].props.onClick();
+ assert.match(rig.flatten(rig.render()).join(' '),/全部渠道 · 账号状态/);
+});
+test('Agent-level failover offers the complete DSH provider/model selectors and persists chosen route only on save',async()=>{
+ const rig=createUiRig();await rig.init();
+ rig.find(rig.render(),'button','宿主故障切换')[0].props.onClick();
+ await rig.flushTabEffect();
+ assert.ok(rig.mutations.some(m=>m.kind==='host-catalog'));
+ let page=rig.render();
+ assert.match(rig.flatten(page).join(' '),/Provider 3/);
+ assert.match(rig.flatten(page).join(' '),/已发现模型 3/);
+ const add=rig.find(page,'button','+ 从已发现模型添加候选')[0];
+ assert.ok(add&&!add.props.disabled);
+ add.props.onClick();
+ page=rig.render();
+ assert.match(rig.flatten(page).join(' '),/该 Provider 的模型/);
+ assert.match(rig.flatten(page).join(' '),/DSH Provider/);
+ // Find the provider's select by the enclosing label rather than relying
+ // on relative order of model, mode and per-provider selectors.
+ const findSelect=node=>{
+  if(Array.isArray(node))return node.map(findSelect).find(Boolean);
+  if(!node||typeof node!=='object')return null;
+  if(node.type==='label'&&rig.flatten(node).join(' ').includes('DSH Provider'))
+   return (node.children||[]).find?.(x=>x?.type==='select')||
+      (node.children?.type==='select'?node.children:null);
+  return findSelect(node.children);
+ };
+ const providerSelect=findSelect(page);
+ assert.ok(providerSelect,'DSH Provider must be a real select control');
+ providerSelect.props.onChange({target:{value:'lingxi'}});
+ page=rig.render();
+ assert.match(rig.flatten(page).join(' '),/DeepSeek Flash/);
+ assert.equal(rig.cfg.hostFailover.priority.length,0,
+  'Draft choice must not mutate saved Host rules');
+ await rig.find(page,'button','保存配置')[0].props.onClick();
+ assert.ok(rig.cfg.hostFailover.priority.some(row=>
+  row.provider==='lingxi'&&row.model==='lingxi-flash'));
+});
+test('AutoFree manual model marking is owner-gated, never auto-generates chains and preserves price provenance',async()=>{
+ const hosts=[{providerId:'workbuddy'},{providerId:'lingxi'}];
+ const rig=createUiRig(new Map(),null,{state:'disabled'},{},hosts);
+ await rig.init();
+ rig.find(rig.render(),'button','模型池')[0].props.onClick();
+ await rig.flushTabEffect();
+ let page=rig.render();
+ const findInput=node=>{
+  if(Array.isArray(node))return node.map(findInput).find(Boolean);
+  if(!node||typeof node!=='object')return null;
+  if(node.type==='input'&&node.props.placeholder==='未列在目录中时填写')return node;
+  return findInput(node.children);
+ };
+ const input=findInput(page);assert.ok(input);
+ input.props.onChange({target:{value:'my-confirmed-free-model'}});
+ page=rig.render();
+ const mark=rig.find(page,'button','指定此模型免费')[0];
+ assert.ok(mark&&!mark.props.disabled);
+ mark.props.onClick();
+ assert.match(rig.flatten(rig.render()).join(' '),/人工免费/);
+ assert.equal(rig.cfg.routes.length,sample.routes.length);
+ await rig.find(rig.render(),'button','保存配置')[0].props.onClick();
+ assert.ok(rig.cfg.freePool.models.some(row=>
+  row.providerId==='workbuddy'&&row.model==='my-confirmed-free-model'&&row.free===true));
+ assert.equal(rig.cfg.routes.length,sample.routes.length);
 });

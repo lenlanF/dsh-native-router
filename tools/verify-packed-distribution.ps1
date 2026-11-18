@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
- [string]$Version='1.0.0-rc.11',
+ [string]$Version='1.0.0-rc.12',
  [string]$NodePath='E:\Temp\dsh-native-router-isolated-alpha11-node-runtime\package\bin\node.exe'
 )
 $ErrorActionPreference='Stop'
@@ -106,7 +106,30 @@ try{
   assert.ok(after.includes('native-router-source-workbuddy'));
   assert.ok(after.includes('native-router-source-loomy'));
   assert.equal(ports.length,1,'No source pack extra web server listener');
- }finally{ownedSource.dispose();releaseOriginal()}
+ }finally{
+   ownedSource.dispose();
+   await new Promise(resolve=>setTimeout(resolve,250));
+   const leftover=llm.listProviders().map(row=>row.id)
+     .filter(id=>id.startsWith('native-router-source-'));
+   assert.deepEqual(leftover,[],
+     'Unloaded plugin must release ONLY its 13 independent model routes');
+   // Recreate its injection scope under the very same DSH runtime; no cold
+   // process restart, no original WorkBuddy/Loomy removal.
+   const again=createEmbeddedChannelPack({ctx,getConfig:()=>({embeddedPack:{enabled:true}})});
+   try{
+     again.attach();
+     for(let i=0;i<40&&!['mounted','failed','blocked','host_disposed'].includes(again.status().state);i++)
+       await new Promise(resolve=>setTimeout(resolve,75));
+     assert.equal(again.status().state,'mounted',
+       'DSH repeat mount must not hit register_owned_adapter: '+again.status().reason);
+     assert.equal(llm.listProviders().filter(row=>row.id.startsWith('native-router-source-')).length,13);
+   }finally{
+     again.dispose();
+     await new Promise(resolve=>setTimeout(resolve,250));
+     releaseOriginal();
+   }
+   assert.equal(llm.listProviders().filter(row=>row.id.startsWith('native-router-source-')).length,0);
+ }
  loaded=true;
 }finally{
  ctx.registry.delete(router);

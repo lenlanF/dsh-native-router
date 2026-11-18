@@ -31,12 +31,13 @@ function safetyReason(env){
 }
 export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPack=loadPinnedPack,modelTimeoutMs=20000}){
   let state='disabled',reason='',errorStage='',errorKind='',disposed=false,activeScope=null,injectedCallback=null;
+   let privateSourcePool=null,privateSourceCheckins=null,loadedPack=null;
    let skippedProviders=new Set();
    // The bundled derivative owns a dedicated Cordis service and never binds to
    // any already-installed plugin's accountPool. Test injected packs keep the
    // strict legacy accountPool gate to avoid touching unknown implementations.
    const sourcePoolService=loadPack===loadPinnedPack?'nativeRouterSourceAccountPool':'accountPool';
-   const sourcePool=scope=>scope?.get?.(sourcePoolService,false);
+   const sourcePool=scope=>nativeOwned?(activeScope===scope?privateSourcePool:null):scope?.get?.(sourcePoolService,false);
    // DSH-native source routes are separate from the original host Provider.
    // Every channel remains eligible for its own login even when the host
    // plugin already registered a public provider with the same name.
@@ -84,7 +85,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
     state='loading';phase='host_provider_inventory';
       scope.effect?.(()=>()=>{
        selectionGuard?.restore();selectionGuard=null;
-       activeScope=null;
+       activeScope=null;privateSourcePool=null;privateSourceCheckins=null;loadedPack=null;
        if(!disposed){state='host_disposed';reason='上游渠道包所属 Host 作用域已释放'}
       });
      void Promise.resolve().then(async()=>{
@@ -124,14 +125,32 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
      if(disposed||state==='host_disposed')return;
      if(scope.fiber?.uid===null){state='host_disposed';reason='上游渠道包 Host 作用域已停止';return}
      if(typeof pack?.apply!=='function')throw Error('上游渠道包缺少 apply 入口');
+     loadedPack=pack;
        if(sourcePool(scope))throw Error('目标渠道账号池已注册，拒绝覆盖');
        // Recheck test-injected packs just before apply; the DSH-native bundle
        // uses an isolated private state namespace with no auxiliary listener.
        const changed=loadPack===loadPinnedPack?'':safetyReason(env)||channelPackIsolationReason(env,scope);
        if(changed){state='blocked';reason=changed;return}
        phase='register_owned_adapter';
-       pack.apply(scope,{disableOpencode:true});
+       // Keep our own pool strictly scoped to this injected Host scope.
+       // Do NOT register arbitrary extra services in the global DSH registry.
+       const options={disableOpencode:true};
+       if(nativeOwned){
+         options.nativeRouterPoolReady=pool=>{
+           if(typeof pool?.listAllAccounts!=='function'||typeof pool?.getAvailableAccount!=='function')
+             throw Error('Native source pool contract unavailable');
+           privateSourcePool=pool;
+         };
+         options.nativeRouterCheckinsReady=ops=>{
+           if(typeof ops?.status!=='function'||typeof ops?.claim!=='function')
+             throw Error('Native source check-in contract unavailable');
+           privateSourceCheckins=ops;
+         };
+       }
+       pack.apply(scope,options);
        activeScope=scope;
+       if(nativeOwned&&!privateSourcePool)
+         throw Error('Native source account pool did not reach ready state');
        // Scoped overlays affect only request-local AsyncLocalStorage contexts;
        // unscoped source and other host consumers retain the original methods.
        phase='pin_independent_accounts';
@@ -145,21 +164,32 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
        state='mounted';reason='';errorStage='';errorKind='';
     }).catch(error=>{
      if(disposed||state==='host_disposed')return;
+     // Partial registration must not poison the next plugin reload.
+     try{loadedPack?.rollbackNativeRouterSourceAdapters?.(scope)}catch{}
+     privateSourcePool=null;privateSourceCheckins=null;
      state='failed';errorStage=phase;
      const code=String(error?.code??'');
      const message=String(error?.message??'').slice(0,300);
      errorKind=['ERR_MODULE_NOT_FOUND','MODULE_NOT_FOUND'].includes(code)?'missing_module':
        code==='DUPLICATE_ADAPTER'||/already registered|duplicate|already occupied|adapter alias/i.test(message)
          ?'model_adapter_collision':
+       /registerAdapter|listProviders|providerInfo/i.test(message)?'llm_adapter_api_incompatible':
+       /cannot provide|service .*registered|cannot set property|multiple fibers/i.test(message)
+         ?'host_service_collision':
        /credential|inject|provide|service/i.test(message)?'missing_host_service':'runtime_incompatible';
      reason=['ERR_MODULE_NOT_FOUND','MODULE_NOT_FOUND'].includes(error?.code)
        ?'内置渠道包运行依赖缺失；请重新安装含完整依赖的插件发行包'
        :errorKind==='model_adapter_collision'
        ?'检测到自有模型路由残留或同名注册冲突：请完全重启 DSH Host；新版卸载会随 Cordis 作用域自动释放路由。原插件不受影响。'
+       :errorKind==='host_service_collision'
+       ?'检测到与宿主已有服务注册冲突，内置来源注册已回滚，不影响原插件。'
+       :errorKind==='llm_adapter_api_incompatible'
+       ?'DSH LLM 适配器接口不兼容，来源加载已停止，原模型路由未被替换。'
        :errorKind==='missing_host_service'
-       ?'渠道包尚未获得所需的 DSH 宿主服务，已保护原账号；请检查宿主注入与插件启用状态。'
-       :'渠道包加载或注册失败；宿主运行时不兼容，原账号未被更改';
-     ctx.logger?.warn?.('dsh-native-router: source pack failed at '+errorStage);
+       ?'未获取到来源包所需宿主服务；已阻止继续注册，原账号不变。'
+       :'内置渠道包注册失败，已撤销本轮新增的自有模型路由；详情以安全阶段码为准。';
+     ctx.logger?.warn?.('dsh-native-router: source registration failed stage='+errorStage+
+       ' category='+errorKind+' (source-private state, no credentials logged)');
     });
     };
     injectedCallback=onInjected;
@@ -372,7 +402,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
     const scope=mountedScope();
     if(!scope)return {state:'unavailable',message:'上游来源服务尚未装载'};
     const pool=sourcePool(scope);
-    const ops=scope.get?.('nativeRouterSourceCheckins',false);
+    const ops=nativeOwned?privateSourceCheckins:scope.get?.('nativeRouterSourceCheckins',false);
     if(typeof pool?.listAllAccounts!=='function'||typeof ops?.status!=='function'
       ||typeof ops?.claim!=='function')
       return {state:'unavailable',message:'来源单账号签到服务尚未连接 DSH'};
@@ -426,7 +456,8 @@ function dispose(){
     if(disposed)return;
     disposed=true;
     selectionGuard?.restore();selectionGuard=null;
-    activeScope=null;state='disposed';reason='';
+    activeScope=null;privateSourcePool=null;privateSourceCheckins=null;loadedPack=null;
+    state='disposed';reason='';
     // Cordis inject() allocates a child Fiber. Explicitly remove our callback
     // so its registered adapters, accountPool, timers and effects are disposed
     // when this plugin stops (even if the parent Cordis Context remains alive).

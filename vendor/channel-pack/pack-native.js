@@ -30042,6 +30042,7 @@ function allAccountsRateLimitedForModel(accounts, modelId, now = Date.now()) {
   }
   return earliest === void 0 ? void 0 : { resetAtMs: earliest, accountCount: accounts.length };
 }
+var nativeRouterSourcePools = new WeakMap();
 var AccountPool = class {
   constructor(ctx) {
     this.ctx = ctx;
@@ -33347,6 +33348,15 @@ async function* recordThroughStream(openStream, meta) {
     });
   }
 }
+var nativeSourceAliasDisposers = new WeakMap();
+
+function rollbackNativeRouterSourceAdapters(ctx) {
+  const members = nativeSourceAliasDisposers.get(ctx) ?? [];
+  for (const release of [...members].reverse()) {
+    try { release(); } catch {}
+  }
+  nativeSourceAliasDisposers.delete(ctx);
+}
 function registerAdapterIdempotent(ctx, providers, adapter, warn) {
   const llm = ctx?.llm;
   const registered = llm?.listProviders?.();
@@ -33387,9 +33397,19 @@ function registerAdapterIdempotent(ctx, providers, adapter, warn) {
   };
   const releaseAlias = llm.registerAdapter(aliases, aliasAdapter);
   const retain = (cleanup) => {
-    try { ctx.effect(() => cleanup); }
-    catch (error) { cleanup?.(); throw error; }
-    return cleanup;
+    const members = nativeSourceAliasDisposers.get(ctx) ?? [];
+    nativeSourceAliasDisposers.set(ctx, members);
+    let released = false;
+    const once = () => {
+      if (released) return; released = true;
+      const index = members.indexOf(once);
+      if (index >= 0) members.splice(index, 1);
+      cleanup?.();
+    };
+    members.push(once);
+    try { ctx.effect(() => once); }
+    catch (error) { once(); throw error; }
+    return once;
   };
   if (originalProviders.length === 0) return retain(releaseAlias);
   try {
@@ -54554,7 +54574,7 @@ var ZcodeAuth = class extends Service9 {
    */
   accountPool() {
     try {
-      const pool = this.ctx.get("nativeRouterSourceAccountPool");
+      const pool = nativeRouterSourcePools.get(this.ctx);
       if (pool !== void 0 && pool !== null) return pool;
     } catch {
     }
@@ -62415,7 +62435,7 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
     if (typeof req.accountId !== "string" || !req.accountId) return [];
     return accounts.filter((entry) => entry.id === req.accountId && entry.enabled === true);
   };
-  ctx.provide("nativeRouterSourceCheckins", {
+  config.nativeRouterCheckinsReady?.({
     status: (provider, accountId) => handleMethod("credits.status", { provider, accountId }),
     claim: (provider, accountId) => handleMethod("credits.claimAll", { provider, accountId })
   });
@@ -70280,6 +70300,8 @@ function apply(ctx, config = {}) {
   );
   const service = new CodeArtsAuth(ctx, { fetcher: signedNetwork.fetch });
   const pool = new AccountPool(ctx);
+  nativeRouterSourcePools.set(ctx, pool);
+  ctx.effect(() => () => nativeRouterSourcePools.delete(ctx));
   configureDeadModelStore(ctx);
   const tokenLedgerStore = createTokenLedgerStore(ctx);
   const detachTokenLedger = attachTokenLedgerStore(tokenLedgerStore);
@@ -71244,11 +71266,12 @@ function apply(ctx, config = {}) {
   });
   // Never launch upstream OpenAI 8326 gateway: DSH LlmRuntime is the only model entry point.
   // Native Router owns failover and DSH owns Agent lifetime; no second loop-resume listener.
-  ctx.provide("nativeRouterSourceAccountPool", pool);
+  config.nativeRouterPoolReady?.(pool);
 }
 export {
   Config,
   apply,
+  rollbackNativeRouterSourceAdapters,
   channelProxyBypassed,
   closeDirectFetch,
   createChannelFetch,

@@ -103,3 +103,64 @@ test('AutoFree routing switches between providers without persisted model chains
  assert.deepEqual(attempted,['loomy:loomy-free','workbuddy:workbuddy-free']);
  assert.equal(config.routes.length,0);
 });
+
+test('WorkBuddy x0.00 is detected as zero credit multiplier but never guessed for other hosts',()=>{
+ assert.equal(freeEvidence({id:'hy4-flash',name:'Hy4 Flash · x0.00'},'workbuddy'),
+  'WorkBuddy 目录标记 x0.00 积分倍率');
+ assert.equal(freeEvidence({id:'hy4-flash',name:'Hy4 Flash (x0.000)'},'workbuddy-global'),
+  'WorkBuddy 目录标记 x0.00 积分倍率');
+ for(const item of [{id:'paid',name:'Hy4 x0.01'},{id:'paid',name:'hy4 free'}])
+  assert.equal(freeEvidence(item,'workbuddy'),null);
+ assert.equal(freeEvidence({id:'paid',name:'Hy4 · x0.00'},'lingxi'),null);
+ assert.equal(freeEvidence({id:'paid',name:'Hy4 · x0.00',isFree:false},'workbuddy'),null);
+});
+test('owner can explicitly mark exact models and entire channel free, exclude a model, and persist declarations',async()=>{
+ let cfg=normalizeConfig({freePool:{providerIds:['deepseek-account'],
+  models:[{providerId:'workbuddy',model:'wb-pro',free:true},
+          {providerId:'deepseek-account',model:'paid-explicitly',free:false}]}});
+ const host={
+  status:()=>({hostProviders:[{providerId:'workbuddy'},{providerId:'deepseek-account'}]}),
+  async listHostModels(id){return {state:'ready',models:id==='workbuddy'?
+   [{id:'wb-free',name:'Hy4 · x0.00'},{id:'wb-pro',name:'Hy4 Pro x3.00'}]:
+   [{id:'manual-free',name:'unknown'},{id:'paid-explicitly',name:'paid'}]}}
+ };
+ const pool=createAutoFreePool({hostProviderInventory:host,getConfig:()=>cfg});
+ await pool.refresh();
+ assert.deepEqual(pool.snapshot().models.map(x=>x.providerId+':'+x.model).sort(),[
+  'deepseek-account:manual-free','workbuddy:wb-free','workbuddy:wb-pro']);
+ assert.match(pool.snapshot().models.find(x=>x.model==='wb-pro').evidence,/用户手动/);
+ assert.equal(cfg.routes.length,0,'Manual fee flags never generate model chains');
+ cfg=normalizeConfig({...cfg,freePool:{providerIds:[],
+  models:[{providerId:'workbuddy',model:'not-in-directory',free:true},
+   {providerId:'workbuddy',model:'wb-free',free:false}]}});
+ await pool.refresh();
+ const list=pool.snapshot().models.map(x=>x.providerId+':'+x.model);
+ assert.deepEqual(list,['workbuddy:not-in-directory']);
+ assert.equal(pool.tiers().length,1);
+ assert.equal(cfg.routes.length,0);
+ assert.throws(()=>normalizeConfig({freePool:{models:[
+   {providerId:'workbuddy',model:'x',free:true},{providerId:'workbuddy',model:'x',free:false}
+ ]}}),/Duplicate AutoFree/);
+ assert.throws(()=>normalizeConfig({freePool:{models:[
+   {providerId:'native-router',model:'autofree',free:true}
+ ]}}),/recursive/);
+});
+test('multi-account owned-source inventory creates separate enabled account entries with no shadow Host login',async()=>{
+ const config=normalizeConfig({embeddedPack:{enabled:true}});
+ const own={
+  status:()=>({state:'mounted',experimentalMultiAccountProviders:['loomy']}),
+  async listAccounts(){return {state:'ready',accounts:[
+   {providerId:'loomy',id:'lm-1',enabled:true},
+   {providerId:'loomy',id:'lm-2',enabled:true}]}},
+  async listModels(){return {state:'ready',models:[{id:'loomy-free',isFree:true}]}}
+ };
+ const pool=createAutoFreePool({getConfig:()=>config,ownedPack:own});
+ await pool.refresh();
+ const effective=pool.effectiveConfig();
+ assert.equal(effective.providers.find(x=>x.id==='own_loomy').protocol,'native-channel');
+ assert.deepEqual(effective.accounts.map(x=>x.id).sort(),[
+  sourceAccountOpaqueId('loomy','lm-1'),
+  sourceAccountOpaqueId('loomy','lm-2')].sort());
+ assert.equal(effective.routes.length,0);
+ assert.deepEqual(pool.tiers()[0].accountIds,[],'Host request will select and pin a verified exact owner account');
+});

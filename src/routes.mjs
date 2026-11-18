@@ -1,3 +1,4 @@
+import {freeEvidence} from './auto-free.mjs';
 // Owner-authenticated DSH Connection admin APIs; same-origin management writes, loopback-only HTTP.
 const BASE='/plugins/dsh-native-router';
 // Stable owner-facing migration results. Never forward raw upstream failures,
@@ -103,6 +104,52 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
     if(req.method!=='POST')return json(res,405,{ok:false,error:'Method not allowed'});
     try{return json(res,200,{ok:true,result:await adapter.refreshAutoFree()})}
     catch{return json(res,503,{ok:false,error:'免费模型目录刷新失败；未修改任何账号或手工模型链'})}
+  });
+  // All ORIGINAL DSH Providers, not just those in native-router's config.
+  // This read-only catalog powers the Agent-level failover model picker.
+  // Bounded concurrency, no credential enumeration and no login side effects.
+  mount('/host/catalog',async(req,res)=>{
+    if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
+    if(req.method!=='GET')return json(res,405,{ok:false,error:'Method not allowed'});
+    const ids=[...new Set((hostProviderInventory?.status?.().hostProviders??[])
+      .map(row=>row.providerId)
+      .filter(id=>typeof id==='string'&&/^[a-zA-Z][a-zA-Z0-9_-]{0,99}$/.test(id)
+        &&id!=='native-router'&&!id.startsWith('native-router-source-')))].slice(0,160);
+    ids.unshift('native-router');
+    const result=new Array(ids.length);
+    let index=0;
+    const normalizeRow=(id,row)=>{
+      const model=typeof row==='string'?row:row?.id;
+      if(typeof model!=='string'||!model.trim()||model.length>160
+        ||/[\u0000-\u001f]/.test(model))return null;
+      const name=typeof row?.name==='string'?row.name.slice(0,120):model;
+      const free=freeEvidence({id:model,name,isFree:row?.isFree,free:row?.free,
+        upstreamFreeLabel:row?.upstreamFreeLabel,pricing:row?.pricing},id);
+      return {id:model,name,...(free?{freeHint:free}:{})};
+    };
+    const workers=Array.from({length:Math.min(8,ids.length)},async()=>{
+      while(index<ids.length){
+        const i=index++,id=ids[i];
+        try{
+          const source=id==='native-router'
+            ?{state:'ready',models:await adapter.listModels()}
+            :await hostProviderInventory?.listHostModels?.(id);
+          const rows=source?.state==='ready'&&Array.isArray(source.models)?source.models:[];
+          const seen=new Set(),models=[];
+          for(const row of rows){
+            if(models.length>=250)break;
+            const model=normalizeRow(id,row);
+            if(!model||seen.has(model.id))continue;
+            seen.add(model.id);models.push(model);
+          }
+          result[i]={id,name:id==='native-router'?'聚合路由':id,
+            state:source?.state==='ready'?'ready':'unavailable',models};
+        }catch{result[i]={id,name:id,state:'unavailable',models:[]}}
+      }
+    });
+    await Promise.all(workers);
+    return json(res,200,{ok:true,providers:result,checkedAt:Date.now(),
+      truncated:(hostProviderInventory?.status?.().hostProviders??[]).length>160});
   });
   mount('/host/models',async(req,res)=>{
    if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});

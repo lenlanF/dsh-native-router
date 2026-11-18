@@ -3,14 +3,16 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 
 const bundled=readFileSync(new URL('../vendor/channel-pack/pack-native.js',import.meta.url),'utf8');
-const begin=bundled.indexOf('function registerAdapterIdempotent(ctx, providers, adapter, warn) {');
+const begin=bundled.indexOf('var nativeSourceAliasDisposers = new WeakMap();');
 const end=bundled.indexOf('// vendor/channel-pack/src/llm-adapter.ts',begin);
 assert.ok(begin>=0&&end>begin,'Independent native source registration must exist');
 // Only evaluate the pure registration helper, never the source application,
 // credential stores, network, login flows, or extra services.
-const register=new Function('wrapAdapterWithTokenLedger','withDeadModelPruning',
- 'isDuplicateRegistrationError',bundled.slice(begin,end)+'\nreturn registerAdapterIdempotent;')(
+const exported=new Function('wrapAdapterWithTokenLedger','withDeadModelPruning',
+ 'isDuplicateRegistrationError',bundled.slice(begin,end)+'\nreturn {registerAdapterIdempotent,rollbackNativeRouterSourceAdapters};')(
  (_providers,adapter)=>adapter,(_providers,adapter)=>adapter,error=>error?.code==='DUPLICATE_ADAPTER');
+const register=exported.registerAdapterIdempotent,
+  rollback=exported.rollbackNativeRouterSourceAdapters;
 
 function rig(initial=['native-router','workbuddy']){
  const registry=new Map(initial.map(id=>[id,{providerInfo:()=>({id,name:id})}]));
@@ -66,6 +68,18 @@ test('repeat DSH plugin loading after Cordis scope cleanup does not leak previou
    assert.equal(r.registry.has('native-router-source-workbuddy'),false);
  }
  assert.equal(r.registry.has('workbuddy'),true);
+});
+test('partial source registration rollback releases only aliases from THIS scope',()=>{
+ const r=rig(['native-router','workbuddy','native-router-source-loomy']);
+ const original=r.registry.get('workbuddy');
+ register(r.ctx,['workbuddy'],r.adapter);
+ assert.equal(r.registry.has('native-router-source-workbuddy'),true);
+ assert.throws(()=>register(r.ctx,['loomy'],r.adapter),/internal adapter alias already occupied/);
+ rollback(r.ctx);
+ assert.equal(r.registry.has('native-router-source-workbuddy'),false);
+ assert.equal(r.registry.get('workbuddy'),original);
+ assert.equal(r.registry.has('native-router-source-loomy'),true,
+  'Pre-existing alias from other/older host scope must NEVER be removed');
 });
 test('independent internal alias collision fails closed without touching the original host',()=>{
  const r=rig(['native-router','workbuddy','native-router-source-workbuddy']);

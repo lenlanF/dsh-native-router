@@ -24,6 +24,7 @@ function fixture(){
  const store={get:()=>structuredClone(cfg),replace:v=>(cfg=normalizeConfig(v))};
  const dispose=registerAuthenticatedRouterRoutes(ctx,{configStore:store,
   adapter:{getStatus:()=>({active:true}),invalidateCatalog(){invalidations++},
+   async listModels(){return [{id:'autofree',name:'AutoFree'}, {id:'chain:manual',name:'Manual'}]},
    autoFreeSnapshot:()=>({state:'ready',models:[{providerId:'workbuddy',model:'free',evidence:'来源明确标记免费'}],catalog:[]}),
    async refreshAutoFree(){freeRefreshes++;return {state:'ready',models:[{providerId:'workbuddy',model:'free',evidence:'来源明确标记免费'}],catalog:[]}}},
   accountCenter:{list:()=>({accounts:[],channels:[]}),find:()=>{},
@@ -36,7 +37,12 @@ function fixture(){
       ...(adoptedId?{ownedAccountId:adoptedId}:{})}]};},
     async adopt(request){adoptionCalls.push(request);return {state:'stored_unverified',
       activation:'requires_original_stop_and_host_restart'};}},
-   hostProviderInventory:{async listHostModels(providerId){return {state:'ready',providerId,models:[{id:'test-native'}],loginVerified:false}}},
+   hostProviderInventory:{
+     status(){return {hostProviders:[{providerId:'workbuddy'},{providerId:'lingxi'}]}},
+     async listHostModels(providerId){return {state:'ready',providerId,
+       models:providerId==='workbuddy'?[{id:'hy4-free',name:'Hy4 · x0.00'}]:
+         [{id:'test-native'}],loginVerified:false}},
+   },
  });
   async function request(path,{method='GET',body,origin='http://127.0.0.1:12237',host='127.0.0.1:12237'}={}){
    const route=routes.get('/api/plugins/dsh-native-router'+path);
@@ -134,6 +140,23 @@ test('AutoFree model-pool GET is read-only and owner refresh rejects cross-origi
  assert.equal(body.results[0].state,'online');
  assert.deepEqual(f.verifiedIds,['owned_qoder_test']);
  assert.equal(f.store.get().routes.length,0);
+ await f.dispose();
+});
+test('all DSH Providers and their models are selectable in Agent-level failover without shadow credentials',async()=>{
+ const f=fixture();
+ const rejected=await f.request('/host/catalog',{origin:'https://attacker.invalid'});
+ assert.equal(rejected.status,403);
+ const result=await f.request('/host/catalog');
+ assert.equal(result.status,200);
+ const data=await result.json();
+ assert.deepEqual(data.providers.map(p=>p.id),['native-router','workbuddy','lingxi']);
+ assert.equal(data.providers.find(p=>p.id==='native-router').models[0].id,'autofree');
+ assert.equal(data.providers.find(p=>p.id==='workbuddy').models[0].id,'hy4-free');
+ assert.match(data.providers.find(p=>p.id==='workbuddy').models[0].freeHint,/x0.00/);
+ assert.equal(data.providers.find(p=>p.id==='lingxi').models[0].id,'test-native');
+ assert.equal(f.store.get().accounts.length,0);
+ assert.equal(f.store.get().hostFailover.priority.length,0,
+  'Merely enumerating models cannot mutate a failover priority chain');
  await f.dispose();
 });
 test('closed Connection route registration cannot expose admin routes when connection absent',()=>{

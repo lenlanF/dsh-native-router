@@ -102,12 +102,12 @@ def build(*, check=False):
         ),
         (
             '  ctx.provide("accountPool", pool);',
-            '  ctx.provide("nativeRouterSourceAccountPool", pool);',
-            'private-account-pool-service',
+            '  config.nativeRouterPoolReady?.(pool);',
+            'scoped-private-account-pool-callback',
         ),
         (
             'this.ctx.get("accountPool");',
-            'this.ctx.get("nativeRouterSourceAccountPool");',
+            'nativeRouterSourcePools.get(this.ctx);',
             'private-account-pool-lookup',
         ),
         (
@@ -136,6 +136,39 @@ def build(*, check=False):
             "remove-duplicate-loop-resume",
         ),
     ]
+    # Avoid public Host service injection for data owned by this isolated pack.
+    # Some DSH plugin profiles reject the added private service's registration
+    # during apply(register_owned_adapter), even though the DSH llm service is
+    # already present. Use the actual injected scope's WeakMap instead.
+    patches.extend([
+        (
+            'var AccountPool = class {',
+            'var nativeRouterSourcePools = new WeakMap();\nvar AccountPool = class {',
+            'private-source-pool-scope-map',
+        ),
+        (
+            '  const pool = new AccountPool(ctx);',
+            '  const pool = new AccountPool(ctx);\n'
+            '  nativeRouterSourcePools.set(ctx, pool);\n'
+            '  ctx.effect(() => () => nativeRouterSourcePools.delete(ctx));',
+            'bind-private-pool-to-injected-scope',
+        ),
+    ])
+    # This internal bridge is called by our own embedded-pack facade, and is
+    # not registered as an extra service in the user's DSH root registry.
+    old_checkins = (
+        '  ctx.provide("nativeRouterSourceCheckins", {\n'
+        '    status: (provider, accountId) => handleMethod("credits.status", { provider, accountId }),\n'
+        '    claim: (provider, accountId) => handleMethod("credits.claimAll", { provider, accountId })\n'
+        '  });'
+    )
+    new_checkins = (
+        '  config.nativeRouterCheckinsReady?.({\n'
+        '    status: (provider, accountId) => handleMethod("credits.status", { provider, accountId }),\n'
+        '    claim: (provider, accountId) => handleMethod("credits.claimAll", { provider, accountId })\n'
+        '  });'
+    )
+    patches.append((old_checkins,new_checkins,'private-source-checkins-callback'))
     names = []
     for old, new, name in patches:
         count = text.count(old)
@@ -206,6 +239,10 @@ def build(*, check=False):
   }
 }
 """
+    # Failed apply must not leak aliases registered before the failing
+    # adapter. Scope unload is also safe and always idempotent.
+    replacement = ('var nativeSourceAliasDisposers = new WeakMap();\n'
+                   + replacement)
     # Upstream callers discard registerAdapterIdempotent's returned
     # disposables. Bind releases to the actual Cordis scope explicitly, or
     # HMR/plugin reload leaks native-router-source-* adapters and the next
@@ -229,11 +266,52 @@ def build(*, check=False):
     replacement = replacement.replace(
         "    return releaseAlias;\n  }\n}",
         "    return retain(releaseAlias);\n  }\n}")
+    replacement = replacement.replace(
+        '  const retain = (cleanup) => {',
+        '  const retain = (cleanup) => {\n'
+        '    const members = nativeSourceAliasDisposers.get(ctx) ?? [];\n'
+        '    nativeSourceAliasDisposers.set(ctx, members);\n'
+        '    let released = false;\n'
+        '    const once = () => {\n'
+        '      if (released) return; released = true;\n'
+        '      const index = members.indexOf(once);\n'
+        '      if (index >= 0) members.splice(index, 1);\n'
+        '      cleanup?.();\n'
+        '    };\n'
+        '    members.push(once);')
+    replacement = replacement.replace(
+        'ctx.effect(() => cleanup);', 'ctx.effect(() => once);')
+    replacement = replacement.replace(
+        'catch (error) { cleanup?.(); throw error; }',
+        'catch (error) { once(); throw error; }')
+    replacement = replacement.replace(
+        '    return cleanup;\n  };', '    return once;\n  };')
     text = text.replace("registerAdapterIdempotent(ctx.llm,",
         "registerAdapterIdempotent(ctx,", 12)
     names.append("scope-llm-adapter-cleanup")
     text = text[:begin] + replacement + text[end:]
     names.append("register-independent-source-provider-aliases")
+    # Root-context local disposers; no global registry deletion, no touching
+    # WorkBuddy/Loomy host plugins. Used if apply throws partway through.
+    rollback = (
+        '\nfunction rollbackNativeRouterSourceAdapters(ctx) {\n'
+        '  const members = nativeSourceAliasDisposers.get(ctx) ?? [];\n'
+        '  for (const release of [...members].reverse()) {\n'
+        '    try { release(); } catch {}\n'
+        '  }\n'
+        '  nativeSourceAliasDisposers.delete(ctx);\n'
+        '}\n'
+    )
+    text = text.replace('function registerAdapterIdempotent(ctx, providers, adapter, warn) {',
+        rollback + 'function registerAdapterIdempotent(ctx, providers, adapter, warn) {',1)
+    # Add new safe export, no API tokens or account rows leave this module.
+    old_export='  apply,\n  channelProxyBypassed,'
+    new_export='  apply,\n  rollbackNativeRouterSourceAdapters,\n  channelProxyBypassed,'
+    if text.count(old_export)!=1:
+        raise SystemExit('Pinned source export anchor drifted')
+    text=text.replace(old_export,new_export,1)
+    names.append('failed-source-alias-transactional-rollback')
+
     # Limit source credits.status/claimAll to the exact selected source account
     # (the original UI batch RPC still works when no accountId is provided).
     start = text.index('      case "credits.status": {')

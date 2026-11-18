@@ -73,6 +73,35 @@ export function normalizeConfig(source = {}) {
       exhaustionCooldownMs: int(value.exhaustionCooldownMs, 21600000, 1000, 86400000) };
   });
   unique(routes, 'id', 'route');
+  // User declarations are NEVER inferred from a model name. They must be an
+  // explicit owner action and are stored separately from host credentials.
+  const freeInput=source.freePool??{};
+  if(!freeInput||typeof freeInput!=='object'||Array.isArray(freeInput))
+    throw Error('Invalid AutoFree owner declarations');
+  const providerOverrides=freeInput.providerIds??[];
+  if(!Array.isArray(providerOverrides)||providerOverrides.length>80)
+    throw Error('AutoFree provider overrides exceed safe limit');
+  const freeProviderIds=[...new Set(providerOverrides.map(value=>
+    id(value,'free provider id')))].filter(value=>value!=='native-router'
+      &&!value.startsWith('native-router-source-'));
+  const modelOverrides=freeInput.models??[];
+  if(!Array.isArray(modelOverrides)||modelOverrides.length>500)
+    throw Error('AutoFree model overrides exceed safe limit');
+  const freeModels=modelOverrides.map(row=>{
+    if(!row||typeof row!=='object'||Array.isArray(row)||typeof row.model!=='string'
+      ||!row.model.trim()||row.model.length>160||/[\u0000-\u001f]/.test(row.model)
+      ||typeof row.free!=='boolean')throw Error('Invalid explicit AutoFree model declaration');
+    const providerId=id(row.providerId,'free model provider');
+    if(providerId==='native-router'||providerId.startsWith('native-router-source-'))
+      throw Error('AutoFree cannot include its own recursive provider');
+    return {providerId,model:row.model.trim(),free:row.free};
+  });
+  const seenFree=new Set();
+  for(const row of freeModels){
+    const key=row.providerId+'\\u0000'+row.model;
+    if(seenFree.has(key))throw Error('Duplicate AutoFree model declaration');
+    seenFree.add(key);
+  }
   const hf = source.hostFailover ?? {};
   const checkinInput=source.checkin ?? {};
   const zone=typeof checkinInput.timeZone==='string'?checkinInput.timeZone:'Asia/Shanghai';
@@ -81,6 +110,7 @@ export function normalizeConfig(source = {}) {
   if(typeof runAt!=='string'||!/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/.test(runAt))throw Error('Invalid check-in time, expected HH:mm');
   return {
     version: 1, providers, accounts, routes,
+    freePool:{providerIds:freeProviderIds,models:freeModels},
     embeddedPack:{enabled:source.embeddedPack?.enabled===true},
     sessionReuse:{
       enabled:source.sessionReuse?.enabled===true,

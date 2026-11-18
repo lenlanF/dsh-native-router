@@ -1,62 +1,81 @@
-// Automatic FREE-MODEL pool. This is NOT an account pool and never copies credentials.
-// Entries require an explicit upstream free signal or authoritative zero pricing.
-// Missing pricing, name-based guesses, and an installed-but-unauthenticated login
-// are NOT evidence of free billing or working inference.
+// Dynamic AutoFree is a *model* pool, never a credential/account pool.
+// Only upstream zero prices, source free metadata, WorkBuddy's explicit x0.00
+// credit multiplier, or an OWNER'S opt-in marking may enable a model.
 import {sourceAccountOpaqueId} from './source-account-ref.mjs';
 import {SOURCE_PACK_PROVIDERS} from './embedded-pack.mjs';
-
 const ID=/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
 const MODEL=/^[^\u0000-\u001f]{1,160}$/;
 const OWN=new Set(SOURCE_PACK_PROVIDERS);
-function zero(value){
- return typeof value==='number'&&Number.isFinite(value)&&value===0||
-   typeof value==='string'&&value.trim()!==''&&Number(value)===0;
+const isId=value=>typeof value==='string'&&ID.test(value);
+const isModel=value=>typeof value==='string'&&MODEL.test(value)&&value.trim()!=='';
+const zero=value=>typeof value==='number'&&Number.isFinite(value)&&value===0||
+  typeof value==='string'&&value.trim()!==''&&Number(value)===0;
+function zeroPair(row){
+ if(!row||typeof row!=='object'||Array.isArray(row))return false;
+ const input=row.input??row.prompt??row.inputCost;
+ const output=row.output??row.completion??row.outputCost;
+ return zero(input)&&zero(output);
 }
-export function freeEvidence(model){
+export function freeEvidence(model,providerId=''){
  if(!model||typeof model!=='object'||model.isFree===false||model.free===false)return null;
  if(model.isFree===true||model.upstreamFreeLabel===true||model.free===true)
-   return '来源明确标记免费';
- const cost=model.pricing??model.price??model.cost;
- if(cost&&typeof cost==='object'&&!Array.isArray(cost)){
-  const input=cost.input??cost.prompt??cost.inputCost;
-  const output=cost.output??cost.completion??cost.outputCost;
-  if(zero(input)&&zero(output))return '来源输入与输出价格均为零';
- }
+  return '来源明确标记免费';
+ if(zeroPair(model.pricing??model.price??model.cost))
+  return '来源输入与输出价格均为零';
+ // WorkBuddy catalog exposes a literal x0.00 credit multiplier in the
+ // *display name*, e.g. "Hy4 Flash · x0.00". Treat only WorkBuddy's exact
+ // zero multiplier as its free credit usage, not arbitrary "free" in names.
+ if(['workbuddy','workbuddy-global'].includes(providerId)
+   &&typeof model.name==='string'
+   &&/(?:^|[\s·(])x\s*0(?:\.0+)?(?:$|[\s·)])/i.test(model.name))
+  return 'WorkBuddy 目录标记 x0.00 积分倍率';
  return null;
 }
-const validId=x=>typeof x==='string'&&ID.test(x);
-const validModel=x=>typeof x==='string'&&MODEL.test(x)&&!!x.trim();
-const empty=()=>({state:'not_scanned',models:[],catalog:[],scannedAt:null,hostCount:0,sourceCount:0,unknownPricing:0,errors:0});
-export function createAutoFreePool({hostProviderInventory,ownedPack,
- getConfig,now=()=>Date.now(),ttlMs=90000,timeoutMs=2600}={}){
- let cache=empty(),lastSignature='',pending=null;
+const empty=()=>({state:'not_scanned',models:[],catalog:[],sourceAccounts:[],
+ scannedAt:null,hostCount:0,sourceCount:0,unknownPricing:0,errors:0});
+export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
+ now=()=>Date.now(),ttlMs=90000,timeoutMs=2600}={}){
+ let cache=empty(),signatureSaved='',pending=null;
  const hostIds=()=>{
   try{return (hostProviderInventory?.status?.().hostProviders??[])
-   .map(x=>x.providerId).filter(id=>validId(id)&&id!=='native-router'
-    &&!id.startsWith('native-router-source-')&&!id.startsWith('own_')).slice(0,32)}
+   .map(x=>x.providerId).filter(id=>isId(id)&&id!=='native-router'
+      &&!id.startsWith('native-router-source-')&&!id.startsWith('own_')).slice(0,80)}
   catch{return []}
  };
  const packStatus=()=>ownedPack?.status?.()??{state:'disabled'};
- const signature=()=>hostIds().join('|')+'|'+packStatus().state+
-   '|'+(getConfig?.()?.providers??[]).map(p=>p.id+':'+p.enabled).join('|');
- const bounded=async task=>{
+ const owner=()=>getConfig?.()?.freePool??{providerIds:[],models:[]};
+ const signature=()=>hostIds().join('|')+'|'+packStatus().state+'|'
+  +JSON.stringify(owner())+'|'
+  +(getConfig?.()?.providers??[]).map(p=>p.id+':'+p.enabled).join('|');
+ const bounded=async job=>{
   let timer;
-  try{return await Promise.race([Promise.resolve().then(task),
+  try{return await Promise.race([Promise.resolve().then(job),
    new Promise(resolve=>{timer=setTimeout(()=>resolve(null),timeoutMs);timer.unref?.()})])}
   finally{if(timer)clearTimeout(timer)}
  };
+ function snapshot(){return {...cache,models:cache.models.map(x=>({...x})),
+  catalog:cache.catalog.map(x=>({...x})),
+  sourceAccounts:cache.sourceAccounts.map(x=>({...x}))}}
+ function markedEvidence(row,providerId){
+  const cfg=owner(),override=(cfg.models??[]).find(x=>x.providerId===providerId&&x.model===row.id);
+  if(override)return override.free?'用户手动标记免费（费用由用户确认）':null;
+  if((cfg.providerIds??[]).includes(providerId))
+   return '用户手动标记渠道全部模型免费（费用由用户确认）';
+  return freeEvidence(row,providerId);
+ }
  async function run(){
-  const hosts=hostIds(),models=[],catalog=[],seen=new Set();
+  const hosts=hostIds(),models=[],catalog=[],sourceAccounts=[],seen=new Set();
   let unknownPricing=0,errors=0,hostCount=0,sourceCount=0;
-  function add(providerId,row,kind,accountId){
+  function add(providerId,row,kind){
    const model=typeof row==='string'?row:row?.id;
-   if(!validId(providerId)||!validModel(model))return;
+   if(!isId(providerId)||!isModel(model))return;
    const key=providerId+'\u0000'+model;
-   if(seen.has(key)||catalog.length>=400)return;
+   if(seen.has(key)||catalog.length>=600)return;
    seen.add(key);
-   const evidence=freeEvidence(row);
-   const entry={providerId,model,name:typeof row?.name==='string'?row.name.slice(0,120):model,
-    kind,...(accountId?{accountId}:{})};
+   const normalized=typeof row==='string'?{id:row,name:row}:row;
+   const evidence=markedEvidence(normalized,providerId);
+   const entry={providerId,model,
+    name:typeof normalized.name==='string'?normalized.name.slice(0,120):model,kind};
    catalog.push({...entry,free:evidence!==null,...(evidence?{evidence}:{})});
    if(!evidence){unknownPricing++;return}
    models.push({...entry,evidence});
@@ -73,85 +92,96 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,
    if(accounts?.state==='ready'&&Array.isArray(accounts.accounts)){
     const byProvider=new Map();
     for(const row of accounts.accounts){
-     if(row?.enabled!==true||!OWN.has(row.providerId)||typeof row.id!=='string')continue;
+     if(row?.enabled!==true||!OWN.has(row.providerId)||!isId(row.id))continue;
+     const fullId='own_'+row.providerId;
+     const safeRef=sourceAccountOpaqueId(row.providerId,row.id);
+     sourceAccounts.push({providerId:fullId,accountId:safeRef});
      const list=byProvider.get(row.providerId)??[];
      list.push(row);byProvider.set(row.providerId,list);
     }
     for(const [providerId,rows] of byProvider){
-     // Multi-account routing is refused unless the reviewed exact-selection
-     // guard was actually activated in the original source pack.
-     if(rows.length!==1&&!pack.experimentalMultiAccountProviders?.includes(providerId))continue;
+     if(rows.length>1&&!pack.experimentalMultiAccountProviders?.includes(providerId)){
+      errors++;continue; // no unverifiable exact-account selection
+     }
      jobs.push(async()=>{
       const result=await bounded(()=>ownedPack.listModels(providerId));
       if(result?.state!=='ready'||!Array.isArray(result.models)){errors++;return}
       sourceCount++;
-      const accountId=rows.length===1?sourceAccountOpaqueId(providerId,rows[0].id):null;
-      for(const model of result.models)add('own_'+providerId,model,'owned-source',accountId);
+      for(const model of result.models)add('own_'+providerId,model,'owned-source');
      });
     }
    }else errors++;
   }
-  // Limit parallel upstream directory calls; never create a login/refresh.
   let index=0;
-  const workers=Array.from({length:Math.min(6,jobs.length)},async()=>{
+  await Promise.all(Array.from({length:Math.min(6,jobs.length)},async()=>{
    while(index<jobs.length){
     const job=jobs[index++];
     try{await job()}catch{errors++}
    }
-  });
-  await Promise.all(workers);
-  models.sort((a,b)=>a.providerId.localeCompare(b.providerId)||a.model.localeCompare(b.model));
-  catalog.sort((a,b)=>a.providerId.localeCompare(b.providerId)||a.model.localeCompare(b.model));
-  cache={state:'ready',models,catalog,scannedAt:now(),hostCount,sourceCount,
+  }));
+  const sort=(a,b)=>a.providerId.localeCompare(b.providerId)||a.model.localeCompare(b.model);
+  // An owner may explicitly supply an exact model ID that is absent from
+  // the upstream catalog. Never synthesize a model for an unregistered Host
+  // or a source channel without an enabled independent login.
+  for(const mark of owner().models??[]){
+   if(mark.free!==true||!isId(mark.providerId)||!isModel(mark.model))continue;
+   const isHost=hosts.includes(mark.providerId);
+   const isOwn=mark.providerId.startsWith('own_')
+     &&sourceAccounts.some(a=>a.providerId===mark.providerId);
+   if(isHost||isOwn)add(mark.providerId,{id:mark.model,name:mark.model},
+     isHost?'host':'owned-source');
+  }
+  models.sort(sort);catalog.sort(sort);
+  cache={state:'ready',models,catalog,sourceAccounts,scannedAt:now(),hostCount,sourceCount,
    unknownPricing,errors};
-  lastSignature=signature();
+  signatureSaved=signature();
   return snapshot();
  }
- function snapshot(){return {...cache,models:cache.models.map(x=>({...x})),
-   catalog:cache.catalog.map(x=>({...x}))}}
  function refresh({force=false}={}){
   if(pending)return pending;
-  if(!force&&cache.state==='ready'&&now()-cache.scannedAt<ttlMs&&lastSignature===signature())
+  if(!force&&cache.state==='ready'&&now()-cache.scannedAt<ttlMs&&signatureSaved===signature())
    return Promise.resolve(snapshot());
   pending=run().finally(()=>{pending=null});
   return pending;
  }
  function effectiveConfig(raw){
   const cfg=structuredClone(raw??getConfig?.()??{});
+  cfg.providers??=[];cfg.accounts??=[];
   const ids=new Set(cfg.providers.map(p=>p.id));
   for(const providerId of hostIds()){
    if(ids.has(providerId))continue;
    cfg.providers.push({id:providerId,name:providerId+' · DSH 已注册',
     protocol:'dsh-host',baseUrl:'',enabled:true,models:[],
-    supportsTools:true,timeoutMs:120000});
-   ids.add(providerId);
+    supportsTools:true,timeoutMs:120000});ids.add(providerId);
   }
-  // Source providers become directly usable when an independent login
-  // produced an enabled source-account entry and a verified free model was
-  // found. No account reference is written back to router config.
+  const sourceProviders=new Set(cache.catalog.filter(x=>x.kind==='owned-source').map(x=>x.providerId));
+  for(const providerId of sourceProviders){
+   if(ids.has(providerId))continue;
+   cfg.providers.push({id:providerId,name:providerId.slice(4)+' · 自有授权',
+    protocol:'native-channel',baseUrl:'',enabled:true,models:[],
+    supportsTools:true,timeoutMs:120000});ids.add(providerId);
+  }
   const accountIds=new Set(cfg.accounts.map(a=>a.id));
-  for(const row of cache.catalog.filter(x=>x.kind==='owned-source')){
-   if(!ids.has(row.providerId)){
-    cfg.providers.push({id:row.providerId,name:row.providerId.slice(4)+' · 自有授权',
-     protocol:'native-channel',baseUrl:'',enabled:true,models:[],
-     supportsTools:true,timeoutMs:120000});
-    ids.add(row.providerId);
-   }
-   if(row.accountId&&!accountIds.has(row.accountId)&&cfg.providers.find(p=>p.id===row.providerId)?.protocol==='native-channel'){
-    cfg.accounts.push({id:row.accountId,providerId:row.providerId,
-     credentialRef:'driver:'+row.providerId+':'+row.accountId,enabled:true,weight:1,autoCheckin:false});
-    accountIds.add(row.accountId);
-   }
+  for(const row of cache.sourceAccounts){
+   if(!sourceProviders.has(row.providerId)||!ids.has(row.providerId)||accountIds.has(row.accountId)
+    ||cfg.providers.find(p=>p.id===row.providerId)?.protocol!=='native-channel')continue;
+   cfg.accounts.push({id:row.accountId,providerId:row.providerId,
+    credentialRef:'driver:'+row.providerId+':'+row.accountId,
+    enabled:true,weight:1,autoCheckin:false});accountIds.add(row.accountId);
   }
   return cfg;
  }
  function tiers(){
   const cfg=effectiveConfig();
-  return cache.models.filter(row=>cfg.providers.some(p=>p.id===row.providerId&&p.enabled
-    &&p.protocol===(row.kind==='host'?'dsh-host':'native-channel'))).map(row=>({
-     providerId:row.providerId,model:row.model,free:true,
-     accountIds:row.accountId?[row.accountId]:[],
-  }));
+  return cache.models.filter(row=>{
+   const p=cfg.providers.find(p=>p.id===row.providerId&&p.enabled);
+   if(!p||p.protocol!==(row.kind==='host'?'dsh-host':'native-channel'))return false;
+   return row.kind==='host'||cfg.accounts.some(a=>a.enabled&&a.providerId===row.providerId);
+  }).map(row=>{
+    const ids=cfg.accounts.filter(a=>a.enabled&&a.providerId===row.providerId).map(a=>a.id);
+    return {providerId:row.providerId,model:row.model,free:true,
+      accountIds:row.kind==='owned-source'&&ids.length===1?ids:[]};
+  });
  }
- return {refresh,snapshot,effectiveConfig,tiers,invalidate(){cache=empty();lastSignature=''}};
+ return {refresh,snapshot,effectiveConfig,tiers,invalidate(){cache=empty();signatureSaved=''}};
 }
