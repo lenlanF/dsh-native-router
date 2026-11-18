@@ -64,7 +64,7 @@ for(const original of ['loomy','zcode-start-plan']){
   assert.equal(f.writes.length,0);
   const first=await f.adoption.adopt({providerId:original,accountId:f.accountId,consent:true});
   assert.equal(first.state,'stored_unverified');
-  assert.equal(first.activation,'requires_original_stop_and_host_restart');
+  assert.equal(first.activation,'requires_model_verification');
   assert.equal(f.writes.length,2);
   assert.equal(f.rows.length,1);
   assert.equal(f.rows[0].provider,f.provider);

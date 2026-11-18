@@ -1,6 +1,13 @@
-# DSH Native Router（聚合路由）— 1.0.0-rc.8 发布验收与放行门禁
+# DSH Native Router（聚合路由）— 1.0.0-rc.9 发布验收与放行门禁
 
 > 当前状态：**发行候选（Release Candidate），不是稳定版 1.0.0**。仅能在用户明确批准的隔离 DSH 中做实机验收。提交到 npm、发布 GitHub Release、覆盖 DSH 生产插件或接触真实登录态均需单独明确授权；离线测试通过不等同于业务账号、真实服务或桌面端验收通过。
+
+## RC.9 专项验收：接管反馈与独立登录
+
+- 每个来源账号的接管操作返回可显示的结果和安全错误状态，`already_owned` 被当作成功但「待云端核验」；已在配置中出现的账号可在下次预览显示已有接管记录，绝不直接宣称在线。
+- 同名原插件 WorkBuddy、Loomy 保持宿主 Provider 独立运行，MIT 自有渠道包通过 `native-router-source-*` 重新提供全部 13 个自主登录与模型适配入口，不修改原插件的凭据和账号池。离线 Cordis 验证 13 个别名均已注册。
+- 自包含单一 .tgz 包含固定 DSH 运行模块及间接依赖；构建器在 E:\Temp 中只从发布白名单复制源文件，安装后逐个 SHA256 校验打包内容，禁止包含用户凭据、日志和原始 MIT 开发包。
+- 生产 DSH 直接扫码/网页新账号授权、账号迁移和完整签到能力仍需真实用户操作及相应远端确认。自动验收只证明安装、隔离路由与界面反馈，不宣称所有渠道已获得授权。
 
 ## RC.8 增量事实与未满足的正式验收
 
@@ -13,7 +20,7 @@
 
 | 关口 | 已验证事实 | 范围 |
 |---|---|---|
-| 安装包 | 单个 Cordis 原生插件、纯 `.tgz`；无原始 MIT 渠道源码、无 `tools/`、`tests/`、`node_modules/`、密钥或独立启动脚本；源版权/NOTICE 和 SHA 固定 | npm pack 实物提取逐个 SHA |
+| 安装包 | 单个 Cordis 原生插件、纯 `.tgz`；无原始 MIT 渠道源码、无 `tools/`、`tests/`、用户密钥或独立启动脚本；`node_modules/` 仅限固定版本自包含 DSH 运行依赖；源版权/NOTICE 和 SHA 固定 | npm pack 实物提取逐个 SHA |
 | 兼容环境 | 实际 Node 22.16 与 Cordis 4.1、DSH LlmRuntime/AgentLoop/Session/Tools 等 `0.2.2-rc.3` 公共组件；实际 .tgz 单独 npm 安装并通过 Cordis/Connection 加载和卸载 | 单独 `E:\\Temp` 隔离测试 Profile；正式 DSH Host 具体构建待验 |
 | 原渠道免登录复用 | DSH 原 Provider/AccountPool 原地借用；仅一个明确启用账号时才自动关联；不复制 Token；卸载后原渠道仍在 | 原始 DSH 组件 + 虚构 Qoder 账号 |
 | **原插件账号独立接管** | 用户逐账号确认后，将兼容授权复制到独立 DSH Credentials 引用和私有持久化账号池，原路由和账号不被修改，建立 `own_渠道` 自有模型链 | 虚构 Qoder + 模拟 DSH Credentials/原插件卸载，含独立模型及签到；未验证真实线上账号 |

@@ -1,5 +1,22 @@
 // Owner-authenticated DSH Connection admin APIs; same-origin management writes, loopback-only HTTP.
 const BASE='/plugins/dsh-native-router';
+// Stable owner-facing migration results. Never forward raw upstream failures,
+// source credential names, paths, account identifiers, or exception messages.
+const ADOPTION_ERRORS=Object.freeze({
+ consent_required:'请先明确确认接管本账号',
+ credentials_unavailable:'DSH 凭据服务不可用，尚未复制授权；请检查插件运行依赖及宿主凭据服务',
+ credentials_missing:'已存在接管记录，但自有凭据已缺失；请先核查账号，避免重复覆盖',
+ native_login_disabled:'自有多渠道账号池未启用；保存设置并重新加载 DSH 后重试',
+ native_login_not_ready:'自有渠道包尚未挂载，请在「自主登录」查看加载诊断后重试',
+ persistent_credentials_unavailable:'自有账号池未连接持久化凭据存储；未改动原账号',
+ source_missing_or_changed:'原账号授权在扫描后已变化，请重新扫描并核对登录状态',
+ invalid_source_credential:'原账号授权格式未通过校验，请检查原插件登录状态',
+ provider_conflict:'同名自有 Provider 配置冲突；需先检查现有渠道配置',
+ conflict:'发现已有冲突的接管记录，未覆盖账号或凭据',
+ busy:'该账号的接管操作仍在执行，请勿重复提交',
+ unavailable:'接管服务暂不可用；请检查 DSH 凭据服务及运行依赖',
+ unsupported:'该渠道尚无经过验证的独立接管方案，请使用自主登录',
+});
 function json(res,status,value){
   res.statusCode=status;
   res.setHeader?.('content-type','application/json; charset=utf-8');
@@ -123,9 +140,13 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
           ||body?.consent!==true)return json(res,400,{ok:false,error:'Explicit account migration consent required'});
         const result=await accountAdoption?.adopt?.({providerId:body.providerId,
           accountId:body.accountId,consent:true})??{state:'unavailable'};
-        const ok=result.state==='stored_unverified';
-        return json(res,ok?200:409,{ok,result,
-          ...(ok?{}:{error:'独立授权迁移未确认；原账号保持不变，可使用自主登录'})});
+        const state=typeof result?.state==='string'?result.state:'unavailable';
+        const ok=state==='stored_unverified'||state==='already_owned';
+        const error=ADOPTION_ERRORS[state]??'接管尚未完成，请检查自有渠道状态；原账号保持不变';
+        return json(res,ok?200:state==='busy'?409:state==='credentials_unavailable'?503:409,
+          {ok,result:{...result,state},...(ok?{message:state==='already_owned'
+            ?'该账号已接管到本插件，未重复写入授权；尚需验证模型可用性'
+            :'授权副本已保存到本插件，原账号保持不变；需验证模型及签到'}:{error})});
       }catch{return json(res,400,{ok:false,error:'Invalid migration request'})}
     });
     // Explicit, owner-authenticated upstream channel-pack actions.

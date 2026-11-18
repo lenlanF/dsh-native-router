@@ -1,8 +1,16 @@
 # DSH Native Router｜聚合路由
 
-**当前版本：1.0.0-rc.8（优先复用 MIT 开源能力候选版，尚非稳定版）。**「复用管理」包含「宿主路由与模型 / 本机登录态 / 自主登录」三个 Tab。宿主 Provider 的原始模型可以接入聚合路由，沿用原插件认证；内置来源包仍可独立发起扫码/网页登录并管理账号与每日签到。**注册 Provider 不等于已登录，目录不等于在线模型可用；真实登录和签到尚待实机验收。** 详见 [发行验收门禁](docs/RELEASE_ACCEPTANCE.md)。
+**当前版本：1.0.0-rc.9（优先复用 MIT 开源能力候选版，尚非稳定版）。**「复用管理」包含「宿主路由与模型 / 本机登录态 / 自主登录」三个 Tab。宿主 Provider 的原始模型可以接入聚合路由，沿用原插件认证；内置来源包仍可独立发起扫码/网页登录并管理账号与每日签到。**注册 Provider 不等于已登录，目录不等于在线模型可用；真实登录和签到尚待实机验收。** 详见 [发行验收门禁](docs/RELEASE_ACCEPTANCE.md)。
 
 本项目将多提供商账号池、自定义模型降级链和宿主级 DSH 模型故障转移整合为一个 Cordis 插件。**不依赖 Agent2API 网关或独立常驻服务进程**：由 DSH 插件在本进程直接访问上游模型服务。可以独立卸载，不覆盖原有 WorkBuddy、Loomy、其他 Provider。
+
+## RC.9：接管结果可追踪、自主登录与复用并存、单插件自包含运行
+
+修复三个界面问题：账号接管现在按每个账号实时显示操作中、完成或可操作的失败原因；已经接管的账号可返回「已有接管配置 · 待核验」并执行复核，避免按钮没有反馈或只显示一条红色泛化错误；其中「已保存凭据副本」仍不冒充云端登录已通过。
+
+在固定 MIT 多渠道包中，原来的 `workbuddy`、`loomy` 等宿主 Provider 继续原样运行，**自有渠道统一使用 `native-router-source-渠道名` 独立模型适配器**。因此已有宿主登录态可委托复用，同一渠道也能在「自主登录」中创建聚合路由自己的独立授权与账号池；源路由不允许偷用宿主原账号。13 个来源适配器的登录、模型、签到能力仍使用原 MIT 实现，不增加进程或自定义网关。
+
+旧安装包缺少 `@deepseek-ai/dsh-credentials` 等真实运行依赖，导致渠道包显示「加载失败」。RC.9 将固定版本的 DSH Cordis、LlmRuntime、Credentials、Error 和 Schemastery 连同必要的间接依赖一起 **bundle 到单个 .tgz**。安装时无需另外运行服务、下载 Node 服务脚本、手动安装 DLL 或创建系统计划任务。发行前仅从 `package.json files` 白名单隔离复制源码到 `E:\Temp`，安装固定依赖并逐一校验打包文件哈希；原账号库、开发日志和未授权源文件不会进入安装包。稳定版仍须在生产环境验证登录、账单和故障恢复。
 
 ## RC.8：WorkBuddy 双区域独立接管、Lingxi 在线推理与多账号精确路由
 
@@ -14,7 +22,7 @@ WorkBuddy 5.x MIT 原插件的 **国内/国际独立私有账号保险库**现�
 
 ## RC.7：优先复用现成 MIT 多渠道实现
 
-核查发现本仓库早已内置 [dsh-get-it-for-free](https://github.com/hulibuld/dsh-get-it-for-free) 的 MIT 来源包，含 **Loomy 微信扫码/短信登录、模型目录、流式聊天、每日额度领取** 与 **ZCode 设备会话/验证码/模型路由**。RC.7 停用重复手写 Loomy、ZCode 协议分支，改为通过 `nativeRouterSourceAccountPool` 使用现有来源包。逐账号明确同意后，可从原 Loomy 私有 Session / ZCode Start Plan SQLite 设备凭据复制到自有 DSH Credentials 与独立账号池，保留原插件，建立 `own_loomy`、`own_zcode` Provider 和自有模型链；原插件与来源包同名 Provider 冲突时，要在隔离或备份环境停用旧插件并重新加载 DSH 后，才能验收自有推理与签到。
+核查发现本仓库早已内置 [dsh-get-it-for-free](https://github.com/hulibuld/dsh-get-it-for-free) 的 MIT 来源包，含 **Loomy 微信扫码/短信登录、模型目录、流式聊天、每日额度领取** 与 **ZCode 设备会话/验证码/模型路由**。RC.7（历史实现）停用重复手写 Loomy、ZCode 协议分支，改为通过 `nativeRouterSourceAccountPool` 使用现有来源包。逐账号明确同意后，可从原 Loomy 私有 Session / ZCode Start Plan SQLite 设备凭据复制到自有 DSH Credentials 与独立账号池，保留原插件，建立 `own_loomy`、`own_zcode` Provider 和自有模型链；原插件与来源包同名 Provider 冲突时，要在隔离或备份环境停用旧插件并重新加载 DSH 后，才能验收自有推理与签到。
 
 Lingxi 不在该 MIT 包中，仍需自有原生驱动。WorkBuddy 既有桌面只读驱动和宿主委托调用，但原插件加密私有仓库的独立接管尚未实际验收。Agent2API 为 AGPL-3.0，本项目只参考其行为、不直接混合 GPL 源码。**保存授权副本不意味着在线模型及签到已经成功**。详见 [兼容矩阵](docs/PLUGIN_REUSE_MATRIX.md)。
 

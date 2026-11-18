@@ -220,7 +220,7 @@ test('an installed host provider with empty model directory supports a manually 
  assert.ok(rig.cfg.routes.some(x=>x.tiers.some(t=>t.model==='deepseek-chat')));
  assert.equal(rig.cfg.accounts.some(x=>x.providerId==='deepseek-official'),false);
 });
-test('source login tab excludes conflicting installed host provider and can independently log into an available channel',async()=>{
+test('source login tab distinguishes host reuse from independent source login',async()=>{
  const pack={state:'mounted',channelCount:1,channels:['loomy'],skippedProviders:['workbuddy']};
  const rig=createUiRig(new Map(),{state:'ready',accounts:[]},pack,{},[
   {providerId:'workbuddy',family:'workbuddy-native-plugin-route',loginVerified:false},
@@ -230,7 +230,7 @@ test('source login tab excludes conflicting installed host provider and can inde
  rig.find(rig.render(),'button','自主登录')[0].props.onClick();
  const text=rig.flatten(rig.render()).join(' ');
  assert.match(text,/可自主授权 1 个/);
- assert.match(text,/另有 1 个由宿主插件接管的渠道/);
+ assert.match(text,/宿主已有 1 个同名原渠道 · 自主登录仍可用/);
  assert.equal(rig.find(rig.render(),'button','发起扫码\/网页登录').length,1);
  await rig.find(rig.render(),'button','发起扫码/网页登录')[0].props.onClick();
  const mutation=rig.mutations.find(x=>x.kind==='source-rpc'&&x.method==='account.create');
@@ -263,7 +263,8 @@ test('reuse adoption tab requires deliberate account selection, never auto-copie
  assert.deepEqual(imported[0],{kind:'adoption',providerId:'qoder',
   accountId:'qoder-test',consent:true});
  assert.ok(!JSON.stringify(rig.mutations).includes('Bearer'));
- assert.match(rig.flatten(rig.render()).join(' '),/独立授权副本已保存/);
+ assert.match(rig.flatten(rig.render()).join(' '),/授权副本已保存/);
+ assert.match(rig.flatten(rig.render()).join(' '),/已接管 · 待验证/);
 });
 test('real client render: channel account page exposes login, refresh, logout and enable controls',async()=>{
   const rig=createUiRig();await rig.init();

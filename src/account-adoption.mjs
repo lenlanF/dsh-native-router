@@ -5,6 +5,9 @@
 import {adoptPortableAccount,ownedAdoptionIdentity} from './secure-source-adoption.mjs';
 import {sourceAccountOpaqueId} from './source-account-ref.mjs';
 import {SOURCE_DAILY_SIGNIN_PROVIDERS} from './embedded-pack.mjs';
+import {ownedPrivateId} from './channels/private-owned.mjs';
+import {workbuddyOwnedId} from './workbuddy-vault-adoption.mjs';
+import {privatePackOwnedId} from './private-pack-adoption.mjs';
 
 export function createAccountAdoption({configStore,originalSource,ownedPack,adapter,
  makeCredentialRef,installedInventory,privateOwnedAdoption,privatePackAdoption,workbuddyVaultAdoption}={}){
@@ -18,9 +21,24 @@ export function createAccountAdoption({configStore,originalSource,ownedPack,adap
    const original=await originalSource?.portableAccounts?.()??{state:'unavailable',accounts:[]};
    const privatePlugins=await installedInventory?.scan?.().catch(()=>null);
    const owned=ownedPack?.status?.()??{state:'disabled'};
+   const configured=new Set(configStore?.get?.()?.accounts?.map(row=>row.id)??[]);
+   const isConfigured=(providerId,accountId)=>{
+    let id;
+    if(['workbuddy-cn','workbuddy-global'].includes(providerId))
+      id=workbuddyOwnedId(providerId,accountId);
+    else if(['lingxi'].includes(providerId))id=ownedPrivateId(providerId,accountId);
+    else if(['loomy','zcode-start-plan'].includes(providerId))
+      id=privatePackOwnedId(providerId,accountId);
+    else{
+      const identity=ownedAdoptionIdentity(providerId,accountId);
+      if(identity)id=sourceAccountOpaqueId(providerId,identity.accountId);
+    }
+    return typeof id==='string'&&configured.has(id);
+   };
    const transferable=(original.accounts??[]).slice(0,100).map(row=>({
     providerId:row.providerId,accountId:row.accountId,
     label:row.label,portable:row.portable===true,
+    alreadyConfigured:isConfigured(row.providerId,row.accountId),
     state:row.portable===true?'available_for_owner_consent':'requires_native_login',
    }));
    // Private plugin inventories cannot be upgraded by the generic AccountPool
@@ -34,6 +52,7 @@ export function createAccountAdoption({configStore,originalSource,ownedPack,adap
          ['workbuddy-cn','workbuddy-global'].includes(row.providerId)
           &&typeof workbuddyVaultAdoption?.adopt==='function',
     privatePortable:true,requiresPack:['loomy','zcode-start-plan'].includes(row.providerId),
+    alreadyConfigured:isConfigured(row.providerId,row.accountId),
     state:'private_authorization_unverified',source:row.source,
    }));
    return {state:original.state==='ready'||privatePlugins?.state==='ready'?'ready':'unavailable',
@@ -109,10 +128,8 @@ export function createAccountAdoption({configStore,originalSource,ownedPack,adap
      linkedOrigins:{...now.sessionReuse.linkedOrigins,[ownId]:'own-source-pack'}}};
    configStore.replace(next);
    adapter?.invalidateCatalog?.();
-   const conflicting=ownedPack.status()?.skippedProviders?.includes(providerId)===true;
    return {state:'stored_unverified',providerId,accountId:ownId,
-    ownedProviderId,activation:conflicting
-      ?'requires_original_stop_and_host_restart':'requires_model_verification',
+    ownedProviderId,activation:'requires_model_verification',
     originalAccountUnchanged:true};
   }catch{
    // Private copy exists and can be recovered on an owner retry; do NOT

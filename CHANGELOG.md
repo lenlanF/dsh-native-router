@@ -1,5 +1,13 @@
 # Change Log
 
+## 1.0.0-rc.9 — 2026-11-18 — 账号接管可见反馈与 13 渠道独立自主登录
+
+- 账号接管返回明确的服务器结果码：`stored_unverified`、`already_owned`、`credentials_unavailable`、`native_login_not_ready` 等；客户端按账号显示操作进度、成功/失败、云端待核验及「复核接管」，刷新页面可识别已有配置，杜绝重复授权覆盖。
+- 已安装 DSH 原插件保持原生 Provider 与原凭据；MIT 自有包为全部 13 类渠道另注册 `native-router-source-*` 适配器，兼容原插件已注册 WorkBuddy/Loomy 场景，同渠道可同时委托复用和自主登录，不需停用原插件。
+- 修复 `ERR_MODULE_NOT_FOUND` 导致内置渠道包无法挂载：发行包固定并 bundle 必须的 DSH Credentials、LlmRuntime、Cordis、Error、Schemastery 和所需依赖，供原生插件内使用，不运行外部进程。
+- MIT pinned 原始源码保留不变，构建补丁由 15 项升至 16 项；增加同名路由隔离、账号接管反馈、发行包依赖完整性回归，按标准隐私审计后才发布。
+- 线上真实各渠道的扫码授权、全渠道签到及生产插件重启后长期存活仍属单独验收，不以离线模拟结果冒充完成。
+
 ## 1.0.0-rc.8 — 2026-11-18 — WorkBuddy 双区原生独立接管、Lingxi 真正推理、13 渠道多账号隔离
 
 - WorkBuddy MIT v5 私有 vault 的 CN/global 双区账号可只读识别，用户逐个确认后复制到独立 DSH Credentials，分别创建 `own_workbuddy-cn`、`own_workbuddy-global` 模型链；原账号文件与原插件完全不变。

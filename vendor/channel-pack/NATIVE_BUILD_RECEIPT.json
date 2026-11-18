@@ -4,8 +4,8 @@
   "originalFile": "pack.js",
   "originalSha256": "5a87770f727c2827f6d75b34351de54b92facfc67dd8a4b52fb0ecf794158247",
   "generatedFile": "pack-native.js",
-  "generatedBytes": 3016615,
-  "generatedSha256": "2fa45b35242202fd71eb8f9b871f75d9ab6a014422b5ad184e21292f78d1e6e0",
+  "generatedBytes": 3017776,
+  "generatedSha256": "0a15fb5f00f2b047ca48b32219c78d8ab10b1ef82b1a16c896eabdfa12284013",
   "patches": [
     "private-settings-namespace",
     "private-profile-subdirectory",
@@ -21,6 +21,7 @@
     "disable-source-background-refresh-by-default",
     "remove-separate-openai-gateway",
     "remove-duplicate-loop-resume",
+    "register-independent-source-provider-aliases",
     "scope-all-credits-status-and-claims-to-one-account"
   ],
   "additionalRuntimeProcessRequired": false,

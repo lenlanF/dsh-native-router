@@ -15,6 +15,11 @@ const inflight=new Set();
 const accountKey=(provider,id)=>'nr_'+createHash('sha256')
  .update('native-router-own-pack-private\0'+provider+'\0'+id).digest('hex').slice(0,32);
 export function privatePackSourceMap(provider){return SOURCE[provider]??null}
+export function privatePackOwnedId(providerId,sourceAccountId){
+ const source=SOURCE[providerId];
+ return source&&/^local_[a-f0-9]{20}$/.test(String(sourceAccountId))
+  ?sourceAccountOpaqueId(source.provider,accountKey(providerId,sourceAccountId)):null;
+}
 export function createPrivatePackAdoption({inventory,configStore,ownedPack,adapter,
  makeCredentialRef}={}){
  const getRef=async()=>{
@@ -112,10 +117,9 @@ export function createPrivatePackAdoption({inventory,configStore,ownedPack,adapt
      linkedIds:[...new Set([...(cfg.sessionReuse.linkedIds??[]),opaque])].slice(-200),
      linkedOrigins:{...cfg.sessionReuse.linkedOrigins,[opaque]:'own-source-pack'}}});
    adapter?.invalidateCatalog?.();
-   const conflict=ownedPack.status()?.skippedProviders?.includes(source.provider)===true;
    return {state:duplicate?'already_owned':'stored_unverified',
     ownedProviderId:source.owned,accountId:opaque,originalUnchanged:true,
-    activation:conflict?'requires_original_stop_and_host_restart':'requires_model_verification'};
+    activation:'requires_model_verification'};
   }catch{return {state:'unavailable'}}
   finally{inflight.delete(key)}
  }

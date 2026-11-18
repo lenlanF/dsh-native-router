@@ -142,6 +142,71 @@ def build(*, check=False):
             raise SystemExit(f"Patch {name}: expected exactly one pinned anchor, got {count}")
         text = text.replace(old, new, 1)
         names.append(name)
+    # Always register a namespaced DSH model adapter for the plugin-owned
+    # account pool. The original registered host Provider is never replaced.
+    # Source login and inference must remain possible even if an original
+    # WorkBuddy/Loomy/etc plugin already has the same public provider ID.
+    begin = text.index('function registerAdapterIdempotent(llm, providers, adapter, warn) {')
+    end = text.index('\n// vendor/channel-pack/src/llm-adapter.ts', begin)
+    target = text[begin:end]
+    if target.count('wrapAdapterWithTokenLedger(providers, adapter)') != 1:
+        raise SystemExit("Cannot derive independent source provider alias safely")
+    replacement = """function registerAdapterIdempotent(llm, providers, adapter, warn) {
+  const registered = llm?.listProviders?.();
+  if (!Array.isArray(registered)) throw new Error("Host provider inventory unavailable");
+  const existing = new Set(registered.map((row) => typeof row === "string" ? row : row?.id ?? row?.provider));
+  const originalProviders = providers.filter((id) => !existing.has(id));
+  let target = wrapAdapterWithTokenLedger(providers, adapter);
+  if (typeof adapter === "object" && adapter !== null) {
+    try {
+      target = withDeadModelPruning(providers, target);
+    } catch {
+      warn?.("[native-router] Model-pruning extension unavailable; using the original verified adapter");
+    }
+  }
+  // Only this alias represents the plugin-owned source pool. Host routes keep
+  // their existing names, account stores and credentials completely intact.
+  const prefix = "native-router-source-";
+  const aliases = providers.map((id) => prefix + id);
+  if (aliases.some((id) => existing.has(id))) {
+    throw new Error("Native Router internal adapter alias already occupied");
+  }
+  const actual = (id) => {
+    if (typeof id !== "string" || !id.startsWith(prefix)) {
+      throw new Error("Invalid independent source model provider");
+    }
+    const provider = id.slice(prefix.length);
+    if (!providers.includes(provider)) throw new Error("Unowned source provider");
+    return provider;
+  };
+  const aliasAdapter = {
+    providerInfo(id) {
+      const value = target.providerInfo(actual(id));
+      return { ...value, id, name: value.name + " · 聚合路由自有" };
+    },
+    providerRetryPolicy(id) { return target.providerRetryPolicy(actual(id)); },
+    listModels(id, ...rest) { return target.listModels(actual(id), ...rest); },
+    stream(options) { return target.stream({ ...options, provider: actual(options.provider) }); }
+  };
+  const releaseAlias = llm.registerAdapter(aliases, aliasAdapter);
+  if (originalProviders.length === 0) return releaseAlias;
+  try {
+    const releaseOriginal = llm.registerAdapter(originalProviders, target);
+    return () => { releaseOriginal?.(); releaseAlias?.(); };
+  } catch (error) {
+    if (!isDuplicateRegistrationError(error)) {
+      releaseAlias?.();
+      throw error;
+    }
+    // Another host plugin won the original-name registration race. Keep the
+    // independent alias; never borrow its route for our source-pool account.
+    warn?.("[native-router] Original provider already owned by host; independent channel remains available");
+    return releaseAlias;
+  }
+}
+"""
+    text = text[:begin] + replacement + text[end:]
+    names.append("register-independent-source-provider-aliases")
     # Limit source credits.status/claimAll to the exact selected source account
     # (the original UI batch RPC still works when no accountId is provided).
     start = text.index('      case "credits.status": {')

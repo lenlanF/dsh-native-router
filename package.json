@@ -1,6 +1,6 @@
 {
   "name": "dsh-native-router",
-  "version": "1.0.0-rc.8",
+  "version": "1.0.0-rc.9",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -56,6 +56,20 @@
       ]
     }
   },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/dsh-llm": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-credentials": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-error": "0.2.2-rc.3",
+    "@deepseek-ai/schemastery": "3.19.0"
+  },
+  "bundleDependencies": [
+    "@deepseek-ai/cordis",
+    "@deepseek-ai/dsh-llm",
+    "@deepseek-ai/dsh-credentials",
+    "@deepseek-ai/dsh-error",
+    "@deepseek-ai/schemastery"
+  ],
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=4.0.2 <5",
     "@deepseek-ai/dsh-llm": ">=0.2.0-rc.2 <0.3.0-0",

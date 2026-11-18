@@ -95,8 +95,8 @@ window.__ModuleLoader__.load({
          h('p',{style:css.small},'自主扫码或网页授权新账号，原渠道插件与本插件互不覆盖。'),
          pack?.skippedProviders?.length?h('details',null,
            h('summary',{style:{cursor:'pointer',fontSize:12}},
-             '另有 '+pack.skippedProviders.length+' 个由宿主插件接管的渠道'),
-           h('p',{style:css.small},pack.skippedProviders.join('、')+'：请在宿主模型 Tab 中复用；此处不重复登录。')):null,        live?h('div',null,
+             '宿主已有 '+pack.skippedProviders.length+' 个同名原渠道 · 自主登录仍可用'),
+           h('p',{style:css.small},pack.skippedProviders.join('、')+'：原插件可继续复用，此处可自主登录到独立账号池，模型调用不会覆盖原插件。')):null,        live?h('div',null,
           h('div',{style:css.line},
             h(Select,{label:'来源渠道',value:selectedSource,onChange:setModelProvider,
               options:sourceChannels.map(id=>({value:id,label:id}))}),
@@ -145,7 +145,7 @@ window.__ModuleLoader__.load({
       onSourceLogin,onSourcePoll,pendingLogin,onSourceRefresh,sourceBusy,
       hostModels,hostModelBusy,hostSelectedModel,onSelectHostModel,onHostModels,
       onAddHostCandidate,onImportHost,manualHostModel,onManualHostModel,
-      adoptionPreview,adoptionBusy,onPreviewAdoption,onAdoptAccount}){
+      adoptionPreview,adoptionBusy,adoptionResults,onPreviewAdoption,onAdoptAccount}){
       const reuse=data?.sessionReuse||{hostProviders:[],channels:[],results:[]};
       const hosts=reuse.hostProviders||[];
       const subtabs=[['host','宿主路由与模型'],['sessions','本机登录态'],['source','自主登录']];
@@ -232,11 +232,23 @@ adoptionPreview?.accounts?.length?
                       'loomy-desktop-session':'Loomy 桌面登录 · 使用 MIT 渠道包',
                       'loomy-manual-session':'Loomy 手动登录 · 使用 MIT 渠道包',
                       'zcode-private-sqlite':'ZCode SQLite 账号 · 使用 MIT 渠道包',
-                    })[row.source]||'原插件私有授权 · 待独立适配':'暂无安全迁移方式'))),
-                h(Button,{disabled:!!adoptionBusy||!row.portable
+                    })[row.source]||'原插件私有授权 · 待独立适配':'暂无安全迁移方式')),
+                  adoptionResults?.[row.providerId+':'+row.accountId]
+                    ?h('div',{role:'status',style:{...css.small,marginTop:6,
+                      color:adoptionResults[row.providerId+':'+row.accountId].state==='failed'
+                        ?'#f28e8e':adoptionResults[row.providerId+':'+row.accountId].state==='success'
+                        ?'#56bf99':'inherit'}},
+                      adoptionResults[row.providerId+':'+row.accountId].message):
+                  row.alreadyConfigured?h('div',{role:'status',style:{...css.small,marginTop:6}},
+                    '已存在本地接管配置 · 授权有效性待核验，可点击复核接管'):null),
+                h(Button,{disabled:!!adoptionBusy||adoptionResults?.[row.providerId+':'+row.accountId]?.state==='success'||!row.portable
                   ||(row.requiresPack&&adoptionPreview.ownPackState!=='mounted')
                   ||(!row.privatePortable&&adoptionPreview.ownPackState!=='mounted'),
-                  onClick:()=>onAdoptAccount(row)},row.portable?'接管到本插件':'暂不能迁移'))):
+                  onClick:()=>onAdoptAccount(row)},
+                  adoptionBusy==='adopt:'+row.accountId?'接管中…':
+                  adoptionResults?.[row.providerId+':'+row.accountId]?.state==='success'
+                    ?'已接管 · 待验证':row.alreadyConfigured?'复核接管':
+                  row.portable?'接管到本插件':'暂不能迁移'))):
               h('p',{style:css.small},adoptionPreview?.state==='ready'
                 ?'没有检测到可验证的本机账号记录。可在「自主登录」进行独立授权。'
                 :'尚未扫描；只有原 DSH 共享账号池中可安全转移的授权才会列出。'),
@@ -264,7 +276,7 @@ adoptionPreview?.accounts?.length?
             h('p',{style:css.small},embeddedPack?.state==='mounted'
               ?'可自主登录新账号、查询模型和管理已登录账号。':
               embeddedPack?.reason||'保存开关、重启 DSH 后加载；不启动外部服务。'),
-            h('p',{style:css.small},'原有渠道登录态不会被覆盖；同名 Provider 冲突时安全阻止挂载。')),
+            h('p',{style:css.small},'独立账号使用 native-router-source-* 专属模型路由。原插件登录、模型和凭据不被覆盖；同名渠道仍提供独立登录。')),
           h(EmbeddedPackConsole,{pack:embeddedPack,upstream:data?.embeddedAccounts,run,busy,
             modelProvider,setModelProvider,onModels,modelBusy,models,
             onSourceLogin,onSourcePoll,pendingLogin,onSourceRefresh,sourceBusy})
@@ -502,7 +514,8 @@ adoptionPreview?.accounts?.length?
         [hostSelectedModel,setHostSelectedModel]=useState(''),
         [hostManualModel,setHostManualModel]=useState(''),[reuseSubtab,setReuseSubtab]=useState('host'),
         [showReferenceChannels,setShowReferenceChannels]=useState(false),
-         [adoptionPreview,setAdoptionPreview]=useState(null),[adoptionBusy,setAdoptionBusy]=useState('');
+         [adoptionPreview,setAdoptionPreview]=useState(null),[adoptionBusy,setAdoptionBusy]=useState(''),
+         [adoptionResults,setAdoptionResults]=useState({});
       const refresh=useCallback(async()=>{
         setBusy(true);setError('');
         try{
@@ -670,22 +683,35 @@ adoptionPreview?.accounts?.length?
        }
        async function adoptOriginalAccount(row){
          if(!row?.portable||adoptionBusy||!window.confirm(
-            '将 '+row.providerId+' 的账号 '+(row.label||row.accountId)+' 复制到聚合路由独立授权库？原账号保持不变；迁移后仍需验证模型和签到。'))return;
-         setAdoptionBusy('adopt');setError('');setNotice('');
+           '将 '+row.providerId+' 的账号 '+(row.label||row.accountId)+' 复制到聚合路由独立授权库？原账号保持不变；迁移后仍需验证模型和签到。'))return;
+         const key=row.providerId+':'+row.accountId;
+         setAdoptionBusy('adopt:'+row.accountId);setError('');setNotice('');
+         setAdoptionResults(old=>({...old,[key]:{state:'pending',message:'正在核验本机授权并安全复制…'}}));
          try{
            const response=await fetch(URL+'/channels/adopt',{method:'POST',
              headers:{'content-type':'application/json'},body:JSON.stringify({
                providerId:row.providerId,accountId:row.accountId,consent:true})});
            const data=await response.json();
-           if(!response.ok||!data.ok||data.result?.state!=='stored_unverified')
-             throw Error(data.error||'无法完成独立迁移；请尝试自主登录');
-           setAdoptionPreview(null);
+           const state=data?.result?.state??'unavailable';
+           if(!response.ok||!data.ok||!['stored_unverified','already_owned'].includes(state)){
+             const message=data?.error||'接管失败；原账号没有被修改。请刷新账号来源后再试。';
+             setAdoptionResults(old=>({...old,[key]:{state:'failed',message:'未接管（'+state+'）：'+message}}));
+             setError('账号接管失败：'+message);
+             return;
+           }
+           const message=state==='already_owned'
+             ?'该账号此前已经接管；原账号未修改。请进行模型及签到验证。'
+             :data.result.modelCatalogVerified===true
+               ?'授权副本已保存，且模型目录鉴权通过；仍需验证真实推理与签到。'
+               :'授权副本已保存；仍需进行模型、推理与签到验证。';
+           setAdoptionResults(old=>({...old,[key]:{state:'success',message}}));
            await refresh();
-           setNotice(data.result.activation==='requires_original_stop_and_host_restart'
-             ?'独立授权副本已保存。请在隔离环境验收，停用原 Provider 并重启 DSH 后，验证聚合路由模型与签到；尚未确认可用。'
-             :'独立授权副本已保存，仍需真实模型调用和签到验收。');
-         }catch(error){setError(String(error.message||'迁移未完成'))}
-         finally{setAdoptionBusy('')}
+           setNotice(row.label+'：'+message);
+         }catch(error){
+           const message='请求未完成（'+String(error?.name??'network').slice(0,24)+'）；请刷新后检查是否已接管，避免重复操作。';
+           setAdoptionResults(old=>({...old,[key]:{state:'failed',message}}));
+           setError(message);
+         }finally{setAdoptionBusy('')}
        }
 async function loadHostModels(providerId){
         setHostModelBusy(providerId);setHostModels(null);setHostSelectedModel('');setHostManualModel('');setError('');
@@ -800,7 +826,7 @@ async function loadUpstreamModels(providerId){
          hostModels,hostModelBusy,hostSelectedModel,onSelectHostModel:setHostSelectedModel,
          onHostModels:loadHostModels,onAddHostCandidate:addHostCandidate,
          onImportHost:addHostToAggregate,manualHostModel:hostManualModel,
-         onManualHostModel:setHostManualModel,adoptionPreview,adoptionBusy,
+         onManualHostModel:setHostManualModel,adoptionPreview,adoptionBusy,adoptionResults,
           onPreviewAdoption:loadAdoptionPreview,onAdoptAccount:adoptOriginalAccount});
       if(tab==='checkins')content=h(CheckinConsole,{data:checkinsView,cfg,onSettings:setCheckinSettings,
         onAccountAuto:setAccountAuto,run:runAction,refresh,busy:actionBusy,
@@ -906,7 +932,7 @@ async function loadUpstreamModels(providerId){
           value:raw,onChange:e=>setRaw(e.target.value),'aria-label':'完整路由配置 JSON'}));
       return h('div',{style:css.root},
         h('h2',{style:css.title},'聚合路由'),
-        h('p',{style:css.caption},'DSH 原生插件复用 · 桌面授权复用 · 多账号池 · 每日签到 · 模型故障安全续跑 · v1.0.0-rc.8'),
+        h('p',{style:css.caption},'DSH 原生插件复用 · 桌面授权复用 · 多账号池 · 每日签到 · 模型故障安全续跑 · v1.0.0-rc.9'),
         h('div',{style:css.tabbar},tabs.map(([id,label])=>h('button',{key:id,type:'button',
           style:{...css.tab,...(tab===id?css.chosen:{})},onClick:()=>setTab(id)},label))),
         error?h('div',{role:'alert',style:css.error},error):null,

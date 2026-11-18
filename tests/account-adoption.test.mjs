@@ -49,7 +49,11 @@ test('owner-consented account adoption stores a distinct private encrypted-vault
  assert.doesNotMatch(JSON.stringify(preview),/OLD_QODER_REF|TOP_SECRET/);
  const result=await r.adoption.adopt({providerId:'qoder',accountId:'qoder-original-01',consent:true});
  assert.equal(result.state,'stored_unverified');
- assert.equal(result.activation,'requires_original_stop_and_host_restart');
+ const after=await r.adoption.preview();
+ assert.equal(after.accounts[0].alreadyConfigured,true,
+  'reopening the UI must show that this account was configured without claiming live auth');
+ assert.doesNotMatch(JSON.stringify(after),/TOP_SECRET_ACCOUNT_TOKEN|OLD_QODER_REF/);
+ assert.equal(result.activation,'requires_model_verification');
  assert.equal(result.originalAccountUnchanged,true);
  assert.equal(r.cfg.providers[0].protocol,'dsh-host','original provider remains unchanged');
  assert.equal(r.cfg.providers.find(p=>p.id==='own_qoder').protocol,'native-channel');

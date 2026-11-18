@@ -33348,29 +33348,56 @@ async function* recordThroughStream(openStream, meta) {
   }
 }
 function registerAdapterIdempotent(llm, providers, adapter, warn) {
-  // Keep already registered DSH plugins as the sole owners of their providers.
-  // This source pack may still provide login for non-conflicting channels.
   const registered = llm?.listProviders?.();
   if (!Array.isArray(registered)) throw new Error("Host provider inventory unavailable");
   const existing = new Set(registered.map((row) => typeof row === "string" ? row : row?.id ?? row?.provider));
-  providers = providers.filter((id) => !existing.has(id));
-  if (providers.length === 0) return void 0;
+  const originalProviders = providers.filter((id) => !existing.has(id));
   let target = wrapAdapterWithTokenLedger(providers, adapter);
   if (typeof adapter === "object" && adapter !== null) {
     try {
       target = withDeadModelPruning(providers, target);
-    } catch (error) {
-      warn?.(`[llm-register] \u5DF2\u5931\u6548\u6A21\u578B\u5254\u9664\u5305\u88C5\u5931\u8D25\uFF0C\u4F7F\u7528\u539F\u9002\u914D\u5668: ${String(error)}`);
+    } catch {
+      warn?.("[native-router] Model-pruning extension unavailable; using the original verified adapter");
     }
   }
+  // Only this alias represents the plugin-owned source pool. Host routes keep
+  // their existing names, account stores and credentials completely intact.
+  const prefix = "native-router-source-";
+  const aliases = providers.map((id) => prefix + id);
+  if (aliases.some((id) => existing.has(id))) {
+    throw new Error("Native Router internal adapter alias already occupied");
+  }
+  const actual = (id) => {
+    if (typeof id !== "string" || !id.startsWith(prefix)) {
+      throw new Error("Invalid independent source model provider");
+    }
+    const provider = id.slice(prefix.length);
+    if (!providers.includes(provider)) throw new Error("Unowned source provider");
+    return provider;
+  };
+  const aliasAdapter = {
+    providerInfo(id) {
+      const value = target.providerInfo(actual(id));
+      return { ...value, id, name: value.name + " · 聚合路由自有" };
+    },
+    providerRetryPolicy(id) { return target.providerRetryPolicy(actual(id)); },
+    listModels(id, ...rest) { return target.listModels(actual(id), ...rest); },
+    stream(options) { return target.stream({ ...options, provider: actual(options.provider) }); }
+  };
+  const releaseAlias = llm.registerAdapter(aliases, aliasAdapter);
+  if (originalProviders.length === 0) return releaseAlias;
   try {
-    return llm.registerAdapter(providers, target);
+    const releaseOriginal = llm.registerAdapter(originalProviders, target);
+    return () => { releaseOriginal?.(); releaseAlias?.(); };
   } catch (error) {
-    if (!isDuplicateRegistrationError(error)) throw error;
-    warn?.(
-      `[llm-register] adapter for ${providers.map((p) => `"${p}"`).join(", ")} \u5DF2\u6CE8\u518C\uFF08\u63D2\u4EF6 fiber \u91CD\u542F\u7ADE\u6001\uFF09\uFF0C\u4FDD\u7559\u73B0\u6709\u8DEF\u7531\u5E76\u8DF3\u8FC7\u672C\u6B21\u6CE8\u518C`
-    );
-    return void 0;
+    if (!isDuplicateRegistrationError(error)) {
+      releaseAlias?.();
+      throw error;
+    }
+    // Another host plugin won the original-name registration race. Keep the
+    // independent alias; never borrow its route for our source-pool account.
+    warn?.("[native-router] Original provider already owned by host; independent channel remains available");
+    return releaseAlias;
   }
 }
 

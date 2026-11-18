@@ -35,6 +35,13 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
    // strict legacy accountPool gate to avoid touching unknown implementations.
    const sourcePoolService=loadPack===loadPinnedPack?'nativeRouterSourceAccountPool':'accountPool';
    const sourcePool=scope=>scope?.get?.(sourcePoolService,false);
+   // DSH-native source routes are separate from the original host Provider.
+   // Every channel remains eligible for its own login even when the host
+   // plugin already registered a public provider with the same name.
+   const nativeOwned=loadPack===loadPinnedPack;
+   const sourceAllowed=id=>SOURCE_PACK_PROVIDERS.includes(id)
+      &&(nativeOwned||!skippedProviders.has(id));
+   const sourceAdapter=id=>nativeOwned?'native-router-source-'+id:id;
   // Exact-account native-router ownership is already an explicit user choice:
   // the bundled pack receives its OWN private account pool. Guard all sources
   // with request-local AsyncLocalStorage and deny any source that cannot prove
@@ -46,12 +53,12 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
       &&loadPack!==loadPinnedPack);
   let selectionGuard=null;
   const providerStreams=new Set();
-  function status(){return {state,reason,channelCount:SOURCE_PACK_PROVIDERS.length-skippedProviders.size,
-     channels:SOURCE_PACK_PROVIDERS.filter(id=>!skippedProviders.has(id)),
-     skippedProviders:[...skippedProviders],
-    experimentalMultiAccountProviders:selectionGuard&&multiAccountOptIn?MULTIACCOUNT_REVIEWED:[],
-     exactAccountGate:selectionGuard?'ready':multiAccountOptIn?'unavailable':'disabled'}}
- function attach(){
+  function status(){return {state,reason,
+     channelCount:nativeOwned?SOURCE_PACK_PROVIDERS.length:SOURCE_PACK_PROVIDERS.length-skippedProviders.size,
+     channels:SOURCE_PACK_PROVIDERS.filter(id=>sourceAllowed(id)),
+     skippedProviders:[...skippedProviders],independentLogin:nativeOwned,
+     experimentalMultiAccountProviders:selectionGuard&&multiAccountOptIn?MULTIACCOUNT_REVIEWED:[],
+     exactAccountGate:selectionGuard?'ready':multiAccountOptIn?'unavailable':'disabled'}} function attach(){
   if(disposed||['waiting_host_services','loading','mounted'].includes(state))return status();
   if(getConfig()?.embeddedPack?.enabled!==true){state='disabled';reason='';return status()}
    // The bundled native derivative never starts an extra gateway, loop-resume
@@ -132,7 +139,11 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
     }).catch(error=>{
      if(disposed||state==='host_disposed')return;
      state='failed';
-     reason=error?.code==='MODULE_NOT_FOUND'?'渠道包依赖缺失':'渠道包挂载失败；请检查宿主日志与依赖';
+     reason=['ERR_MODULE_NOT_FOUND','MODULE_NOT_FOUND'].includes(error?.code)
+       ?'内置渠道包运行依赖缺失；请重新安装含完整依赖的插件发行包'
+       :error?.code==='DUPLICATE_ADAPTER'
+       ?'独立模型路由名称冲突，已保护宿主原路由；请检查其他插件'
+       :'渠道包挂载失败；宿主服务或运行时不兼容，原账号未被更改';
      ctx.logger?.warn?.('dsh-native-router: embedded channel pack unavailable');
     });
     };
@@ -154,8 +165,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
     const rows=await pool.listAllAccounts();
     if(disposed||state!=='mounted'||activeScope!==scope)return {state:'disposed',accounts:[]};
     if(!Array.isArray(rows))throw Error('Invalid upstream account pool');
-    const accounts=rows.filter(row=>row&&SOURCE_PACK_PROVIDERS.includes(row.provider)&&!skippedProviders.has(row.provider)
-      &&typeof row.id==='string'&&row.id.length>0&&row.id.length<=100).slice(0,200).map(row=>({
+    const accounts=rows.filter(row=>row&&sourceAllowed(row.provider)      &&typeof row.id==='string'&&row.id.length>0&&row.id.length<=100).slice(0,200).map(row=>({
       id:row.id.replace(/[\u0000-\u001f]/g,'').slice(0,100),
       providerId:row.provider,
       nickname:typeof row.nickname==='string'?row.nickname.replace(/[\u0000-\u001f]/g,'').slice(0,80):'',
@@ -173,8 +183,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
   const modifying=new Set();
   function mountedScope(){return !disposed&&state==='mounted'?activeScope:null}
   async function changeAccountEnabled({providerId,accountId,enabled}={}){
-    if(!SOURCE_PACK_PROVIDERS.includes(providerId)||skippedProviders.has(providerId)||typeof accountId!=='string'
-      ||accountId.length===0||accountId.length>100||!/^[a-zA-Z0-9_-]+$/.test(accountId)
+    if(!sourceAllowed(providerId)||typeof accountId!=='string'      ||accountId.length===0||accountId.length>100||!/^[a-zA-Z0-9_-]+$/.test(accountId)
       ||typeof enabled!=='boolean')return {state:'invalid',changed:false};
     const scope=mountedScope();
     if(!scope)return {state:'unavailable',changed:false};
@@ -207,8 +216,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
   // remove its stored credential. Refuse while any native source reference for
   // this provider remains: a model chain may still require it.
   async function removeSourceAccount({providerId,accountId}={}){
-    if(!SOURCE_PACK_PROVIDERS.includes(providerId)||skippedProviders.has(providerId)||typeof accountId!=='string'
-      ||accountId.length<1||accountId.length>100||!/^[a-zA-Z0-9_-]+$/.test(accountId))
+    if(!sourceAllowed(providerId)||typeof accountId!=='string'      ||accountId.length<1||accountId.length>100||!/^[a-zA-Z0-9_-]+$/.test(accountId))
       return {state:'invalid',removed:false};
     const scope=mountedScope();
     if(!scope)return {state:'unavailable',removed:false};
@@ -238,8 +246,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
   }
    const modelRequests=new Set();
   async function listModels(providerId){
-    if(!SOURCE_PACK_PROVIDERS.includes(providerId)||skippedProviders.has(providerId))
-       return {state:'invalid',providerId:'',models:[]};
+    if(!sourceAllowed(providerId))       return {state:'invalid',providerId:'',models:[]};
     const scope=mountedScope();
     if(!scope)return {state:'unavailable',providerId,models:[]};
     const llm=scope.llm??scope.get?.('llm');
@@ -252,8 +259,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
       // upstream llm service fails to settle. The underlying service owns cancellation.
       const timeoutMarker=Symbol('timeout');
       const rows=await Promise.race([
-        Promise.resolve().then(()=>llm.listModels(providerId)),
-        new Promise(resolve=>{timer=setTimeout(()=>resolve(timeoutMarker),modelTimeoutMs)}),
+        Promise.resolve().then(()=>llm.listModels(sourceAdapter(providerId))),        new Promise(resolve=>{timer=setTimeout(()=>resolve(timeoutMarker),modelTimeoutMs)}),
       ]);
       if(rows===timeoutMarker)return {state:'timeout',providerId,models:[]};
       if(scope!==mountedScope())return {state:'unavailable',providerId,models:[]};
@@ -261,8 +267,8 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
       const models=[],seen=new Set();
       for(const row of rows){
         if(models.length>=256)break;
-        if(row&&typeof row==='object'&&row.provider&&row.provider!==providerId)continue;
-        const id=typeof row==='string'?row:row?.id;
+        if(row&&typeof row==='object'&&row.provider
+          &&row.provider!==providerId&&row.provider!==sourceAdapter(providerId))continue;        const id=typeof row==='string'?row:row?.id;
         if(typeof id!=='string'||!id.trim()||id.length>160
           ||/[\u0000-\u001f]/.test(id)||seen.has(id))continue;
         seen.add(id);
@@ -279,8 +285,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
   // multiaccount requests are permitted ONLY for reviewed channel paths,
   // after an isolated-profile flag and request-local credential guard.
   async function streamNative({providerId,sourceAccountId,model,messages,tools,signal,maxTokens}={}){
-    if(!SOURCE_PACK_PROVIDERS.includes(providerId)||skippedProviders.has(providerId)||typeof sourceAccountId!=='string'
-      ||!sourceAccountId||sourceAccountId.length>100||typeof model!=='string'||!model.trim()
+    if(!sourceAllowed(providerId)||typeof sourceAccountId!=='string'      ||!sourceAccountId||sourceAccountId.length>100||typeof model!=='string'||!model.trim()
       ||model.length>160||!Array.isArray(messages)||!messages.length)
       throw Error('Invalid isolated source model request');
     const scope=mountedScope();
@@ -310,8 +315,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
     const available=await pool.getAvailableAccount(providerId,model,exclude);
     if(available?.entry?.id!==sourceAccountId||scope!==mountedScope()||signal?.aborted)
       throw Error('Upstream source account is not currently available for this model');
-    const request={provider:providerId,model,messages,tools:Array.isArray(tools)?tools:[],signal,
-      ...(Number.isInteger(maxTokens)&&maxTokens>0?{maxTokens}:{})};
+    const request={provider:sourceAdapter(providerId),model,messages,tools:Array.isArray(tools)?tools:[],signal,      ...(Number.isInteger(maxTokens)&&maxTokens>0?{maxTokens}:{})};
     if(scope!==mountedScope()||signal?.aborted)throw Error('Source pack disposed before native request');
     if(!multi){
       const stream=llm.stream(request);
@@ -343,8 +347,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
     })();
   }
   async function checkinAccount({providerId,sourceAccountId}={}){
-    if(!SOURCE_DAILY_SIGNIN_PROVIDERS.includes(providerId)||skippedProviders.has(providerId)
-      ||typeof sourceAccountId!=='string'||!sourceAccountId||sourceAccountId.length>100)
+    if(!SOURCE_DAILY_SIGNIN_PROVIDERS.includes(providerId)||!sourceAllowed(providerId)      ||typeof sourceAccountId!=='string'||!sourceAccountId||sourceAccountId.length>100)
       return {state:'unsupported',message:'渠道没有经核验的每日签到服务'};
     const scope=mountedScope();
     if(!scope)return {state:'unavailable',message:'上游来源服务尚未装载'};

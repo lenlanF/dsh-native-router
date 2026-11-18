@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$ExpectedVersion='1.0.0-rc.8')
+param([string]$ExpectedVersion='1.0.0-rc.9')
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 
@@ -10,6 +10,7 @@ $env:TEMP=$work
 $env:TMP=$work
 $env:npm_config_cache=(Join-Path $work 'npm-cache')
 $extract=Join-Path $work ('dsh-native-router-release-audit-'+[guid]::NewGuid().ToString('N'))
+$stage=Join-Path $work ('dsh-native-router-contained-stage-'+[guid]::NewGuid().ToString('N'))
 $packageJson=Get-Content -LiteralPath (Join-Path $root 'package.json') -Raw | ConvertFrom-Json
 if($packageJson.name -ne 'dsh-native-router' -or $packageJson.version -ne $ExpectedVersion){
  throw ('Unexpected release package/version: '+$packageJson.name+'/'+$packageJson.version)
@@ -29,8 +30,33 @@ $manifest=@('LICENSE','SECURITY.md','README.md','CHANGELOG.md','client.js','cord
  'vendor/channel-pack/SOURCE_RECEIPT.json','vendor/channel-pack/NATIVE_BUILD_RECEIPT.json')
 Push-Location $root
 try {
- $stdout=& npm pack --json 2>&1
- if($LASTEXITCODE -ne 0){throw ('npm pack refused: '+(($stdout|Out-String).Substring(0,[Math]::Min(1000,($stdout|Out-String).Length))))}
+ # Build ONLY from the package.json release allowlist, never directly from the
+ # developer worktree. The source DSH profile and any local credentials cannot
+ # enter the npm staging directory.
+ New-Item -Path $stage -ItemType Directory -Force|Out-Null
+ Copy-Item -LiteralPath (Join-Path $root 'package.json') -Destination (Join-Path $stage 'package.json') -Force
+ foreach($member in $packageJson.files){
+  $name=[string]$member
+  if($name -match '(^|/)(?:\.\.|\.git|node_modules|\.env)(?:/|$)' -or
+    $name -match '^(?:tools|tests)/' -or $name -eq 'vendor/channel-pack/pack.js'){
+   throw ('Unsafe release include path: '+$name)
+  }
+  $from=Join-Path $root $name
+  $to=Join-Path $stage $name
+  if(-not(Test-Path -LiteralPath $from)){throw ('Missing release source: '+$name)}
+  New-Item -Path (Split-Path -Parent $to) -ItemType Directory -Force|Out-Null
+  Copy-Item -LiteralPath $from -Destination $to -Recurse -Force
+ }
+ # Install pinned, allowlisted DSH runtime modules in temporary storage. npm
+ # bundleDependencies embeds them in this ONE plugin package, not a daemon.
+ Push-Location $stage
+ try {
+  $install=& npm.cmd install --legacy-peer-deps --ignore-scripts --no-audit --no-fund --loglevel=error 2>&1
+  if($LASTEXITCODE -ne 0){throw 'Cannot assemble pinned DSH dependencies in isolated release stage'}
+  $stdout=& npm.cmd pack --json --pack-destination $root 2>&1
+  if($LASTEXITCODE -ne 0){throw 'Cannot package self-contained DSH plugin'}
+ }finally{Pop-Location}
+
  $packed=@(($stdout|Out-String|ConvertFrom-Json))
  if($packed.Count -ne 1){throw 'Exactly one archive expected'}
  $pkg=$packed[0]
@@ -42,14 +68,25 @@ try {
  foreach($file in $manifest){
   if(-not ($paths -ccontains $file)){throw ('Missing mandatory release member '+$file)}
  }
- $deny='(^|/)(?:\.git|node_modules|\.env(?:\.[^/]*)?|config\.json|credentials?\.json|accounts?\.json|tokens?\.json|auth\.json|session\.json)(?:/|$)'
+ $deny='(^|/)(?:\.git|\.env(?:\.[^/]*)?|config\.json|credentials?\.json|accounts?\.json|tokens?\.json|auth\.json|session\.json)(?:/|$)'
  if(@($paths|Where-Object {$_ -match $deny -or $_ -match '^(?:tools|tests)/' -or $_ -eq 'vendor/channel-pack/pack.js'}).Count){
   throw 'Archive contains original source, test helpers, config/secret files or runtime dependencies'
+ }
+ # Exact bundled credential/LLM runtime required for autonomous login.
+ foreach($required in @(
+  'node_modules/@deepseek-ai/cordis/package.json',
+  'node_modules/@deepseek-ai/dsh-llm/package.json',
+  'node_modules/@deepseek-ai/dsh-credentials/package.json',
+  'node_modules/@deepseek-ai/dsh-error/package.json',
+  'node_modules/@deepseek-ai/schemastery/package.json')){
+  if(-not($paths -ccontains $required)){
+   throw ('Self-contained runtime module missing: '+$required)
+  }
  }
  $count=0
  foreach($item in $pkg.files){
   $part=$item.path.Replace('/','\')
-  $actual=Join-Path $root $part
+  $actual=Join-Path $(if($item.path.StartsWith('node_modules/')){$stage}else{$root}) $part
   $unpacked=Join-Path (Join-Path $extract 'package') $part
   if(!(Test-Path -LiteralPath $actual -PathType Leaf)-or
      !(Test-Path -LiteralPath $unpacked -PathType Leaf)){
@@ -114,4 +151,5 @@ try {
 }finally {
  Pop-Location
  Remove-Item -LiteralPath $extract -Recurse -Force -ErrorAction SilentlyContinue
+ Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
 }
