@@ -6,11 +6,12 @@
   "upstreamChannelPackSource": "https://gitee.com/iJetLi/deepseek-harness-codearts",
   "upstreamChannelPackCommit": "345f0a07b22713c0ae189ca7d8b97ec4f64626c6",
   "sourceLicense": "MIT",
+  "textCanonicalization": "LF for text files; binary WASM unchanged",
   "referenceFiles": [
     {
       "file": "pack.js",
-      "bytes": 3086263,
-      "sha256": "f6cb3080ae6a8df998f9055bcc3fc2ba05976c1a28865cfa37c24e2ab5f9c954"
+      "bytes": 3015049,
+      "sha256": "5a87770f727c2827f6d75b34351de54b92facfc67dd8a4b52fb0ecf794158247"
     },
     {
       "file": "qoder-auth-wasm.wasm",
@@ -19,13 +20,13 @@
     },
     {
       "file": "LICENSE",
-      "bytes": 1081,
-      "sha256": "a8f900ad112a64743a0fbf8a567c34d1d421270e75380383891dba97298f2050"
+      "bytes": 1060,
+      "sha256": "0f62f49c7c75f82fe6d88eebfbdd1b647a89e42ab765ee470d0496af40ec0b25"
     },
     {
       "file": "NOTICE.md",
-      "bytes": 3585,
-      "sha256": "3cd86f3051cea3e092b15b2e05085ac9daf2cc29b9eaf4c255970a22dd543a30"
+      "bytes": 3532,
+      "sha256": "53a85b8f363bb4a9077c2b6c922ff2de978c2c04f04eee9942a60f3bdeb991ea"
     }
   ],
   "notMountedByDefault": true,

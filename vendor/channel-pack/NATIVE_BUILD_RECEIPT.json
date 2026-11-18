@@ -2,7 +2,7 @@
   "kind": "deterministic-in-process-derivative",
   "upstreamSourceCommit": "6daa5bc344feac44763af25c674e8882c292a728",
   "originalFile": "pack.js",
-  "originalSha256": "f6cb3080ae6a8df998f9055bcc3fc2ba05976c1a28865cfa37c24e2ab5f9c954",
+  "originalSha256": "5a87770f727c2827f6d75b34351de54b92facfc67dd8a4b52fb0ecf794158247",
   "generatedFile": "pack-native.js",
   "generatedBytes": 3016052,
   "generatedSha256": "edde57f80f7324f7d68688adc0f109d956fc2ceef93f1a72f3c8220c95f9612a",

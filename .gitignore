@@ -1,15 +1,48 @@
-﻿node_modules/
+# Local dependencies, build products and runtime state (NEVER publish).
+node_modules/
 *.tgz
-config.json
-*.db
-*.sqlite*
-*.log
-.env
-*.key
 coverage/
-# review/dev notes and local artifacts
+dist/
+*.log
+*.db
+*.db-*
+*.sqlite*
+*.sqlite3*
+*.bak
+*.backup
+*.tmp
+*.tmp-*
+# All env variants except a reviewed non-secret example.
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+# Private certificates, keys, auth caches and account state.
+*.key
+*.pem
+*.p8
+*.p12
+*.pfx
+*.keystore
+**/credentials*.json
+**/*token*.json
+**/auth*.json
+**/sessions*.json
+**/session*.json
+**/accounts*.json
+**/account-pool*.json
+**/workbuddy-sources.json
+**/checkins.json
+**/secrets/
+**/.dsh/
+# The actual DSH configuration contains account metadata, never upload it.
+config.json
+**/config.json
+# Private developer scratch notes; public changelog/acceptance live elsewhere.
 DEVELOPMENT_LOG.md
-docs/REFERENCE_AUDIT.md
 docs/UPSTREAM_REUSE_AUDIT.md
-tests/
+docs/REFERENCE_AUDIT.md
 VERIFY.md
+# Unit tests are deliberately PUBLIC and scanned before upload.

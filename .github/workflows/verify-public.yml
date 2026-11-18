@@ -1,0 +1,69 @@
+name: Public source, privacy and reproducibility
+
+on:
+  push:
+    branches: [main, 'fix/**', 'security/**']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  integrity:
+    name: ${{ matrix.os }} / Node 22.16 / public privacy gate
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Check out public source without persistent tokens
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify privacy rules detect known unsafe examples
+        run: python tools/audit-public-tree.py --self-test
+      - name: Stop if a tracked file looks like a secret or private profile
+        run: python tools/audit-public-tree.py
+      - name: Verify immutable MIT source across CRLF and LF checkouts
+        run: python tools/build-native-channel-pack.py --check
+      - name: Prepare isolated test storage on Windows runner
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          # Hosted runners need not have E:. Only map this ephemeral CI VM;
+          # never inspect or copy real users' profiles or desktop credentials.
+          if (-not (Test-Path -LiteralPath 'E:\')) {
+            subst.exe E: "$env:RUNNER_TEMP"
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot provision isolated E drive' }
+          }
+          New-Item -ItemType Directory -Path 'E:\Temp' -Force | Out-Null
+          "TEMP=E:\Temp" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "TMP=E:\Temp" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Run portable Windows synthetic tests without weakening real-disk isolation
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          # GitHub's E: is a temporary SUBST mapping; realpathSync.native()
+          # resolves to D:, so it MUST fail the strict physical E: source gate.
+          # Only two hardware-bound integration suites require a real E: disk.
+          # Run those on the project-bound workstation, never relax the gate.
+          $hardwareBound = @('embedded-pack.test.mjs', 'source-checkin-bridge.test.mjs')
+          $tests = @(Get-ChildItem -LiteralPath 'tests' -Filter '*.test.mjs' -File |
+            Where-Object { $_.Name -notin $hardwareBound } |
+            ForEach-Object { $_.FullName })
+          if ($tests.Count -lt 25) { throw 'Missing portable tests in public checkout' }
+          & node --test @tests
+          if ($LASTEXITCODE -ne 0) { throw 'Portable Windows synthetic tests failed' }
+      - name: Check canonical source and config tests from Linux LF checkout
+        if: matrix.os == 'ubuntu-latest'
+        run: node --test tests/native-pack-bundle.test.mjs tests/config.test.mjs
+      - name: Validate npm publish file list (no upload)
+        run: npm pack --dry-run --json

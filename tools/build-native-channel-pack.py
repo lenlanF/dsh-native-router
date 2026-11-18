@@ -20,11 +20,14 @@ def sha(data: bytes) -> str:
 
 def build(*, check=False):
     source_manifest = json.loads(SOURCE_RECEIPT.read_text("utf8"))
-    original = UPSTREAM.read_bytes()
+    # Git stores the public text snapshot using LF. Windows can check it out
+    # with CRLF, but the source identity must never depend on core.autocrlf.
+    # Normalize TEXT only; qoder-auth-wasm.wasm remains strictly binary.
+    original = UPSTREAM.read_bytes().replace(b"\r\n", b"\n")
     expected = next(entry["sha256"] for entry in source_manifest["referenceFiles"] if entry["file"] == "pack.js")
     if sha(original) != expected:
-        raise SystemExit("Pinned source SHA256 mismatch: refuse to generate derivative")
-    text = original.decode("utf8").replace("\r\n", "\n")
+        raise SystemExit("Pinned canonical-LF source SHA256 mismatch: refuse to generate derivative")
+    text = original.decode("utf8")
     patches = [
         (
             "var CHANNEL_PACK_NS = \"channel-pack\";",

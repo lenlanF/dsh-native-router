@@ -1,4 +1,4 @@
-# DSH Native Router — 1.0.0-rc.1 发布验收与放行门禁
+# DSH Native Router — 1.0.0-rc.2 发布验收与放行门禁
 
 > 当前状态：**发行候选（Release Candidate），不是稳定版 1.0.0**。仅能在用户明确批准的隔离 DSH 中做实机验收。提交到 npm、发布 GitHub Release、覆盖 DSH 生产插件或接触真实登录态均需单独明确授权；离线测试通过不等同于业务账号、真实服务或桌面端验收通过。
 
@@ -18,6 +18,8 @@
 | 许可证与可发布性 | MIT、第三方 NOTICE、固定上游 SHA；`npm publish --dry-run` 成功但未公开发布，发行包中没有独立 Agent2API | npm 干运行和逐文件验证；所有正式发布动作仍待审批 |
 | **发行包实装验收** | **从真实 .tgz 安装进全新 npm 环境**，实际 Cordis 加载/卸载、原生 Provider 存在、DSH Connection 200/401/404、没有默认配置写入、仅一个宿主监听器 | `tools/verify-packed-distribution.ps1`，临时 Profile 用后清理；不是正式桌面 DSH |
 
+**CI 与真实磁盘隔离的区别**：GitHub Windows 托管虚拟机没有实际 E: 磁盘，通过 `SUBST` 映射的 E: 在 `realpathSync.native` 后仍属于其它盘符，按设计会被 `channelPackIsolationReason` 拒绝。公开 Windows CI 因此运行 28 个无需物理 E: 的合成测试文件；`tests/embedded-pack.test.mjs` 和 `tests/source-checkin-bridge.test.mjs` 两个涉及真正 E: 磁盘安全门禁的集成测试，必须在项目绑定的真实 E: 测试机执行完整 `npm test`。**不得通过降低插件的真实目录校验让 CI 通过**。Ubuntu CI 核对 Git LF、来源哈希及跨平台配置测试。两类验证各有适用范围，不能混为一谈。
+
 ## 稳定版 1.0.0 的**阻断关口**
 
 1. **正式 DSH 版本和桌面 GUI 实测（需要审批）**：在已备份且允许操作的 DSH 实例中安装候选包，验证菜单加载、模型列表、账号状态、来源登录复用、签到页、重启/升级/卸载及原渠道不受影响。不能仅靠 VM 注册测试声称已兼容桌面 UI。
@@ -29,7 +31,7 @@
 ## 运维与安装要求
 
 - DSH Host Node.js 最低 **22.10.0**；额外进程、8326 网关、Windows 计划任务均不需要。源码版本的前端 UI 和认证 API 必须由 DSH Host 自带的 Connection 服务提供。
-- 正式部署前请备份**整个已有 DSH Profile 和插件目录**，确认其它故障转移插件是否运行，禁止同时开启两个宿主级自动重试器。不得用开发测试脚本指向已有用户 Profile。
+- 如需试装：对准经允许的测试 DSH，使用本项目 `dsh-native-router-1.0.0-rc.2.tgz` 作为本地插件包、由 DSH 现有插件安装方式装载，并在系统插件页核对已安装版本和前端页面。**未对任何生产 DSH 执行安装。**
 - 如需试装：对准经允许的测试 DSH，使用本项目 `dsh-native-router-1.0.0-rc.1.tgz` 作为本地插件包、由 DSH 现有插件安装方式装载，并在系统插件页核对已安装版本和前端页面。**未对任何生产 DSH 执行安装。**
 - 插件配置默认不开启现有认证自动扫描、内置来源包自动加载、每日自动签到及宿主自动续跑；启用前请核对具体账号与模型链。
 - 回滚操作：通过宿主 DSH 原生插件管理卸载本插件或恢复原版本，再还原部署前备份的本插件配置；此操作不应删除其他 DSH 渠道账号或原 Provider。
