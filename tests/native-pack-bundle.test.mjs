@@ -29,7 +29,7 @@ test('the DSH-native bundle is deterministically derived from unchanged pinned M
   assert.equal(sha(canonicalText(crlf)),sha(original));
  assert.equal(sha(bundled),native.generatedSha256);
  assert.equal(bundled.length,native.generatedBytes);
- assert.equal(native.patches.length,23);
+ assert.equal(native.patches.length,31);
  assert.ok(native.patches.includes('scope-llm-adapter-cleanup'));
  assert.ok(native.patches.includes('private-source-checkins-callback'));
  assert.ok(native.patches.includes('failed-source-alias-transactional-rollback'));
@@ -48,7 +48,13 @@ test('the DSH-native bundle is deterministically derived from unchanged pinned M
  assert.match(bundled.toString('utf8'),/^var GEMINI_DEFAULT_CLIENT_ID = "";$/m);
  assert.match(bundled.toString('utf8'),/^var GEMINI_DEFAULT_CLIENT_SECRET = "";$/m);
  assert.match(bundled.toString('utf8'),/native-router-source-/);
- assert.match(bundled.toString('utf8'),/const originalProviders = providers.filter/);
+ assert.doesNotMatch(bundled.toString('utf8'),/const originalProviders = providers.filter/);
+ assert.ok(native.patches.includes('auth-first-independent-model-adapter-fail-open'));
+ assert.ok(native.patches.includes('never-register-original-host-provider'));
+ assert.match(bundled.toString('utf8'),/nativeRouterModelReady/);
+ assert.match(bundled.toString('utf8'),/nativeRouterRpcReady/);
+ assert.ok(native.patches.includes('source-rpc-registered-readiness-callback'));
+ assert.match(bundled.toString('utf8'),/alias_occupied/);
  assert.equal(native.additionalRuntimeProcessRequired,false);
  assert.equal(native.bundledByDSHPlugin,true);
 });
@@ -77,7 +83,7 @@ test('release package ships only native in-process bundle with host-provided pee
   assert.equal(pkg.private,false);
   assert.equal(pkg.license,'MIT');
   assert.equal(pkg.engines.node,'>=22.10.0');
-   assert.equal(pkg.version,'1.0.0-rc.12');
+   assert.equal(pkg.version,'1.0.0-rc.13');
  assert.ok(pkg.files.includes('vendor/channel-pack/pack-native.js'));
  assert.ok(pkg.files.includes('vendor/channel-pack/NATIVE_BUILD_RECEIPT.json'));
  assert.ok(pkg.files.includes('vendor/channel-pack/SOURCE_RECEIPT.json'));

@@ -83,16 +83,25 @@ window.__ModuleLoader__.load({
         kind==='checkin'?(checkinLabels[value]||value):(accountLabels[value]||value));
     }
     function EmbeddedPackConsole({pack,upstream,run,busy,modelProvider,setModelProvider,onModels,modelBusy,models,onSourceLogin,onSourcePoll,pendingLogin,onSourceRefresh,sourceBusy}){
-      const rows=upstream?.accounts||[],live=pack?.state==='mounted';
+      const rows=upstream?.accounts||[],live=pack?.state==='mounted'&&pack?.rpcReady===true;
        const sourceChannels=pack?.channels||[],selectedSource=sourceChannels.includes(modelProvider)
          ?modelProvider:sourceChannels[0]||'';
-      const packLabel={disabled:'默认关闭',blocked:'安全门禁阻止',waiting_host_services:'等待宿主',loading:'加载中',mounted:'已在 DSH 内挂载',failed:'挂载失败',host_disposed:'宿主已释放',disposed:'已释放',unavailable:'不可用'}[pack?.state]||'状态未知';
+      const packLabel={disabled:'默认关闭',blocked:'安全门禁阻止',waiting_host_services:'等待宿主',loading:'加载中',mounted:live?'自主登录已就绪':'渠道已挂载，登录接口等待中',failed:'挂载失败',host_disposed:'宿主已释放',disposed:'已释放',unavailable:'不可用'}[pack?.state]||'状态未知';
       return h(Panel,{title:'自主登录 · 渠道账号与模型'},
         h('div',{style:css.line},
           h('strong',null,packLabel),
-           h('span',{style:css.mutedTag},'可自主授权 '+(pack?.channelCount??13)+' 个')),
+           h('span',{style:css.mutedTag},'可自主授权 '+(pack?.channelCount??13)+' 个'),
+           pack?.state==='mounted'?h('span',{style:css.mutedTag},
+             '模型路由 '+(pack?.modelAdapterReady?.length??0)+'/13 已就绪'):null),
          pack?.reason?h('p',{role:pack?.state==='failed'?'alert':undefined,style:css.small},
-           pack.reason+(pack?.errorStage?'（失败阶段：'+pack.errorStage+'）':'')):null,
+           pack.reason+(pack?.errorStage?'（失败阶段：'+pack.errorStage+'）':'')+
+             (pack?.sourcePhase?'（内部步骤：'+pack.sourcePhase+'）':'')+
+             (pack?.sourceErrorLocation?'（定位：'+pack.sourceErrorLocation+' / '+(pack?.sourceErrorType||'Error')+'）':'')):null,
+         pack?.state==='mounted'&&pack?.modelAdapterUnready?.length?h('details',null,
+           h('summary',{style:{cursor:'pointer',fontSize:12}},
+             '模型适配器 '+pack.modelAdapterUnready.length+' 个未就绪；自主扫码/网页登录仍可继续'),
+           pack.modelAdapterUnready.map(id=>h('div',{key:id,style:css.small},
+             id+' · '+(pack?.modelAdapterUnreadyReasons?.[id]||'unknown')))):null,
          h('p',{style:css.small},'自主扫码或网页授权新账号，原渠道插件与本插件互不覆盖。'),
          pack?.skippedProviders?.length?h('details',null,
            h('summary',{style:{cursor:'pointer',fontSize:12}},
@@ -115,7 +124,9 @@ window.__ModuleLoader__.load({
             models.models.map(m=>h('div',{key:m.id,style:{...css.line,marginBottom:5}},
               h('strong',null,m.name),h('span',{style:css.small},m.id),
               m.upstreamFreeLabel?h('span',{style:css.small},'来源标记免费 · 未核实'):null))):null
-        ):h('p',{style:css.small},'启用并保存配置、重启 DSH 后可进行自主登录、刷新与模型查询。'),
+        ):h('p',{style:css.small},
+          pack?.state==='mounted'?'来源包已加载，但尚未确认 DSH Connection 登录接口成功注册；请重新读取状态，未确认前不会发起登录。':
+          '启用并保存配置、重启 DSH 后可进行自主登录、刷新与模型查询。'),
         upstream?.state==='ready'?h('div',null,
           h('p',{style:css.small},'来源账号 '+rows.length+' 个；列表只反映上游设置，登录状态未知。'),
           h('div',{style:{maxHeight:320,overflowY:'auto'}},
@@ -1116,7 +1127,7 @@ async function loadHostModels(providerId){
           value:raw,onChange:e=>setRaw(e.target.value),'aria-label':'完整路由配置 JSON'})));
       return h('div',{style:css.root},
         h('h2',{style:css.title},'聚合路由'),
-        h('p',{style:css.caption},'DSH 原生插件复用 · 桌面授权复用 · 多账号池 · 每日签到 · 模型故障安全续跑 · v1.0.0-rc.12'),
+        h('p',{style:css.caption},'DSH 原生插件复用 · 桌面授权复用 · 多账号池 · 每日签到 · 模型故障安全续跑 · v1.0.0-rc.13'),
         h('div',{style:css.tabbar},tabs.map(([id,label])=>h('button',{key:id,type:'button',
           style:{...css.tab,...(tab===id?css.chosen:{})},onClick:()=>setTab(id)},label))),
         error?h('div',{role:'alert',style:css.error},error):null,

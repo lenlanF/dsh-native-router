@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
- [string]$Version='1.0.0-rc.12',
+ [string]$Version='1.0.0-rc.13',
  [string]$NodePath='E:\Temp\dsh-native-router-isolated-alpha11-node-runtime\package\bin\node.exe'
 )
 $ErrorActionPreference='Stop'
@@ -60,6 +60,17 @@ const response=await fetch(connection.authenticatedUrl(base+'/connect'),{redirec
 assert.equal(response.status,302);
 const cookie=response.headers.get('set-cookie')?.split(';',1)[0];
 assert.ok(cookie?.startsWith('dsh-auth-'));
+// Authenticate a real read-only source login RPC through DSH Connection.
+// Never create or modify an account in the integration smoke test.
+const loginRpcUrl=base+'/api/dsh-native-router/channel-pack';
+const accountListBody=JSON.stringify({type:'client-request',
+ rpcId:'source-readonly-smoke',method:'native-router-channel-pack',
+ payload:{method:'account.list',payload:{provider:'loomy'}}});
+const querySourceAccounts=()=>fetch(loginRpcUrl,{method:'POST',
+ headers:{cookie,'content-type':'application/json'},body:accountListBody});
+const unauthSource=await fetch(loginRpcUrl,{method:'POST',
+ headers:{'content-type':'application/json'},body:accountListBody});
+assert.equal(unauthSource.status,401,'Source login RPC must reject anonymous requests');
 let loaded=false;
 try{
  const fiber=ctx.plugin(router);
@@ -100,6 +111,15 @@ try{
   assert.equal(sourceStatus.state,'mounted',
    'Self-contained native channels cannot mount in actual DSH: '+sourceStatus.reason);
   assert.equal(sourceStatus.channelCount,13);
+  assert.equal(sourceStatus.rpcReady,true,
+    'Account login RPC must be registered, not merely the model adapters');
+  assert.equal(sourceStatus.modelAdapterReady.length,13);
+  const sourceLogin=await querySourceAccounts();
+  assert.equal(sourceLogin.status,200,'Authenticated source login RPC must exist');
+  const sourceReply=await sourceLogin.json();
+  assert.equal(sourceReply.type,'server-response');
+  assert.equal(sourceReply.result?.ok,true);
+  assert.deepEqual(sourceReply.result.value.accounts,[]);
   const after=llm.listProviders().map(row=>row.id);
   assert.ok(after.includes('workbuddy')&&after.includes('loomy'));
   assert.equal(after.filter(id=>id.startsWith('native-router-source-')).length,13);
@@ -126,7 +146,31 @@ try{
    }finally{
      again.dispose();
      await new Promise(resolve=>setTimeout(resolve,250));
-     releaseOriginal();
+     // A preexisting source alias from another Cordis scope must not prevent
+     // the independent account authorization page from mounting.
+     const occupied=llm.registerAdapter(['native-router-source-loomy'],originalAdapter);
+     const degraded=createEmbeddedChannelPack({ctx,getConfig:()=>({embeddedPack:{enabled:true}})});
+     try{
+       degraded.attach();
+       for(let i=0;i<40&&!['mounted','failed','blocked','host_disposed'].includes(degraded.status().state);i++)
+         await new Promise(resolve=>setTimeout(resolve,75));
+       const degradedStatus=degraded.status();
+       assert.equal(degradedStatus.state,'mounted','Alias conflict must not disable independent login');
+       assert.equal(degradedStatus.rpcReady,true);
+       assert.equal(degradedStatus.channelCount,13);
+       assert.equal(degradedStatus.modelAdapterReady.length,12);
+       assert.equal(degradedStatus.modelAdapterUnreadyReasons.loomy,'alias_occupied');
+       const reply=await querySourceAccounts();
+       assert.equal(reply.status,200,'Source login RPC must survive a model alias collision');
+       assert.equal((await reply.json()).result?.ok,true);
+     }finally{
+       degraded.dispose();
+       await new Promise(resolve=>setTimeout(resolve,250));
+       assert.ok(llm.listProviders().some(row=>row.id==='native-router-source-loomy'),
+         'Existing alias registered outside the plugin must not be removed');
+       occupied();
+       releaseOriginal();
+     }
    }
    assert.equal(llm.listProviders().filter(row=>row.id.startsWith('native-router-source-')).length,0);
  }
@@ -144,7 +188,9 @@ console.log(JSON.stringify({result:'PASS',packagedModuleImported:true,
  nativeProviderRegisteredAndUnloaded:true,authenticatedOwnerStatus:200,
  anonymousStatus:401,afterUnload:404,
  sourcePackDefaultDisabled:true,sourceMountWithHostCollisions:true,
- thirteenIndependentAdapters:true,credentialsServiceReady:true,configNotWritten:true,
+ sourceLoginRpcAuthenticated:true,sourceLoginReadOnlyAccountsValidated:true,
+ sourceLoginSurvivesAliasConflict:true,thirteenIndependentAdapters:true,
+ credentialsServiceReady:true,configNotWritten:true,
  onlyDshWebServerListener:true,realAccounts:0,networkCloudCalls:0,
  independentProcesses:0}));
 process.exit(0);

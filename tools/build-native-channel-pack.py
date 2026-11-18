@@ -185,30 +185,53 @@ def build(*, check=False):
     target = text[begin:end]
     if target.count('wrapAdapterWithTokenLedger(providers, adapter)') != 1:
         raise SystemExit("Cannot derive independent source provider alias safely")
-    replacement = """function registerAdapterIdempotent(llm, providers, adapter, warn) {
-  const registered = llm?.listProviders?.();
-  if (!Array.isArray(registered)) throw new Error("Host provider inventory unavailable");
-  const existing = new Set(registered.map((row) => typeof row === "string" ? row : row?.id ?? row?.provider));
-  const originalProviders = providers.filter((id) => !existing.has(id));
-  let target = wrapAdapterWithTokenLedger(providers, adapter);
-  if (typeof adapter === "object" && adapter !== null) {
-    try {
-      target = withDeadModelPruning(providers, target);
-    } catch {
-      warn?.("[native-router] Model-pruning extension unavailable; using the original verified adapter");
-    }
+    # Deliberately preserve upstream auth and RPC even when one independent
+    # model adapter is unsupported in the user's actual DSH desktop runtime.
+    # Crucial: original host Provider names are NEVER registered by this pack.
+    # Every adapter is optional and its registration is separately owned.
+    replacement = """var nativeSourceAliasDisposers = new WeakMap();
+var nativeSourceAdapterStates = new WeakMap();
+function rollbackNativeRouterSourceAdapters(ctx) {
+  const members = nativeSourceAliasDisposers.get(ctx) ?? [];
+  for (const release of [...members].reverse()) {
+    try { release(); } catch {}
   }
-  // Only this alias represents the plugin-owned source pool. Host routes keep
-  // their existing names, account stores and credentials completely intact.
+  nativeSourceAliasDisposers.delete(ctx);
+  nativeSourceAdapterStates.delete(ctx);
+}
+function registerAdapterIdempotent(ctx, providers, adapter, warn) {
+  const llm = ctx?.llm;
   const prefix = "native-router-source-";
-  const aliases = providers.map((id) => prefix + id);
-  if (aliases.some((id) => existing.has(id))) {
-    throw new Error("Native Router internal adapter alias already occupied");
+  const aliases = providers.map(id => prefix + id);
+  const report = state => {
+    const snapshot = nativeSourceAdapterStates.get(ctx);
+    if (snapshot) for (const id of providers) snapshot[id] = state;
+  };
+  // An unknown host runtime API is NOT a reason to disable independent
+  // account login. Host-owned adapters are never replaced or deregistered.
+  let registered;
+  try { registered = llm?.listProviders?.(); } catch {}
+  if (!Array.isArray(registered) || typeof llm?.registerAdapter !== "function") {
+    report("llm_unavailable"); return;
   }
-  const actual = (id) => {
-    if (typeof id !== "string" || !id.startsWith(prefix)) {
-      throw new Error("Invalid independent source model provider");
+  const existing = new Set(registered.map(row =>
+    typeof row === "string" ? row : row?.id ?? row?.provider));
+  if (aliases.some(id => existing.has(id))) {
+    report("alias_occupied"); return;
+  }
+  let target;
+  try {
+    target = wrapAdapterWithTokenLedger(providers, adapter);
+    if (typeof adapter === "object" && adapter !== null) {
+      try { target = withDeadModelPruning(providers, target); }
+      catch { warn?.("[native-router] Source model pruning unavailable"); }
     }
+  } catch {
+    report("adapter_incompatible"); return;
+  }
+  const actual = id => {
+    if (typeof id !== "string" || !id.startsWith(prefix))
+      throw new Error("Invalid independent source model provider");
     const provider = id.slice(prefix.length);
     if (!providers.includes(provider)) throw new Error("Unowned source provider");
     return provider;
@@ -216,102 +239,106 @@ def build(*, check=False):
   const aliasAdapter = {
     providerInfo(id) {
       const value = target.providerInfo(actual(id));
-      return { ...value, id, name: value.name + " · 聚合路由自有" };
+      return {...value, id, name: value.name + " · 聚合路由自有"};
     },
     providerRetryPolicy(id) { return target.providerRetryPolicy(actual(id)); },
     listModels(id, ...rest) { return target.listModels(actual(id), ...rest); },
-    stream(options) { return target.stream({ ...options, provider: actual(options.provider) }); }
+    stream(options) { return target.stream({...options, provider: actual(options.provider)}); }
   };
-  const releaseAlias = llm.registerAdapter(aliases, aliasAdapter);
-  if (originalProviders.length === 0) return releaseAlias;
+  let cleanup;
   try {
-    const releaseOriginal = llm.registerAdapter(originalProviders, target);
-    return () => { releaseOriginal?.(); releaseAlias?.(); };
-  } catch (error) {
-    if (!isDuplicateRegistrationError(error)) {
-      releaseAlias?.();
-      throw error;
-    }
-    // Another host plugin won the original-name registration race. Keep the
-    // independent alias; never borrow its route for our source-pool account.
-    warn?.("[native-router] Original provider already owned by host; independent channel remains available");
-    return releaseAlias;
+    cleanup = llm.registerAdapter(aliases, aliasAdapter);
+    if (typeof cleanup !== "function") throw new Error("DSH adapter dispose contract unavailable");
+    const members = nativeSourceAliasDisposers.get(ctx) ?? [];
+    nativeSourceAliasDisposers.set(ctx, members);
+    let released = false;
+    const once = () => {
+      if (released) return;
+      released = true;
+      const index = members.indexOf(once);
+      if (index >= 0) members.splice(index, 1);
+      const snapshot = nativeSourceAdapterStates.get(ctx);
+      if (snapshot) for (const id of providers) snapshot[id] = "disposed";
+      cleanup();
+    };
+    members.push(once);
+    // registerAdapter returns a release bound to our Cordis child scope.
+    // Never release a Provider registered by another plugin.
+    try { ctx.effect(() => once); }
+    catch (error) { once(); throw error; }
+    report("ready");
+    return once;
+  } catch {
+    try { cleanup?.(); } catch {}
+    report("adapter_registration_failed");
+    return;
   }
 }
 """
-    # Failed apply must not leak aliases registered before the failing
-    # adapter. Scope unload is also safe and always idempotent.
-    replacement = ('var nativeSourceAliasDisposers = new WeakMap();\n'
-                   + replacement)
-    # Upstream callers discard registerAdapterIdempotent's returned
-    # disposables. Bind releases to the actual Cordis scope explicitly, or
-    # HMR/plugin reload leaks native-router-source-* adapters and the next
-    # mount fails in register_owned_adapter. No other plugin is unregistered.
     if text.count("registerAdapterIdempotent(ctx.llm,") != 12:
-        raise SystemExit("Expected 12 pinned original source adapter call sites")
-    replacement = replacement.replace(
-        "function registerAdapterIdempotent(llm, providers, adapter, warn) {",
-        "function registerAdapterIdempotent(ctx, providers, adapter, warn) {\n  const llm = ctx?.llm;")
-    replacement = replacement.replace(
-        "  if (originalProviders.length === 0) return releaseAlias;",
-        "  const retain = (cleanup) => {\n"
-        "    try { ctx.effect(() => cleanup); }\n"
-        "    catch (error) { cleanup?.(); throw error; }\n"
-        "    return cleanup;\n"
-        "  };\n"
-        "  if (originalProviders.length === 0) return retain(releaseAlias);")
-    replacement = replacement.replace(
-        "    return () => { releaseOriginal?.(); releaseAlias?.(); };",
-        "    return retain(() => { releaseOriginal?.(); releaseAlias?.(); });")
-    replacement = replacement.replace(
-        "    return releaseAlias;\n  }\n}",
-        "    return retain(releaseAlias);\n  }\n}")
-    replacement = replacement.replace(
-        '  const retain = (cleanup) => {',
-        '  const retain = (cleanup) => {\n'
-        '    const members = nativeSourceAliasDisposers.get(ctx) ?? [];\n'
-        '    nativeSourceAliasDisposers.set(ctx, members);\n'
-        '    let released = false;\n'
-        '    const once = () => {\n'
-        '      if (released) return; released = true;\n'
-        '      const index = members.indexOf(once);\n'
-        '      if (index >= 0) members.splice(index, 1);\n'
-        '      cleanup?.();\n'
-        '    };\n'
-        '    members.push(once);')
-    replacement = replacement.replace(
-        'ctx.effect(() => cleanup);', 'ctx.effect(() => once);')
-    replacement = replacement.replace(
-        'catch (error) { cleanup?.(); throw error; }',
-        'catch (error) { once(); throw error; }')
-    replacement = replacement.replace(
-        '    return cleanup;\n  };', '    return once;\n  };')
-    text = text.replace("registerAdapterIdempotent(ctx.llm,",
-        "registerAdapterIdempotent(ctx,", 12)
-    names.append("scope-llm-adapter-cleanup")
-    text = text[:begin] + replacement + text[end:]
-    names.append("register-independent-source-provider-aliases")
-    # Root-context local disposers; no global registry deletion, no touching
-    # WorkBuddy/Loomy host plugins. Used if apply throws partway through.
-    rollback = (
-        '\nfunction rollbackNativeRouterSourceAdapters(ctx) {\n'
-        '  const members = nativeSourceAliasDisposers.get(ctx) ?? [];\n'
-        '  for (const release of [...members].reverse()) {\n'
-        '    try { release(); } catch {}\n'
-        '  }\n'
-        '  nativeSourceAliasDisposers.delete(ctx);\n'
-        '}\n'
+        raise SystemExit("Pinned source adapter call count drift")
+    text=text.replace("registerAdapterIdempotent(ctx.llm,",
+                      "registerAdapterIdempotent(ctx,",12)
+    text=text[:begin]+replacement+text[end:]
+    names.extend([
+        "scope-llm-adapter-cleanup",
+        "register-independent-source-provider-aliases",
+        "failed-source-alias-transactional-rollback",
+        "auth-first-independent-model-adapter-fail-open",
+        "never-register-original-host-provider",
+        "source-adapter-readiness-metadata",
+    ])
+    # Hook only known, exactly once pinned source anchors. No credential contents.
+    for old, new, patch_name in [
+        (
+          '  const pool = new AccountPool(ctx);\n',
+          '  config.nativeRouterPhase?.("account_pool");\n'
+          '  const pool = new AccountPool(ctx);\n'
+          '  nativeSourceAdapterStates.set(ctx, Object.create(null));\n'
+          '  ctx.effect(() => () => nativeSourceAdapterStates.delete(ctx));\n',
+          'per-scope-source-model-readiness',
+        ),
+        (
+          '  const codearts = registerCodeArtsLlm(ctx, {',
+          '  config.nativeRouterPhase?.("model_adapters");\n'
+          '  const codearts = registerCodeArtsLlm(ctx, {',
+          'explain-source-model-start',
+        ),
+        (
+          '  registerChannelPackRpc(ctx, pool, service, buddy, workbuddy, lobsterai, qoder, qoderCn, trae, cline, loomy, raccoon, minimax, zcode, gemini, modelAdapters, {',
+          '  config.nativeRouterPhase?.("rpc_routes");\n'
+          '  registerChannelPackRpc(ctx, pool, service, buddy, workbuddy, lobsterai, qoder, qoderCn, trae, cline, loomy, raccoon, minimax, zcode, gemini, modelAdapters, {',
+          'explain-source-rpc-register',
+        ),
+        (
+          '  config.nativeRouterPoolReady?.(pool);\n',
+          '  config.nativeRouterPoolReady?.(pool);\n'
+          '  config.nativeRouterModelReady?.(nativeSourceAdapterStates.get(ctx) ?? {});\n'
+          '  config.nativeRouterPhase?.("complete");\n',
+          'source-model-diagnostics-to-owner-only',
+        ),
+    ]:
+        if text.count(old)!=1:
+            raise SystemExit("Pinned source lifecycle anchor drift: "+patch_name)
+        text=text.replace(old,new,1)
+        names.append(patch_name)
+    # A mounted account pool is not proof that the authenticated login API
+    # was attached. Observe actual Connection fetch registration explicitly.
+    old_rpc_ready = '  async function enrichAccountIdentity(accounts, provider) {'
+    new_rpc_ready = (
+        '  config.nativeRouterRpcReady?.(true);\n'
+        '  ctx.effect(() => () => config.nativeRouterRpcReady?.(false));\n'
+        '  async function enrichAccountIdentity(accounts, provider) {'
     )
-    text = text.replace('function registerAdapterIdempotent(ctx, providers, adapter, warn) {',
-        rollback + 'function registerAdapterIdempotent(ctx, providers, adapter, warn) {',1)
-    # Add new safe export, no API tokens or account rows leave this module.
+    if text.count(old_rpc_ready)!=1:
+        raise SystemExit('Pinned Connection RPC readiness anchor drift')
+    text=text.replace(old_rpc_ready,new_rpc_ready,1)
+    names.append('source-rpc-registered-readiness-callback')
     old_export='  apply,\n  channelProxyBypassed,'
     new_export='  apply,\n  rollbackNativeRouterSourceAdapters,\n  channelProxyBypassed,'
     if text.count(old_export)!=1:
-        raise SystemExit('Pinned source export anchor drifted')
+        raise SystemExit("Pinned source export anchor drifted")
     text=text.replace(old_export,new_export,1)
-    names.append('failed-source-alias-transactional-rollback')
-
     # Limit source credits.status/claimAll to the exact selected source account
     # (the original UI batch RPC still works when no accountId is provided).
     start = text.index('      case "credits.status": {')

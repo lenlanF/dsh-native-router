@@ -9,7 +9,7 @@ assert.ok(begin>=0&&end>begin,'Independent native source registration must exist
 // Only evaluate the pure registration helper, never the source application,
 // credential stores, network, login flows, or extra services.
 const exported=new Function('wrapAdapterWithTokenLedger','withDeadModelPruning',
- 'isDuplicateRegistrationError',bundled.slice(begin,end)+'\nreturn {registerAdapterIdempotent,rollbackNativeRouterSourceAdapters};')(
+ 'isDuplicateRegistrationError',bundled.slice(begin,end)+'\nreturn {registerAdapterIdempotent,rollbackNativeRouterSourceAdapters,nativeSourceAdapterStates};')(
  (_providers,adapter)=>adapter,(_providers,adapter)=>adapter,error=>error?.code==='DUPLICATE_ADAPTER');
 const register=exported.registerAdapterIdempotent,
   rollback=exported.rollbackNativeRouterSourceAdapters;
@@ -33,7 +33,9 @@ function rig(initial=['native-router','workbuddy']){
   stream:options=>{calls.push(['stream',options.provider]);return {original:options.provider}},
  };
  const ctx={llm:host,effect(factory){const dispose=factory();scopedCleanup.push(dispose)}};
- return {host,ctx,adapter,writes,registry,calls,
+ const states=Object.create(null);
+ exported.nativeSourceAdapterStates.set(ctx,states);
+ return {host,ctx,adapter,writes,registry,calls,states,
   releaseScope(){for(const dispose of scopedCleanup.reverse())dispose?.()}};
 }
 
@@ -45,7 +47,7 @@ test('host installed WorkBuddy remains untouched while source WorkBuddy and Loom
  assert.equal(r.registry.get('workbuddy'),original);
  const second=register(r.ctx,['loomy'],r.adapter);
  assert.deepEqual(r.writes.map(x=>x.ids),[
-  ['native-router-source-workbuddy'],['native-router-source-loomy'],['loomy']]);
+  ['native-router-source-workbuddy'],['native-router-source-loomy']]);
  assert.equal(r.registry.get('workbuddy'),original);
  const owned=r.registry.get('native-router-source-workbuddy');
  assert.deepEqual(owned.providerInfo('native-router-source-workbuddy'),{
@@ -74,7 +76,8 @@ test('partial source registration rollback releases only aliases from THIS scope
  const original=r.registry.get('workbuddy');
  register(r.ctx,['workbuddy'],r.adapter);
  assert.equal(r.registry.has('native-router-source-workbuddy'),true);
- assert.throws(()=>register(r.ctx,['loomy'],r.adapter),/internal adapter alias already occupied/);
+ assert.equal(register(r.ctx,['loomy'],r.adapter),undefined);
+ assert.equal(r.states.loomy,'alias_occupied');
  rollback(r.ctx);
  assert.equal(r.registry.has('native-router-source-workbuddy'),false);
  assert.equal(r.registry.get('workbuddy'),original);
@@ -84,13 +87,51 @@ test('partial source registration rollback releases only aliases from THIS scope
 test('independent internal alias collision fails closed without touching the original host',()=>{
  const r=rig(['native-router','workbuddy','native-router-source-workbuddy']);
  const original=r.registry.get('workbuddy');
- assert.throws(()=>register(r.ctx,['workbuddy'],r.adapter),/internal adapter alias already occupied/);
+ assert.equal(register(r.ctx,['workbuddy'],r.adapter),undefined);
+ assert.equal(r.states.workbuddy,'alias_occupied');
  assert.equal(r.writes.length,0);
  assert.equal(r.registry.get('workbuddy'),original);
 });
 test('missing host provider inventory refuses source registration before any writes',()=>{
  let writes=0;
  const host={listProviders:()=>undefined,registerAdapter:()=>{writes++}};
- assert.throws(()=>register({llm:host,effect(){}},['workbuddy'],{}),/Host provider inventory unavailable/);
+ const ctx={llm:host,effect(){}},states={};
+ exported.nativeSourceAdapterStates.set(ctx,states);
+ assert.equal(register(ctx,['workbuddy'],{}),undefined);
+ assert.equal(states.workbuddy,'llm_unavailable');
  assert.equal(writes,0);
+});
+test('one incompatible source model adapter never blocks other independent accounts from loading',()=>{
+ const r=rig();
+ const original=r.registry.get('workbuddy');
+ const delegate=r.host.registerAdapter.bind(r.host);
+ r.host.registerAdapter=(ids,adapter)=>{
+   if(ids.includes('native-router-source-loomy'))throw Error('local adapter model rejected');
+   return delegate(ids,adapter);
+ };
+ assert.equal(typeof register(r.ctx,['workbuddy'],r.adapter),'function');
+ assert.equal(register(r.ctx,['loomy'],r.adapter),undefined);
+ assert.equal(r.states.workbuddy,'ready');
+ assert.equal(r.states.loomy,'adapter_registration_failed');
+ assert.equal(r.registry.get('workbuddy'),original);
+ assert.equal(r.registry.has('native-router-source-workbuddy'),true);
+ assert.equal(r.registry.has('native-router-source-loomy'),false);
+ rollback(r.ctx);
+ assert.equal(r.registry.has('native-router-source-workbuddy'),false);
+ assert.equal(r.registry.get('workbuddy'),original);
+});
+test('all independent adapters can reject registration without touching existing host routes',()=>{
+ const r=rig();
+ const old=r.registry.get('workbuddy');
+ const delegate=r.host.registerAdapter.bind(r.host);
+ r.host.registerAdapter=(ids,adapter)=>{
+   if(ids[0]?.startsWith('native-router-source-'))throw Error('DSH refuses adapter');
+   return delegate(ids,adapter);
+ };
+ for(const provider of ['workbuddy','loomy','qoder']){
+   assert.equal(register(r.ctx,[provider],r.adapter),undefined);
+   assert.equal(r.states[provider],'adapter_registration_failed');
+ }
+ assert.deepEqual(r.writes,[]);
+ assert.equal(r.registry.get('workbuddy'),old);
 });

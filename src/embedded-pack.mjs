@@ -32,6 +32,8 @@ function safetyReason(env){
 export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPack=loadPinnedPack,modelTimeoutMs=20000}){
   let state='disabled',reason='',errorStage='',errorKind='',disposed=false,activeScope=null,injectedCallback=null;
    let privateSourcePool=null,privateSourceCheckins=null,loadedPack=null;
+   let sourcePhase='',modelAdapterStates={},privateSourceRpcReady=false;
+   let sourceErrorType='',sourceErrorLocation='';
    let skippedProviders=new Set();
    // The bundled derivative owns a dedicated Cordis service and never binds to
    // any already-installed plugin's accountPool. Test injected packs keep the
@@ -56,10 +58,16 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
       &&loadPack!==loadPinnedPack);
   let selectionGuard=null;
   const providerStreams=new Set();
-  function status(){return {state,reason,errorStage,errorKind,
+  function status(){return {state,reason,errorStage,errorKind,sourcePhase,
+     sourceErrorType,sourceErrorLocation,
+     rpcReady:state==='mounted'&&privateSourceRpcReady,
+     modelAdapterReady:SOURCE_PACK_PROVIDERS.filter(id=>modelAdapterStates[id]==='ready'),
+     modelAdapterUnready:SOURCE_PACK_PROVIDERS.filter(id=>modelAdapterStates[id]&&modelAdapterStates[id]!=='ready'),
+     modelAdapterUnreadyReasons:Object.fromEntries(Object.entries(modelAdapterStates)
+       .filter(([id,value])=>SOURCE_PACK_PROVIDERS.includes(id)&&value!=='ready')),
      supportedChannelCount:SOURCE_PACK_PROVIDERS.length,
-     channelCount:state==='mounted'?SOURCE_PACK_PROVIDERS.filter(id=>sourceAllowed(id)).length:0,
-     channels:state==='mounted'?SOURCE_PACK_PROVIDERS.filter(id=>sourceAllowed(id)):[],
+     channelCount:state==='mounted'&&privateSourceRpcReady?SOURCE_PACK_PROVIDERS.filter(id=>sourceAllowed(id)).length:0,
+     channels:state==='mounted'&&privateSourceRpcReady?SOURCE_PACK_PROVIDERS.filter(id=>sourceAllowed(id)):[],
      skippedProviders:[...skippedProviders],independentLogin:nativeOwned,
      experimentalMultiAccountProviders:selectionGuard&&multiAccountOptIn?MULTIACCOUNT_REVIEWED:[],
      exactAccountGate:selectionGuard?'ready':multiAccountOptIn?'unavailable':'disabled'}} function attach(){
@@ -73,6 +81,8 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
    if(denied){state='blocked';reason=denied;return status()}
   if(typeof ctx?.inject!=='function'){state='blocked';reason='当前 DSH 宿主不支持按需服务注入';return status()}
   state='waiting_host_services';reason='';errorStage='';errorKind='';
+  sourcePhase='';modelAdapterStates={};privateSourceRpcReady=false;
+  sourceErrorType='';sourceErrorLocation='';
   try{
     const onInjected=scope=>{
     let phase='service_injection';
@@ -86,7 +96,8 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
       scope.effect?.(()=>()=>{
        selectionGuard?.restore();selectionGuard=null;
        activeScope=null;privateSourcePool=null;privateSourceCheckins=null;loadedPack=null;
-       if(!disposed){state='host_disposed';reason='上游渠道包所属 Host 作用域已释放'}
+       sourcePhase='';modelAdapterStates={};privateSourceRpcReady=false;
+       if(!disposed&&state!=='failed'){state='host_disposed';reason='上游渠道包所属 Host 作用域已释放'}
       });
      void Promise.resolve().then(async()=>{
       // The source bundle silently tolerates duplicate llm adapters and
@@ -136,6 +147,23 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
        // Do NOT register arbitrary extra services in the global DSH registry.
        const options={disableOpencode:true};
        if(nativeOwned){
+         options.nativeRouterRpcReady=ready=>{
+           privateSourceRpcReady=ready===true;
+         };
+         options.nativeRouterPhase=value=>{
+           if(['account_pool','model_adapters','rpc_routes','complete'].includes(value))
+             sourcePhase=value;
+         };
+         options.nativeRouterModelReady=value=>{
+           if(!value||typeof value!=='object'||Array.isArray(value))return;
+           const allowed=new Set(['ready','disposed','alias_occupied','llm_unavailable',
+             'adapter_incompatible','adapter_registration_failed']);
+           modelAdapterStates=Object.fromEntries(
+             Object.entries(value).filter(([id,status])=>
+               SOURCE_PACK_PROVIDERS.includes(id)&&allowed.has(status)));
+         };
+       }
+       if(nativeOwned){
          options.nativeRouterPoolReady=pool=>{
            if(typeof pool?.listAllAccounts!=='function'||typeof pool?.getAvailableAccount!=='function')
              throw Error('Native source pool contract unavailable');
@@ -162,14 +190,24 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
          catch{selectionGuard=null;ctx.logger?.warn?.('native-router: exact-account DSH credential isolation unavailable; multiaccount disabled safely')}
        }
        state='mounted';reason='';errorStage='';errorKind='';
+       if(nativeOwned&&SOURCE_PACK_PROVIDERS.every(id=>modelAdapterStates[id]!=='ready'))
+         reason='自主登录服务已加载，但模型适配器全部不可用；可以先管理授权，模型推理暂不可使用';
     }).catch(error=>{
      if(disposed||state==='host_disposed')return;
      // Partial registration must not poison the next plugin reload.
      try{loadedPack?.rollbackNativeRouterSourceAdapters?.(scope)}catch{}
-     privateSourcePool=null;privateSourceCheckins=null;
+     privateSourcePool=null;privateSourceCheckins=null;privateSourceRpcReady=false;
      state='failed';errorStage=phase;
      const code=String(error?.code??'');
      const message=String(error?.message??'').slice(0,300);
+     const type=String(error?.name??'');
+     sourceErrorType=['TypeError','RangeError','ReferenceError','SyntaxError',
+       'Error','AggregateError'].includes(type)?type:'Error';
+     // Only a validated file basename and location; never expose user paths,
+     // upstream messages, access tokens, account names or credential values.
+     const stack=String(error?.stack??'');
+     const location=stack.match(/(?:^|[\\/])(pack-runtime|embedded-pack)\.mjs:(\d{1,6}):(\d{1,4})/m);
+     sourceErrorLocation=location?location[1]+':'+location[2]+':'+location[3]:'unknown';
      errorKind=['ERR_MODULE_NOT_FOUND','MODULE_NOT_FOUND'].includes(code)?'missing_module':
        code==='DUPLICATE_ADAPTER'||/already registered|duplicate|already occupied|adapter alias/i.test(message)
          ?'model_adapter_collision':
@@ -189,11 +227,20 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
        ?'未获取到来源包所需宿主服务；已阻止继续注册，原账号不变。'
        :'内置渠道包注册失败，已撤销本轮新增的自有模型路由；详情以安全阶段码为准。';
      ctx.logger?.warn?.('dsh-native-router: source registration failed stage='+errorStage+
-       ' category='+errorKind+' (source-private state, no credentials logged)');
+       ' phase='+sourcePhase+' category='+errorKind+' type='+sourceErrorType+
+       ' location='+sourceErrorLocation+' (no credentials logged)');
+     // A partially applied source may have registered effects/services before
+     // failure. Dispose only its exact injected child, never the host plugin.
+     const badChild=injectedCallback;
+     injectedCallback=null;
+     if(badChild&&typeof ctx?.registry?.delete==='function')
+       try{ctx.registry.delete(badChild)}catch{}
     });
     };
     injectedCallback=onInjected;
-    ctx.inject(['credentials','commands','llm'],onInjected);
+    // Connection must already exist for the independent OAuth RPC to work.
+    // Prior releases mistakenly considered login mounted before this service.
+    ctx.inject(['credentials','commands','llm','connection'],onInjected);
   }catch{
    state='failed';reason='DSH 宿主注入渠道包失败';ctx.logger?.warn?.('dsh-native-router: channel pack scope unavailable');
   }
@@ -365,6 +412,8 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
     const available=await pool.getAvailableAccount(providerId,model,exclude);
     if(available?.entry?.id!==sourceAccountId||scope!==mountedScope()||signal?.aborted)
       throw Error('Upstream source account is not currently available for this model');
+    if(nativeOwned&&modelAdapterStates[providerId]!=='ready')
+      throw Error('Independent source inference is unavailable; source login remains accessible');
     const request={provider:sourceAdapter(providerId),model,messages,tools:Array.isArray(tools)?tools:[],signal,      ...(Number.isInteger(maxTokens)&&maxTokens>0?{maxTokens}:{})};
     if(scope!==mountedScope()||signal?.aborted)throw Error('Source pack disposed before native request');
     if(!multi){
@@ -457,7 +506,8 @@ function dispose(){
     disposed=true;
     selectionGuard?.restore();selectionGuard=null;
     activeScope=null;privateSourcePool=null;privateSourceCheckins=null;loadedPack=null;
-    state='disposed';reason='';
+    sourcePhase='';modelAdapterStates={};privateSourceRpcReady=false;
+    sourceErrorType='';sourceErrorLocation='';state='disposed';reason='';
     // Cordis inject() allocates a child Fiber. Explicitly remove our callback
     // so its registered adapters, accountPool, timers and effects are disposed
     // when this plugin stops (even if the parent Cordis Context remains alive).

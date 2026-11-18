@@ -208,7 +208,7 @@ test('unavailable original provider model catalog cannot invent a model, but ori
  assert.equal(rig.cfg.routes.some(x=>x.tiers.some(t=>t.model==='deepseek-chat')),false);
 });
 test('source login tab distinguishes host reuse from independent source login',async()=>{
- const pack={state:'mounted',channelCount:1,channels:['loomy'],skippedProviders:['workbuddy']};
+ const pack={state:'mounted',rpcReady:true,channelCount:1,channels:['loomy'],skippedProviders:['workbuddy']};
  const rig=createUiRig(new Map(),{state:'ready',accounts:[]},pack,{},[
   {providerId:'workbuddy',family:'workbuddy-native-plugin-route',loginVerified:false},
  ]);
@@ -311,12 +311,12 @@ test('upstream read-only account preview shows source states without falsely ena
 test('mounted upstream channel controls query models explicitly and require confirmation for toggle',async()=>{
  const preview={state:'ready',accounts:[{id:'loomy-01',providerId:'loomy',nickname:'Test source account',
   enabled:true,connectionState:'not_checked'}]};
- const source={state:'mounted',channelCount:13,channels:['loomy','workbuddy']};
+ const source={state:'mounted',rpcReady:true,channelCount:13,channels:['loomy','workbuddy']};
  const rig=createUiRig(new Map(),preview,source);await rig.init();
   rig.find(rig.render(),'button','复用管理')[0].props.onClick();
   rig.find(rig.render(),'button','自主登录')[0].props.onClick();
  let page=rig.render();
- assert.match(rig.flatten(page).join(' '),/已在 DSH 内挂载/);
+ assert.match(rig.flatten(page).join(' '),/自主登录已就绪/);
  assert.equal(rig.find(page,'button','查询模型').length,1);
  assert.equal(rig.find(page,'button','停用来源账号').length,1);
  assert.ok(!rig.mutations.some(x=>x.kind==='models'),'model queries cannot be automatic');
@@ -377,7 +377,7 @@ test('CodeArts custom account channel is configurable from the common account ov
 test('isolated source account console explicitly runs upstream login, poll, refresh and guarded logout',async()=>{
  const preview={state:'ready',accounts:[{id:'qoder-01',providerId:'qoder',nickname:'Qoder test',
    enabled:true,refreshable:true,connectionState:'not_checked'}]};
- const source={state:'mounted',channelCount:13,channels:['qoder','workbuddy']};
+ const source={state:'mounted',rpcReady:true,channelCount:13,channels:['qoder','workbuddy']};
  const rig=createUiRig(new Map(),preview,source);await rig.init();
   rig.find(rig.render(),'button','复用管理')[0].props.onClick();
   rig.find(rig.render(),'button','自主登录')[0].props.onClick();
@@ -407,7 +407,7 @@ test('isolated source account console explicitly runs upstream login, poll, refr
  assert.equal(rig.mutations.filter(row=>row.kind==='source-rpc').some(row=>row.method==='account.delete'),false);
 });
 test('source checkin reads per-account status; bulk claim requires explicit choice and fresh recheck',async()=>{
- const source={state:'mounted',channelCount:13,channels:['qoder','workbuddy']};
+ const source={state:'mounted',rpcReady:true,channelCount:13,channels:['qoder','workbuddy']};
  const rig=createUiRig(new Map(),{state:'ready',accounts:[]},source);await rig.init();
  rig.find(rig.render(),'button','每日签到')[0].props.onClick();
  let page=rig.render();
@@ -446,7 +446,7 @@ test('disabled channel pack exposes no source login, source checkin or bulk clai
  assert.equal(rig.mutations.filter(row=>row.kind==='source-rpc').length,0);
 });
 test('upstream login suppresses unsafe authorization URLs instead of making them clickable',async()=>{
-  const pack={state:'mounted',channelCount:13,channels:['workbuddy']};
+  const pack={state:'mounted',rpcReady:true,channelCount:13,channels:['workbuddy']};
   for(const dangerous of ['javascript:alert(1)','http://evil.example/authorize',
     'https://user:password@login.example.test/authorize']){
     const rig=createUiRig(new Map(),{state:'ready',accounts:[]},pack,{
@@ -465,7 +465,7 @@ test('upstream login suppresses unsafe authorization URLs instead of making them
   }
 });
 test('upstream raw error details and forged RPC identifiers are rejected without leaking secrets',async()=>{
-  const pack={state:'mounted',channelCount:13,channels:['workbuddy']};
+  const pack={state:'mounted',rpcReady:true,channelCount:13,channels:['workbuddy']};
   const badResponses=[
     ({input,response})=>response({type:'server-response',rpcId:input.rpcId,
       result:{ok:false,error:{code:'channel-pack/handler-failed',message:'Bearer SECRET_TOKEN_XYZ'}}}),
@@ -485,7 +485,7 @@ test('upstream raw error details and forged RPC identifiers are rejected without
   }
 });
 test('malformed upstream JSON errors are not forwarded with secret-bearing parser messages',async()=>{
-  const pack={state:'mounted',channelCount:13,channels:['workbuddy']};
+  const pack={state:'mounted',rpcReady:true,channelCount:13,channels:['workbuddy']};
   const rig=createUiRig(new Map(),{state:'ready',accounts:[]},pack,{
     'account.create':()=>({ok:true,status:200,json:async()=>{throw Error('SECRET_FROM_UNSAFE_JSON')}}),
   });
@@ -597,4 +597,17 @@ test('AutoFree manual model marking is owner-gated, never auto-generates chains 
  assert.ok(rig.cfg.freePool.models.some(row=>
   row.providerId==='workbuddy'&&row.model==='my-confirmed-free-model'&&row.free===true));
  assert.equal(rig.cfg.routes.length,sample.routes.length);
+});
+
+test('source login is never enabled just because model package mounted without authenticated RPC',async()=>{
+ const status={state:'mounted',rpcReady:false,channelCount:0,
+   channels:[],modelAdapterReady:[],modelAdapterUnready:[],reason:''};
+ const rig=createUiRig(new Map(),{state:'ready',accounts:[]},status);
+ await rig.init();
+ rig.find(rig.render(),'button','复用管理')[0].props.onClick();
+ rig.find(rig.render(),'button','自主登录')[0].props.onClick();
+ const screen=rig.render(),text=rig.flatten(screen).join(' ');
+ assert.match(text,/登录接口等待中/);
+ assert.equal(rig.find(screen,'button','发起扫码\/网页登录').length,0);
+ assert.equal(rig.mutations.filter(row=>row.kind==='source-rpc').length,0);
 });

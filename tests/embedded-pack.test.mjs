@@ -145,7 +145,7 @@ test('unoccupied host provider names permit isolated source mount',async()=>{
 test('approved mount reuses upstream apply inside DSH scope only once',async()=>{
  let called=0,load=0,received,receivedOptions;
  const scope={get:()=>undefined};
- const ctx={inject(names,cb){called++;assert.deepEqual(names,['credentials','commands','llm']);cb(scope)}};
+ const ctx={inject(names,cb){called++;assert.deepEqual(names,['credentials','commands','llm','connection']);cb(scope)}};
  const bridge=createEmbeddedChannelPack({ctx,env:isolatedEnv,getConfig:enabled,
   loadPack:async()=>{load++;return {apply(x,o){received=x;receivedOptions=o}}}});
  assert.equal(bridge.attach().state,'loading');
@@ -492,7 +492,7 @@ test('source bridge cleanup deletes its own Cordis inject child once and blocks 
  const scope={llm:{listProviders:async()=>['native-router']},get:()=>undefined};
  let callback,deleted=0,applied=0,load=0;
  const ctx={
-  inject(deps,fn){assert.deepEqual(deps,['credentials','commands','llm']);callback=fn;fn(scope)},
+  inject(deps,fn){assert.deepEqual(deps,['credentials','commands','llm','connection']);callback=fn;fn(scope)},
   registry:{delete(fn){assert.equal(fn,callback);deleted++;return {removed:true}}},
  };
  const bridge=createEmbeddedChannelPack({ctx,getConfig:enabled,env:isolatedEnv,
@@ -542,4 +542,15 @@ test('real Cordis optional service getters are safe without reading strict missi
  assert.equal(reads.some(([name,strict])=>name==='profileContext'&&strict===false),true);
  assert.equal(reads.some(([name,strict])=>name==='accountPool'&&strict===false),true);
  bridge.dispose();
+});
+
+test('source pack status never infers login RPC or model readiness from package load alone',()=>{
+ const b=createEmbeddedChannelPack({ctx:{inject(){throw Error('disabled package must not inject')}},
+   getConfig:()=>normalizeConfig({})});
+ assert.equal(b.status().state,'disabled');
+ assert.equal(b.status().rpcReady,false);
+ assert.deepEqual(b.status().modelAdapterReady,[]);
+ assert.deepEqual(b.status().modelAdapterUnready,[]);
+ assert.equal(b.status().sourceErrorLocation,'');
+ b.dispose();
 });

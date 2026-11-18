@@ -33349,39 +33349,48 @@ async function* recordThroughStream(openStream, meta) {
   }
 }
 var nativeSourceAliasDisposers = new WeakMap();
-
+var nativeSourceAdapterStates = new WeakMap();
 function rollbackNativeRouterSourceAdapters(ctx) {
   const members = nativeSourceAliasDisposers.get(ctx) ?? [];
   for (const release of [...members].reverse()) {
     try { release(); } catch {}
   }
   nativeSourceAliasDisposers.delete(ctx);
+  nativeSourceAdapterStates.delete(ctx);
 }
 function registerAdapterIdempotent(ctx, providers, adapter, warn) {
   const llm = ctx?.llm;
-  const registered = llm?.listProviders?.();
-  if (!Array.isArray(registered)) throw new Error("Host provider inventory unavailable");
-  const existing = new Set(registered.map((row) => typeof row === "string" ? row : row?.id ?? row?.provider));
-  const originalProviders = providers.filter((id) => !existing.has(id));
-  let target = wrapAdapterWithTokenLedger(providers, adapter);
-  if (typeof adapter === "object" && adapter !== null) {
-    try {
-      target = withDeadModelPruning(providers, target);
-    } catch {
-      warn?.("[native-router] Model-pruning extension unavailable; using the original verified adapter");
-    }
-  }
-  // Only this alias represents the plugin-owned source pool. Host routes keep
-  // their existing names, account stores and credentials completely intact.
   const prefix = "native-router-source-";
-  const aliases = providers.map((id) => prefix + id);
-  if (aliases.some((id) => existing.has(id))) {
-    throw new Error("Native Router internal adapter alias already occupied");
+  const aliases = providers.map(id => prefix + id);
+  const report = state => {
+    const snapshot = nativeSourceAdapterStates.get(ctx);
+    if (snapshot) for (const id of providers) snapshot[id] = state;
+  };
+  // An unknown host runtime API is NOT a reason to disable independent
+  // account login. Host-owned adapters are never replaced or deregistered.
+  let registered;
+  try { registered = llm?.listProviders?.(); } catch {}
+  if (!Array.isArray(registered) || typeof llm?.registerAdapter !== "function") {
+    report("llm_unavailable"); return;
   }
-  const actual = (id) => {
-    if (typeof id !== "string" || !id.startsWith(prefix)) {
-      throw new Error("Invalid independent source model provider");
+  const existing = new Set(registered.map(row =>
+    typeof row === "string" ? row : row?.id ?? row?.provider));
+  if (aliases.some(id => existing.has(id))) {
+    report("alias_occupied"); return;
+  }
+  let target;
+  try {
+    target = wrapAdapterWithTokenLedger(providers, adapter);
+    if (typeof adapter === "object" && adapter !== null) {
+      try { target = withDeadModelPruning(providers, target); }
+      catch { warn?.("[native-router] Source model pruning unavailable"); }
     }
+  } catch {
+    report("adapter_incompatible"); return;
+  }
+  const actual = id => {
+    if (typeof id !== "string" || !id.startsWith(prefix))
+      throw new Error("Invalid independent source model provider");
     const provider = id.slice(prefix.length);
     if (!providers.includes(provider)) throw new Error("Unowned source provider");
     return provider;
@@ -33389,41 +33398,39 @@ function registerAdapterIdempotent(ctx, providers, adapter, warn) {
   const aliasAdapter = {
     providerInfo(id) {
       const value = target.providerInfo(actual(id));
-      return { ...value, id, name: value.name + " · 聚合路由自有" };
+      return {...value, id, name: value.name + " · 聚合路由自有"};
     },
     providerRetryPolicy(id) { return target.providerRetryPolicy(actual(id)); },
     listModels(id, ...rest) { return target.listModels(actual(id), ...rest); },
-    stream(options) { return target.stream({ ...options, provider: actual(options.provider) }); }
+    stream(options) { return target.stream({...options, provider: actual(options.provider)}); }
   };
-  const releaseAlias = llm.registerAdapter(aliases, aliasAdapter);
-  const retain = (cleanup) => {
+  let cleanup;
+  try {
+    cleanup = llm.registerAdapter(aliases, aliasAdapter);
+    if (typeof cleanup !== "function") throw new Error("DSH adapter dispose contract unavailable");
     const members = nativeSourceAliasDisposers.get(ctx) ?? [];
     nativeSourceAliasDisposers.set(ctx, members);
     let released = false;
     const once = () => {
-      if (released) return; released = true;
+      if (released) return;
+      released = true;
       const index = members.indexOf(once);
       if (index >= 0) members.splice(index, 1);
-      cleanup?.();
+      const snapshot = nativeSourceAdapterStates.get(ctx);
+      if (snapshot) for (const id of providers) snapshot[id] = "disposed";
+      cleanup();
     };
     members.push(once);
+    // registerAdapter returns a release bound to our Cordis child scope.
+    // Never release a Provider registered by another plugin.
     try { ctx.effect(() => once); }
     catch (error) { once(); throw error; }
+    report("ready");
     return once;
-  };
-  if (originalProviders.length === 0) return retain(releaseAlias);
-  try {
-    const releaseOriginal = llm.registerAdapter(originalProviders, target);
-    return retain(() => { releaseOriginal?.(); releaseAlias?.(); });
-  } catch (error) {
-    if (!isDuplicateRegistrationError(error)) {
-      releaseAlias?.();
-      throw error;
-    }
-    // Another host plugin won the original-name registration race. Keep the
-    // independent alias; never borrow its route for our source-pool account.
-    warn?.("[native-router] Original provider already owned by host; independent channel remains available");
-    return retain(releaseAlias);
+  } catch {
+    try { cleanup?.(); } catch {}
+    report("adapter_registration_failed");
+    return;
   }
 }
 
@@ -62534,6 +62541,8 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
       });
     }
   });
+  config.nativeRouterRpcReady?.(true);
+  ctx.effect(() => () => config.nativeRouterRpcReady?.(false));
   async function enrichAccountIdentity(accounts, provider) {
     if (provider !== ZCODE.id) return [...accounts];
     const out = [];
@@ -70299,7 +70308,10 @@ function apply(ctx, config = {}) {
     "llm-gemini"
   );
   const service = new CodeArtsAuth(ctx, { fetcher: signedNetwork.fetch });
+  config.nativeRouterPhase?.("account_pool");
   const pool = new AccountPool(ctx);
+  nativeSourceAdapterStates.set(ctx, Object.create(null));
+  ctx.effect(() => () => nativeSourceAdapterStates.delete(ctx));
   nativeRouterSourcePools.set(ctx, pool);
   ctx.effect(() => () => nativeRouterSourcePools.delete(ctx));
   configureDeadModelStore(ctx);
@@ -70321,6 +70333,7 @@ function apply(ctx, config = {}) {
   }).catch((error) => {
     ctx.logger.warn(`[channel-pack] \u6E05\u7406 WorkBuddy \u65E7\u7248\u8D26\u53F7\u5931\u8D25\uFF1A${String(error)}`);
   });
+  config.nativeRouterPhase?.("model_adapters");
   const codearts = registerCodeArtsLlm(ctx, {
     fetchImpl: signedNetwork.fetch,
     credentialRef: credentialRef16(CODEARTS_CREDENTIAL_REF),
@@ -71260,6 +71273,7 @@ function apply(ctx, config = {}) {
     void geminiSigStore.flush().catch(() => {
     });
   });
+  config.nativeRouterPhase?.("rpc_routes");
   registerChannelPackRpc(ctx, pool, service, buddy, workbuddy, lobsterai, qoder, qoderCn, trae, cline, loomy, raccoon, minimax, zcode, gemini, modelAdapters, {
     ...config,
     codeartsFetcher: signedNetwork.fetch
@@ -71267,6 +71281,8 @@ function apply(ctx, config = {}) {
   // Never launch upstream OpenAI 8326 gateway: DSH LlmRuntime is the only model entry point.
   // Native Router owns failover and DSH owns Agent lifetime; no second loop-resume listener.
   config.nativeRouterPoolReady?.(pool);
+  config.nativeRouterModelReady?.(nativeSourceAdapterStates.get(ctx) ?? {});
+  config.nativeRouterPhase?.("complete");
 }
 export {
   Config,

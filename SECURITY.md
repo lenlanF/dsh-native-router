@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-The current candidate source is `1.0.0-rc.12`; production compatibility and real-account authentication remain uncertified. Historical Git commits may still contain files subsequently removed from Git tracking; history rewriting, force push and production releases require separate authorization.
+The current candidate source is `1.0.0-rc.13`; production compatibility and real-account authentication remain uncertified. Historical Git commits may still contain files subsequently removed from Git tracking; history rewriting, force push and production releases require separate authorization.
 
 ## Report a vulnerability privately
 
