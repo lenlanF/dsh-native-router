@@ -1,5 +1,12 @@
 # Change Log
 
+## 1.0.0-rc.7 — 2026-11-18 — 优先复用 MIT Loomy/ZCode 并支持独立账号接管
+
+- 核对上游 [hulibuld/dsh-get-it-for-free](https://github.com/hulibuld/dsh-get-it-for-free) 的 MIT 原生渠道实现；Loomy 既有扫码、短信、额度领取、模型与 SSE；ZCode 既有设备授权、验证码和 Anthropic 协议，不另造一套简化协议。
+- 新增 Loomy / ZCode Start Plan 私有授权的逐账号明确确认迁入：复制到本插件 DSH Credentials 与专属来源账号池，建立 `own_loomy` / `own_zcode` 模型链，不修改原插件账号及路由。
+- 新增原插件停用后的 MIT 渠道包模型模拟回归；Lingxi 因不在 MIT 来源包中保留独立适配。WorkBuddy 私有加密仓库仍待单独验收。
+- 源码、测试、发行包不包含本机授权值、账号数据库及真实会话记录。线上授权、真实推理内容与签到仍需正式 DSH 验收。
+
 ## 1.0.0-rc.6 — 2026-11-18 — 修复私有插件账号无法发现
 
 - 对 WorkBuddy、Lingxi、Loomy、ZCode Start Plan 采用独立的只读安装与授权来源发现；区分宿主 Provider、插件私有状态、桌面会话文件与 SQLite 账号库。对数据库无法读取的旧 Node 运行时显式提示，不再将读取失败当作零账号。

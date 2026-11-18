@@ -67,7 +67,7 @@ test('release package ships only native in-process bundle with host-provided pee
   assert.equal(pkg.private,false);
   assert.equal(pkg.license,'MIT');
   assert.equal(pkg.engines.node,'>=22.10.0');
-   assert.equal(pkg.version,'1.0.0-rc.6');
+   assert.equal(pkg.version,'1.0.0-rc.7');
  assert.ok(pkg.files.includes('vendor/channel-pack/pack-native.js'));
  assert.ok(pkg.files.includes('vendor/channel-pack/NATIVE_BUILD_RECEIPT.json'));
  assert.ok(pkg.files.includes('vendor/channel-pack/SOURCE_RECEIPT.json'));
@@ -76,6 +76,12 @@ test('release package ships only native in-process bundle with host-provided pee
  assert.match(bridge,/import\('\.\.\/vendor\/channel-pack\/pack-native\.js'\)/);
  assert.match(client,/SOURCE_RPC='\/api\/dsh-native-router\/channel-pack'/);
  assert.match(client,/method:'native-router-channel-pack'/);
+ const pinned=file('vendor/channel-pack/pack-native.js').toString('utf8');
+ assert.match(pinned,/function startLoomyWechatLoginFlow/);
+ assert.match(pinned,/async function claimLoomyDailyQuota/);
+ assert.match(pinned,/ZCODE_PLAN_MESSAGES_URL/);
+ assert.match(file('src/private-pack-adoption.mjs').toString('utf8'),/createPrivatePackAdoption/);
+ assert.doesNotMatch(file('src/index.mjs').toString('utf8'),/registerNativeChannelDriver\('own_loomy'/);
   assert.ok(client.includes("URL='/api/plugins/dsh-native-router'"));
   assert.ok(pkg.peerDependencies['@deepseek-ai/dsh-credentials']);
   assert.ok(pkg.peerDependencies['@deepseek-ai/dsh-client-connection']);

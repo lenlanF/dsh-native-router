@@ -1,4 +1,4 @@
-# DSH Native Router（聚合路由）— 1.0.0-rc.6 发布验收与放行门禁
+# DSH Native Router（聚合路由）— 1.0.0-rc.7 发布验收与放行门禁
 
 > 当前状态：**发行候选（Release Candidate），不是稳定版 1.0.0**。仅能在用户明确批准的隔离 DSH 中做实机验收。提交到 npm、发布 GitHub Release、覆盖 DSH 生产插件或接触真实登录态均需单独明确授权；离线测试通过不等同于业务账号、真实服务或桌面端验收通过。
 
@@ -20,6 +20,8 @@
 | **发行包实装验收** | **从真实 .tgz 安装进全新 npm 环境**，实际 Cordis 加载/卸载、原生 Provider 存在、DSH Connection 200/401/404、没有默认配置写入、仅一个宿主监听器 | `tools/verify-packed-distribution.ps1`，临时 Profile 用后清理；不是正式桌面 DSH |
 
 **独立接管验收边界**：仅对兼容 DSH AccountPool 授权做逐账号所有者确认迁移，原 DSH Provider 不被替换；关闭原插件后须重新加载 DSH 并验证模型调用与签到才可声称独立可用。详见 [OWNED_CHANNEL_ADOPTION.md](OWNED_CHANNEL_ADOPTION.md)。
+
+**RC.7 MIT 原生接管**：Loomy、ZCode Start Plan 的原私有账号，经用户逐条确认后转换为固定 MIT 多渠道包格式，在独立 DSH Credentials 与专属来源池持久化，建立 `own_loomy` 和 `own_zcode` 模型链。原插件停止/移除的离线模拟通过，但正式 DSH 中真机卸载、会话有效期、真实模型输出及签到仍须逐渠道验收，不以目录 HTTP 200 或模拟调用冒充全面上线。
 
 **RC.6 私有插件发现**：新增 WorkBuddy、Lingxi、Loomy、ZCode Start Plan 的包安装与私有账号只读检测；独立数据库无法读取时明确显示受限。私有授权记录不复制、不冒充已认证账号。插件停用后仍能完成真实推理/签到的独立驱动，除此前已经验证的兼容 AccountPool 外仍未实现，不能作为本轮已验收成果。
 

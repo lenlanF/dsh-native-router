@@ -223,7 +223,7 @@ adoptionPreview?.accounts?.length?
               adoptionPreview.accounts.map(row=>h('div',{key:row.providerId+':'+row.accountId,style:css.itemRow},
                 h('div',{style:{minWidth:0}},
                   h('strong',null,row.label||row.accountId),
-                  h('div',{style:css.small},row.providerId+' · '+(row.portable?'标准账号池 · 可确认迁移':
+                  h('div',{style:css.small},row.providerId+' · '+(row.privatePortable?'插件私有授权 · 可复制为自有账号':row.portable?'标准账号池 · 可确认迁移':
                     row.state==='private_authorization_unverified'?({
                       'lingxi-private-state':'Lingxi 私有账号库 · 待独立适配',
                       'loomy-plugin-state':'Loomy 插件账号库 · 待独立适配',
@@ -232,12 +232,12 @@ adoptionPreview?.accounts?.length?
                       'zcode-private-sqlite':'ZCode SQLite 账号 · 待独立适配',
                     })[row.source]||'原插件私有授权 · 待独立适配':'暂无安全迁移方式'))),
                 h(Button,{disabled:!!adoptionBusy||!row.portable
-                  ||adoptionPreview.ownPackState!=='mounted',
+                  ||(!row.privatePortable&&adoptionPreview.ownPackState!=='mounted'),
                   onClick:()=>onAdoptAccount(row)},row.portable?'接管到本插件':'暂不能迁移'))):
               h('p',{style:css.small},adoptionPreview?.state==='ready'
                 ?'没有检测到可验证的本机账号记录。可在「自主登录」进行独立授权。'
                 :'尚未扫描；只有原 DSH 共享账号池中可安全转移的授权才会列出。'),
-            adoptionPreview?.ownPackState!=='mounted'&&adoptionPreview?.accounts?.some(row=>row.portable)
+            adoptionPreview?.ownPackState!=='mounted'&&adoptionPreview?.accounts?.some(row=>row.portable&&!row.privatePortable)
               ?h('p',{style:css.small},'存在标准账号池可迁移账号，但内置渠道尚未就绪。请先在「自主登录」启用并保存，重新加载 DSH 后再接管。'):null),
 (reuse.results||[]).length?h('details',{style:css.card},
             h('summary',{style:{cursor:'pointer'}},'扫描记录 · '+reuse.results.length),
@@ -903,7 +903,7 @@ async function loadUpstreamModels(providerId){
           value:raw,onChange:e=>setRaw(e.target.value),'aria-label':'完整路由配置 JSON'}));
       return h('div',{style:css.root},
         h('h2',{style:css.title},'聚合路由'),
-        h('p',{style:css.caption},'DSH 原生插件复用 · 桌面授权复用 · 多账号池 · 每日签到 · 模型故障安全续跑 · v1.0.0-rc.6'),
+        h('p',{style:css.caption},'DSH 原生插件复用 · 桌面授权复用 · 多账号池 · 每日签到 · 模型故障安全续跑 · v1.0.0-rc.7'),
         h('div',{style:css.tabbar},tabs.map(([id,label])=>h('button',{key:id,type:'button',
           style:{...css.tab,...(tab===id?css.chosen:{})},onClick:()=>setTab(id)},label))),
         error?h('div',{role:'alert',style:css.error},error):null,

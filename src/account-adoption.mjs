@@ -7,7 +7,7 @@ import {sourceAccountOpaqueId} from './source-account-ref.mjs';
 import {SOURCE_DAILY_SIGNIN_PROVIDERS} from './embedded-pack.mjs';
 
 export function createAccountAdoption({configStore,originalSource,ownedPack,adapter,
- makeCredentialRef,installedInventory}={}){
+ makeCredentialRef,installedInventory,privateOwnedAdoption,privatePackAdoption}={}){
  const loadRef=async()=>{
   if(typeof makeCredentialRef==='function')return makeCredentialRef;
   const module=await import('@deepseek-ai/dsh-credentials');
@@ -27,8 +27,11 @@ export function createAccountAdoption({configStore,originalSource,ownedPack,adap
    // copier; each format requires a separate protocol and user authorization.
    const privateRows=(privatePlugins?.accounts??[]).map(row=>({
     providerId:row.providerId,accountId:row.accountId,
-    label:row.label,portable:false,state:'private_authorization_unverified',
-    source:row.source,
+    label:row.label,portable:row.providerId==='lingxi'
+      ?typeof privateOwnedAdoption?.adopt==='function':
+       ['loomy','zcode-start-plan'].includes(row.providerId)
+        &&typeof privatePackAdoption?.adopt==='function',
+    privatePortable:true,state:'private_authorization_unverified',source:row.source,
    }));
    return {state:original.state==='ready'||privatePlugins?.state==='ready'?'ready':'unavailable',
     ownPackState:owned.state,plugins:privatePlugins?.plugins??[],
@@ -37,8 +40,11 @@ export function createAccountAdoption({configStore,originalSource,ownedPack,adap
   }
  async function adopt({providerId,accountId,consent}={}){
   if(consent!==true)return {state:'consent_required'};
+  if(/^local_[a-f0-9]{20}$/.test(String(accountId))
+    &&['loomy','zcode-start-plan'].includes(providerId))
+   return privatePackAdoption?.adopt?.({providerId,accountId,consent})??{state:'unsupported'};
   const identity=ownedAdoptionIdentity(providerId,accountId);
-  if(!identity)return {state:'unsupported'};
+  if(!identity)return privateOwnedAdoption?.adopt?.({providerId,accountId,consent})??{state:'unsupported'};
   const cfg=configStore?.get?.();
   if(!cfg?.embeddedPack?.enabled)return {state:'native_login_disabled'};
   const existing=cfg.providers.find(p=>p.id===providerId);

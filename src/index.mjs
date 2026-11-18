@@ -6,6 +6,9 @@ import {createAccountCenter} from './account-center.mjs';
 import {createSessionReuse} from './session-reuse.mjs';
 import {createAccountAdoption} from './account-adoption.mjs';
 import {createInstalledPluginInventory} from './installed-plugin-inventory.mjs';
+import {createPrivateOwnedDriver,PRIVATE_PROVIDERS} from './channels/private-owned.mjs';
+import {createPrivateOwnedAdoption} from './private-owned-adoption.mjs';
+import {createPrivatePackAdoption} from './private-pack-adoption.mjs';
 import {createExistingDshChannelFacade,createPreferredSourceFacade} from './existing-dsh-channels.mjs';
 import {createCheckinCenter,createCheckinStore} from './checkins.mjs';
 import {getNativeChannelDrivers,onNativeChannelDriverChange,registerNativeChannelDriver} from './driver-registry.mjs';
@@ -23,7 +26,18 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
  if(!ctx?.llm?.registerAdapter)throw new Error('DSH llm.registerAdapter is required');
  const ownStore=configStore??createConfigStore();
  const drivers=channelDrivers??getNativeChannelDrivers();
-  const builtInCleanup=[];
+  const effectiveVault=vault??ctx.get?.('credentials')??null;
+   const ownedVault={
+    resolve:(...args)=>effectiveVault?.resolve?.(...args),
+    set:(...args)=>{if(!effectiveVault?.set)throw Error('DSH credentials unavailable');return effectiveVault.set(...args)},
+    unset:(...args)=>{if(!effectiveVault?.unset)throw Error('DSH credentials unavailable');return effectiveVault.unset(...args)},
+   };
+   const builtInCleanup=[];
+   if(!channelDrivers)for(const providerId of Object.keys(PRIVATE_PROVIDERS)){
+     const ownId=PRIVATE_PROVIDERS[providerId].ownedId;
+     if(!drivers.has(ownId))builtInCleanup.push(registerNativeChannelDriver(ownId,
+       createPrivateOwnedDriver({providerId,vault:ownedVault,fetchImpl})));
+   }
    const embeddedPack=createEmbeddedChannelPack({ctx,getConfig:()=>ownStore.get(),env:env??process.env});
    const existingHostSource=createExistingDshChannelFacade({ctx,excludedHost:embeddedPack});
    const sourceFacade=createPreferredSourceFacade({own:embeddedPack,existing:existingHostSource});
@@ -66,8 +80,14 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
  const installedInventory=createInstalledPluginInventory();
   const sessionReuse=createSessionReuse({configStore:ownStore,drivers,
      embeddedPack:sourceFacade,adapter:ownAdapter,logger:ctx.logger,installedInventory});
-  const accountAdoption=createAccountAdoption({configStore:ownStore,
-     originalSource:existingHostSource,ownedPack:embeddedPack,adapter:ownAdapter,installedInventory});
+  const privatePackAdoption=createPrivatePackAdoption({
+     inventory:installedInventory,configStore:ownStore,ownedPack:embeddedPack,
+     adapter:ownAdapter});
+   const privateOwnedAdoption=createPrivateOwnedAdoption({
+     inventory:installedInventory,configStore:ownStore,vault:ownedVault,adapter:ownAdapter});
+   const accountAdoption=createAccountAdoption({configStore:ownStore,
+     originalSource:existingHostSource,ownedPack:embeddedPack,adapter:ownAdapter,
+      installedInventory,privateOwnedAdoption,privatePackAdoption});
    const checkinCenter=createCheckinCenter({configStore:ownStore,accountCenter,
     store:checkinStore??createCheckinStore({path:ownStore.path?join(dirname(ownStore.path),'checkins.json'):undefined}),
     sourcePack:embeddedPack,logger:ctx.logger});
