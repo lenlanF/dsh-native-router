@@ -1,0 +1,390 @@
+import {channelPackIsolationReason,channelPackNodeRuntimeReason} from './channel-pack-isolation.mjs';
+import {sourceAccountOpaqueId} from './source-account-ref.mjs';
+import {installSourceAccountSelection} from './source-account-selection.mjs';
+// The bundled MIT derivative runs INSIDE the DSH Cordis host. No external
+// OpenAI gateway, agent-resume daemon or independent check-in scheduler.
+export const SOURCE_PACK_PROVIDERS=Object.freeze([
+  'codearts','buddy','workbuddy','lobsterai','qoder','qodercn','trae',
+  'cline','loomy','raccoon','minimax','zcode','gemini',
+]);
+export const SOURCE_DAILY_SIGNIN_PROVIDERS=Object.freeze([
+  'codearts','buddy','lobsterai','qoder','qodercn','trae','loomy','minimax','zcode',
+]);
+// Excluded deliberately: WorkBuddy/Cline have no daily check-in; Raccoon is
+// credited daily by its server and its claim button is a one-time login bonus.
+// Gemini has no source daily claim endpoint.
+const loadPinnedPack=()=>import('../vendor/channel-pack/pack-native.js');
+const OFF=new Set(['0','off','false','no']);
+const disabled=(env,key)=>OFF.has(String(env[key]??'').trim().toLowerCase());
+function safetyReason(env){
+ if(env.DSH_NATIVE_ROUTER_CHANNEL_PACK_ENABLE!=='1')
+   return '隔离挂载须显式设置 DSH_NATIVE_ROUTER_CHANNEL_PACK_ENABLE=1';
+ if(!disabled(env,'DSH_OPENAI_GATEWAY_ENABLED'))
+   return '须设置 DSH_OPENAI_GATEWAY_ENABLED=0，禁止上游启动 8326 网关';
+ // The upstream pack enables its own agent/error loop-resume by DEFAULT.
+ // It must not compete with this plugin's or the installed failover listener.
+ if(!disabled(env,'DSH_REASONING_LOOP_AUTO_RESUME'))
+   return '须设置 DSH_REASONING_LOOP_AUTO_RESUME=0，禁止上游默认启用第二套 Agent 自动续跑';
+ return '';
+}
+export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPack=loadPinnedPack,modelTimeoutMs=20000}){
+  let state='disabled',reason='',disposed=false,activeScope=null,injectedCallback=null;
+  // Multiaccount is intentionally off unless explicitly enabled in a separate
+  // E:\Temp isolated profile. These are tentative adapter paths reviewed for
+  // credential selection; actual DSH acceptance remains unverified.
+  const MULTIACCOUNT_REVIEWED=Object.freeze(['lobsterai','cline','minimax','gemini','zcode']);
+  const multiAccountOptIn=env.DSH_NATIVE_ROUTER_SOURCE_MULTIACCOUNT_EXPERIMENT==='1'
+    &&(loadPack!==loadPinnedPack||process.env.DSH_NATIVE_ROUTER_SOURCE_MULTIACCOUNT_EXPERIMENT==='1');
+  let selectionGuard=null;
+  const providerStreams=new Set();
+  function status(){return {state,reason,channelCount:SOURCE_PACK_PROVIDERS.length,channels:SOURCE_PACK_PROVIDERS,
+    experimentalMultiAccountProviders:selectionGuard&&multiAccountOptIn?MULTIACCOUNT_REVIEWED:[]}}
+ function attach(){
+  if(disposed||['waiting_host_services','loading','mounted'].includes(state))return status();
+  if(getConfig()?.embeddedPack?.enabled!==true){state='disabled';reason='';return status()}
+   // The bundled native derivative never starts an extra gateway, loop-resume
+   // listener or source check-in scheduler, so it requires no environment flags.
+   // Keep the old strict E:\Temp safety fence for test-injected replacement packs.
+   const denied=loadPack===loadPinnedPack?channelPackNodeRuntimeReason()
+     :safetyReason(env)||channelPackIsolationReason(env);
+   if(denied){state='blocked';reason=denied;return status()}
+  if(typeof ctx?.inject!=='function'){state='blocked';reason='当前 DSH 宿主不支持按需服务注入';return status()}
+  state='waiting_host_services';reason='';
+  try{
+    const onInjected=scope=>{
+    if(disposed)return;
+     const profileDenied=loadPack===loadPinnedPack?'':channelPackIsolationReason(env,scope);
+     if(profileDenied){state='blocked';reason=profileDenied;return}
+      if(scope.get?.('accountPool',false)){
+     state='blocked';reason='宿主已存在渠道包 accountPool，拒绝重复挂载';return;
+    }
+    state='loading';
+      scope.effect?.(()=>()=>{
+       selectionGuard?.restore();selectionGuard=null;
+       activeScope=null;
+       if(!disposed){state='host_disposed';reason='上游渠道包所属 Host 作用域已释放'}
+      });
+     void Promise.resolve().then(async()=>{
+      // The source bundle silently tolerates duplicate llm adapters and
+      // may otherwise report "mounted" while owning only some providers.
+      // Refuse any overlapping source provider before importing the bundle.
+      const llm=scope.llm??scope.get?.('llm');
+      if(typeof llm?.listProviders!=='function'){
+       if(loadPack===loadPinnedPack){
+        state='blocked';reason='宿主缺少 llm.listProviders，无法排除渠道注册冲突';return null;
+       }
+      }else{
+       const registered=await llm.listProviders();
+       if(!Array.isArray(registered)){
+        state='blocked';reason='宿主 Provider 目录格式不正确，拒绝重复注册';return null;
+       }
+       const ids=registered.map(row=>typeof row==='string'?row:row?.id??row?.provider)
+        .filter(id=>typeof id==='string');
+       if(ids.length!==registered.length){
+        state='blocked';reason='宿主 Provider 信息不完整，拒绝覆盖现有渠道';return null;
+       }
+       const duplicate=ids.find(id=>SOURCE_PACK_PROVIDERS.includes(id));
+       if(duplicate){
+        state='blocked';reason='宿主已注册 '+duplicate+' 渠道，禁止上游包重复接管';return null;
+       }
+      }
+      if(disposed||state==='host_disposed')return null;
+      return loadPack();
+     }).then(pack=>{
+      if(pack===null)return;
+     if(disposed||state==='host_disposed')return;
+     if(scope.fiber?.uid===null){state='host_disposed';reason='上游渠道包 Host 作用域已停止';return}
+     if(typeof pack?.apply!=='function')throw Error('上游渠道包缺少 apply 入口');
+      if(scope.get?.('accountPool',false))throw Error('账号池服务已被其他插件注册');
+       // Recheck test-injected packs just before apply; the DSH-native bundle
+       // uses an isolated private state namespace with no auxiliary listener.
+       const changed=loadPack===loadPinnedPack?'':safetyReason(env)||channelPackIsolationReason(env,scope);
+       if(changed){state='blocked';reason=changed;return}
+       pack.apply(scope,{disableOpencode:true});
+       activeScope=scope;
+       // Scoped overlays affect only request-local AsyncLocalStorage contexts;
+       // unscoped source and other host consumers retain the original methods.
+       if(multiAccountOptIn){
+         const pool=scope.get?.('accountPool');
+         const credentials=scope.credentials??scope.get?.('credentials');
+         try{selectionGuard=installSourceAccountSelection({pool,credentials,
+           isAlive:()=>!disposed&&state==='mounted'&&activeScope===scope})}
+         catch{selectionGuard=null;ctx.logger?.warn?.('native-router: experimental multi-account service unavailable')}
+       }
+       state='mounted';reason='';
+    }).catch(error=>{
+     if(disposed||state==='host_disposed')return;
+     state='failed';
+     reason=error?.code==='MODULE_NOT_FOUND'?'渠道包依赖缺失':'渠道包挂载失败；请检查宿主日志与依赖';
+     ctx.logger?.warn?.('dsh-native-router: embedded channel pack unavailable');
+    });
+    };
+    injectedCallback=onInjected;
+    ctx.inject(['credentials','commands','llm'],onInjected);
+  }catch{
+   state='failed';reason='DSH 宿主注入渠道包失败';ctx.logger?.warn?.('dsh-native-router: channel pack scope unavailable');
+  }
+  return status();
+ }
+  // Explicit, read-only facade: never copy credentials, never probe logins
+  // and never treat a listed account as authenticated or usable for routing.
+  async function listAccounts(){
+   if(disposed||state!=='mounted'||!activeScope)return {state,accounts:[]};
+   const scope=activeScope;
+   try{
+    const pool=scope.get?.('accountPool');
+    if(typeof pool?.listAllAccounts!=='function')return {state:'unavailable',accounts:[]};
+    const rows=await pool.listAllAccounts();
+    if(disposed||state!=='mounted'||activeScope!==scope)return {state:'disposed',accounts:[]};
+    if(!Array.isArray(rows))throw Error('Invalid upstream account pool');
+    const accounts=rows.filter(row=>row&&SOURCE_PACK_PROVIDERS.includes(row.provider)
+      &&typeof row.id==='string'&&row.id.length>0&&row.id.length<=100).slice(0,200).map(row=>({
+      id:row.id.replace(/[\u0000-\u001f]/g,'').slice(0,100),
+      providerId:row.provider,
+      nickname:typeof row.nickname==='string'?row.nickname.replace(/[\u0000-\u001f]/g,'').slice(0,80):'',
+      enabled:row.enabled===true,
+      refreshable:row.refreshable===true,
+      // An upstream account-pool row is NOT a verified auth status.
+      connectionState:'not_checked',
+    }));
+    return {state:'ready',accounts};
+   }catch{return {state:'error',accounts:[]}}
+  }
+
+  // These operations reuse the upstream accountPool / DSH llm services.
+  // They are never invoked by plugin startup, and are available only after
+  // an explicit isolated-host opt-in and a browser-originated action.
+  const modifying=new Set();
+  function mountedScope(){return !disposed&&state==='mounted'?activeScope:null}
+  async function changeAccountEnabled({providerId,accountId,enabled}={}){
+    if(!SOURCE_PACK_PROVIDERS.includes(providerId)||typeof accountId!=='string'
+      ||accountId.length===0||accountId.length>100||!/^[a-zA-Z0-9_-]+$/.test(accountId)
+      ||typeof enabled!=='boolean')return {state:'invalid',changed:false};
+    const scope=mountedScope();
+    if(!scope)return {state:'unavailable',changed:false};
+    const pool=scope.get?.('accountPool');
+    if(typeof pool?.listAllAccounts!=='function'||typeof pool?.updateAccount!=='function')
+      return {state:'unavailable',changed:false};
+    if(modifying.has(accountId))return {state:'busy',changed:false};
+    modifying.add(accountId);
+    try{
+      const accounts=await pool.listAllAccounts();
+      if(!Array.isArray(accounts))return {state:'error',changed:false};
+      const matches=accounts.filter(row=>row?.id===accountId&&row?.provider===providerId);
+      // Reject a stale, renamed, ambiguous, or cross-provider account.
+      if(matches.length!==1||accounts.filter(row=>row?.id===accountId).length!==1)
+        return {state:'not_found',changed:false};
+      if(scope!==mountedScope())return {state:'unavailable',changed:false};
+      if((matches[0].enabled===true)===enabled)return {state:'unchanged',changed:false,enabled};
+      await pool.updateAccount(accountId,{enabled});
+      if(scope!==mountedScope())return {state:'unavailable',changed:false};
+      const refreshed=await pool.listAllAccounts();
+      const matched=Array.isArray(refreshed)?refreshed.filter(row=>row?.id===accountId&&row?.provider===providerId):[];
+      if(matched.length!==1||(matched[0].enabled===true)!==enabled)
+        return {state:'unconfirmed',changed:false};
+      return {state:'updated',changed:true,enabled};
+    }catch{
+      return {state:'error',changed:false};
+    }finally{modifying.delete(accountId)}
+  }
+  // Destructive source-only logout: upstream pool.removeAccount() attempts to
+  // remove its stored credential. Refuse while any native source reference for
+  // this provider remains: a model chain may still require it.
+  async function removeSourceAccount({providerId,accountId}={}){
+    if(!SOURCE_PACK_PROVIDERS.includes(providerId)||typeof accountId!=='string'
+      ||accountId.length<1||accountId.length>100||!/^[a-zA-Z0-9_-]+$/.test(accountId))
+      return {state:'invalid',removed:false};
+    const scope=mountedScope();
+    if(!scope)return {state:'unavailable',removed:false};
+    const pool=scope.get?.('accountPool');
+    if(typeof pool?.removeAccount!=='function'||typeof pool?.listAllAccounts!=='function')
+      return {state:'unavailable',removed:false};
+    if(modifying.has(accountId))return {state:'busy',removed:false};
+    modifying.add(accountId);
+    try{
+      const nativeId=sourceAccountOpaqueId(providerId,accountId);
+      const referenced=()=>getConfig()?.accounts?.some(row=>row.providerId===providerId&&row.id===nativeId);
+      if(referenced())return {state:'referenced',removed:false};
+      const rows=await pool.listAllAccounts();
+      const matches=Array.isArray(rows)?rows.filter(row=>row?.id===accountId&&row?.provider===providerId):[];
+      if(matches.length!==1||rows.filter(row=>row?.id===accountId).length!==1)
+        return {state:'not_found',removed:false};
+      if(scope!==mountedScope())return {state:'unavailable',removed:false};
+      if(referenced())return {state:'referenced',removed:false};
+      await pool.removeAccount(accountId);
+      if(scope!==mountedScope())return {state:'unavailable',removed:false};
+      const updated=await pool.listAllAccounts();
+      if(!Array.isArray(updated)||updated.some(row=>row?.id===accountId))
+        return {state:'unconfirmed',removed:false};
+      return {state:'removed',removed:true};
+    }catch{return {state:'error',removed:false}}
+    finally{modifying.delete(accountId)}
+  }
+   const modelRequests=new Set();
+  async function listModels(providerId){
+    if(!SOURCE_PACK_PROVIDERS.includes(providerId))return {state:'invalid',providerId:'',models:[]};
+    const scope=mountedScope();
+    if(!scope)return {state:'unavailable',providerId,models:[]};
+    const llm=scope.llm??scope.get?.('llm');
+    if(typeof llm?.listModels!=='function')return {state:'unavailable',providerId,models:[]};
+    if(modelRequests.has(providerId))return {state:'busy',providerId,models:[]};
+    modelRequests.add(providerId);
+    let timer;
+    try{
+      // Never automatically fetch; bound the settings request even if the
+      // upstream llm service fails to settle. The underlying service owns cancellation.
+      const timeoutMarker=Symbol('timeout');
+      const rows=await Promise.race([
+        Promise.resolve().then(()=>llm.listModels(providerId)),
+        new Promise(resolve=>{timer=setTimeout(()=>resolve(timeoutMarker),modelTimeoutMs)}),
+      ]);
+      if(rows===timeoutMarker)return {state:'timeout',providerId,models:[]};
+      if(scope!==mountedScope())return {state:'unavailable',providerId,models:[]};
+      if(!Array.isArray(rows))return {state:'error',providerId,models:[]};
+      const models=[],seen=new Set();
+      for(const row of rows){
+        if(models.length>=256)break;
+        if(row&&typeof row==='object'&&row.provider&&row.provider!==providerId)continue;
+        const id=typeof row==='string'?row:row?.id;
+        if(typeof id!=='string'||!id.trim()||id.length>160
+          ||/[\u0000-\u001f]/.test(id)||seen.has(id))continue;
+        seen.add(id);
+        const name=typeof row?.name==='string'&&row.name.length<=120
+          &&!/[\u0000-\u001f]/.test(row.name)?row.name:id;
+        models.push({id,name,...(row?.isFree===true?{upstreamFreeLabel:true}:{})});
+      }
+      return {state:'ready',providerId,models};
+    }catch{return {state:'error',providerId,models:[]}}
+    finally{clearTimeout(timer);modelRequests.delete(providerId)}
+  }
+  // The pinned source adapter has no public forceAccountId parameter.
+  // Single-account requests preserve the Alpha.8 behavior. Experimental
+  // multiaccount requests are permitted ONLY for reviewed channel paths,
+  // after an isolated-profile flag and request-local credential guard.
+  async function streamNative({providerId,sourceAccountId,model,messages,tools,signal,maxTokens}={}){
+    if(!SOURCE_PACK_PROVIDERS.includes(providerId)||typeof sourceAccountId!=='string'
+      ||!sourceAccountId||sourceAccountId.length>100||typeof model!=='string'||!model.trim()
+      ||model.length>160||!Array.isArray(messages)||!messages.length)
+      throw Error('Invalid isolated source model request');
+    const scope=mountedScope();
+    if(!scope)throw Error('Isolated source pack not mounted');
+    if(signal?.aborted)throw Error('Source model request aborted');
+    const pool=scope.get?.('accountPool');
+    const llm=scope.llm??scope.get?.('llm');
+    if(typeof pool?.listAllAccounts!=='function'||typeof pool?.getAvailableAccount!=='function'
+      ||typeof llm?.stream!=='function')throw Error('Upstream source credential selection service unavailable');
+    const rows=await pool.listAllAccounts();
+    if(scope!==mountedScope()||signal?.aborted)throw Error('Source pack disposed before generation');
+    if(!Array.isArray(rows))throw Error('Source account pool is unavailable');
+    const matching=rows.filter(row=>row?.provider===providerId);
+    const candidates=matching.filter(row=>row?.enabled===true);
+    const selected=candidates.filter(row=>row?.id===sourceAccountId);
+    if(selected.length!==1||rows.filter(row=>row?.id===sourceAccountId).length!==1)
+      throw Error('Source account ownership is not unambiguous');
+    const multi=candidates.length>1;
+    if(multi&&(!multiAccountOptIn||!selectionGuard||!MULTIACCOUNT_REVIEWED.includes(providerId)))
+      throw Error('Source multi-account selection is not verified for this channel');
+    const allIds=matching.map(row=>row.id);
+    if(allIds.length!==new Set(allIds).size)
+      throw Error('Source account pool has ambiguous duplicate IDs');
+    const exclude=multi?new Set(allIds.filter(id=>id!==sourceAccountId)):undefined;
+    // Account availability is always resolved by the original upstream pool.
+    // The guard only narrows the source candidate set and blocks any fallback.
+    const available=await pool.getAvailableAccount(providerId,model,exclude);
+    if(available?.entry?.id!==sourceAccountId||scope!==mountedScope()||signal?.aborted)
+      throw Error('Upstream source account is not currently available for this model');
+    const request={provider:providerId,model,messages,tools:Array.isArray(tools)?tools:[],signal,
+      ...(Number.isInteger(maxTokens)&&maxTokens>0?{maxTokens}:{})};
+    if(scope!==mountedScope()||signal?.aborted)throw Error('Source pack disposed before native request');
+    if(!multi){
+      const stream=llm.stream(request);
+      if(!stream||typeof stream[Symbol.asyncIterator]!=='function')
+        throw Error('Upstream source returned no native DSH event stream');
+      return stream;
+    }
+    const guarded=selectionGuard;
+    return (async function*(){
+      // Upstream adapters may hold process-wide mutable account preferences;
+      // serialize same-provider experimental requests until DSH host verified.
+      if(providerStreams.has(providerId))throw Error('Source provider already has an in-flight pinned request');
+      providerStreams.add(providerId);
+      try{
+        if(scope!==mountedScope()||signal?.aborted)
+          throw Error('Source pack disposed before account pinning');
+        const current=await pool.listAllAccounts();
+        const matches=Array.isArray(current)?current.filter(row=>row?.provider===providerId):[];
+        const exact=matches.filter(row=>row?.id===sourceAccountId&&row?.enabled===true);
+        if(exact.length!==1||matches.length!==allIds.length
+          ||matches.some(row=>!allIds.includes(row.id)||!matching.find(prev=>prev.id===row.id&&prev.enabled===row.enabled)))
+          throw Error('Source account roster changed before pinned generation');
+        const credRef=exact[0].credentialRef;
+        if(typeof credRef!=='string'||!/^[A-Za-z_][A-Za-z0-9_]*$/.test(credRef))
+          throw Error('Invalid selected source credential reference');
+        yield* guarded.streamFor({providerId,accountId:sourceAccountId,credentialRef:credRef,
+          model,signal,allProviderAccountIds:allIds,createStream:()=>llm.stream(request)});
+      }finally{providerStreams.delete(providerId)}
+    })();
+  }
+  async function checkinAccount({providerId,sourceAccountId}={}){
+    if(!SOURCE_DAILY_SIGNIN_PROVIDERS.includes(providerId)
+      ||typeof sourceAccountId!=='string'||!sourceAccountId||sourceAccountId.length>100)
+      return {state:'unsupported',message:'渠道没有经核验的每日签到服务'};
+    const scope=mountedScope();
+    if(!scope)return {state:'unavailable',message:'上游来源服务尚未装载'};
+    const pool=scope.get?.('accountPool',false);
+    const ops=scope.get?.('nativeRouterSourceCheckins',false);
+    if(typeof pool?.listAllAccounts!=='function'||typeof ops?.status!=='function'
+      ||typeof ops?.claim!=='function')
+      return {state:'unavailable',message:'来源单账号签到服务尚未连接 DSH'};
+    const rows=await pool.listAllAccounts();
+    if(scope!==mountedScope())return {state:'unavailable'};
+    const matches=rows.filter(r=>r?.provider===providerId&&r?.id===sourceAccountId&&r.enabled===true);
+    if(matches.length!==1||rows.filter(r=>r?.id===sourceAccountId).length!==1)
+      return {state:'unavailable',message:'未找到唯一启用的来源账号'};
+    const exactStatus=reply=>{
+      if(reply?.ok!==true||!Array.isArray(reply.value?.accounts))return null;
+      const match=reply.value.accounts.filter(row=>row?.accountId===sourceAccountId);
+      return match.length===1?match[0].status:null;
+    };
+    const before=exactStatus(await ops.status(providerId,sourceAccountId));
+    if(scope!==mountedScope())return {state:'unavailable'};
+     if(before?.available===true&&before.todayCheckedIn===true)
+       return {confirmed:true,message:'来源服务已确认今日签到'};
+     if(before?.available===true&&before.active===false)
+       return {state:'no_task',message:'该渠道今日没有可执行的签到活动'};
+     if(before?.available!==true)
+       return {state:'pending_confirmation',message:'当前无法核实来源签到状态，未发起领取'};
+    const claim=await ops.claim(providerId,sourceAccountId);
+    if(scope!==mountedScope())return {state:'unavailable'};
+    const outcomes=claim?.ok===true&&Array.isArray(claim.value?.results)
+      ?claim.value.results.filter(row=>row?.accountId===sourceAccountId):[];
+    if(outcomes.length===0)return {state:'failed',message:'上游未提供指定账号的签到回执'};
+    if(outcomes.some(row=>row?.outcome?.kind==='failed'))
+      return {state:'failed',message:'上游签到未成功，等待下次人工或定时重试'};
+    if(outcomes.every(row=>row?.outcome?.kind==='inactive'))
+      return {state:'no_task',message:'来源签到活动暂未开放'};
+    // Claim response is NOT success: some upstream APIs report a successful
+    // request without actually checking in. A fresh same-day status is required.
+    const after=exactStatus(await ops.status(providerId,sourceAccountId));
+    if(scope!==mountedScope())return {state:'unavailable'};
+     if(after?.available===true&&after.todayCheckedIn===true)
+       return {confirmed:true,message:'上游状态回查确认今日签到'};
+    return {state:'pending_confirmation',accepted:true,
+      message:'签到操作已执行，但上游今日签到状态仍未确认'};
+  }
+  function dispose(){
+    if(disposed)return;
+    disposed=true;
+    selectionGuard?.restore();selectionGuard=null;
+    activeScope=null;state='disposed';reason='';
+    // Cordis inject() allocates a child Fiber. Explicitly remove our callback
+    // so its registered adapters, accountPool, timers and effects are disposed
+    // when this plugin stops (even if the parent Cordis Context remains alive).
+    const callback=injectedCallback;injectedCallback=null;
+    if(callback&&typeof ctx?.registry?.delete==='function'){
+      try{ctx.registry.delete(callback)}
+      catch{ctx.logger?.warn?.('native-router: source Cordis child scope cleanup failed')}
+    }
+  }
+  return {attach,status,listAccounts,listModels,changeAccountEnabled,removeSourceAccount,streamNative,checkinAccount,dispose};
+}

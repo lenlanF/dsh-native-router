@@ -1,0 +1,24 @@
+{
+  "kind": "deterministic-in-process-derivative",
+  "upstreamSourceCommit": "6daa5bc344feac44763af25c674e8882c292a728",
+  "originalFile": "pack.js",
+  "originalSha256": "f6cb3080ae6a8df998f9055bcc3fc2ba05976c1a28865cfa37c24e2ab5f9c954",
+  "generatedFile": "pack-native.js",
+  "generatedBytes": 3016052,
+  "generatedSha256": "edde57f80f7324f7d68688adc0f109d956fc2ceef93f1a72f3c8220c95f9612a",
+  "patches": [
+    "private-settings-namespace",
+    "private-profile-subdirectory",
+    "private-connection-route",
+    "private-captcha-route",
+    "private-rpc-method",
+    "source-per-account-native-checkin-service",
+    "remove-source-auto-checkin",
+    "disable-source-background-refresh-by-default",
+    "remove-separate-openai-gateway",
+    "remove-duplicate-loop-resume",
+    "scope-all-credits-status-and-claims-to-one-account"
+  ],
+  "additionalRuntimeProcessRequired": false,
+  "bundledByDSHPlugin": true
+}

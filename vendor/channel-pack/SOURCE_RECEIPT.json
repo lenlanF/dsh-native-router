@@ -1,0 +1,33 @@
+{
+  "sourceRepository": "https://github.com/hulibuld/dsh-get-it-for-free",
+  "sourceCommit": "6daa5bc344feac44763af25c674e8882c292a728",
+  "upstreamVersion": "3.2.0",
+  "embeddedOrigin": "vendor/channel-pack",
+  "upstreamChannelPackSource": "https://gitee.com/iJetLi/deepseek-harness-codearts",
+  "upstreamChannelPackCommit": "345f0a07b22713c0ae189ca7d8b97ec4f64626c6",
+  "sourceLicense": "MIT",
+  "referenceFiles": [
+    {
+      "file": "pack.js",
+      "bytes": 3086263,
+      "sha256": "f6cb3080ae6a8df998f9055bcc3fc2ba05976c1a28865cfa37c24e2ab5f9c954"
+    },
+    {
+      "file": "qoder-auth-wasm.wasm",
+      "bytes": 298606,
+      "sha256": "6419471effa631519def7797d76d7ede38b9fcfa9a83c2148c8ef5d43355b43d"
+    },
+    {
+      "file": "LICENSE",
+      "bytes": 1081,
+      "sha256": "a8f900ad112a64743a0fbf8a567c34d1d421270e75380383891dba97298f2050"
+    },
+    {
+      "file": "NOTICE.md",
+      "bytes": 3585,
+      "sha256": "3cd86f3051cea3e092b15b2e05085ac9daf2cc29b9eaf4c255970a22dd543a30"
+    }
+  ],
+  "notMountedByDefault": true,
+  "notes": "Source snapshot of an existing channel pack; no account state or credentials copied. Requires DSH host dependencies and explicit mount decision."
+}

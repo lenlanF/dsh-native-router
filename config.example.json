@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "providers": [
+    {
+      "id": "demo-openai",
+      "name": "Example OpenAI",
+      "protocol": "openai-chat",
+      "baseUrl": "https://api.example.invalid/v1",
+      "models": [
+        "example-model"
+      ],
+      "enabled": false,
+      "supportsTools": true,
+      "timeoutMs": 120000
+    },
+    {
+      "id": "demo-anthropic",
+      "name": "Example Anthropic",
+      "protocol": "anthropic-messages",
+      "baseUrl": "https://api.anthropic.com/v1",
+      "models": [
+        "example-model"
+      ],
+      "enabled": false,
+      "supportsTools": true,
+      "timeoutMs": 120000
+    }
+  ],
+  "accounts": [
+    {
+      "id": "openai-a",
+      "providerId": "demo-openai",
+      "credentialRef": "env:EXAMPLE_OPENAI_KEY",
+      "enabled": false,
+      "weight": 1,
+      "autoCheckin": false
+    },
+    {
+      "id": "anthropic-a",
+      "providerId": "demo-anthropic",
+      "credentialRef": "env:EXAMPLE_ANTHROPIC_KEY",
+      "enabled": false,
+      "weight": 1,
+      "autoCheckin": false
+    }
+  ],
+  "routes": [
+    {
+      "id": "my-chain",
+      "name": "My cross-provider chain",
+      "mode": "priority",
+      "enabled": false,
+      "maxSwitches": 3,
+      "exhaustionCooldownMs": 21600000,
+      "tiers": [
+        {
+          "providerId": "demo-openai",
+          "model": "example-model",
+          "free": false
+        },
+        {
+          "providerId": "demo-anthropic",
+          "model": "example-model",
+          "free": false
+        }
+      ]
+    }
+  ],
+  "embeddedPack": {"enabled": false},
+  "sessionReuse": {"enabled": false, "linkedIds": [], "ignoredIds": []},
+  "hostFailover": {
+    "enabled": false,
+    "mode": "off",
+    "priority": [],
+    "maxSwitchesPerSession": 3,
+    "exhaustionCooldownMs": 21600000
+  },
+  "checkin": {
+    "autoEnabled": false,
+    "autoSourceAccounts": true,
+    "timeZone": "Asia/Shanghai",
+    "runAt": "10:05"
+  }
+}

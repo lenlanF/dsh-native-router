@@ -1,0 +1,60 @@
+{
+  "name": "dsh-native-router",
+  "version": "1.0.0-rc.1",
+  "private": false,
+  "type": "module",
+  "license": "MIT",
+  "engines": {"node": ">=22.10.0"},
+  "keywords": ["deepseek-harness", "dsh", "cordis", "model-routing", "account-pool", "failover"],
+  "description": "Native DSH multi-provider account pool and custom model routing chains, integrating failover",
+  "main": "./src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json",
+    "./client": "./client.js",
+    "./drivers": "./src/driver-registry.mjs"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "cordis.patch.yml",
+    "config.example.json",
+    "client.js",
+    "LICENSES",
+    "DEVELOPMENT_LOG.md",
+    "docs",
+    "vendor/channel-pack/pack-native.js",
+    "vendor/channel-pack/qoder-auth-wasm.wasm",
+    "vendor/channel-pack/LICENSE",
+    "vendor/channel-pack/NOTICE.md",
+    "vendor/channel-pack/SOURCE_RECEIPT.json",
+    "vendor/channel-pack/NATIVE_BUILD_RECEIPT.json"
+  ],
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-settings-plugins"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.2 <5",
+    "@deepseek-ai/dsh-llm": ">=0.2.0-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-credentials": ">=0.2.2-rc.3 <0.3.0-0",
+    "@deepseek-ai/dsh-client-connection": ">=0.2.2-rc.3 <0.3.0-0",
+    "@deepseek-ai/schemastery": "^3.19.0"
+  }
+}

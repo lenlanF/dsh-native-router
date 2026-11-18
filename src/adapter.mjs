@@ -1,0 +1,76 @@
+import {createRoutingEngine} from './router.mjs';
+import {createCatalog,directModelDecode} from './catalog.mjs';
+import {createAccountPool} from './accounts.mjs';
+import {requestOpenAI} from './provider/openai.mjs';
+import {requestAnthropic} from './provider/anthropic.mjs';
+import {validateModelCalls} from './provider/openai.mjs';
+import {UpstreamError} from './failure.mjs';
+import {toDshEvents} from './protocol.mjs';
+import {RoutingError} from './router.mjs';
+
+export const PROVIDER='native-router';
+export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=process.env,vault,logger,channelDrivers=new Map()}={}){
+  if(!configStore?.get)throw new Error('ConfigStore required');
+  const getConfig=()=>configStore.get();
+  const pool=createAccountPool();
+  const counters={successfulTurns:0,failedAttempts:0,inputTokens:0,outputTokens:0};
+  const history=[];
+  const driverFor=id=>channelDrivers instanceof Map?channelDrivers.get(id):channelDrivers?.[id];
+  const transport=async arg=>{
+    if(arg.provider.protocol==='native-channel'){
+      const driver=driverFor(arg.provider.id);
+      if(typeof driver?.generate!=='function')throw new UpstreamError('Native provider driver unavailable',{code:'PROVIDER_NOT_READY'});
+      const result=await driver.generate({provider:arg.provider,account:arg.account,model:arg.model,
+        options:arg.options,signal:arg.signal});
+      if(!result||typeof result!=='object'||!['stop','tool_calls','length'].includes(result.finishReason))
+        throw new UpstreamError('Native provider returned invalid completed response',{code:'TOOL_PROTOCOL'});
+      return validateModelCalls(result,arg.options.tools);
+    }
+    return (arg.provider.protocol==='anthropic-messages'?requestAnthropic:requestOpenAI)(arg,{fetchImpl,env,vault});
+  };
+  const engine=createRoutingEngine({getConfig,request:transport,pool,onEvent:evt=>{
+    if(evt.kind==='failure'){counters.failedAttempts++;logger?.warn?.('native-router: '+evt.code+' from '+evt.providerId+'/'+evt.model)}
+    if(evt.kind==='success'){
+      counters.successfulTurns++;
+      counters.inputTokens+=Number.isFinite(evt.usage?.prompt_tokens)?evt.usage.prompt_tokens:0;
+      counters.outputTokens+=Number.isFinite(evt.usage?.completion_tokens)?evt.usage.completion_tokens:0;
+    }
+    const {usage,...safe}=evt;
+    history.push({at:Date.now(),...safe});if(history.length>50)history.shift();
+  }});
+  const catalog=createCatalog({getConfig,fetchImpl,credentialOptions:{env,vault},channelDrivers});
+  async function routeForModel(model){
+    if(typeof model!=='string')throw new RoutingError('ERR_ROUTE_NOT_FOUND','Invalid DSH model');
+    if(model.startsWith('chain:'))return model.slice(6);
+    const direct=directModelDecode(model);
+    if(direct){
+      const published=await catalog.list();
+      if(!published.some(row=>row.id===model))throw new RoutingError('ERR_ROUTE_NOT_FOUND','Direct model was not advertised by this provider');
+      const config=getConfig(),provider=config.providers.find(p=>p.id===direct.providerId&&p.enabled);
+      if(!provider)throw new RoutingError('ERR_ROUTE_NOT_FOUND','Provider not configured');
+      return {id:model,name:model,mode:'pinned',enabled:true,tiers:[{providerId:direct.providerId,model:direct.model,free:false,accountIds:[]}],maxSwitches:0};
+    }
+    throw new RoutingError('ERR_ROUTE_NOT_FOUND','Unknown model: '+model);
+  }
+  async function* stream(options={}){
+    if(options.signal?.aborted){
+      yield {type:'finish',reason:{kind:'aborted',failure:{message:'Request cancelled'}}};return;
+    }
+    const id=await routeForModel(options.model);
+    const output=await engine.execute(id,{signal:options.signal,sessionId:options.sessionId??options.agentId??'',needTools:Array.isArray(options.tools)&&options.tools.length>0,...options});
+    yield* toDshEvents(output);
+  }
+  return {
+    providerInfo(){return {id:PROVIDER,name:'Native Router'}},
+    providerRetryPolicy(){return undefined},
+    imageRequestPricing(){return undefined},
+    imageRequestTarget(){return undefined},
+    async listModels(){return catalog.list()},
+    async resolveModel(provider,model){const rows=await catalog.list();const found=rows.find(x=>x.id===model);
+      return {provider:provider??PROVIDER,id:model,name:found?.name??model,inputModalities:['text']}},
+    async prepareCall(provider,model){return {model:await this.resolveModel(provider,model),stream}},
+    stream,
+    invalidateCatalog(){catalog.invalidate()},
+    getStatus(){return {routes:getConfig().routes.length,providers:getConfig().providers.length,accounts:getConfig().accounts.length,accountCooldowns:pool.status().exhausted,metrics:{...counters},recentRoutes:history.slice(-20)}},
+  };
+}

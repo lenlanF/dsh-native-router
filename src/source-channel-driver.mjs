@@ -1,0 +1,205 @@
+// Isolated DSH-native channel-pack driver. Reuses the upstream DSH llm service;
+// no duplicate OAuth, model protocol, sign-in, or credential implementation.
+import {randomUUID} from 'node:crypto';
+import {sourceAccountOpaqueId} from './source-account-ref.mjs';
+import {UpstreamError} from './failure.mjs';
+import {visibleTools} from './host-tools.mjs';
+import {flattenContent} from './protocol.mjs';
+import {validateModelCalls} from './provider/openai.mjs';
+import {SOURCE_PACK_PROVIDERS} from './embedded-pack.mjs';
+
+const MAX_OUTPUT_BYTES=16*1024*1024;
+const MAX_TOOL_CALLS=8;
+const ref=sourceAccountOpaqueId;
+const unable=(message,code='PROVIDER_NOT_READY')=>new UpstreamError(message,{code});
+const validSource=providerId=>SOURCE_PACK_PROVIDERS.includes(providerId);
+function requireSourceBinding(providerId,account){
+ const expected=String(account?.credentialRef??'');
+ if(account?.providerId!==providerId||!new RegExp('^driver:'+providerId+':sp_[a-f0-9]{24}$').test(expected)
+   ||expected.slice(('driver:'+providerId+':').length)!==account.id)
+  throw unable('Channel-pack account reference does not match its provider','CREDENTIAL');
+ return expected.slice(('driver:'+providerId+':').length);
+}
+function toSourceMessages(options,providerId,model){
+ const messages=[];
+ const system=flattenContent(options?.system);
+ if(system)messages.push({id:randomUUID(),role:'system',source:{kind:'system'},content:[{type:'text',text:system}]});
+ for(const row of options?.messages??[]){
+  if(!row||typeof row!=='object'||!['system','developer','user','assistant','tool'].includes(row.role))
+   throw unable('Unsupported DSH conversation message','TOOL_PROTOCOL');
+  messages.push({...row,id:typeof row.id==='string'&&row.id?row.id:randomUUID(),
+   role:row.role==='developer'?'system':row.role,
+   source:row.source??(row.role==='user'?{kind:'user'}:
+    row.role==='tool'?{kind:'tool',callId:row.toolCallId??''}:
+    row.role==='system'||row.role==='developer'?{kind:'system'}:{kind:'model',provider:providerId,model})});
+ }
+ if(!messages.length)throw unable('No DSH conversation message to send','TOOL_PROTOCOL');
+ return messages;
+}
+function capText(value){
+ if(typeof value!=='string')throw unable('Invalid native model stream text','TOOL_PROTOCOL');
+ return value;
+}
+
+// Complete the upstream DSH stream into ONE atomic response. The native router
+// does not expose partial output before routing/failover has committed to a tier.
+// Never execute tools: only return DSH-host-authorized tool calls after validation.
+export async function collectSourceDshStream(stream,{tools=[],signal}={}){
+ if(!stream||typeof stream[Symbol.asyncIterator]!=='function')
+  throw unable('DSH source adapter did not return an async stream','TOOL_PROTOCOL');
+ let text='',reasoning='',usage=null,finish=null,total=0;
+ const calls=new Map(),blocks=new Map(),closed=new Set();
+ function charge(value){
+  total+=Buffer.byteLength(value,'utf8');
+  if(total>MAX_OUTPUT_BYTES)throw unable('Native model output exceeded size limit','RESPONSE_SIZE');
+ }
+ for await(const item of stream){
+  if(signal?.aborted)throw unable('Native model request was cancelled','CANCELLED');
+  if(!item||typeof item!=='object')throw unable('Invalid DSH model event','TOOL_PROTOCOL');
+  if(finish!==null)throw unable('Native model events continued after finish','TOOL_PROTOCOL');
+  switch(item.type){
+   case 'block-start':
+    if(!Number.isInteger(item.index)||item.index<0||item.index>128||blocks.has(item.index))
+     throw unable('Malformed native block start','TOOL_PROTOCOL');
+    if(!['text','reasoning','tool-call'].includes(item.blockType))
+     throw unable('Unsupported native output block','TOOL_PROTOCOL');
+    blocks.set(item.index,{kind:item.blockType,received:false});
+    break;
+   case 'text-delta':
+   case 'reasoning-delta':{
+    const type=item.type==='text-delta'?'text':'reasoning';
+    const block=blocks.get(item.index);
+    if(!block||block.kind!==type||closed.has(item.index))
+     throw unable('Mismatched native text event','TOOL_PROTOCOL');
+    const delta=capText(item.text);charge(delta);block.received=true;
+    if(type==='text')text+=delta;else reasoning+=delta;
+    break;
+   }
+   case 'tool-call-delta':{
+    const block=blocks.get(item.index);
+    if(!block||block.kind!=='tool-call'||closed.has(item.index))
+     throw unable('Mismatched native tool event','TOOL_PROTOCOL');
+    if(!calls.has(item.index)){
+     if(calls.size>=MAX_TOOL_CALLS)throw unable('Too many native tool calls','TOOL_PROTOCOL');
+     calls.set(item.index,{id:'',name:'',arguments:''});
+    }
+    const call=calls.get(item.index);
+    if(typeof item.id==='string'&&item.id){if(call.id&&call.id!==item.id)throw unable('Tool ID changed within stream','TOOL_PROTOCOL');call.id=item.id}
+    if(typeof item.name==='string'&&item.name){if(call.name&&call.name!==item.name)throw unable('Tool name changed within stream','TOOL_PROTOCOL');call.name=item.name}
+    const part=capText(item.argumentsDelta??'');charge(part);
+    call.arguments+=part;block.received=true;
+    break;
+   }
+   case 'block-end':{
+    const block=blocks.get(item.index);
+    if(!block||closed.has(item.index))throw unable('Unexpected native block end','TOOL_PROTOCOL');
+    if(item.block?.type&&item.block.type!==block.kind)
+     throw unable('Native block type mismatch','TOOL_PROTOCOL');
+    if(!block.received){
+     if(block.kind==='text'||block.kind==='reasoning'){
+      const whole=capText(item.block?.text??'');charge(whole);
+      if(block.kind==='text')text+=whole;else reasoning+=whole;
+     }else{
+      const call=item.block??{};
+      if(calls.size>=MAX_TOOL_CALLS)throw unable('Too many native tool calls','TOOL_PROTOCOL');
+      calls.set(item.index,{id:call.id,name:call.name,arguments:call.arguments});
+     }
+    }
+    closed.add(item.index);break;
+   }
+   case 'usage':
+    if(item.usage&&typeof item.usage==='object')usage=item.usage;
+    break;
+   case 'finish':
+    if(!item.reason||!['stop','tool-calls','max-tokens'].includes(item.reason.kind)){
+     const reported=Number(item.reason?.failure?.status??item.reason?.failure?.statusCode);
+     const status=Number.isInteger(reported)&&reported>=400&&reported<600?reported:0;
+     throw new UpstreamError('Native DSH source did not complete successfully',
+       {status,code:item.reason?.kind==='aborted'?'CANCELLED':'STREAM'});
+    }
+    finish=item.reason.kind;
+    break;
+   default:throw unable('Unsupported native model event type','TOOL_PROTOCOL');
+  }
+ }
+ if(finish===null||closed.size!==blocks.size)
+  throw unable('Native model stream ended before complete finish','TRUNCATED');
+ const toolCalls=[...calls].sort((a,b)=>a[0]-b[0]).map(([,x])=>x);
+ if(finish==='tool-calls'&&!toolCalls.length)
+  throw unable('Native model declared tool calls but emitted none','TOOL_PROTOCOL');
+ if(!text.trim()&&!reasoning.trim()&&!toolCalls.length)
+  throw unable('Native model yielded an empty response','EMPTY');
+ const output={text,reasoning,toolCalls,finishReason:toolCalls.length?'tool_calls':
+  finish==='max-tokens'?'length':'stop'};
+ if(usage)output.usage={prompt_tokens:usage.inputTokens,completion_tokens:usage.outputTokens,
+  total_tokens:usage.totalTokens};
+ return validateModelCalls(output,tools);
+}
+export function createSourceChannelDriver({providerId,embeddedPack}={}){
+ if(!validSource(providerId)||!embeddedPack)throw Error('Unknown embedded source provider');
+ const snapshot=async()=>{
+  const result=await embeddedPack.listAccounts();
+  if(result?.state!=='ready')throw unable('Isolated upstream channel account pool is not available');
+  return result.accounts.filter(row=>row.providerId===providerId);
+ };
+ async function resolve(account){
+  const accountRef=requireSourceBinding(providerId,account);
+  const rows=await snapshot();
+  const matched=rows.filter(row=>ref(providerId,row.id)===accountRef);
+  if(matched.length!==1)throw unable('Upstream account reference is stale or ambiguous','CREDENTIAL');
+  return matched[0];
+ }
+ return {
+  isSourceBridge:true,
+   get runtimeReady(){const status=embeddedPack.status?.();return status?.state==='mounted'
+     &&(!Array.isArray(status.channels)||status.channels.includes(providerId))},
+  authMethod:'隔离渠道包来源账号引用（不复制凭据）',
+  async discover(){
+   const rows=await snapshot();
+   return rows.filter(row=>typeof row.id==='string')
+    .map(row=>({id:ref(providerId,row.id),label:row.nickname||providerId+' 来源账号',
+     source:'isolated-channel-pack'}));
+  },
+  async importCandidate({candidateId,consent}={}){
+   if(consent!==true)throw unable('Explicit account import consent is required','CREDENTIAL');
+   const rows=await snapshot();
+   const matched=rows.filter(row=>ref(providerId,row.id)===candidateId);
+   if(matched.length!==1)throw unable('Source account no longer exists','CREDENTIAL');
+   return {id:candidateId,credentialRef:'driver:'+providerId+':'+candidateId};
+  },
+  async listModels({account}={}){
+   await resolve(account);
+   const result=await embeddedPack.listModels(providerId);
+   if(result.state!=='ready')throw unable('Source provider model list is unavailable');
+   return result.models.map(({id})=>({id}));
+  },
+  async generate({account,model,options={},signal}={}){
+   const selected=await resolve(account);
+   if(!selected.enabled)throw unable('Source account is disabled','CREDENTIAL');
+    const rows=await snapshot();
+    // Preserve refusal by default; only an isolated instrumented source
+    // facade may explicitly advertise a reviewed experimental channel.
+    if(rows.filter(row=>row.enabled).length>1
+      &&!embeddedPack.status?.().experimentalMultiAccountProviders?.includes(providerId))
+      throw unable('Source provider has multiple enabled accounts; exact account selection is not verified');
+   const request={providerId,sourceAccountId:selected.id,model,
+    messages:toSourceMessages(options,providerId,model),tools:visibleTools(options.tools),
+    signal,...(Number.isInteger(options.maxTokens)&&options.maxTokens>0?{maxTokens:options.maxTokens}:{})};
+   try{
+    const native=await embeddedPack.streamNative(request);
+    const output=await collectSourceDshStream(native,{tools:options.tools,signal});
+    if(embeddedPack.status?.().state!=='mounted')throw unable('Isolated DSH source was disposed before completion');
+    return output;
+   }catch(error){
+    // Preserve bounded HTTP status for account/route failover, NEVER raw
+    // source error messages (which may contain token paths or credentials).
+    if(error instanceof UpstreamError)throw error;
+    if(signal?.aborted)throw unable('Isolated source request cancelled','CANCELLED');
+    const status=Number(error?.status);
+    throw new UpstreamError('Isolated DSH native source request failed',{
+      status:Number.isInteger(status)&&status>=400&&status<600?status:0,code:'UPSTREAM',
+    });
+   }
+  },
+ };
+}

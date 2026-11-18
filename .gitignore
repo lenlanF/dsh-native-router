@@ -1,0 +1,15 @@
+﻿node_modules/
+*.tgz
+config.json
+*.db
+*.sqlite*
+*.log
+.env
+*.key
+coverage/
+# review/dev notes and local artifacts
+DEVELOPMENT_LOG.md
+docs/REFERENCE_AUDIT.md
+docs/UPSTREAM_REUSE_AUDIT.md
+tests/
+VERIFY.md
