@@ -47,9 +47,21 @@ jobs:
           New-Item -ItemType Directory -Path 'E:\Temp' -Force | Out-Null
           "TEMP=E:\Temp" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "TMP=E:\Temp" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      - name: Run all Windows synthetic tests
+      - name: Run portable Windows synthetic tests without weakening real-disk isolation
         if: matrix.os == 'windows-latest'
-        run: npm test
+        shell: pwsh
+        run: |
+          # GitHub's E: is a temporary SUBST mapping; realpathSync.native()
+          # resolves to D:, so it MUST fail the strict physical E: source gate.
+          # Only two hardware-bound integration suites require a real E: disk.
+          # Run those on the project-bound workstation, never relax the gate.
+          $hardwareBound = @('embedded-pack.test.mjs', 'source-checkin-bridge.test.mjs')
+          $tests = @(Get-ChildItem -LiteralPath 'tests' -Filter '*.test.mjs' -File |
+            Where-Object { $_.Name -notin $hardwareBound } |
+            ForEach-Object { $_.FullName })
+          if ($tests.Count -lt 25) { throw 'Missing portable tests in public checkout' }
+          & node --test @tests
+          if ($LASTEXITCODE -ne 0) { throw 'Portable Windows synthetic tests failed' }
       - name: Check canonical source and config tests from Linux LF checkout
         if: matrix.os == 'ubuntu-latest'
         run: node --test tests/native-pack-bundle.test.mjs tests/config.test.mjs
