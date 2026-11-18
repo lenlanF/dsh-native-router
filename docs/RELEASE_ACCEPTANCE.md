@@ -1,4 +1,4 @@
-# DSH Native Router（聚合路由）— 1.0.0-rc.5 发布验收与放行门禁
+# DSH Native Router（聚合路由）— 1.0.0-rc.6 发布验收与放行门禁
 
 > 当前状态：**发行候选（Release Candidate），不是稳定版 1.0.0**。仅能在用户明确批准的隔离 DSH 中做实机验收。提交到 npm、发布 GitHub Release、覆盖 DSH 生产插件或接触真实登录态均需单独明确授权；离线测试通过不等同于业务账号、真实服务或桌面端验收通过。
 
@@ -20,6 +20,8 @@
 | **发行包实装验收** | **从真实 .tgz 安装进全新 npm 环境**，实际 Cordis 加载/卸载、原生 Provider 存在、DSH Connection 200/401/404、没有默认配置写入、仅一个宿主监听器 | `tools/verify-packed-distribution.ps1`，临时 Profile 用后清理；不是正式桌面 DSH |
 
 **独立接管验收边界**：仅对兼容 DSH AccountPool 授权做逐账号所有者确认迁移，原 DSH Provider 不被替换；关闭原插件后须重新加载 DSH 并验证模型调用与签到才可声称独立可用。详见 [OWNED_CHANNEL_ADOPTION.md](OWNED_CHANNEL_ADOPTION.md)。
+
+**RC.6 私有插件发现**：新增 WorkBuddy、Lingxi、Loomy、ZCode Start Plan 的包安装与私有账号只读检测；独立数据库无法读取时明确显示受限。私有授权记录不复制、不冒充已认证账号。插件停用后仍能完成真实推理/签到的独立驱动，除此前已经验证的兼容 AccountPool 外仍未实现，不能作为本轮已验收成果。
 
 **RC.4 双模式增补**（rc.5 保留）：模拟宿主的源码回归测试覆盖 DSH Provider 无账号委托推理、没有模型目录时手动导入、内置渠道授权与宿主同名 Provider 共存及专有账号池/凭据命名空间。内置来源的 13 种入口是总量，与宿主同名时以原插件为准，实际自主授权渠道数会减少；有独立逐账号签到实现的 9 种渠道仍需线上逐项验证。**尚未在当前正式 DSH 账号中做真实扫码、在线推理和签到。**
 

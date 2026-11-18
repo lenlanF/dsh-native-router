@@ -193,7 +193,8 @@ window.__ModuleLoader__.load({
             h('div',{style:css.line},
               h(Toggle,{label:'自动关联现有登录态',value:cfg.sessionReuse?.enabled===true,
                 onChange:v=>onReuseSettings({enabled:v})}),
-              h('span',{style:css.mutedTag},'已关联 '+(reuse.autoLinked??0)),
+              h('span',{style:css.mutedTag},'可直接关联 '+(reuse.autoLinked??0)),
+              h('span',{style:css.mutedTag},'发现私有授权 '+(reuse.detectedPrivate??0)),
               h('span',{style:css.mutedTag},'忽略 '+(reuse.ignored??0))),
             (reuse.ignored??0)>0?h(Button,{onClick:()=>{
               if(window.confirm('解除忽略并在保存后重新扫描？'))onReuseSettings({resetIgnored:true})},
@@ -206,28 +207,46 @@ window.__ModuleLoader__.load({
               h('p',{style:css.small},'暂无可验证的本机授权入口，不将机器标识当作登录凭据。')),
                     h(Panel,{title:'接管原插件账号 · 迁入本插件',
             actions:h(Button,{disabled:!!adoptionBusy,onClick:onPreviewAdoption},
-              adoptionBusy==='preview'?'查询中…':'检测可迁移账号')},
-            h('p',{style:css.small},'逐个确认后，将兼容的授权复制到本插件独立凭据库。原插件账号不删除；未验证前不代表能独立推理。'),
-            adoptionPreview?.accounts?.length?
+              adoptionBusy==='preview'?'检测中…':'检查原插件账号')},
+            h('p',{style:css.small},'按真实来源识别各插件账号。标准账号池可申请接管，原插件私有授权需独立适配；检测到授权不等于已验证登录。'),
+                        adoptionPreview?.plugins?.length?h('div',{style:{...css.metrics,marginTop:12,marginBottom:9}},
+              adoptionPreview.plugins.map(p=>{
+                const count=(adoptionPreview.accounts||[]).filter(row=>row.providerId===p.providerId).length;
+                const issue=(adoptionPreview.pluginScanIssues||[]).some(x=>x.providerId===p.providerId);
+                return h('div',{key:p.providerId,style:{...css.metric,padding:12,gap:3}},
+                  h('strong',{style:{fontSize:13}},p.name),
+                  h('span',{style:css.small},p.installed?'已安装 · '+p.version:'未检测到插件'),
+                  h('span',{style:css.mutedTag},!p.installed?'未安装':issue?'来源读取受限':
+                    count?'发现 '+count+' 个待核验授权':'授权尚未核实'));
+              })):null,
+adoptionPreview?.accounts?.length?
               adoptionPreview.accounts.map(row=>h('div',{key:row.providerId+':'+row.accountId,style:css.itemRow},
                 h('div',{style:{minWidth:0}},
                   h('strong',null,row.label||row.accountId),
-                  h('div',{style:css.small},row.providerId+' · '+(row.portable?'可迁移 · 待确认':'请使用本插件自主登录'))),
+                  h('div',{style:css.small},row.providerId+' · '+(row.portable?'标准账号池 · 可确认迁移':
+                    row.state==='private_authorization_unverified'?({
+                      'lingxi-private-state':'Lingxi 私有账号库 · 待独立适配',
+                      'loomy-plugin-state':'Loomy 插件账号库 · 待独立适配',
+                      'loomy-desktop-session':'Loomy 桌面登录 · 待独立适配',
+                      'loomy-manual-session':'Loomy 手动登录 · 待独立适配',
+                      'zcode-private-sqlite':'ZCode SQLite 账号 · 待独立适配',
+                    })[row.source]||'原插件私有授权 · 待独立适配':'暂无安全迁移方式'))),
                 h(Button,{disabled:!!adoptionBusy||!row.portable
                   ||adoptionPreview.ownPackState!=='mounted',
-                  onClick:()=>onAdoptAccount(row)},'接管到本插件'))):
+                  onClick:()=>onAdoptAccount(row)},row.portable?'接管到本插件':'暂不能迁移'))):
               h('p',{style:css.small},adoptionPreview?.state==='ready'
-                ?'没有找到兼容的可迁移账号。其他私有会话需要使用自主登录。'
+                ?'没有检测到可验证的本机账号记录。可在「自主登录」进行独立授权。'
                 :'尚未扫描；只有原 DSH 共享账号池中可安全转移的授权才会列出。'),
-            adoptionPreview?.ownPackState!=='mounted'&&adoptionPreview
-              ?h('p',{style:css.small},'内置渠道尚未就绪，请在「自主登录」中启用并保存配置，重启 DSH 后再接管。'):null),
+            adoptionPreview?.ownPackState!=='mounted'&&adoptionPreview?.accounts?.some(row=>row.portable)
+              ?h('p',{style:css.small},'存在标准账号池可迁移账号，但内置渠道尚未就绪。请先在「自主登录」启用并保存，重新加载 DSH 后再接管。'):null),
 (reuse.results||[]).length?h('details',{style:css.card},
             h('summary',{style:{cursor:'pointer'}},'扫描记录 · '+reuse.results.length),
             (reuse.results||[]).slice(-10).map((row,i)=>h('div',{key:i,style:css.itemRow},
               h('strong',null,row.providerId),h('span',{style:css.small},({
                 linked_unverified:'已关联 · 待验证',already_configured:'已存在',
                 ignored:'已忽略',multiple_accounts_unverified:'需精确选择账号',
-                source_changed:'登录态已变化',invalid_reference:'已拒绝'
+                source_changed:'登录态已变化',invalid_reference:'已拒绝',
+                private_authorization_unverified:'发现私有授权 · 尚非自有账号'
               })[row.state]||'待确认')))):null
         ):null,
         subtab==='source'?h(React.Fragment,null,
@@ -884,7 +903,7 @@ async function loadUpstreamModels(providerId){
           value:raw,onChange:e=>setRaw(e.target.value),'aria-label':'完整路由配置 JSON'}));
       return h('div',{style:css.root},
         h('h2',{style:css.title},'聚合路由'),
-        h('p',{style:css.caption},'DSH 原生插件复用 · 桌面授权复用 · 多账号池 · 每日签到 · 模型故障安全续跑 · v1.0.0-rc.5'),
+        h('p',{style:css.caption},'DSH 原生插件复用 · 桌面授权复用 · 多账号池 · 每日签到 · 模型故障安全续跑 · v1.0.0-rc.6'),
         h('div',{style:css.tabbar},tabs.map(([id,label])=>h('button',{key:id,type:'button',
           style:{...css.tab,...(tab===id?css.chosen:{})},onClick:()=>setTab(id)},label))),
         error?h('div',{role:'alert',style:css.error},error):null,

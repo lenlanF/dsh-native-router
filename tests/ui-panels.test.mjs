@@ -61,7 +61,12 @@ function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={stat
       sessionReuse:{hostProviders},...(embeddedPreview?{embeddedAccounts:embeddedPreview}:{})});
     if(key==='/channels/adopt/preview'){
        mutations.push({kind:'adoption-preview'});
-       return response({ok:true,result:{state:'ready',ownPackState:'mounted',accounts:[
+       return response({ok:true,result:{state:'ready',ownPackState:'mounted',plugins:[
+        {providerId:'workbuddy',name:'WorkBuddy',installed:true,version:'5.24.10'},
+        {providerId:'lingxi',name:'Lingxi',installed:true,version:'0.5.9'},
+        {providerId:'loomy',name:'Loomy',installed:true,version:'0.5.3'},
+        {providerId:'zcode-start-plan',name:'ZCode Start Plan',installed:true,version:'1.0.3'},
+       ],accounts:[
         {providerId:'qoder',accountId:'qoder-test',label:'Qoder Test',portable:true},
         {providerId:'workbuddy',accountId:'wb-private',label:'WorkBuddy private',portable:false}]}});
      }
@@ -239,12 +244,19 @@ test('reuse adoption tab requires deliberate account selection, never auto-copie
  assert.ok(!rig.mutations.some(x=>x.kind?.startsWith('adoption')),
   'opening the reuse tab must not read or copy credentials');
  const page=rig.render();
- await rig.find(page,'button','检测可迁移账号')[0].props.onClick();
+ await rig.find(page,'button','检查原插件账号')[0].props.onClick();
  assert.equal(rig.mutations.filter(x=>x.kind==='adoption-preview').length,1);
  const buttons=rig.find(rig.render(),'button','接管到本插件');
- assert.equal(buttons.length,2);
+ assert.equal(buttons.length,1);
  assert.equal(buttons[0].props.disabled,false);
- assert.equal(buttons[1].props.disabled,true);
+ const blocked=rig.find(rig.render(),'button','暂不能迁移');
+ assert.equal(blocked.length,1);
+ assert.equal(blocked[0].props.disabled,true);
+ const cardText=rig.flatten(rig.render()).join(' ');
+ assert.match(cardText,/Lingxi/);
+ assert.match(cardText,/ZCode Start Plan/);
+ assert.match(cardText,/WorkBuddy/);
+ assert.match(cardText,/Loomy/);
  await buttons[0].props.onClick();
  const imported=rig.mutations.filter(x=>x.kind==='adoption');
  assert.equal(imported.length,1);

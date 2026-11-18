@@ -5,6 +5,7 @@ import {registerAuthenticatedRouterRoutes} from './connection-routes.mjs';
 import {createAccountCenter} from './account-center.mjs';
 import {createSessionReuse} from './session-reuse.mjs';
 import {createAccountAdoption} from './account-adoption.mjs';
+import {createInstalledPluginInventory} from './installed-plugin-inventory.mjs';
 import {createExistingDshChannelFacade,createPreferredSourceFacade} from './existing-dsh-channels.mjs';
 import {createCheckinCenter,createCheckinStore} from './checkins.mjs';
 import {getNativeChannelDrivers,onNativeChannelDriverChange,registerNativeChannelDriver} from './driver-registry.mjs';
@@ -62,10 +63,11 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
     hostProviderInventory:existingHostSource});
  const accountCenter=createAccountCenter({configStore:ownStore,adapter:ownAdapter,
    drivers,fetchImpl,env,vault:vault??ctx.get?.('credentials'),getSourceStatus:()=>sourceFacade.status()});
- const sessionReuse=createSessionReuse({configStore:ownStore,drivers,
-     embeddedPack:sourceFacade,adapter:ownAdapter,logger:ctx.logger});
+ const installedInventory=createInstalledPluginInventory();
+  const sessionReuse=createSessionReuse({configStore:ownStore,drivers,
+     embeddedPack:sourceFacade,adapter:ownAdapter,logger:ctx.logger,installedInventory});
   const accountAdoption=createAccountAdoption({configStore:ownStore,
-     originalSource:existingHostSource,ownedPack:embeddedPack,adapter:ownAdapter});
+     originalSource:existingHostSource,ownedPack:embeddedPack,adapter:ownAdapter,installedInventory});
    const checkinCenter=createCheckinCenter({configStore:ownStore,accountCenter,
     store:checkinStore??createCheckinStore({path:ownStore.path?join(dirname(ownStore.path),'checkins.json'):undefined}),
     sourcePack:embeddedPack,logger:ctx.logger});

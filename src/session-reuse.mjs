@@ -24,9 +24,9 @@ const sourceIds=new Set(SOURCE_PACK_PROVIDERS);
  * A machine/device ID is NOT a user login and cannot qualify on its own.
  */
 export function createSessionReuse({configStore,drivers,embeddedPack,adapter,
- logger,intervalMs=AUTO_SCAN_MS}={}){
+ logger,installedInventory,intervalMs=AUTO_SCAN_MS}={}){
  if(!configStore?.get||!configStore?.replace)throw Error('ConfigStore is required');
- let timer=null,startupRetry=null,disposed=false,pending=null,lastScanAt=null,lastResult=[];
+ let timer=null,startupRetry=null,disposed=false,pending=null,lastScanAt=null,lastResult=[],lastPrivateCount=0;
  const driverFor=id=>drivers instanceof Map?drivers.get(id):drivers?.[id];
  const approved=()=>configStore.get().sessionReuse?.enabled===true;
  const validRef=(providerId,id,ref)=>{
@@ -43,6 +43,7 @@ export function createSessionReuse({configStore,drivers,embeddedPack,adapter,
      hostProviders:hostProviders.map(row=>({...row})),
 
    autoLinked:(cfg.sessionReuse?.linkedIds??[]).filter(id=>cfg.accounts.some(a=>a.id===id)).length,
+    detectedPrivate:lastPrivateCount,
    ignored:(cfg.sessionReuse?.ignoredIds??[]).length,
      channels:[{providerId:'workbuddy',
         method:'desktop-readonly / existing-dsh-source-account',
@@ -91,7 +92,15 @@ export function createSessionReuse({configStore,drivers,embeddedPack,adapter,
      }
     }
    }
-    const results=[...unverified];
+    const privateScan=await installedInventory?.scan?.().catch(()=>null);
+    const privateRows=privateScan?.accounts??[];
+    lastPrivateCount=privateRows.length;
+    // These are real plugin-local authorization files or accounts, but not
+    // portable DSH AccountPool entries and not automatically imported.
+    const results=[...unverified,...privateRows.map(row=>({
+      providerId:row.providerId,id:row.accountId,method:row.source,
+      state:'private_authorization_unverified',
+    }))];
    for(const candidate of discovered.slice(0,MAX_SCAN_RESULTS)){
     if(disposed||!approved())break;
     const {providerId,id,method}=candidate;

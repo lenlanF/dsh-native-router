@@ -1,6 +1,6 @@
 {
   "name": "dsh-native-router",
-  "version": "1.0.0-rc.5",
+  "version": "1.0.0-rc.6",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -29,6 +29,7 @@
     "docs/CODEARTS_NATIVE.md",
     "docs/NATIVE_DRIVER_CONTRACT.md",
     "docs/OWNED_CHANNEL_ADOPTION.md",
+    "docs/PLUGIN_REUSE_MATRIX.md",
     "docs/RELEASE_ACCEPTANCE.md",
     "docs/WORKBUDDY_NATIVE.md",
     "vendor/channel-pack/pack-native.js",

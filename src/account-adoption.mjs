@@ -7,24 +7,34 @@ import {sourceAccountOpaqueId} from './source-account-ref.mjs';
 import {SOURCE_DAILY_SIGNIN_PROVIDERS} from './embedded-pack.mjs';
 
 export function createAccountAdoption({configStore,originalSource,ownedPack,adapter,
- makeCredentialRef}={}){
+ makeCredentialRef,installedInventory}={}){
  const loadRef=async()=>{
   if(typeof makeCredentialRef==='function')return makeCredentialRef;
   const module=await import('@deepseek-ai/dsh-credentials');
   if(typeof module.credentialRef!=='function')throw Error('DSH Credentials unavailable');
   return module.credentialRef;
  };
- async function preview(){
-  const original=await originalSource?.portableAccounts?.()??{state:'unavailable',accounts:[]};
-  const owned=ownedPack?.status?.()??{state:'disabled'};
-  // Source metadata only. The original private credentialRef never crosses API.
-  return {state:original.state,ownPackState:owned.state,
-   accounts:(original.accounts??[]).slice(0,100).map(row=>({
+  async function preview(){
+   const original=await originalSource?.portableAccounts?.()??{state:'unavailable',accounts:[]};
+   const privatePlugins=await installedInventory?.scan?.().catch(()=>null);
+   const owned=ownedPack?.status?.()??{state:'disabled'};
+   const transferable=(original.accounts??[]).slice(0,100).map(row=>({
     providerId:row.providerId,accountId:row.accountId,
     label:row.label,portable:row.portable===true,
     state:row.portable===true?'available_for_owner_consent':'requires_native_login',
-   }))};
- }
+   }));
+   // Private plugin inventories cannot be upgraded by the generic AccountPool
+   // copier; each format requires a separate protocol and user authorization.
+   const privateRows=(privatePlugins?.accounts??[]).map(row=>({
+    providerId:row.providerId,accountId:row.accountId,
+    label:row.label,portable:false,state:'private_authorization_unverified',
+    source:row.source,
+   }));
+   return {state:original.state==='ready'||privatePlugins?.state==='ready'?'ready':'unavailable',
+    ownPackState:owned.state,plugins:privatePlugins?.plugins??[],
+    pluginScanIssues:privatePlugins?.issues??[],
+    accounts:[...transferable,...privateRows].slice(0,100)};
+  }
  async function adopt({providerId,accountId,consent}={}){
   if(consent!==true)return {state:'consent_required'};
   const identity=ownedAdoptionIdentity(providerId,accountId);
