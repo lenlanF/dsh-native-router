@@ -34,6 +34,19 @@ jobs:
         run: python tools/audit-public-tree.py
       - name: Verify immutable MIT source across CRLF and LF checkouts
         run: python tools/build-native-channel-pack.py --check
+      - name: Prepare isolated test storage on Windows runner
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          # Hosted runners need not have E:. Only map this ephemeral CI VM;
+          # never inspect or copy real users' profiles or desktop credentials.
+          if (-not (Test-Path -LiteralPath 'E:\')) {
+            subst.exe E: "$env:RUNNER_TEMP"
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot provision isolated E drive' }
+          }
+          New-Item -ItemType Directory -Path 'E:\Temp' -Force | Out-Null
+          "TEMP=E:\Temp" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "TMP=E:\Temp" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Run all Windows synthetic tests
         if: matrix.os == 'windows-latest'
         run: npm test
