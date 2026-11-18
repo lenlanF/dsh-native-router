@@ -1,0 +1,13 @@
+# Keep public source receipts and GitHub clones reproducible across platforms.
+* text=auto
+*.js text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.py text eol=lf
+*.ps1 text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.wasm -text
+*.tgz -text

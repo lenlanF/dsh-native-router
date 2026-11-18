@@ -1,5 +1,11 @@
 # Change Log
 
+## 1.0.0-rc.2 — 2026-11-18 — Public source integrity and privacy hardening
+
+- 修复固定上游来源哈希只接受 Windows CRLF、公开 GitHub LF 克隆无法完整验证的问题；文本统一 LF，WASM 字节保持完全不变。
+- 新增公开仓库 GitHub Actions Windows/Linux 测试、只公开经过凭据扫描的合成测试、零权限的秘密扫描脚本和更严格的 .gitignore 保护；移除发行清单中的私人开发日志。
+- 整理上游 MIT 版权说明和漏洞私下报告渠道；版本号提升为 rc.2，正式 1.0.0 仍需实际 DSH 登录、签到和不可逆工具场景验收。
+
 ## 1.0.0-rc.1 — 2026-11-18 — Release Candidate
 
 - 将 DSH 原生单插件构建整理为可分发 npm tarball：Node `>=22.10.0`、MIT 及三方版权 NOTICE；不包含开发依赖或第二个服务进程。

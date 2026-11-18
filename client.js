@@ -641,7 +641,7 @@ window.__ModuleLoader__.load({
           value:raw,onChange:e=>setRaw(e.target.value),'aria-label':'完整路由配置 JSON'}));
       return h('div',{style:css.root},
         h('h2',{style:css.title},'原生多提供商路由'),
-        h('p',{style:css.caption},'已有 DSH 渠道登录态复用 · 本机桌面登录复用 · 账号池 · 自动签到 · AgentLoop 故障安全续跑 · v1.0.0-rc.1'),
+        h('p',{style:css.caption},'已有 DSH 渠道登录态复用 · 本机桌面登录复用 · 账号池 · 自动签到 · AgentLoop 故障安全续跑 · v1.0.0-rc.2'),
         h('div',{style:css.tabbar},tabs.map(([id,label])=>h('button',{key:id,type:'button',
           style:{...css.tab,...(tab===id?css.chosen:{})},onClick:()=>setTab(id)},label))),
         error?h('div',{role:'alert',style:css.error},error):null,

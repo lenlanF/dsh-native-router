@@ -1,0 +1,81 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {createHash} from 'node:crypto';
+
+const file=name=>readFileSync(new URL('../'+name,import.meta.url));
+const json=name=>JSON.parse(file(name).toString('utf8'));
+const sha=value=>createHash('sha256').update(value).digest('hex');
+// Canonicalize source text only. Never transform WASM or other binary blobs.
+const canonicalText=value=>Buffer.from(value.toString('utf8').replace(/\r\n/g,'\n'),'utf8');
+
+test('the DSH-native bundle is deterministically derived from unchanged pinned MIT source',()=>{
+ const source=json('vendor/channel-pack/SOURCE_RECEIPT.json');
+ const native=json('vendor/channel-pack/NATIVE_BUILD_RECEIPT.json');
+  const original=canonicalText(file('vendor/channel-pack/pack.js'));
+  const bundled=file('vendor/channel-pack/pack-native.js');
+  assert.equal(source.textCanonicalization,'LF for text files; binary WASM unchanged');
+  assert.equal(sha(original),source.referenceFiles.find(row=>row.file==='pack.js').sha256);
+  assert.equal(original.length,source.referenceFiles.find(row=>row.file==='pack.js').bytes);
+  assert.equal(sha(original),native.originalSha256);
+  for(const ref of source.referenceFiles){
+    const bytes=file('vendor/channel-pack/'+ref.file);
+    const canonical=ref.file.endsWith('.wasm')?bytes:canonicalText(bytes);
+    assert.equal(canonical.length,ref.bytes,'source byte count '+ref.file);
+    assert.equal(sha(canonical),ref.sha256,'canonical source SHA '+ref.file);
+  }
+  // The same source must verify from Windows CRLF or a fresh Linux LF clone.
+  const crlf=Buffer.from(original.toString('utf8').replace(/\n/g,'\r\n'),'utf8');
+  assert.equal(sha(canonicalText(crlf)),sha(original));
+ assert.equal(sha(bundled),native.generatedSha256);
+ assert.equal(bundled.length,native.generatedBytes);
+ assert.equal(native.patches.length,11);
+ assert.equal(native.additionalRuntimeProcessRequired,false);
+ assert.equal(native.bundledByDSHPlugin,true);
+});
+test('bundled source has NO default gateway, loop resume, auto checkin or refresh daemon',()=>{
+ const bundled=file('vendor/channel-pack/pack-native.js').toString('utf8');
+ for(const prohibited of [
+  '  mountOpenAiGateway(ctx, pool);',
+  '  installLoopResume(ctx);',
+  '  autoCheckin.start();',
+  '  pool.listAllAccounts().then((accounts) => {',
+ ]){
+  if(prohibited.startsWith('  pool.listAllAccounts'))continue;
+  assert.equal(bundled.includes(prohibited),false,'forbidden standalone startup: '+prohibited);
+ }
+ assert.match(bundled,/if \(config\.nativeRouterAutoRefresh === true\) pool\.listAllAccounts\(\)\.then/);
+ assert.match(bundled,/var CHANNEL_PACK_NS = "dsh-native-router-source-channel-pack"/);
+ assert.match(bundled,/join\(base, "plugins", "dsh-native-router", "source-channel-pack"\)/);
+ assert.match(bundled,/CHANNEL_PACK_API_PATH = "\/api\/dsh-native-router\/channel-pack"/);
+ assert.match(bundled,/CHANNEL_PACK_ENDPOINT = "native-router-channel-pack"/);
+});
+test('release package ships only native in-process bundle with host-provided peer modules',()=>{
+ const pkg=json('package.json');
+  const client=file('client.js').toString('utf8');
+ const bridge=file('src/embedded-pack.mjs').toString('utf8');
+ assert.equal(pkg.main,'./src/index.mjs');
+  assert.equal(pkg.private,false);
+  assert.equal(pkg.license,'MIT');
+  assert.equal(pkg.engines.node,'>=22.10.0');
+  assert.equal(pkg.version,'1.0.0-rc.2');
+ assert.ok(pkg.files.includes('vendor/channel-pack/pack-native.js'));
+ assert.ok(pkg.files.includes('vendor/channel-pack/NATIVE_BUILD_RECEIPT.json'));
+ assert.ok(pkg.files.includes('vendor/channel-pack/SOURCE_RECEIPT.json'));
+ assert.ok(!pkg.files.includes('vendor/channel-pack'));
+ assert.ok(!pkg.files.includes('vendor/channel-pack/pack.js'));
+ assert.match(bridge,/import\('\.\.\/vendor\/channel-pack\/pack-native\.js'\)/);
+ assert.match(client,/SOURCE_RPC='\/api\/dsh-native-router\/channel-pack'/);
+ assert.match(client,/method:'native-router-channel-pack'/);
+  assert.ok(client.includes("URL='/api/plugins/dsh-native-router'"));
+  assert.ok(pkg.peerDependencies['@deepseek-ai/dsh-credentials']);
+  assert.ok(pkg.peerDependencies['@deepseek-ai/dsh-client-connection']);
+  assert.ok(file('src/index.mjs').toString('utf8').includes("ctx.inject(['connection']"));
+  assert.ok(!file('src/index.mjs').toString('utf8').includes("ctx.inject(['webServer']"));
+  assert.ok(file('src/session-reuse.mjs').toString('utf8').includes('createSessionReuse'));
+  assert.ok(file('src/existing-dsh-channels.mjs').toString('utf8').includes('createExistingDshChannelFacade'));
+  assert.ok(file('src/channels/local-source.mjs').toString('utf8').includes('createLocalAndSourceDriver'));
+  assert.ok(file('src/failover/state.mjs').toString('utf8').includes('rerunPending'));
+  assert.ok(pkg.peerDependencies['@deepseek-ai/schemastery']);
+ assert.equal(pkg.scripts.start,undefined,'no external application startup command');
+});

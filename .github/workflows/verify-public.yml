@@ -1,0 +1,44 @@
+name: Public source, privacy and reproducibility
+
+on:
+  push:
+    branches: [main, 'fix/**', 'security/**']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  integrity:
+    name: ${{ matrix.os }} / Node 22.16 / public privacy gate
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Check out public source without persistent tokens
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify privacy rules detect known unsafe examples
+        run: python tools/audit-public-tree.py --self-test
+      - name: Stop if a tracked file looks like a secret or private profile
+        run: python tools/audit-public-tree.py
+      - name: Verify immutable MIT source across CRLF and LF checkouts
+        run: python tools/build-native-channel-pack.py --check
+      - name: Run all Windows synthetic tests
+        if: matrix.os == 'windows-latest'
+        run: npm test
+      - name: Check canonical source and config tests from Linux LF checkout
+        if: matrix.os == 'ubuntu-latest'
+        run: node --test tests/native-pack-bundle.test.mjs tests/config.test.mjs
+      - name: Validate npm publish file list (no upload)
+        run: npm pack --dry-run --json

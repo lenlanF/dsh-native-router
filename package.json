@@ -1,6 +1,6 @@
 {
   "name": "dsh-native-router",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -24,7 +24,7 @@
     "config.example.json",
     "client.js",
     "LICENSES",
-    "DEVELOPMENT_LOG.md",
+    "SECURITY.md",
     "docs",
     "vendor/channel-pack/pack-native.js",
     "vendor/channel-pack/qoder-auth-wasm.wasm",

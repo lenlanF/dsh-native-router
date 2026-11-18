@@ -1,9 +1,16 @@
 # DSH Native Router｜原生多提供商账号与模型链路
 
-**当前版本：1.0.0-rc.1（正式版发行候选，不是已放行的 1.0.0 稳定版）。** 单 DSH 原生插件、已有 DSH 渠道登录态复用、渠道模型路由与签到、真实 AgentLoop 隔离测试。**真实桌面与在线账号需要专门验收，发布阻断见 [发行验收与放行门禁](docs/RELEASE_ACCEPTANCE.md)。**
+**当前版本：1.0.0-rc.2（公开源码安全修复候选，尚非已放行的稳定版 1.0.0）。** 单 DSH 原生插件、已有 DSH 渠道登录态复用、渠道模型路由与签到、真实 AgentLoop 隔离测试。**真实桌面与在线账号需要专门验收，发布阻断见 [发行验收与放行门禁](docs/RELEASE_ACCEPTANCE.md)。**
 
 本项目将多提供商账号池、自定义模型降级链和宿主级 DSH 模型故障转移整合为一个 Cordis 插件。**不依赖 Agent2API 网关或独立常驻服务进程**：由 DSH 插件在本进程直接访问上游模型服务。可以独立卸载，不覆盖原有 WorkBuddy、Loomy、其他 Provider。
 
+## RC.2：公开 GitHub 源码安全与可复现性修复
+
+- 固定公开 Git 的 **LF 文本哈希**，Windows CRLF 工作目录与 Linux LF 克隆使用同一 `SOURCE_RECEIPT`；二进制 Qoder WASM **不做任何文本转换**。原本的 `pack-native.js` 仍由原 MIT 上游源码确定性生成，不改变供应代码。
+- `.gitignore` 保护本机账号、Token、密钥、数据库、环境变量和运行状态；GitHub 仓库恢复合成测试、自动安全扫描与 Windows/Linux 构建验证。**严禁将真实 DSH Profile 或客户端登录文件上传**。
+- 公开发行包不再包含私有开发日志，只包含源码、版权、脱敏的示例和运行必须文件。公开源代码与 .tgz 候选版一致；更多安全报告说明见 `SECURITY.md`。
+- 更新原来误导性的上游渠道包 `NOTICE`，区分审计快照 `pack.js` 与实际加载 `pack-native.js`。
+- 保留冻结的上游 MIT `NOTICE.md` 作为历史归属资料；当前实际加载与构建说明见 [上游渠道包的本项目集成说明](docs/CHANNEL_PACK_INTEGRATION.md)，不要照旧项目 OFM/网关命令直接操作。
 ## RC.1：向正式版发行收口
 
 - 已补充**可发布元数据和最低运行环境要求**：Node.js `>=22.10.0`、MIT、DSH Client 模块注册及卸载验证，且保留 Cordis 单进程插件形态；发行包不带真实凭据、开发脚本或额外独立进程。

@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$ExpectedVersion='1.0.0-rc.1')
+param([string]$ExpectedVersion='1.0.0-rc.2')
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 
@@ -22,7 +22,7 @@ foreach($hook in @('start','postinstall','preinstall')){
   throw ('A native Cordis plugin cannot expose a '+$hook+' lifecycle script')
  }
 }
-$manifest=@('LICENSE','README.md','CHANGELOG.md','client.js','cordis.patch.yml',
+$manifest=@('LICENSE','SECURITY.md','README.md','CHANGELOG.md','client.js','cordis.patch.yml',
  'src/index.mjs','src/host-failover.mjs','src/failover/state.mjs',
  'src/connection-routes.mjs','src/existing-dsh-channels.mjs',
  'docs/RELEASE_ACCEPTANCE.md','vendor/channel-pack/pack-native.js',
@@ -60,20 +60,36 @@ try {
   if($left -ne $right){throw ('Source/packaged SHA mismatch '+$part)}
   $count++
  }
- $original=Get-Content 'vendor/channel-pack/SOURCE_RECEIPT.json' -Raw | ConvertFrom-Json
- $derivative=Get-Content (Join-Path $extract 'package/vendor/channel-pack/NATIVE_BUILD_RECEIPT.json') -Raw | ConvertFrom-Json
- if((Get-FileHash 'vendor/channel-pack/pack.js' -Algorithm SHA256).Hash.ToLowerInvariant() -ne $derivative.originalSha256){
-  throw 'Pinned MIT upstream source SHA mismatch'
- }
- if((Get-FileHash (Join-Path $extract 'package/vendor/channel-pack/pack-native.js') -Algorithm SHA256).Hash.ToLowerInvariant() -ne $derivative.generatedSha256){
-  throw 'Native source derivative SHA mismatch'
- }
- foreach($receipt in $original.referenceFiles){
-  $ref=Join-Path 'vendor/channel-pack' $receipt.file
-  if((Get-FileHash -LiteralPath $ref -Algorithm SHA256).Hash.ToLowerInvariant() -ne $receipt.sha256.ToLowerInvariant()){
-   throw ('Pinned MIT reference drift '+$receipt.file)
+  # Freeze upstream text as *Git canonical LF* on every platform. Do not
+  # rewrite the binary WASM: binary CRLF bytes may be meaningful.
+  function Get-CanonicalFingerprint([string]$FilePath,[bool]$Binary){
+   [byte[]]$bytes=[IO.File]::ReadAllBytes([IO.Path]::GetFullPath($FilePath))
+   if(-not $Binary){
+    $text=[Text.Encoding]::UTF8.GetString($bytes).Replace("`r`n","`n")
+    $bytes=[Text.Encoding]::UTF8.GetBytes($text)
+   }
+   $sha=[System.Security.Cryptography.SHA256]::Create()
+   try {
+    $hex=[BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-','').ToLowerInvariant()
+    return [pscustomobject]@{sha256=$hex;bytes=$bytes.Length}
+   } finally {$sha.Dispose()}
   }
- }
+  $original=Get-Content 'vendor/channel-pack/SOURCE_RECEIPT.json' -Raw | ConvertFrom-Json
+  $derivative=Get-Content (Join-Path $extract 'package/vendor/channel-pack/NATIVE_BUILD_RECEIPT.json') -Raw | ConvertFrom-Json
+  $packed=(Get-CanonicalFingerprint 'vendor/channel-pack/pack.js' $false)
+  if($packed.sha256 -ne $derivative.originalSha256){
+   throw 'Pinned canonical LF MIT upstream source SHA mismatch'
+  }
+  if((Get-FileHash (Join-Path $extract 'package/vendor/channel-pack/pack-native.js') -Algorithm SHA256).Hash.ToLowerInvariant() -ne $derivative.generatedSha256){
+   throw 'Native source derivative SHA mismatch'
+  }
+  foreach($receipt in $original.referenceFiles){
+   $ref=Join-Path 'vendor/channel-pack' $receipt.file
+   $entry=Get-CanonicalFingerprint $ref ($receipt.file.EndsWith('.wasm'))
+   if($entry.sha256 -ne $receipt.sha256.ToLowerInvariant() -or $entry.bytes -ne $receipt.bytes){
+    throw ('Pinned canonical MIT source receipt drift '+$receipt.file)
+   }
+  }
  if($derivative.additionalRuntimeProcessRequired -ne $false){throw 'Extra runtime process forbidden'}
  $distribution=[pscustomobject]@{
   result='PASS'
