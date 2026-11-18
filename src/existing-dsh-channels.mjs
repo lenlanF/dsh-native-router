@@ -10,6 +10,26 @@ const safeId=x=>typeof x==='string'&&x.length>0&&x.length<=100&&!/[\u0000-\u001f
 function providerName(row){return typeof row==='string'?row:row?.id??row?.provider}
 export function createExistingDshChannelFacade({ctx,excludedHost,timeoutMs=15000}={}){
  let disposed=false;
+ // Provider discovery is deliberately separate from authenticated account discovery.
+ // DSH plugins such as dsh-connect-workbuddy own their own login/session pool
+ // and register workbuddy + workbuddy-global without an AccountPool service.
+ function hostProviders(){
+  const llm=ctx?.llm??ctx?.get?.('llm',false);
+  if(disposed||typeof llm?.listProviders!=='function')return [];
+  try{
+   const registered=llm.listProviders();
+   if(!Array.isArray(registered))return [];
+   return [...new Set(registered.map(providerName).filter(safeId)
+     .filter(id=>id!=='native-router'))].slice(0,80).map(providerId=>({
+       providerId,
+       family:providerId==='workbuddy'||providerId==='workbuddy-global'
+         ?'workbuddy-native-plugin-route':IDs.has(providerId)?'native-channel-route':'dsh-provider-route',
+        accountAccess:providerId==='workbuddy'||providerId==='workbuddy-global'
+          ?'plugin-managed-or-unknown':IDs.has(providerId)?'pool-required':'plugin-managed-or-unknown',
+       loginVerified:false,
+     }));
+  }catch{return []}
+ }
  function locate(){
    if(disposed||['mounted','loading','waiting_host_services'].includes(excludedHost?.status?.().state))return null;
   const pool=ctx?.get?.('accountPool',false),llm=ctx?.llm??ctx?.get?.('llm',false);
@@ -32,17 +52,17 @@ export function createExistingDshChannelFacade({ctx,excludedHost,timeoutMs=15000
   return services?{
    state:'mounted',hostOwned:false,borrowedExistingDsh:true,
    channels:[...services.providers],channelCount:services.providers.size,
-   experimentalMultiAccountProviders:[],
+   hostProviders:hostProviders(),experimentalMultiAccountProviders:[],
   }:{state:disposed?'disposed':'unavailable',borrowedExistingDsh:false,
-   channels:[],experimentalMultiAccountProviders:[]};
+   channels:[],hostProviders:hostProviders(),experimentalMultiAccountProviders:[]};
  };
  async function roster(services){
   const rows=await services.pool.listAllAccounts();
   if(!Array.isArray(rows))throw Error('Existing DSH source roster is malformed');
   if(disposed||locate()?.pool!==services.pool)throw Error('Existing DSH account pool changed');
   return rows;
- }
- async function listAccounts(){
+  }
+  async function listAccounts(){
   const services=locate();
   if(!services)return {state:'unavailable',accounts:[]};
   try{
@@ -81,6 +101,36 @@ export function createExistingDshChannelFacade({ctx,excludedHost,timeoutMs=15000
     seen.add(id);models.push({id,name:typeof row?.name==='string'?row.name:id});
    }
    return {state:'ready',providerId,models};
+  }catch{return {state:'unavailable',providerId,models:[]}}
+  finally{clearTimeout(timer)}
+ }
+ // Host plugins may own independent login/session stores (e.g. WorkBuddy).
+ // Query original DSH model directories only after an owner requests it.
+ async function listHostModels(providerId){
+  const llm=ctx?.llm??ctx?.get?.('llm',false);
+  if(disposed||!safeId(providerId)||providerId==='native-router'
+    ||!hostProviders().some(p=>p.providerId===providerId)
+    ||typeof llm?.listModels!=='function')
+    return {state:'unavailable',providerId,models:[]};
+  let timer;
+  try{
+   const timeout=Symbol('timeout');
+   const rows=await Promise.race([
+    Promise.resolve().then(()=>llm.listModels(providerId)),
+    new Promise(resolve=>{timer=setTimeout(()=>resolve(timeout),Math.min(timeoutMs,10000));timer.unref?.()}),
+   ]);
+   if(rows===timeout||!Array.isArray(rows)||disposed
+     ||!hostProviders().some(p=>p.providerId===providerId))
+    return {state:'unavailable',providerId,models:[]};
+   const models=[],seen=new Set();
+   for(const row of rows){
+    if(models.length>=150)break;
+    if(row?.provider&&row.provider!==providerId)continue;
+    const id=typeof row==='string'?row:row?.id;
+    if(typeof id!=='string'||!id.trim()||id.length>160||/[\u0000-\u001f]/.test(id)||seen.has(id))continue;
+    seen.add(id);models.push({id,name:typeof row?.name==='string'?row.name.slice(0,120):id});
+   }
+   return {state:'ready',providerId,models,loginVerified:false};
   }catch{return {state:'unavailable',providerId,models:[]}}
   finally{clearTimeout(timer)}
  }
@@ -125,7 +175,7 @@ export function createExistingDshChannelFacade({ctx,excludedHost,timeoutMs=15000
   })();
  }
  function dispose(){disposed=true}
- return {status,listAccounts,listModels,streamNative,dispose};
+  return {status,listAccounts,listModels,listHostModels,streamNative,dispose};
 }
 /**
  * Existing DSH channels have priority when registered in the Host; in-process
@@ -133,10 +183,11 @@ export function createExistingDshChannelFacade({ctx,excludedHost,timeoutMs=15000
  * The caller never registers or replaces any original provider/accountPool.
  */
 export function createPreferredSourceFacade({own,existing}={}){
- const choose=()=>own?.status?.().state==='mounted'?own:
-   existing?.status?.().state==='mounted'?existing:own;
+ const choose=()=>existing?.status?.().state==='mounted'?existing:
+   own?.status?.().state==='mounted'?own:own??existing;
  return {
-  status:()=>choose()?.status?.()??{state:'unavailable'},
+  status:()=>({...choose()?.status?.()??{state:'unavailable'},
+   hostProviders:existing?.status?.().hostProviders??[]}),
   listAccounts:(...args)=>choose()?.listAccounts?.(...args)??Promise.resolve({state:'unavailable',accounts:[]}),
   listModels:(...args)=>choose()?.listModels?.(...args)??Promise.resolve({state:'unavailable',models:[]}),
   streamNative:(...args)=>choose()?.streamNative?.(...args)??Promise.reject(Error('DSH source unavailable')),

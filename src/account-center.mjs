@@ -6,10 +6,33 @@ function concise(message){return String(message??'').replace(/(?:Bearer\s+|sk-)[
 function accountNotFound(id){const e=new Error('Account not configured: '+String(id).slice(0,80));e.status=404;return e}
 export function createAccountCenter({
  configStore,adapter,drivers=new Map(),fetchImpl=fetch,env=process.env,vault,now=()=>Date.now(),
+ getSourceStatus=()=>({state:'unavailable'}),
 }={}){
- if(!configStore?.get||!configStore?.replace)throw Error('ConfigStore must support get and replace');
- const checks=new Map(),pending=new Set(),discoverCache=new Map();
+  if(!configStore?.get||!configStore?.replace)throw Error('ConfigStore must support get and replace');
+  const checks=new Map(),pending=new Set(),discoverCache=new Map();
  const driverFor=providerId=>drivers instanceof Map?drivers.get(providerId):drivers?.[providerId];
+ function originOf(account,cfg){
+  const ref=account.credentialRef,linked=cfg.sessionReuse?.linkedIds?.includes(account.id)===true;
+  if(ref==='driver:workbuddy:'+account.id&&account.id.startsWith('wb_'))
+   return {kind:'desktop-session',label:'WorkBuddy / CodeBuddy 桌面客户端 · 只读会话',loginVerified:false};
+  if(ref==='driver:codearts:'+account.id&&account.id.startsWith('ca_'))
+   return {kind:'desktop-session',label:'CodeArts 本地授权引用',loginVerified:false};
+  if(ref==='driver:'+account.providerId+':'+account.id&&account.id.startsWith('sp_')){
+   const recorded=cfg.sessionReuse?.linkedOrigins?.[account.id];
+   const origin=recorded==='external-dsh-provider'?'dsh-account-pool':
+     recorded==='own-source-pack'?'embedded-account-pool':'source-unverified';
+   const nowSource=getSourceStatus();
+   const current=nowSource?.borrowedExistingDsh?'dsh-account-pool':
+     nowSource?.state==='mounted'?'embedded-account-pool':'source-unavailable';
+   return {kind:origin,label:origin==='dsh-account-pool'?'DSH 原有渠道插件账号池':
+     origin==='embedded-account-pool'?'聚合路由内置来源账号池':'原账号池类型尚未记录 · 需确认',
+     sourceAvailable:origin===current,loginVerified:false};
+  }
+  return {kind:linked?'linked-reference':ref.startsWith('env:')?'environment-reference':
+    ref.startsWith('host:')?'host-reference':'driver-reference',
+    label:linked?'复用的已有账号引用':ref.startsWith('env:')?'环境变量凭据引用':
+      ref.startsWith('host:')?'DSH 凭据保管库引用':'原生驱动引用',loginVerified:false};
+ }
  function list(){
    const cfg=configStore.get(),registered=describeChannels(cfg,drivers instanceof Map?drivers:new Map(Object.entries(drivers??{})));
    return {
@@ -25,6 +48,7 @@ export function createAccountCenter({
        return {id:account.id,providerId:account.providerId,providerName:provider.name,
          enabled:account.enabled&&provider.enabled,configuredEnabled:account.enabled,weight:account.weight,
           reusedExistingSession:cfg.sessionReuse?.linkedIds?.includes(account.id)===true,
+          origin:originOf(account,cfg),
           credentialKind:account.credentialRef.startsWith('env:')?'env':account.credentialRef.startsWith('driver:')?'driver':'host',
          checkedAt:check.at,connectionState:!account.enabled?'disabled':!provider.enabled?'provider_disabled':check.state,
          message:!account.enabled?'此账号已停用':!provider.enabled?'所属渠道已停用':check.message,

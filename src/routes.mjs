@@ -44,7 +44,7 @@ function readJson(req){
     req.on('error',error=>{if(!finished){finished=true;reject(error)}});
   });
 }
-export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,checkinCenter,embeddedPack,sessionReuse}){
+export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,checkinCenter,embeddedPack,sessionReuse,hostProviderInventory}){
   const server=ctx.get?.('webServer')??ctx.webServer;
   if(!server?.register)return()=>{};
   const dispose=[];
@@ -73,6 +73,20 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
     if(req.method!=='GET')return json(res,405,{error:'Method not allowed'});
     return json(res,200,{ok:true,...adapter.getStatus(),embeddedPack:embeddedPack?.status?.()??{state:'unavailable'},
       sessionReuse:sessionReuse?.snapshot?.()??{enabled:false,channels:[]}});
+  });
+  mount('/host/models',async(req,res)=>{
+   if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
+   if(req.method!=='POST')return json(res,405,{ok:false,error:'Method not allowed'});
+   try{
+    const body=await readJson(req),providerId=body?.providerId;
+    if(typeof providerId!=='string'||providerId.length<1||providerId.length>100
+      ||/[\u0000-\u001f]/.test(providerId))
+     return json(res,400,{ok:false,error:'Invalid DSH provider'});
+    const result=await hostProviderInventory?.listHostModels?.(providerId)
+      ??{state:'unavailable',providerId,models:[]};
+    return json(res,result.state==='ready'?200:503,{ok:result.state==='ready',result,
+      ...(result.state==='ready'?{}:{error:'宿主路由模型目录不可用；未读取或修改原插件凭据'})});
+   }catch{return json(res,400,{ok:false,error:'Invalid host model query'})}
   });
   if(accountCenter){
     mount('/channels/accounts',async(req,res)=>{

@@ -33,8 +33,7 @@ test('published DSH browser client registers one native settings section and rel
     assert.equal(metadata.id,'dsh-native-router');
     assert.equal(metadata.name,'settings.section');
     assert.equal(metadata.order,62);
-    assert.equal(metadata.label(),'原生多提供商路由');
-    assert.equal(typeof component,'function');
+    assert.equal(metadata.label(),'聚合路由');    assert.equal(typeof component,'function');
    },
   },
   effect:factory=>{ownerDisposed=factory()},

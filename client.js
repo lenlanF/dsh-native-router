@@ -6,23 +6,29 @@ window.__ModuleLoader__.load({
     const {useState,useEffect,useCallback}=React;
     const NS='dsh-native-router',URL='/api/plugins/dsh-native-router';
     const css={
-      root:{color:'var(--text,inherit)',maxWidth:1080,padding:'18px 24px 80px',fontSize:13},
-      title:{fontSize:20,fontWeight:750,margin:'0 0 7px'},
-      caption:{fontSize:12,opacity:.72,lineHeight:1.7,margin:'0 0 16px'},
-      tabbar:{display:'flex',gap:6,flexWrap:'wrap',padding:'7px 0 13px'},
-      tab:{border:'1px solid rgba(120,130,150,.34)',borderRadius:9,padding:'7px 13px',cursor:'pointer',background:'transparent',color:'inherit'},
-      chosen:{background:'rgba(80,130,240,.15)',borderColor:'rgba(80,130,240,.60)',fontWeight:650},
-      card:{border:'1px solid rgba(120,130,150,.26)',borderRadius:12,padding:'14px',marginBottom:10,background:'rgba(120,130,150,.04)'},
-      line:{display:'flex',gap:9,alignItems:'center',flexWrap:'wrap',marginBottom:10},
-      field:{display:'flex',gap:4,flexDirection:'column',flex:'1 1 140px',minWidth:115},
-      input:{padding:'7px 9px',borderRadius:8,border:'1px solid rgba(120,130,150,.4)',color:'inherit',background:'var(--dsw-alias-bg-layer-3,transparent)',font:'inherit',width:'100%',boxSizing:'border-box'},
-      btn:{padding:'6px 12px',borderRadius:8,border:'1px solid rgba(120,130,150,.40)',color:'inherit',background:'transparent',cursor:'pointer'},
-      primary:{background:'rgba(60,130,230,.20)',borderColor:'rgba(60,130,230,.55)'},
-      error:{padding:12,borderRadius:8,border:'1px solid #dc5959',marginBottom:10},
-      success:{padding:12,borderRadius:8,border:'1px solid #47a57a',marginBottom:10},
-      small:{fontSize:11,opacity:.74,lineHeight:1.5},
-    };
-    function TextField({label,value,onChange,placeholder,width}){
+      root:{color:'var(--text,inherit)',maxWidth:1260,margin:'0 auto',padding:'22px clamp(12px,2.5vw,30px) 96px',fontSize:14,lineHeight:1.56},
+      title:{fontSize:25,fontWeight:760,letterSpacing:'-.025em',margin:'0 0 5px'},
+      caption:{fontSize:13,opacity:.76,lineHeight:1.7,margin:'0 0 17px'},
+      tabbar:{display:'flex',gap:8,flexWrap:'wrap',padding:'10px 0 20px',borderBottom:'1px solid rgba(128,145,164,.18)',marginBottom:18},
+      tab:{border:'1px solid rgba(120,140,160,.26)',borderRadius:11,padding:'10px 15px',minHeight:42,cursor:'pointer',background:'rgba(128,140,160,.045)',color:'inherit',font:'inherit'},
+      chosen:{background:'rgba(69,124,228,.15)',borderColor:'rgba(69,124,228,.55)',fontWeight:700,boxShadow:'inset 0 -2px 0 rgba(69,124,228,.70)'},
+      card:{border:'1px solid rgba(125,144,167,.22)',borderRadius:16,padding:'19px 20px',marginBottom:16,background:'var(--dsw-alias-bg-layer-2,rgba(128,140,160,.055))',boxShadow:'0 4px 20px rgba(25,40,64,.055)'},
+      line:{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:12},
+      field:{display:'flex',gap:5,flexDirection:'column',flex:'1 1 160px',minWidth:120},
+      input:{padding:'10px 12px',minHeight:40,borderRadius:10,border:'1px solid rgba(120,140,160,.4)',color:'inherit',background:'var(--dsw-alias-bg-layer-3,transparent)',font:'inherit',width:'100%',boxSizing:'border-box'},
+      btn:{padding:'8px 13px',minHeight:38,borderRadius:9,border:'1px solid rgba(120,140,160,.38)',color:'inherit',background:'transparent',cursor:'pointer',font:'inherit'},
+      primary:{background:'rgba(60,130,230,.21)',borderColor:'rgba(60,130,230,.57)',fontWeight:650},
+      error:{padding:13,borderRadius:10,border:'1px solid #cc5555',marginBottom:14},
+      success:{padding:13,borderRadius:10,border:'1px solid #46a47b',marginBottom:14},
+      small:{fontSize:12,opacity:.8,lineHeight:1.55},
+      overline:{fontSize:11,fontWeight:750,letterSpacing:'.13em',opacity:.67},
+      hero:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:14,flexWrap:'wrap',padding:'20px 23px',marginBottom:18,borderRadius:17,background:'linear-gradient(115deg,rgba(64,122,223,.13),rgba(83,153,156,.045))',border:'1px solid rgba(75,132,215,.23)'},
+      metrics:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(175px,1fr))',gap:12,marginBottom:18},
+      metric:{minWidth:0,display:'flex',flexDirection:'column',alignItems:'flex-start',gap:6,padding:'17px',border:'1px solid rgba(125,144,167,.22)',borderRadius:14,background:'var(--dsw-alias-bg-layer-2,rgba(128,140,160,.055))'},
+      doubleGrid:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,440px),1fr))',gap:14},
+      itemRow:{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10,padding:'11px 0',borderBottom:'1px solid rgba(120,140,160,.16)'},
+      mutedTag:{padding:'4px 9px',borderRadius:8,border:'1px solid rgba(125,144,167,.31)',fontSize:12,opacity:.8},
+    };    function TextField({label,value,onChange,placeholder,width}){
       return h('label',{style:{...css.field,...(width?{flex:width}:{})}},
         h('span',{style:css.small},label),
         h('input',{style:css.input,value:value??'',placeholder,onChange:e=>onChange(e.target.value)}));
@@ -130,7 +136,7 @@ window.__ModuleLoader__.load({
         upstream?.state==='unavailable'&&live?h('p',{style:css.small},'来源账号池暂不可读取。'):null
       );
     }
-    function AccountConsole({data,cfg,onReuseSettings,query,onQuery,run,setTab,busy,discovered,onAddProvider,embeddedPack,modelProvider,setModelProvider,onModels,modelBusy,models,onSourceLogin,onSourcePoll,pendingLogin,onSourceRefresh,sourceBusy}){
+    function AccountConsole({data,cfg,onReuseSettings,query,onQuery,run,setTab,busy,discovered,onAddProvider,embeddedPack,modelProvider,setModelProvider,onModels,modelBusy,models,onSourceLogin,onSourcePoll,pendingLogin,onSourceRefresh,sourceBusy,hostModels,hostModelBusy,hostSelectedModel,onSelectHostModel,onHostModels,onAddHostCandidate}){
       if(!data)return h(Panel,{title:'渠道账号总览'},'账号管理服务尚未连接到当前 DSH Host。');
       const accounts=data.accounts||[],channels=(data.channels||[]).filter(c=>
         !query||[c.name,c.id,c.authMethod].some(x=>String(x||'').toLowerCase().includes(query.toLowerCase())));
@@ -154,8 +160,8 @@ window.__ModuleLoader__.load({
             h(Toggle,{label:'启用内置 DSH 多渠道账号源',
               value:cfg?.embeddedPack?.enabled===true,
               onChange:v=>onReuseSettings({embeddedEnabled:v})})),
-           h('p',{style:css.small},'启用并保存后会优先复用本机 WorkBuddy / CodeBuddy Desktop 的只读登录态，或 DSH 已安装渠道插件的既有账号与原 Provider；不存在时才挂载本插件内置渠道包。原程序登录文件不修改、原 DSH 凭据不复制、没有新 OAuth。账号已关联不等于服务端已经验证在线；同渠道多账号如无法安全精确选号，将等待核验。'),
-          h('div',{style:css.line},
+           h('p',{style:css.small},'宿主已注册 DSH Provider、本机桌面端会话、内置渠道包是三种独立来源。已安装 WorkBuddy 插件可提供国内/国际宿主路由，但它内部管理的账号不等同于通用 AccountPool。仅对已安全验证精确引用的账号执行自动关联；不修改原插件登录态，也不重复启动授权。'),
+           h('div',{style:css.line},
             h('span',{style:css.small},'当前自动关联 '+(reuse.autoLinked??0)+' 个账号'),
             h('span',{style:css.small},'已忽略 '+(reuse.ignored??0)+' 个已解绑账号'),
              h('span',{style:css.small},'认证来源：'+({
@@ -177,6 +183,27 @@ window.__ModuleLoader__.load({
               config_unavailable:'关联配置未成功保存',
             }[row.state]??'未确认')))),
           h('p',{style:css.small},'未支持的本机程序仍使用已有渠道授权入口，不会把机器标识或安装路径当作登录凭据。解除自动关联后会记入忽略清单，防止下次扫描又自动添加。')),
+        h(Panel,{title:'DSH 宿主已注册路由 · 与账号池分别管理'},
+          h('p',{style:css.small},'只使用 DSH Host 实际注册的 Provider。WorkBuddy 国内/国际等原生插件保留自己的登录认证与账号切换策略；在下方按需查询模型后，可将模型加入宿主故障切换链。注册路由不等于账号已登录。'),
+          (reuse.hostProviders||[]).length?(reuse.hostProviders||[]).map(row=>h('div',{
+            key:row.providerId,style:css.itemRow},
+            h('div',null,h('strong',null,row.providerId==='workbuddy'?'WorkBuddy · 国内':
+              row.providerId==='workbuddy-global'?'WorkBuddy · 国际':row.providerId),
+              h('div',{style:css.small},'Provider: '+row.providerId+' · '+
+                (row.accountAccess==='pool-required'?'需原账号池验证':'账号由原插件管理或未知'))),
+            h('div',{style:css.line},
+              h('span',{style:css.mutedTag},'路由已注册 · 登录未核实'),
+              h(Button,{disabled:!!hostModelBusy,onClick:()=>onHostModels(row.providerId)},
+                hostModelBusy===row.providerId?'读取中…':'查询该路由模型')))):
+            h('p',{style:css.small},'未检测到其他宿主注册的 Provider；仅安装但未启用的插件不等于有可调用路由。')),
+        hostModels?.state==='ready'?h(Panel,{title:'宿主原生插件模型 · '+hostModels.providerId},
+          h('p',{style:css.small},'读取的是原插件发布的模型目录，不会读取账号 Token，也不代表远端鉴权成功。加入宿主候选仅编辑当前草稿，需保存后生效。'),
+          hostModels.models.length?h('div',{style:css.line},
+            h(Select,{label:'选择原插件模型',value:hostSelectedModel,onChange:onSelectHostModel,
+              options:hostModels.models.map(row=>({value:row.id,label:row.name+' · '+row.id}))}),
+            h(Button,{kind:'primary',disabled:!hostSelectedModel,
+              onClick:()=>onAddHostCandidate(hostModels.providerId,hostSelectedModel)},
+              '加入宿主故障切换链')):h('p',{style:css.small},'该路由目前没有公开模型；请检查原插件状态。')):null,
         h(EmbeddedPackConsole,{pack,upstream,run,busy,modelProvider,setModelProvider,onModels,modelBusy,models,onSourceLogin,onSourcePoll,pendingLogin,onSourceRefresh,sourceBusy}),
         h(Panel,{title:'全部渠道 · 账号状态',actions:h(Button,{disabled:!!busy,onClick:()=>run('/channels/accounts/action',{action:'refresh-all'},'已重新验证可连接的账号')},'验证全部')},
           h('div',{style:{...css.line,justifyContent:'space-between'}},
@@ -202,8 +229,10 @@ window.__ModuleLoader__.load({
                   h('strong',null,account.id),h(StateTag,{value:account.connectionState})),
                 h('div',{style:{...css.line,marginBottom:7}},
                    h('span',{style:css.small},'凭据：'+account.credentialKind+' 引用'),
-                   account.reusedExistingSession?h('span',{style:css.small},'已复用本机既有登录态（授权有效性待验）'):null,
-                  h('span',{style:css.small},'权重：'+account.weight),
+                    account.reusedExistingSession?h('span',{style:css.small},'已关联既有账号引用（远端授权待核验）'):null,
+                    h('span',{style:css.small},'来源：'+(account.origin?.label||'尚未识别')),
+                    account.origin?.sourceAvailable===false?h('span',{style:css.small},'原账号源当前不匹配或不可用 · 不应自动切换至其他账号'):null,
+                    h('span',{style:css.small},'权重：'+account.weight),
                   account.checkedAt?h('span',{style:css.small},'最近检查：'+new Date(account.checkedAt).toLocaleString()):null),
                 h('div',{style:css.small},account.message||'尚未验证'),
                 h('div',{style:{...css.line,marginTop:10,marginBottom:0}},
@@ -315,6 +344,70 @@ window.__ModuleLoader__.load({
             h('p',{style:css.small},'暂无实际签到记录；不会显示模拟的已签到状态。')));
     }
 
+    function Metric({label,value,detail,onClick}){
+      return h('div',{style:css.metric},
+        h('span',{style:css.small},label),
+        h('strong',{style:{fontSize:26,fontWeight:760,fontVariantNumeric:'tabular-nums',lineHeight:1.3}},String(value)),
+        h('span',{style:css.small},detail),
+        onClick?h(Button,{onClick},'查看详情'):null);
+    }
+    function OverviewConsole({cfg,status,channelsView,checkinsView,onNavigate,onRefresh}){
+      const accounts=channelsView?.accounts||[],checkins=checkinsView?.accounts||[];
+      const hostProviders=status?.sessionReuse?.hostProviders||channelsView?.sessionReuse?.hostProviders||[];
+      const verified=accounts.filter(a=>a.connectionState==='online').length;
+      const eligible=checkins.filter(a=>a.checkinSupported&&a.enabled).length;
+      const signed=checkins.filter(a=>a.checkinState==='success').length;
+      const failed=checkins.filter(a=>a.checkinState==='failed').length;
+      const pending=checkins.filter(a=>a.checkinState==='pending_confirmation').length;
+      const enabledChains=cfg.routes.filter(r=>r.enabled).length;
+      const switchLog=cfg.hostFailover?.switchLog||[];
+      const routeName=p=>p.providerId==='workbuddy'?'WorkBuddy 国内原生路由':
+        p.providerId==='workbuddy-global'?'WorkBuddy 国际原生路由':p.providerId;
+      return h(React.Fragment,null,
+        h('div',{style:css.hero},
+          h('div',null,h('div',{style:css.overline},'DSH · MULTI-PROVIDER HUB'),
+            h('h3',{style:{margin:'7px 0 6px',fontSize:20}},'渠道与聚合路由运行总览'),
+            h('p',{style:{...css.caption,marginBottom:0}},'基于 DSH 当前实际数据展示。宿主路由注册、账号授权验证、每日签到互不等同；不以安装记录冒充已登录。')),
+          h(Button,{onClick:onRefresh},'刷新运行状态')),
+        h('div',{style:css.metrics},
+          h(Metric,{label:'宿主已注册路由',value:status?hostProviders.length:'—',detail:'其他 DSH Provider · 不代表登录',onClick:()=>onNavigate('channels')}),
+          h(Metric,{label:'聚合账号',value:channelsView?accounts.length:'—',detail:'已验证在线 '+verified,onClick:()=>onNavigate('channels')}),
+          h(Metric,{label:'已启用模型链',value:enabledChains,detail:'共配置 '+cfg.routes.length+' 条',onClick:()=>onNavigate('routes')}),
+          h(Metric,{label:'今日确认签到',value:checkinsView?signed:'—',detail:'具备执行器 '+eligible+' · 失败 '+failed,onClick:()=>onNavigate('checkins')}),
+          h(Metric,{label:'自动续跑',value:cfg.hostFailover?.enabled?'已开启':'已关闭',detail:'累计留存切换记录 '+switchLog.length,onClick:()=>onNavigate('host')})),
+        h('div',{style:css.doubleGrid},
+          h(Panel,{title:'本机 DSH Provider · 插件路由状态',actions:h(Button,{onClick:()=>onNavigate('channels')},'查看渠道来源')},
+            h('p',{style:css.small},'这些路由由 DSH Host 实际注册，可能由其他插件自行管理登录态；未核验账号前不将其计入已登录账号池。'),
+            hostProviders.length?hostProviders.slice(0,14).map(p=>h('div',{key:p.providerId,style:css.itemRow},
+              h('div',null,h('strong',null,routeName(p)),
+                h('div',{style:css.small},'Provider: '+p.providerId+' · '+(p.accountAccess==='pool-required'?'需匹配原 DSH 账号池':'账号由原插件管理或未知'))),
+              h('span',{style:css.mutedTag},'路由已注册 · 登录未核实'))):
+              h('p',{style:css.small},'尚未发现其他已注册 Provider，或运行状态尚未加载。')),
+          h(Panel,{title:'账号来源 · 分别核验',actions:h(Button,{onClick:()=>onNavigate('channels')},'管理账号')},
+            h('p',{style:css.small},'DSH 原插件账号池、本机桌面只读会话和本插件配置账号分别列示，不复制原插件凭据。'),
+            accounts.length?accounts.slice(0,12).map(a=>h('div',{key:a.id,style:css.itemRow},
+              h('div',{style:{minWidth:0}},h('strong',{style:{overflowWrap:'anywhere'}},a.providerName+' · '+a.id),
+                h('div',{style:css.small},a.origin?.label||'凭据来源待核验')),
+              h(StateTag,{value:a.connectionState}))):h('p',{style:css.small},'当前尚未配置账号。宿主已注册 Provider 不会被自动当作本插件账号。'))),
+        h('div',{style:css.doubleGrid},
+          h(Panel,{title:'每日签到 · 服务端确认结果',actions:h(Button,{onClick:()=>onNavigate('checkins')},'签到管理')},
+            h('div',{style:css.line},
+              h('span',{style:css.mutedTag},'已确认 '+signed),
+              h('span',{style:css.mutedTag},'待确认 '+pending),
+              h('span',{style:css.mutedTag},'失败 '+failed),
+              h('span',{style:css.mutedTag},'支持执行 '+eligible)),
+            h('p',{style:css.small},'签到总开关：'+(cfg.checkin?.autoEnabled?'已启用':'未启用')+
+              ' · 日期：'+(checkinsView?.today||'尚未读取')+' · 只统计真实来源回执。'),
+            checkinsView?.historyBlocked?h('p',{style:css.error},'签到历史存储异常，已停止自动执行。'):null),
+          h(Panel,{title:'模型调度与故障切换',actions:h(Button,{onClick:()=>onNavigate('host')},'管理故障续跑')},
+            h('div',{style:css.line},h('span',{style:css.mutedTag},'自定义链 '+enabledChains),
+              h('span',{style:css.mutedTag},'续跑 '+(cfg.hostFailover?.enabled?'开启':'关闭')),
+              h('span',{style:css.mutedTag},'成功请求 '+(status?.metrics?.successfulTurns??'—')),
+              h('span',{style:css.mutedTag},'失败尝试 '+(status?.metrics?.failedAttempts??'—'))),
+            switchLog.length?h('p',{style:css.small},'最近切换：'+switchLog.at(-1).from+' → '+switchLog.at(-1).to):
+              h('p',{style:css.small},'暂无切换记录；不会将失败尝试算作成功续跑。'),
+            h('p',{style:css.small},'模型链与宿主故障切换各有独立规则；不重放已成功执行的工具。'))));
+    }
     function App(){
       const [cfg,setCfg]=useState(null),[tab,setTab]=useState('overview'),[busy,setBusy]=useState(false),
         [notice,setNotice]=useState(''),[error,setError]=useState(''),[status,setStatus]=useState(null),
@@ -327,7 +420,9 @@ window.__ModuleLoader__.load({
         [pendingSourceLogin,setPendingSourceLogin]=useState(null),
         [sourceCreditsProvider,setSourceCreditsProvider]=useState('qoder'),
         [sourceCredits,setSourceCredits]=useState(null),
-        [sourceClaims,setSourceClaims]=useState(null);
+        [sourceClaims,setSourceClaims]=useState(null),
+        [hostModels,setHostModels]=useState(null),[hostModelBusy,setHostModelBusy]=useState(''),
+        [hostSelectedModel,setHostSelectedModel]=useState('');
       const refresh=useCallback(async()=>{
         setBusy(true);setError('');
         try{
@@ -484,6 +579,28 @@ window.__ModuleLoader__.load({
         }catch(error){setError(String(error?.message??error))}
         finally{setSourceRpcBusy('')}
       }
+      async function loadHostModels(providerId){
+        setHostModelBusy(providerId);setHostModels(null);setHostSelectedModel('');setError('');
+        try{
+          const response=await fetch(URL+'/host/models',{
+            method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({providerId}),
+          });
+          const data=await response.json();
+          if(!response.ok||data.ok!==true||data.result?.state!=='ready')
+            throw Error(data.error||'宿主插件模型目录不可用');
+          setHostModels(data.result);setHostSelectedModel(data.result.models?.[0]?.id||'');
+        }catch(error){setError(String(error?.message??error))}
+        finally{setHostModelBusy('')}
+      }
+      function addHostCandidate(providerId,model){
+        if(!hostModels||hostModels.providerId!==providerId
+           ||!hostModels.models.some(row=>row.id===model))return;
+        setCfg(old=>old.hostFailover.priority.some(row=>row.provider===providerId&&row.model===model)
+          ?old:{...old,hostFailover:{...old.hostFailover,
+            priority:[...old.hostFailover.priority,{provider:providerId,model,free:false}]}});
+        setTab('host');
+        setNotice('已添加原 DSH 插件模型到故障切换候选草稿，未启用或保存。请核对优先级、设置启用状态后保存；调用仍由原插件处理认证。');
+      }
       async function loadUpstreamModels(providerId){
         setModelBusy(true);setError('');setEmbeddedModels(null);
         try{
@@ -515,20 +632,12 @@ window.__ModuleLoader__.load({
           setNotice('配置保存成功。账号页和签到页已重新读取；涉及宿主级模型目录时请完整重启 DSH Host。');
         }catch(e){setError(String(e.message??e))}finally{setBusy(false)}
       }
-      if(!cfg)return h('div',{style:css.root},h('h2',{style:css.title},'原生多提供商路由'),error?h('p',{style:css.error},error):'读取配置中…');
-      const providerChoices=cfg.providers.map(x=>({value:x.id,label:x.name+' ('+x.id+')'}));
+       if(!cfg)return h('div',{style:css.root},h('h2',{style:css.title},'聚合路由'),error?h('p',{style:css.error},error):'读取配置中…');
+       const providerChoices=cfg.providers.map(x=>({value:x.id,label:x.name+' ('+x.id+')'}));
       const modes=[{value:'priority',label:'按链条顺序降级'},{value:'pinned',label:'固定首个模型（账号可切）'},{value:'free',label:'仅显式标记免费'}];
       const tabs=[['overview','总览'],['channels','渠道账号'],['checkins','每日签到'],['providers','提供商'],['accounts','账号池配置'],['routes','模型链条'],['host','宿主故障切换'],['advanced','高级 JSON']];
       let content=null;
-      if(tab==='overview')content=h(React.Fragment,null,
-        h(Panel,{title:'当前配置'},h('div',{style:css.line},
-          ['提供商：'+cfg.providers.length,'账号：'+cfg.accounts.length,'链条：'+cfg.routes.length,
-           '可用账号：'+cfg.accounts.filter(a=>a.enabled).length].map(x=>h('span',{key:x,style:css.btn},x)))),
-        h(Panel,{title:'设计说明'},
-          h('p',null,'直接访问配置的上游提供商，不经过 Agent2API。本插件使用独立 Provider：native-router，其他 DSH 插件不受影响。'),
-          h('p',{style:css.small},'账户只保存 env: 或 host: 凭据引用；免费标签由用户标注，不代表已验证真实计费。工具由 DSH 宿主授权执行。'),
-          h('p',{style:css.small},'支持 chain:<链条ID> 作为 DSH 模型；账号/路线变更后重启宿主以刷新模型菜单。')),
-        status?h(Panel,{title:'运行状态'},h('pre',{style:{whiteSpace:'pre-wrap',fontSize:11}},JSON.stringify(status,null,2))):null);
+       if(tab==='overview')content=h(OverviewConsole,{cfg,status,channelsView,checkinsView,onNavigate:setTab,onRefresh:refresh});
        if(tab==='channels')content=h(AccountConsole,{data:channelsView,cfg,
          onReuseSettings:change=>setCfg(old=>({...old,
            embeddedPack:{...old.embeddedPack,...('embeddedEnabled' in change?{enabled:change.embeddedEnabled}:{})},
@@ -540,7 +649,8 @@ window.__ModuleLoader__.load({
         modelProvider,setModelProvider:value=>{setModelProvider(value);setEmbeddedModels(null)},
         onModels:loadUpstreamModels,modelBusy,models:embeddedModels,onSourceLogin:sourceLogin,
         onSourcePoll:sourcePollLogin,pendingLogin:pendingSourceLogin,onSourceRefresh:sourceRefreshAccount,
-        sourceBusy:sourceRpcBusy});
+         sourceBusy:sourceRpcBusy,hostModels,hostModelBusy,hostSelectedModel,
+         onSelectHostModel:setHostSelectedModel,onHostModels:loadHostModels,onAddHostCandidate:addHostCandidate});
       if(tab==='checkins')content=h(CheckinConsole,{data:checkinsView,cfg,onSettings:setCheckinSettings,
         onAccountAuto:setAccountAuto,run:runAction,refresh,busy:actionBusy,
         embeddedPack:status?.embeddedPack,sourceProvider:sourceCreditsProvider,
@@ -635,13 +745,14 @@ window.__ModuleLoader__.load({
               h('span',{style:css.small},new Date(entry.at).toLocaleString('zh-CN',{hour12:false})),
               h('strong',null,entry.from+' → '+entry.to),
               h('span',{style:css.small},'故障：'+entry.code+' · 已向 DSH 提交续跑')))
-            :h('p',{style:css.small},'暂无已入队的自动切换记录；此处不会把提交失败记录为成功。')));      if(tab==='advanced')content=h(Panel,{title:'JSON 高级编辑器'},
+             :h('p',{style:css.small},'暂无已入队的自动切换记录；此处不会把提交失败记录为成功。')));
+       if(tab==='advanced')content=h(Panel,{title:'JSON 高级编辑器'},
         h('p',{style:css.small},'高级模式会直接替换整份配置。仅保存提供商、账号引用与链条规则；不要填写 Token、密码或明文 API Key。'),
         h('textarea',{style:{...css.input,width:'100%',minHeight:400,fontFamily:'ui-monospace,monospace',fontSize:12},
           value:raw,onChange:e=>setRaw(e.target.value),'aria-label':'完整路由配置 JSON'}));
       return h('div',{style:css.root},
-        h('h2',{style:css.title},'原生多提供商路由'),
-        h('p',{style:css.caption},'已有 DSH 渠道登录态复用 · 本机桌面登录复用 · 账号池 · 自动签到 · AgentLoop 故障安全续跑 · v1.0.0-rc.2'),
+        h('h2',{style:css.title},'聚合路由'),
+        h('p',{style:css.caption},'DSH 原生插件复用 · 桌面授权复用 · 多账号池 · 每日签到 · 模型故障安全续跑 · v1.0.0-rc.3'),
         h('div',{style:css.tabbar},tabs.map(([id,label])=>h('button',{key:id,type:'button',
           style:{...css.tab,...(tab===id?css.chosen:{})},onClick:()=>setTab(id)},label))),
         error?h('div',{role:'alert',style:css.error},error):null,
@@ -657,8 +768,7 @@ window.__ModuleLoader__.load({
       const slots=ctx.slots;
       if(!slots?.register||!slots?.inject)return;
       const dispose=slots.inject('settings.section',()=>slots.register({
-        name:'settings.section',id:NS,order:62,label:()=> '原生多提供商路由',locale:NS,
-      },App));
+        name:'settings.section',id:NS,order:62,label:()=> '聚合路由',locale:NS,      },App));
       ctx.effect?.(()=>()=>dispose?.());
     }
     apply.inject=['slots'];

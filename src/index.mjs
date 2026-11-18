@@ -52,8 +52,8 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
   const ownAdapter=adapter??createNativeRouterAdapter({configStore:ownStore,logger:ctx.logger,
    vault:vault??ctx.get?.('credentials'),fetchImpl,env,channelDrivers:drivers});
  const accountCenter=createAccountCenter({configStore:ownStore,adapter:ownAdapter,
-   drivers,fetchImpl,env,vault:vault??ctx.get?.('credentials')});
-  const sessionReuse=createSessionReuse({configStore:ownStore,drivers,
+   drivers,fetchImpl,env,vault:vault??ctx.get?.('credentials'),getSourceStatus:()=>sourceFacade.status()});
+ const sessionReuse=createSessionReuse({configStore:ownStore,drivers,
      embeddedPack:sourceFacade,adapter:ownAdapter,logger:ctx.logger});
   const checkinCenter=createCheckinCenter({configStore:ownStore,accountCenter,
     store:checkinStore??createCheckinStore({path:ownStore.path?join(dirname(ownStore.path),'checkins.json'):undefined}),
@@ -63,9 +63,9 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
    const release=ctx.llm.registerAdapter([PROVIDER],ownAdapter);
    if(typeof release==='function')cleanups.push(release);
    const directory=ctx.llm.registerConfigurableProviders?.([{
-     provider:PROVIDER,displayName:'Native Multi-Provider Router',settingsNs:name,settingsPath:[],declared:false,
-   }]);
-   if(typeof directory==='function')cleanups.push(directory);
+     provider:PROVIDER,displayName:'聚合路由',settingsNs:name,settingsPath:[],declared:false,
+    }]);
+    if(typeof directory==='function')cleanups.push(directory);
    const discovery=ctx.llm.registerModelDiscovery?.(name,async request=>{
      if(request?.provider&&request.provider!==PROVIDER)return [];
      return ownAdapter.listModels();
@@ -85,7 +85,7 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
       // No direct localhost WebServer registration: localhost is not identity.
       const mountSecureRoutes=connectionCtx=>{
         connectionCtx.effect?.(()=>registerAuthenticatedRouterRoutes(connectionCtx,
-          {configStore:ownStore,adapter:ownAdapter,accountCenter,checkinCenter,embeddedPack,sessionReuse}));
+           {configStore:ownStore,adapter:ownAdapter,accountCenter,checkinCenter,embeddedPack,sessionReuse,hostProviderInventory:existingHostSource}));
       };
       ctx.inject(['connection'],mountSecureRoutes);
       if(typeof ctx.registry?.delete==='function')

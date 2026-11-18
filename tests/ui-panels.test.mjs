@@ -6,7 +6,7 @@ import {normalizeConfig} from '../src/config.mjs';
 import {createAccountCenter} from '../src/account-center.mjs';
 import {createCheckinCenter} from '../src/checkins.mjs';
 import {sample} from './fixtures.mjs';
-function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={state:'disabled',reason:''},sourceRpcOverrides={}){
+function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={state:'disabled',reason:''},sourceRpcOverrides={},hostProviders=[]){
   let cfg=normalizeConfig(sample),sequence=0,effectFn,component;
   const hooks=[];
   const react={
@@ -50,14 +50,20 @@ function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={stat
       if(options.method==='POST'){const next=configStore.replace(JSON.parse(options.body));mutations.push({kind:'save'});return response({ok:true,config:next})}
       return response({ok:true,config:configStore.get()});
     }
-    if(key==='/status')return response({ok:true,embeddedPack:embeddedStatus});
+    if(key==='/status')return response({ok:true,embeddedPack:embeddedStatus,sessionReuse:{hostProviders}});
     if(key==='/channels/embedded/account-remove'){
       const input=JSON.parse(options.body);mutations.push({kind:'upstream-delete',...input});
       if(embeddedPreview)embeddedPreview.accounts=embeddedPreview.accounts.filter(row=>
         row.id!==input.accountId||row.providerId!==input.providerId);
       return response({ok:true,result:{state:'removed',removed:true}});
     }
-    if(key==='/channels/accounts')return response({ok:true,...accountCenter.list(),...(embeddedPreview?{embeddedAccounts:embeddedPreview}:{})});
+    if(key==='/channels/accounts')return response({ok:true,...accountCenter.list(),
+      sessionReuse:{hostProviders},...(embeddedPreview?{embeddedAccounts:embeddedPreview}:{})});
+    if(key==='/host/models'){
+      const input=JSON.parse(options.body);mutations.push({kind:'host-model-query',providerId:input.providerId});
+      return response({ok:true,result:{state:'ready',providerId:input.providerId,
+        models:[{id:'wb-native-flash',name:'WorkBuddy Native Flash'}],loginVerified:false}});
+    }
     if(key==='/channels/embedded/models'){
       const input=JSON.parse(options.body);mutations.push({kind:'models',...input});
       return response({ok:true,result:{state:'ready',providerId:input.providerId,
@@ -113,6 +119,38 @@ function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={stat
   function render(){sequence=0;return expand(component())}
   return {render,init:async()=>{render();effectFn();for(let i=0;i<60&&!hooks[0];i++)await new Promise(resolve=>setTimeout(resolve,1));if(!hooks[0])throw Error('Configuration was not loaded')},find,flatten,mutations,get cfg(){return cfg}};
 }
+test('dashboard distinguishes WorkBuddy native DSH provider routes from authenticated account sessions',async()=>{
+ const hostProviders=[
+  {providerId:'workbuddy',family:'workbuddy-native-plugin-route',accountAccess:'plugin-managed-or-unknown',loginVerified:false},
+  {providerId:'workbuddy-global',family:'workbuddy-native-plugin-route',accountAccess:'plugin-managed-or-unknown',loginVerified:false},
+ ];
+ const rig=createUiRig(new Map(),null,{state:'disabled'},{},hostProviders);await rig.init();
+ const overview=rig.flatten(rig.render()).join(' ');
+ assert.match(overview,/渠道与聚合路由运行总览/);
+ assert.match(overview,/WorkBuddy 国内原生路由/);
+ assert.match(overview,/WorkBuddy 国际原生路由/);
+ assert.match(overview,/路由已注册 · 登录未核实/);
+ rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
+ const channels=rig.flatten(rig.render()).join(' ');
+ assert.match(channels,/DSH 宿主已注册路由/);
+ assert.match(channels,/WorkBuddy · 国际/);
+});
+test('host-owned WorkBuddy model can be selected into DSH failover without importing account credentials',async()=>{
+ const rig=createUiRig(new Map(),null,{state:'disabled'},{},[
+  {providerId:'workbuddy-global',family:'workbuddy-native-plugin-route',accountAccess:'plugin-managed-or-unknown',loginVerified:false},
+ ]);
+ await rig.init();
+ rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
+ await rig.find(rig.render(),'button','查询该路由模型')[0].props.onClick();
+ assert.ok(rig.mutations.some(x=>x.kind==='host-model-query'&&x.providerId==='workbuddy-global'));
+ assert.match(rig.flatten(rig.render()).join(' '),/WorkBuddy Native Flash/);
+ rig.find(rig.render(),'button','加入宿主故障切换链')[0].props.onClick();
+ assert.match(rig.flatten(rig.render()).join(' '),/宿主故障切换/);
+ await rig.find(rig.render(),'button','保存配置')[0].props.onClick();
+ assert.ok(rig.cfg.hostFailover.priority.some(r=>r.provider==='workbuddy-global'&&r.model==='wb-native-flash'));
+ assert.equal(rig.cfg.accounts.some(a=>a.providerId==='workbuddy-global'),false);
+ assert.ok(!rig.mutations.some(x=>x.action==='login'||x.action==='logout'));
+});
 test('real client render: channel account page exposes login, refresh, logout and enable controls',async()=>{
   const rig=createUiRig();await rig.init();
   let page=rig.render();

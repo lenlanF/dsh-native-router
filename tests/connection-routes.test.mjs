@@ -25,7 +25,8 @@ function fixture(){
   accountCenter:{list:()=>({accounts:[],channels:[]}),find:()=>{}},
   checkinCenter:{snapshot:()=>({today:'2026-11-17',accounts:[],groups:[]}),
     async refreshSources(){},async run(){return {record:{state:'pending_confirmation'}}}},
-  embeddedPack:{status:()=>({state:'disabled'}),listAccounts:()=>({state:'disabled',accounts:[]})},
+   embeddedPack:{status:()=>({state:'disabled'}),listAccounts:()=>({state:'disabled',accounts:[]})},
+   hostProviderInventory:{async listHostModels(providerId){return {state:'ready',providerId,models:[{id:'test-native'}],loginVerified:false}}},
  });
   async function request(path,{method='GET',body,origin='http://127.0.0.1:12237',host='127.0.0.1:12237'}={}){
    const route=routes.get('/api/plugins/dsh-native-router'+path);
@@ -79,6 +80,18 @@ test('authenticated source check-in action preserves pending receipt and rejects
  const res=await f.request('/checkins/action',{method:'POST',body:tooLong});
  assert.equal(res.status,413);
  await f.dispose();
+});
+test('authenticated host-native model browsing rejects cross-origin requests and returns no credentials',async()=>{
+ const rig=fixture();
+ const denied=await rig.request('/host/models',{method:'POST',body:{providerId:'workbuddy-global'},origin:'https://attacker.invalid'});
+ assert.equal(denied.status,403);
+ const response=await rig.request('/host/models',{method:'POST',body:{providerId:'workbuddy-global'}});
+ assert.equal(response.status,200);
+ const data=await response.json();
+ assert.deepEqual(data.result.models,[{id:'test-native'}]);
+ assert.equal(data.result.loginVerified,false);
+ assert.equal(data.result.providerId,'workbuddy-global');
+ await rig.dispose();
 });
 test('closed Connection route registration cannot expose admin routes when connection absent',()=>{
  assert.throws(()=>registerAuthenticatedRouterRoutes({get:()=>undefined},{configStore:{get:()=>normalizeConfig({})}}),

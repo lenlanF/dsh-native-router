@@ -36,9 +36,12 @@ export function createSessionReuse({configStore,drivers,embeddedPack,adapter,
  function snapshot(){
   const cfg=configStore.get();
    const origin=embeddedPack?.status?.();
+   const hostProviders=Array.isArray(origin?.hostProviders)?origin.hostProviders:[];
    return {enabled:cfg.sessionReuse?.enabled===true,lastScanAt,
      reusableSource:origin?.borrowedExistingDsh?'external-dsh-provider':
        origin?.state==='mounted'?'own-source-pack':'unavailable',
+     hostProviders:hostProviders.map(row=>({...row})),
+
    autoLinked:(cfg.sessionReuse?.linkedIds??[]).filter(id=>cfg.accounts.some(a=>a.id===id)).length,
    ignored:(cfg.sessionReuse?.ignoredIds??[]).length,
      channels:[{providerId:'workbuddy',
@@ -127,9 +130,12 @@ export function createSessionReuse({configStore,drivers,embeddedPack,adapter,
      }],
       accounts:[...cfg.accounts,{id,providerId,credentialRef:imported.credentialRef,
         enabled:true,autoCheckin:method==='existing-dsh-source-account',weight:1}],
-     sessionReuse:{...cfg.sessionReuse,
-       linkedIds:[...new Set([...cfg.sessionReuse.linkedIds,id])].slice(-200)},
-    };
+      sessionReuse:{...cfg.sessionReuse,
+        linkedIds:[...new Set([...cfg.sessionReuse.linkedIds,id])].slice(-200),
+        linkedOrigins:{...cfg.sessionReuse.linkedOrigins,
+          [id]:method==='desktop-readonly'?'desktop-readonly':
+            embeddedPack?.status?.().borrowedExistingDsh?'external-dsh-provider':'own-source-pack'}},
+     };
     try{
      configStore.replace(next);
      adapter?.invalidateCatalog?.();

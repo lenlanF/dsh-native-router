@@ -85,8 +85,12 @@ export function normalizeConfig(source = {}) {
       enabled:source.sessionReuse?.enabled===true,
       linkedIds:Array.isArray(source.sessionReuse?.linkedIds)
         ?[...new Set(source.sessionReuse.linkedIds.filter(value=>typeof value==='string'&&ID.test(value)))].slice(-200):[],
-      ignoredIds:Array.isArray(source.sessionReuse?.ignoredIds)
-        ?[...new Set(source.sessionReuse.ignoredIds.filter(value=>typeof value==='string'&&ID.test(value)))].slice(-200):[],
+       ignoredIds:Array.isArray(source.sessionReuse?.ignoredIds)
+         ?[...new Set(source.sessionReuse.ignoredIds.filter(value=>typeof value==='string'&&ID.test(value)))].slice(-200):[],
+       linkedOrigins:Object.fromEntries(Object.entries(
+         source.sessionReuse?.linkedOrigins && typeof source.sessionReuse.linkedOrigins==='object' && !Array.isArray(source.sessionReuse.linkedOrigins)
+           ?source.sessionReuse.linkedOrigins:{}).filter(([key,value])=>ID.test(key)&&accountsIds.has(key)
+             &&['desktop-readonly','external-dsh-provider','own-source-pack'].includes(value)).slice(-200)),
     },
     checkin:{autoEnabled:checkinInput.autoEnabled===true,
       autoSourceAccounts:checkinInput.autoSourceAccounts!==false,timeZone:zone,runAt},

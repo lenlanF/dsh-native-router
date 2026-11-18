@@ -61,7 +61,7 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
     yield* toDshEvents(output);
   }
   return {
-    providerInfo(){return {id:PROVIDER,name:'Native Router'}},
+    providerInfo(){return {id:PROVIDER,name:'聚合路由'}},
     providerRetryPolicy(){return undefined},
     imageRequestPricing(){return undefined},
     imageRequestTarget(){return undefined},
