@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
- [string]$Version='1.0.0-rc.10',
+ [string]$Version='1.0.0-rc.11',
  [string]$NodePath='E:\Temp\dsh-native-router-isolated-alpha11-node-runtime\package\bin\node.exe'
 )
 $ErrorActionPreference='Stop'

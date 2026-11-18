@@ -29,7 +29,9 @@ test('the DSH-native bundle is deterministically derived from unchanged pinned M
   assert.equal(sha(canonicalText(crlf)),sha(original));
  assert.equal(sha(bundled),native.generatedSha256);
  assert.equal(bundled.length,native.generatedBytes);
- assert.equal(native.patches.length,18); assert.ok(native.patches.includes('private-new-login-credential-prefix'));
+ assert.equal(native.patches.length,19);
+ assert.ok(native.patches.includes('scope-llm-adapter-cleanup'));
+ assert.match(bundled.toString('utf8'),/ctx\.effect\(\(\) => cleanup\)/); assert.ok(native.patches.includes('private-new-login-credential-prefix'));
  assert.match(bundled.toString('utf8'),/NATIVE_ROUTER_SOURCE_\$\{provider\.toUpperCase\(\)\}_ACCOUNT_/);
  assert.ok(native.patches.includes('private-account-pool-service'));
  assert.ok(native.patches.includes('private-account-pool-lookup'));
@@ -72,7 +74,7 @@ test('release package ships only native in-process bundle with host-provided pee
   assert.equal(pkg.private,false);
   assert.equal(pkg.license,'MIT');
   assert.equal(pkg.engines.node,'>=22.10.0');
-   assert.equal(pkg.version,'1.0.0-rc.10');
+   assert.equal(pkg.version,'1.0.0-rc.11');
  assert.ok(pkg.files.includes('vendor/channel-pack/pack-native.js'));
  assert.ok(pkg.files.includes('vendor/channel-pack/NATIVE_BUILD_RECEIPT.json'));
  assert.ok(pkg.files.includes('vendor/channel-pack/SOURCE_RECEIPT.json'));

@@ -206,6 +206,32 @@ def build(*, check=False):
   }
 }
 """
+    # Upstream callers discard registerAdapterIdempotent's returned
+    # disposables. Bind releases to the actual Cordis scope explicitly, or
+    # HMR/plugin reload leaks native-router-source-* adapters and the next
+    # mount fails in register_owned_adapter. No other plugin is unregistered.
+    if text.count("registerAdapterIdempotent(ctx.llm,") != 12:
+        raise SystemExit("Expected 12 pinned original source adapter call sites")
+    replacement = replacement.replace(
+        "function registerAdapterIdempotent(llm, providers, adapter, warn) {",
+        "function registerAdapterIdempotent(ctx, providers, adapter, warn) {\n  const llm = ctx?.llm;")
+    replacement = replacement.replace(
+        "  if (originalProviders.length === 0) return releaseAlias;",
+        "  const retain = (cleanup) => {\n"
+        "    try { ctx.effect(() => cleanup); }\n"
+        "    catch (error) { cleanup?.(); throw error; }\n"
+        "    return cleanup;\n"
+        "  };\n"
+        "  if (originalProviders.length === 0) return retain(releaseAlias);")
+    replacement = replacement.replace(
+        "    return () => { releaseOriginal?.(); releaseAlias?.(); };",
+        "    return retain(() => { releaseOriginal?.(); releaseAlias?.(); });")
+    replacement = replacement.replace(
+        "    return releaseAlias;\n  }\n}",
+        "    return retain(releaseAlias);\n  }\n}")
+    text = text.replace("registerAdapterIdempotent(ctx.llm,",
+        "registerAdapterIdempotent(ctx,", 12)
+    names.append("scope-llm-adapter-cleanup")
     text = text[:begin] + replacement + text[end:]
     names.append("register-independent-source-provider-aliases")
     # Limit source credits.status/claimAll to the exact selected source account

@@ -115,7 +115,8 @@ for(const providerId of Object.keys(PRIVATE_PROVIDERS)){
    channelDrivers:new Map([[ownedId,r.driver]]),vault:{
     resolve:async()=>{throw Error('must not read original plugin')}}});
   const catalog=await adapter.listModels();
-  const ownRoute='chain:private_'+providerId;
+  const ownRoute='direct:'+ownedId+':qwen3.8_flash';
+  assert.equal(r.cfg.routes.length,0,'Adoption must not generate user model chains');
   assert.ok(catalog.some(x=>x.id===ownRoute));
   assert.ok(catalog.some(x=>x.id.startsWith('direct:'+ownedId+':')));
   const tokens=[];

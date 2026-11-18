@@ -1,12 +1,12 @@
 {
   "name": "dsh-native-router",
-  "version": "1.0.0-rc.10",
+  "version": "1.0.0-rc.11",
   "private": false,
   "type": "module",
   "license": "MIT",
   "engines": {"node": ">=22.10.0"},
-  "keywords": ["deepseek-harness", "dsh", "cordis", "model-routing", "account-pool", "failover"],
-  "description": "Native DSH multi-provider account pool and custom model routing chains, integrating failover",
+  "keywords": ["deepseek-harness", "dsh", "cordis", "model-routing", "autofree", "model-pool", "failover"],
+  "description": "Native DSH provider reuse, independent login, dynamic free model pool, manual model chains, and agent failover",
   "main": "./src/index.mjs",
   "exports": {
     ".": "./src/index.mjs",

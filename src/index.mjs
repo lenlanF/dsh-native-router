@@ -60,8 +60,7 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
    }
    // If DSH already owns native providers, reuse their existing accountPool
    // and adapters instead of trying to install a duplicate channel pack.
-   if(!channelDrivers&&(ownStore.get().embeddedPack.enabled
-     ||ownStore.get().sessionReuse.enabled)){
+   if(!channelDrivers){
      for(const providerId of SOURCE_PACK_PROVIDERS){
        if(drivers.has(providerId))continue;
        builtInCleanup.push(registerNativeChannelDriver(providerId,
@@ -77,7 +76,7 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
    }
   const ownAdapter=adapter??createNativeRouterAdapter({configStore:ownStore,logger:ctx.logger,
    vault:ownedVault,fetchImpl,env,channelDrivers:drivers,
-    hostProviderInventory:existingHostSource});
+    hostProviderInventory:existingHostSource,ownedPack:embeddedPack});
  const accountCenter=createAccountCenter({configStore:ownStore,adapter:ownAdapter,
    drivers,fetchImpl,env,vault:ownedVault,getSourceStatus:()=>sourceFacade.status()});
  const installedInventory=createInstalledPluginInventory();

@@ -83,14 +83,14 @@ test('Workbench: discover, explicit consent, disabled import, enable, remote mod
  const f=fixture(t);
  await assert.rejects(()=>f.center.importCandidate('workbuddy','wb_'+'0'.repeat(20)),e=>e.status===409);
  const {added}=await imported(f);
- assert.equal(added.enabled,false);
+ assert.equal(added.enabled,true);
  assert.equal(f.cfg.accounts.length,1);
  const saved=readFileSync(f.manifestPath,'utf8');
  assert.ok(saved.includes('workbuddy-desktop.info'));
  assert.doesNotMatch(saved,/sample-refresh|accessToken|eyJ|\.sig|test-user/);
  assert.equal(f.cfg.accounts[0].autoCheckin,false);
- await assert.rejects(()=>f.center.verify(added.id),e=>e.status===409);
- f.center.setEnabled(added.id,true);
+ assert.equal(f.cfg.accounts[0].enabled,true);
+ // Approved imported login is usable immediately; remote verification still reports status.
  const verified=await f.center.verify(added.id,{login:true});
  assert.equal(verified.state,'online');
  const list=await f.adapter.listModels();
@@ -186,7 +186,7 @@ test('Interrupted import reconciles identical source reference without copying c
  const added=await f.center.importCandidate('workbuddy',id);
  assert.equal(added.id,id);
  assert.equal(f.cfg.accounts.length,1);
- assert.equal(f.cfg.accounts[0].enabled,false);
+ assert.equal(f.cfg.accounts[0].enabled,true);
  const data=JSON.parse(readFileSync(f.manifestPath,'utf8'));
  assert.equal(Object.keys(data.entries).length,1);
 });

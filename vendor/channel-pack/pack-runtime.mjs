@@ -37818,7 +37818,8 @@ async function* recordThroughStream(openStream, meta) {
     });
   }
 }
-function registerAdapterIdempotent(llm, providers, adapter, warn) {
+function registerAdapterIdempotent(ctx, providers, adapter, warn) {
+  const llm = ctx?.llm;
   const registered = llm?.listProviders?.();
   if (!Array.isArray(registered)) throw new Error("Host provider inventory unavailable");
   const existing = new Set(registered.map((row) => typeof row === "string" ? row : row?.id ?? row?.provider));
@@ -37860,20 +37861,29 @@ function registerAdapterIdempotent(llm, providers, adapter, warn) {
     }
   };
   const releaseAlias = llm.registerAdapter(aliases, aliasAdapter);
-  if (originalProviders.length === 0) return releaseAlias;
+  const retain = (cleanup) => {
+    try {
+      ctx.effect(() => cleanup);
+    } catch (error) {
+      cleanup?.();
+      throw error;
+    }
+    return cleanup;
+  };
+  if (originalProviders.length === 0) return retain(releaseAlias);
   try {
     const releaseOriginal = llm.registerAdapter(originalProviders, target);
-    return () => {
+    return retain(() => {
       releaseOriginal?.();
       releaseAlias?.();
-    };
+    });
   } catch (error) {
     if (!isDuplicateRegistrationError(error)) {
       releaseAlias?.();
       throw error;
     }
     warn?.("[native-router] Original provider already owned by host; independent channel remains available");
-    return releaseAlias;
+    return retain(releaseAlias);
   }
 }
 var CHAT_API_BASE = "https://snap-access.cn-north-4.myhuaweicloud.com/api/v2";
@@ -39308,7 +39318,7 @@ var CodeArtsAdapter = class extends LlmAdapter {
 };
 function registerCodeArtsLlm(ctx, options) {
   const adapter = new CodeArtsAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [PROVIDER], adapter);
+  registerAdapterIdempotent(ctx, [PROVIDER], adapter);
   return adapter;
 }
 var RATE_LIMIT_BUSINESS_CODE = 6004;
@@ -41584,7 +41594,7 @@ function positiveMaxTokens(value) {
 function registerBuddyLlm(ctx, options) {
   const product = options.product ?? CODEBUDDY;
   const adapter = new BuddyAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [product.id], adapter);
+  registerAdapterIdempotent(ctx, [product.id], adapter);
   return adapter;
 }
 var LOBSTERAI_EXCHANGE_PATH = "/api/auth/exchange";
@@ -42855,7 +42865,7 @@ function displayNameFor2(model) {
 function registerLobsteraiLlm(ctx, options) {
   const product = options.product ?? LOBSTERAI;
   const adapter = new LobsteraiAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [product.id], adapter);
+  registerAdapterIdempotent(ctx, [product.id], adapter);
   return adapter;
 }
 function buildLobsteraiModelsUrl(product, credential, clientVersion) {
@@ -44878,7 +44888,7 @@ function qoderDisplayName(model, now = /* @__PURE__ */ new Date()) {
 function registerQoderLlm(ctx, options) {
   const product = options.product ?? QODER;
   const adapter = new QoderAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [product.id], adapter);
+  registerAdapterIdempotent(ctx, [product.id], adapter);
   return adapter;
 }
 var REASONING_EFFORT_RANK = Object.freeze({
@@ -46744,7 +46754,7 @@ var TraeAdapter = class extends LlmAdapter {
 function registerTraeLlm(ctx, options) {
   const product = options.product ?? TRAE;
   const adapter = new TraeAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [product.id], adapter);
+  registerAdapterIdempotent(ctx, [product.id], adapter);
   return adapter;
 }
 var CLINE_WAIT_PATTERN = /try again in\s+([^.;\n]*)/i;
@@ -47937,7 +47947,7 @@ var CLINE_REGION_FORBIDDEN_MARKERS = [
 function registerClineLlm(ctx, options) {
   const product = options.product ?? CLINE;
   const adapter = new ClineAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [product.id], adapter);
+  registerAdapterIdempotent(ctx, [product.id], adapter);
   return adapter;
 }
 var LOOMY_API_BASE = "https://loomyad.xunfei.cn/api/v1";
@@ -48377,7 +48387,7 @@ function resolveChunkTimeoutMs7() {
 function registerLoomyLlm(ctx, options) {
   const product = options.product ?? LOOMY;
   const adapter = new LoomyAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [product.id], adapter);
+  registerAdapterIdempotent(ctx, [product.id], adapter);
   return adapter;
 }
 var RACCOON_API_BASE = "https://xiaohuanxiong.com";
@@ -48856,7 +48866,7 @@ function resolveChunkTimeoutMs8() {
 function registerRaccoonLlm(ctx, options) {
   const product = options.product ?? RACCOON;
   const adapter = new RaccoonAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [product.id], adapter);
+  registerAdapterIdempotent(ctx, [product.id], adapter);
   return adapter;
 }
 init_login();
@@ -61119,7 +61129,7 @@ function httpErrorCodeForZcode(status, body) {
 function registerZcodeLlm(ctx, options) {
   const product = options.product ?? ZCODE;
   const adapter = new ZcodeAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [product.id], adapter);
+  registerAdapterIdempotent(ctx, [product.id], adapter);
   return adapter;
 }
 var DEFAULT_GATEWAY_HOST = "127.0.0.1";
@@ -64639,7 +64649,7 @@ var GeminiAdapter = class extends LlmAdapter {
 function registerGeminiLlm(ctx, options) {
   const product = options.product ?? GEMINI;
   const adapter = new GeminiAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [product.id], adapter);
+  registerAdapterIdempotent(ctx, [product.id], adapter);
   return adapter;
 }
 var TRAE_PROVIDER_ID = "trae";
@@ -70395,7 +70405,7 @@ var MinimaxAdapter = class extends LlmAdapter {
 function registerMinimaxLlm(ctx, options) {
   const product = options.product ?? MINIMAX;
   const adapter = new MinimaxAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [product.id], adapter);
+  registerAdapterIdempotent(ctx, [product.id], adapter);
   return adapter;
 }
 var GEMINI_AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -71895,7 +71905,7 @@ function sessionIdOf(options) {
 }
 function registerOpencodeLlm(ctx, options) {
   const adapter = new OpencodeAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [OPENCODE.id], adapter);
+  registerAdapterIdempotent(ctx, [OPENCODE.id], adapter);
   return adapter;
 }
 function lazyOpencodeUserAgent() {

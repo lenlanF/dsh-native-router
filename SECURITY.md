@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-The current candidate source is `1.0.0-rc.10`; production compatibility and real-account authentication remain uncertified. Historical Git commits may still contain files subsequently removed from Git tracking; history rewriting, force push and production releases require separate authorization.
+The current candidate source is `1.0.0-rc.11`; production compatibility and real-account authentication remain uncertified. Historical Git commits may still contain files subsequently removed from Git tracking; history rewriting, force push and production releases require separate authorization.
 
 ## Report a vulnerability privately
 
@@ -20,6 +20,10 @@ Use GitHub's private vulnerability reporting / Security Advisories for this repo
 - Admin routes must remain behind authenticated DSH Connection and enforce origin restrictions.
 - **No guarantee of exactly-once irreversible tool side effects across process crash or power loss.** Retain host failover disabled for such operations until separately validated.
 - Automated secret-pattern checks, immutable source receipts and SHA checks are defense-in-depth, not proof that unseen credentials cannot be leaked.
+
+## AutoFree model billing evidence
+
+Only upstream explicit free metadata, or both zero input and zero output pricing, can make a model eligible for AutoFree. Missing prices, a name containing Free and Provider registration cannot establish zero billing or successful remote login. No host login token is copied simply to populate the pool.
 
 ## Upstream OAuth defaults are not published
 

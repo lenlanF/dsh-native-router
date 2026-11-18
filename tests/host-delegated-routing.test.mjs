@@ -56,7 +56,7 @@ test('native-router does not create shadow credentials and rejects removed or un
   accounts:[{id:'bad',providerId:'wb',credentialRef:'host:any'}]}),/shadow accounts/);
  const rig=fixture();
  rig.unregister();
- assert.deepEqual(await rig.adapter.listModels(),[]);
+ assert.deepEqual((await rig.adapter.listModels()).filter(x=>x.id!=='autofree'),[]);
  await assert.rejects(async()=>{for await(const _ of rig.adapter.stream({
   model:'chain:host_wb',messages:[{role:'user',content:[{type:'text',text:'ping'}]}]
  })){}},/not available|Original DSH plugin request failed|unavailable/);
@@ -65,7 +65,7 @@ test('native-router does not create shadow credentials and rejects removed or un
 });
 test('registered host provider removed between model discovery and generation fails closed',async()=>{
  const rig=fixture();
- assert.equal((await rig.adapter.listModels()).length,2);
+ assert.equal((await rig.adapter.listModels()).filter(x=>x.id!=='autofree').length,2);
  rig.unregister();
  await assert.rejects(async()=>{for await(const _ of rig.adapter.stream({
   model:'direct:workbuddy-global:host-flash',messages:[{role:'user',content:[{type:'text',text:'ping'}]}]

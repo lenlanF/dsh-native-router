@@ -132,15 +132,14 @@ test('account console discovery / consent import stays disabled, then routes thr
  assert.equal(discovered.imported,0);
  assert.equal(store.get().accounts.length,0);
  const imported=await center.importCandidate('qoder',discovered.candidates[0].id);
- assert.equal(imported.enabled,false);
- assert.equal(store.get().accounts[0].enabled,false);
+ assert.equal(imported.enabled,true);
+ assert.equal(store.get().accounts[0].enabled,true);
  assert.equal(store.get().accounts[0].autoCheckin,false);
  assert.match(store.get().accounts[0].credentialRef,/^driver:qoder:sp_[a-f0-9]{24}$/);
  assert.doesNotMatch(JSON.stringify(store.get()),/qoder-primary|SECRET/);
  await assert.rejects(()=>center.importCandidate('qoder',discovered.candidates[0].id));
- center.setEnabled(imported.id,true);
  assert.equal(store.get().accounts[0].enabled,true);
- assert.ok(invalidations>=2);
+ assert.ok(invalidations>=1);
  const configured=store.get();
  state=normalizeConfig({...configured,routes:[{id:'sourceRoute',name:'Source',
   mode:'priority',enabled:true,tiers:[{providerId:'qoder',model:'qoder-chat'}]}]});

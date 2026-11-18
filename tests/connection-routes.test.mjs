@@ -6,7 +6,8 @@ import {normalizeConfig} from '../src/config.mjs';
 function fixture(){
  const routes=new Map(),seen=[];
  let cfg=normalizeConfig({});
- let invalidations=0;
+ let invalidations=0,freeRefreshes=0,adoptedId=null;
+ const verifiedIds=[];
  const adoptionCalls=[];
  const api={
   fetch:{register:row=>{
@@ -22,13 +23,17 @@ function fixture(){
  const ctx={get:name=>name==='connection'?api:undefined};
  const store={get:()=>structuredClone(cfg),replace:v=>(cfg=normalizeConfig(v))};
  const dispose=registerAuthenticatedRouterRoutes(ctx,{configStore:store,
-  adapter:{getStatus:()=>({active:true}),invalidateCatalog(){invalidations++}},
-  accountCenter:{list:()=>({accounts:[],channels:[]}),find:()=>{}},
+  adapter:{getStatus:()=>({active:true}),invalidateCatalog(){invalidations++},
+   autoFreeSnapshot:()=>({state:'ready',models:[{providerId:'workbuddy',model:'free',evidence:'来源明确标记免费'}],catalog:[]}),
+   async refreshAutoFree(){freeRefreshes++;return {state:'ready',models:[{providerId:'workbuddy',model:'free',evidence:'来源明确标记免费'}],catalog:[]}}},
+  accountCenter:{list:()=>({accounts:[],channels:[]}),find:()=>{},
+    async verify(id){verifiedIds.push(id);return {id,state:'online',message:'模拟独立账号验证结果'}}},
   checkinCenter:{snapshot:()=>({today:'2026-11-17',accounts:[],groups:[]}),
     async refreshSources(){},async run(){return {record:{state:'pending_confirmation'}}}},
    embeddedPack:{status:()=>({state:'disabled'}),listAccounts:()=>({state:'disabled',accounts:[]})},
    accountAdoption:{async preview(){return {state:'ready',accounts:[
-    {providerId:'qoder',accountId:'original-qoder',label:'Qoder',portable:true}]};},
+    {providerId:'qoder',accountId:'original-qoder',label:'Qoder',portable:true,
+      ...(adoptedId?{ownedAccountId:adoptedId}:{})}]};},
     async adopt(request){adoptionCalls.push(request);return {state:'stored_unverified',
       activation:'requires_original_stop_and_host_restart'};}},
    hostProviderInventory:{async listHostModels(providerId){return {state:'ready',providerId,models:[{id:'test-native'}],loginVerified:false}}},
@@ -42,7 +47,9 @@ function fixture(){
     ...body===undefined?{}:{body:JSON.stringify(body)},
    }));
   }
- return {ctx,store,dispose,routes,seen,request,adoptionCalls,get invalidations(){return invalidations}};
+ return {ctx,store,dispose,routes,seen,request,adoptionCalls,
+   setAdoptedId(id){adoptedId=id},verifiedIds,
+   get invalidations(){return invalidations},get freeRefreshes(){return freeRefreshes}};
 }
 test('DSH native admin registers ONLY authenticated Connection exact Fetch paths, no unauthenticated WebServer routes',async()=>{
  const f=fixture();
@@ -97,6 +104,37 @@ test('authenticated host-native model browsing rejects cross-origin requests and
  assert.equal(data.result.loginVerified,false);
  assert.equal(data.result.providerId,'workbuddy-global');
  await rig.dispose();
+});
+test('AutoFree model-pool GET is read-only and owner refresh rejects cross-origin mutation',async()=>{
+ const f=fixture();
+ const got=await f.request('/models/autofree');
+ assert.equal(got.status,200);
+ assert.equal((await got.json()).result.models[0].model,'free');
+ const denied=await f.request('/models/autofree/refresh',{method:'POST',origin:'https://attacker.invalid'});
+ assert.equal(denied.status,403);assert.equal(f.freeRefreshes,0);
+ const ok=await f.request('/models/autofree/refresh',{method:'POST'});
+ assert.equal(ok.status,200);assert.equal(f.freeRefreshes,1);
+ assert.equal(f.store.get().routes.length,0);
+ await f.dispose();
+});
+ test('same-page batch verification touches only owner-adopted enabled accounts',async()=>{
+ const f=fixture();
+ const noAccounts=await f.request('/channels/adopt/verify',{method:'POST'});
+ assert.equal(noAccounts.status,200);assert.equal((await noAccounts.json()).attempted,0);
+ const refused=await f.request('/channels/adopt/verify',{method:'POST',origin:'https://attacker.invalid'});
+ assert.equal(refused.status,403);
+ const cfg=f.store.get();
+ cfg.providers.push({id:'own_qoder',name:'Qoder 自有',protocol:'native-channel',models:['qoder-free']});
+ cfg.accounts.push({id:'owned_qoder_test',providerId:'own_qoder',credentialRef:'driver:own_qoder:owned_qoder_test',enabled:true});
+ f.store.replace(cfg);f.setAdoptedId('owned_qoder_test');
+ const checked=await f.request('/channels/adopt/verify',{method:'POST'});
+ assert.equal(checked.status,200);
+ const body=await checked.json();
+ assert.equal(body.attempted,1);
+ assert.equal(body.results[0].state,'online');
+ assert.deepEqual(f.verifiedIds,['owned_qoder_test']);
+ assert.equal(f.store.get().routes.length,0);
+ await f.dispose();
 });
 test('closed Connection route registration cannot expose admin routes when connection absent',()=>{
  assert.throws(()=>registerAuthenticatedRouterRoutes({get:()=>undefined},{configStore:{get:()=>normalizeConfig({})}}),

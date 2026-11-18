@@ -85,9 +85,7 @@ export function createWorkbuddyVaultAdoption({inventory,configStore,vault,
     const models=onlineModels.length?onlineModels:known.length?known:[provider.model];
     // Only a catalog-confirmed model is marked as chosen; offline fallback
     // stays unverified and must never display as a successful cloud test.
-    const bestModel=onlineModels.find(x=>x==='hy4flash-free')
-       ??onlineModels.find(x=>x==='deepseek-v4.1-flash')
-       ??onlineModels[0]??models[0];
+    // Catalog-confirmed models become directly available; no synthetic chains.
     const providers=current?fresh.providers.map(x=>x.id===provider.owner
       ?{...x,models,enabled:true}:x)
       :[...fresh.providers,{id:provider.owner,
@@ -96,11 +94,7 @@ export function createWorkbuddyVaultAdoption({inventory,configStore,vault,
     const accounts=[...fresh.accounts,{id,providerId:provider.owner,
       credentialRef:'driver:'+provider.owner+':'+id,
       enabled:true,weight:1,autoCheckin:true}];
-    const routeId='private_'+providerId;
-    const routes=fresh.routes.some(x=>x.id===routeId)?fresh.routes:[...fresh.routes,{
-      id:routeId,name:(providerId==='workbuddy-cn'?'WorkBuddy 国内':'WorkBuddy 国际')+' · 独立模型',
-      mode:'priority',enabled:true,maxSwitches:1,tiers:[bestModel,...models.filter(x=>x!==bestModel)]
-       .slice(0,10).map(model=>({providerId:provider.owner,model,free:false,accountIds:[id]}))}];
+    const routes=fresh.routes;
     stage='persist_owned_account';
     configStore.replace({...fresh,providers,accounts,routes,
       sessionReuse:{...fresh.sessionReuse,

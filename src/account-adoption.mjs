@@ -21,7 +21,7 @@ export function createAccountAdoption({configStore,originalSource,ownedPack,adap
    const privatePlugins=await installedInventory?.scan?.().catch(()=>null);
    const owned=ownedPack?.status?.()??{state:'disabled'};
    const configured=new Set(configStore?.get?.()?.accounts?.map(row=>row.id)??[]);
-   const isConfigured=(providerId,accountId)=>{
+   const configuredAccount=(providerId,accountId)=>{
     let id;
     if(['workbuddy-cn','workbuddy-global'].includes(providerId))
       id=workbuddyOwnedId(providerId,accountId);
@@ -32,12 +32,13 @@ export function createAccountAdoption({configStore,originalSource,ownedPack,adap
       const identity=ownedAdoptionIdentity(providerId,accountId);
       if(identity)id=sourceAccountOpaqueId(providerId,identity.accountId);
     }
-    return typeof id==='string'&&configured.has(id);
+    return typeof id==='string'&&configured.has(id)?id:null;
    };
    const transferable=(original.accounts??[]).slice(0,100).map(row=>({
     providerId:row.providerId,accountId:row.accountId,
     label:row.label,portable:row.portable===true,
-    alreadyConfigured:isConfigured(row.providerId,row.accountId),
+    alreadyConfigured:Boolean(configuredAccount(row.providerId,row.accountId)),
+    ownedAccountId:configuredAccount(row.providerId,row.accountId),
     state:row.portable===true?'available_for_owner_consent':'requires_native_login',
    }));
    // Private plugin inventories cannot be upgraded by the generic AccountPool
@@ -51,7 +52,8 @@ export function createAccountAdoption({configStore,originalSource,ownedPack,adap
          ['workbuddy-cn','workbuddy-global'].includes(row.providerId)
           &&typeof workbuddyVaultAdoption?.adopt==='function',
     privatePortable:true,requiresPack:['loomy','zcode-start-plan'].includes(row.providerId),
-    alreadyConfigured:isConfigured(row.providerId,row.accountId),
+    alreadyConfigured:Boolean(configuredAccount(row.providerId,row.accountId)),
+    ownedAccountId:configuredAccount(row.providerId,row.accountId),
     state:'private_authorization_unverified',source:row.source,
    }));
    return {state:original.state==='ready'||privatePlugins?.state==='ready'?'ready':'unavailable',
@@ -95,9 +97,8 @@ export function createAccountAdoption({configStore,originalSource,ownedPack,adap
    if(account&&!(account.providerId===ownedProviderId
      &&account.credentialRef==='driver:'+ownedProviderId+':'+ownId))
     return {state:'provider_conflict'};
-   // Never change or disable the original provider; create a separate
-   // owned channel and an independent model chain, with a fallback only on
-   // existing priority-mode chains. Pinned routing is preserved as-is.
+   // Never change the original provider or user-authored model chains.
+   // A newly adopted account becomes directly routable without creating a chain.
    const modelIds=[...new Set((current?.models||[]).filter(x=>typeof x==='string'&&x.trim()))];
    const providers=owned?now.providers.map(row=>row.id===ownedProviderId
      ?{...row,models:[...new Set([...(row.models||[]),...modelIds])],enabled:true}:row)
@@ -107,20 +108,7 @@ export function createAccountAdoption({configStore,originalSource,ownedPack,adap
     id:ownId,providerId:ownedProviderId,credentialRef:'driver:'+ownedProviderId+':'+ownId,
     enabled:true,weight:1,
     autoCheckin:SOURCE_DAILY_SIGNIN_PROVIDERS.includes(providerId)}];
-   let routes=now.routes.map(route=>{
-    if(route.mode!=='priority')return route;
-    const eligible=route.tiers.filter(tier=>tier.providerId===providerId);
-    if(!eligible.length)return route;
-    const tiers=[...route.tiers];
-    for(const tier of eligible)if(!tiers.some(t=>t.providerId===ownedProviderId&&t.model===tier.model))
-      tiers.push({providerId:ownedProviderId,model:tier.model,free:false,accountIds:[]});
-    return {...route,tiers,maxSwitches:Math.max(route.maxSwitches,1)};
-   });
-   const standaloneId='owned_'+providerId;
-   if(modelIds.length&&!routes.some(route=>route.id===standaloneId))
-    routes=[...routes,{id:standaloneId,name:providerId+' · 自有模型',
-      mode:'priority',enabled:true,maxSwitches:1,
-      tiers:[{providerId:ownedProviderId,model:modelIds[0],free:false,accountIds:[]}]}];
+   const routes=now.routes;
    const next={...now,providers,accounts,routes,
     sessionReuse:{...now.sessionReuse,
      linkedIds:[...new Set([...(now.sessionReuse.linkedIds||[]),ownId])].slice(-200),

@@ -92,6 +92,18 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
       credentialService:credentialsBridge?.status?.()??{state:'unknown',available:false},
       sessionReuse:sessionReuse?.snapshot?.()??{enabled:false,channels:[]}});
   });
+  // AutoFree is an ephemeral model pool, never a persisted model chain.
+  mount('/models/autofree',async(req,res)=>{
+    if(!isLoopback(req))return json(res,403,{ok:false,error:'Loopback only'});
+    if(req.method!=='GET')return json(res,405,{ok:false,error:'Method not allowed'});
+    return json(res,200,{ok:true,result:adapter.autoFreeSnapshot?.()??{state:'unavailable',models:[],catalog:[]}});
+  });
+  mount('/models/autofree/refresh',async(req,res)=>{
+    if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
+    if(req.method!=='POST')return json(res,405,{ok:false,error:'Method not allowed'});
+    try{return json(res,200,{ok:true,result:await adapter.refreshAutoFree()})}
+    catch{return json(res,503,{ok:false,error:'免费模型目录刷新失败；未修改任何账号或手工模型链'})}
+  });
   mount('/host/models',async(req,res)=>{
    if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
    if(req.method!=='POST')return json(res,405,{ok:false,error:'Method not allowed'});
@@ -131,6 +143,24 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
       if(req.method!=='GET')return json(res,405,{ok:false,error:'Method not allowed'});
       const result=await accountAdoption?.preview?.()??{state:'unavailable',accounts:[]};
       return json(res,200,{ok:true,result});
+    });
+    // Verify only owner-approved locally adopted accounts, in THIS same tab.
+    // No original plugin credentials are exported and this cannot auto-adopt.
+    mount('/channels/adopt/verify',async(req,res)=>{
+      if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
+      if(req.method!=='POST')return json(res,405,{ok:false,error:'Method not allowed'});
+      const inventory=await accountAdoption?.preview?.().catch(()=>null);
+      const available=new Set(configStore.get().accounts.filter(a=>a.enabled).map(a=>a.id));
+      const ids=[...new Set((inventory?.accounts??[]).map(a=>a.ownedAccountId)
+        .filter(id=>typeof id==='string'&&available.has(id)))].slice(0,20);
+      const results=[];
+      for(const id of ids){
+        try{
+          const row=await accountCenter.verify(id);
+          results.push({id,state:row.state,message:String(row.message??'').slice(0,120)});
+        }catch{results.push({id,state:'error',message:'本账号暂不能完成验证；原插件登录态不受影响'})}
+      }
+      return json(res,200,{ok:true,attempted:results.length,results});
     });
     mount('/channels/adopt',async(req,res)=>{
       if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});

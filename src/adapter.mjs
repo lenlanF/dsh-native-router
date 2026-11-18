@@ -9,11 +9,15 @@ import {toDshEvents} from './protocol.mjs';
 import {RoutingError} from './router.mjs';
 import {toSourceMessages,collectSourceDshStream} from './source-channel-driver.mjs';
 import {visibleTools} from './host-tools.mjs';
+import {createAutoFreePool} from './auto-free.mjs';
 
 export const PROVIDER='native-router';
-export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=process.env,vault,logger,channelDrivers=new Map(),hostProviderInventory}={}){
+export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=process.env,vault,logger,channelDrivers=new Map(),hostProviderInventory,ownedPack}={}){
   if(!configStore?.get)throw new Error('ConfigStore required');
-  const getConfig=()=>configStore.get();
+  const autoFreePool=createAutoFreePool({hostProviderInventory,ownedPack,
+    getConfig:()=>configStore.get()});
+  const getConfig=()=>autoFreePool.effectiveConfig(configStore.get());
+  let freeCursor=0;
   const pool=createAccountPool();
   const counters={successfulTurns:0,failedAttempts:0,inputTokens:0,outputTokens:0};
   const history=[];
@@ -56,9 +60,20 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
     const {usage,...safe}=evt;
     history.push({at:Date.now(),...safe});if(history.length>50)history.shift();
   }});
-  const catalog=createCatalog({getConfig,fetchImpl,credentialOptions:{env,vault},channelDrivers,hostProviderInventory});
+  const catalog=createCatalog({getConfig,fetchImpl,credentialOptions:{env,vault},
+    channelDrivers,hostProviderInventory,autoFreePool});
   async function routeForModel(model){
     if(typeof model!=='string')throw new RoutingError('ERR_ROUTE_NOT_FOUND','Invalid DSH model');
+    if(model==='autofree'){
+      await autoFreePool.refresh();
+      const items=autoFreePool.tiers();
+      if(!items.length)throw new RoutingError('ERR_FREE_EXHAUSTED',
+        'No upstream-confirmed free models are currently available; unknown pricing is excluded');
+      const shift=freeCursor++%items.length;
+      const ordered=[...items.slice(shift),...items.slice(0,shift)].slice(0,50);
+      return {id:'autofree',name:'AutoFree',mode:'free',enabled:true,tiers:ordered,
+        maxSwitches:ordered.length-1,exhaustionCooldownMs:21600000};
+    }
     if(model.startsWith('chain:'))return model.slice(6);
     const direct=directModelDecode(model);
     if(direct){
@@ -88,7 +103,13 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
       return {provider:provider??PROVIDER,id:model,name:found?.name??model,inputModalities:['text']}},
     async prepareCall(provider,model){return {model:await this.resolveModel(provider,model),stream}},
     stream,
-    invalidateCatalog(){catalog.invalidate()},
-    getStatus(){return {routes:getConfig().routes.length,providers:getConfig().providers.length,accounts:getConfig().accounts.length,accountCooldowns:pool.status().exhausted,metrics:{...counters},recentRoutes:history.slice(-20)}},
+    invalidateCatalog(){catalog.invalidate();autoFreePool.invalidate()},
+    autoFreeSnapshot(){return autoFreePool.snapshot()},
+    async refreshAutoFree(){await autoFreePool.refresh({force:true});catalog.invalidate();
+      return autoFreePool.snapshot()},
+    getStatus(){const cfg=configStore.get();return {routes:cfg.routes.length,
+      providers:getConfig().providers.length,accounts:getConfig().accounts.length,
+      autoFree:{count:autoFreePool.snapshot().models.length,scannedAt:autoFreePool.snapshot().scannedAt},
+      accountCooldowns:pool.status().exhausted,metrics:{...counters},recentRoutes:history.slice(-20)}},
   };
 }

@@ -21,7 +21,7 @@ export function createExistingDshChannelFacade({ctx,excludedHost,timeoutMs=15000
    const registered=llm.listProviders();
    if(!Array.isArray(registered))return [];
    return [...new Set(registered.map(providerName).filter(safeId)
-     .filter(id=>id!=='native-router'))].slice(0,80).map(providerId=>({
+     .filter(id=>id!=='native-router'&&!id.startsWith('native-router-source-')))].slice(0,80).map(providerId=>({
        providerId,
        family:providerId==='workbuddy'||providerId==='workbuddy-global'
          ?'workbuddy-native-plugin-route':IDs.has(providerId)?'native-channel-route':'dsh-provider-route',
@@ -157,11 +157,16 @@ async function listHostModels(providerId){
     return {state:'unavailable',providerId,models:[]};
    const models=[],seen=new Set();
    for(const row of rows){
-    if(models.length>=150)break;
+    if(models.length>=500)break;
     if(row?.provider&&row.provider!==providerId)continue;
     const id=typeof row==='string'?row:row?.id;
     if(typeof id!=='string'||!id.trim()||id.length>160||/[\u0000-\u001f]/.test(id)||seen.has(id))continue;
-    seen.add(id);models.push({id,name:typeof row?.name==='string'?row.name.slice(0,120):id});
+    seen.add(id);models.push({id,name:typeof row?.name==='string'?row.name.slice(0,120):id,
+     ...(row?.isFree===true||row?.free===true?{isFree:true}:{}),
+     ...(row?.pricing&&typeof row.pricing==='object'
+        &&['number','string'].includes(typeof row.pricing.input)
+        &&['number','string'].includes(typeof row.pricing.output)
+        ?{pricing:{input:row.pricing.input,output:row.pricing.output}}:{})});
    }
    return {state:'ready',providerId,models,loginVerified:false};
   }catch{return {state:'unavailable',providerId,models:[]}}

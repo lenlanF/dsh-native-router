@@ -62,7 +62,8 @@ test('native driver missing never advertises phantom models or chains',async()=>
  const r=fixture({});
  const adapter=createNativeRouterAdapter({configStore:r.configStore,channelDrivers:r.drivers});
  const models=await adapter.listModels();
- assert.equal(models.length,0);
+ assert.deepEqual(models.filter(x=>x.id!=='autofree'),[]);
+ assert.equal(models.some(x=>x.id==='autofree'),true);
 });
 test('discovery requires explicit scan and approval before an account joins the pool',async()=>{
  const called=[];
@@ -86,11 +87,10 @@ test('discovery requires explicit scan and approval before an account joins the 
  assert.equal(r.cfg.accounts.length,1);
  const approved=await center.importCandidate('workbuddy','candidate_2');
  assert.equal(approved.id,'wb2');
- assert.equal(approved.enabled,false);
+ assert.equal(approved.enabled,true);
  assert.equal(r.cfg.accounts.length,2);
  assert.deepEqual(called,[{candidateId:'candidate_2',consent:true}]);
- assert.equal(center.list().pools.find(x=>x.providerId==='workbuddy').enabled,1);
- center.setEnabled('wb2',true);
+ assert.equal(center.list().pools.find(x=>x.providerId==='workbuddy').enabled,2);
  assert.equal(center.list().pools.find(x=>x.providerId==='workbuddy').enabled,2);
  assert.equal((await center.verify('wb2',{login:true})).state,'online');
  await assert.rejects(()=>center.importCandidate('workbuddy','candidate_2'),error=>error.status===409);

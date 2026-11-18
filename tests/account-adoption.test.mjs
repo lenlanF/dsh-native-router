@@ -58,8 +58,8 @@ test('owner-consented account adoption stores a distinct private encrypted-vault
  assert.equal(r.cfg.providers[0].protocol,'dsh-host','original provider remains unchanged');
  assert.equal(r.cfg.providers.find(p=>p.id==='own_qoder').protocol,'native-channel');
  assert.equal(r.cfg.routes[0].tiers[0].providerId,'qoder');
- assert.equal(r.cfg.routes[0].tiers[1].providerId,'own_qoder');
- assert.ok(r.cfg.routes.some(route=>route.id==='owned_qoder'&&route.enabled));
+ assert.equal(r.cfg.routes.length,1,'Owner-approved migration must not create a chain');
+ assert.equal(r.cfg.routes[0].tiers.length,1,'Existing user chain must not be mutated');
  assert.equal(r.cfg.accounts.length,1);
  assert.equal(r.cfg.accounts[0].providerId,'own_qoder');
  assert.equal(r.cfg.accounts[0].credentialRef,'driver:own_qoder:'+sourceAccountOpaqueId('qoder',r.entries[0].id));
@@ -133,10 +133,10 @@ test('after original plugin disappears, owned channel serves the model from its 
   channelDrivers:new Map([['own_qoder',driver]]),
   env:{},vault:{resolve:async()=>{throw Error('no original credential access')}}});
  const listed=await adapter.listModels();
- assert.ok(listed.some(m=>m.id==='chain:owned_qoder'),
-   'owned model is published after original provider has gone');
+ assert.ok(listed.some(m=>m.id==='direct:own_qoder:qoder-flash'),
+   'owned model is directly selectable after original provider has gone');
  const events=[];
- for await(const item of adapter.stream({model:'chain:owned_qoder',
+ for await(const item of adapter.stream({model:'direct:own_qoder:qoder-flash',
   messages:[{role:'user',content:[{type:'text',text:'hello'}]}]}))events.push(item);
  assert.equal(events.find(x=>x.type==='text-delta')?.text,'owned channel completed');
  assert.deepEqual(events.at(-1),{type:'finish',reason:{kind:'stop'}});

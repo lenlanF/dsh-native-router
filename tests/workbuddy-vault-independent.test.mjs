@@ -92,8 +92,7 @@ for(const region of ['cn','global']){
    assert.equal(imported.state,'stored_unverified');
    assert.equal(imported.originalUnchanged,true);
    assert.equal(imported.modelCatalogVerified,true);
-   assert.equal(r.cfg.routes.find(x=>x.id==='private_'+r.source).tiers[0].model,
-    region==='cn'?'hy4-preview-f':'default-model');
+   assert.equal(r.cfg.routes.length,0,'Independent login may not auto-create chains');
    assert.equal(imported.accountId,workbuddyOwnedId(r.source,rows[0].accountId));
    assert.equal(r.cfg.accounts.length,1);
    assert.equal(r.cfg.accounts[0].providerId,r.own);
@@ -103,13 +102,14 @@ for(const region of ['cn','global']){
    assert.equal((await r.inventory.scan()).accounts.filter(x=>x.providerId===r.source).length,0);
    const router=createNativeRouterAdapter({configStore:r.configStore,
     channelDrivers:new Map([[r.own,r.driver]])});
-   assert.ok((await router.listModels()).some(x=>x.id==='chain:private_'+r.source));
+   const directId='direct:'+r.own+':'+(region==='cn'?'hy4-preview-f':'default-model');
+   assert.ok((await router.listModels()).some(x=>x.id===directId));
    const originalAccount=r.cfg.accounts[0];
    const realCatalog=await r.driver.listModels({account:originalAccount});
    assert.ok(realCatalog.some(m=>m.id===(region==='cn'?'hy4-preview-f':'default-model')));
    const events=[];
    for await(const event of router.stream({
-     model:'chain:private_'+r.source,
+     model:directId,
      messages:[{role:'user',content:[{type:'text',text:'test'}]}],
    }))events.push(event);
    assert.ok(events.some(x=>x.type==='text-delta'&&x.text.includes('independent workbuddy')));

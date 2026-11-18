@@ -88,7 +88,7 @@ test('checkin endpoint refuses unexpected action names without running plugins',
  t.dispose();
 });
 
-test('candidate import API requires preceding discovery and creates a disabled native account only after approval',async()=>{
+test('candidate import API requires preceding discovery and activates the native account immediately after approval',async()=>{
  const driver={
   discover:async()=>[{id:'cand01',label:'授权账号候选',source:'official-desktop'}],
   importCandidate:async()=>({id:'native-one',credentialRef:'driver:workbuddy:native-one'}),
@@ -102,8 +102,8 @@ test('candidate import API requires preceding discovery and creates a disabled n
  assert.equal(discovered.body.candidates[0].label,'授权账号候选');
  const imported=await t.hit('POST','/channels/import',{providerId:'workbuddy',candidateId:'cand01'});
  assert.equal(imported.code,200);
- assert.equal(imported.body.result.enabled,false);
+ assert.equal(imported.body.result.enabled,true);
  assert.equal(t.configStore.get().accounts[0].credentialRef,'driver:workbuddy:native-one');
- assert.equal((await t.hit('GET','/channels/accounts')).body.accounts[0].configuredEnabled,false);
+ assert.equal((await t.hit('GET','/channels/accounts')).body.accounts[0].configuredEnabled,true);
  t.dispose();
 });

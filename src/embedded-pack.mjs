@@ -30,7 +30,7 @@ function safetyReason(env){
  return '';
 }
 export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPack=loadPinnedPack,modelTimeoutMs=20000}){
-  let state='disabled',reason='',errorStage='',disposed=false,activeScope=null,injectedCallback=null;
+  let state='disabled',reason='',errorStage='',errorKind='',disposed=false,activeScope=null,injectedCallback=null;
    let skippedProviders=new Set();
    // The bundled derivative owns a dedicated Cordis service and never binds to
    // any already-installed plugin's accountPool. Test injected packs keep the
@@ -55,9 +55,10 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
       &&loadPack!==loadPinnedPack);
   let selectionGuard=null;
   const providerStreams=new Set();
-  function status(){return {state,reason,errorStage,
-     channelCount:nativeOwned?SOURCE_PACK_PROVIDERS.length:SOURCE_PACK_PROVIDERS.length-skippedProviders.size,
-     channels:SOURCE_PACK_PROVIDERS.filter(id=>sourceAllowed(id)),
+  function status(){return {state,reason,errorStage,errorKind,
+     supportedChannelCount:SOURCE_PACK_PROVIDERS.length,
+     channelCount:state==='mounted'?SOURCE_PACK_PROVIDERS.filter(id=>sourceAllowed(id)).length:0,
+     channels:state==='mounted'?SOURCE_PACK_PROVIDERS.filter(id=>sourceAllowed(id)):[],
      skippedProviders:[...skippedProviders],independentLogin:nativeOwned,
      experimentalMultiAccountProviders:selectionGuard&&multiAccountOptIn?MULTIACCOUNT_REVIEWED:[],
      exactAccountGate:selectionGuard?'ready':multiAccountOptIn?'unavailable':'disabled'}} function attach(){
@@ -70,7 +71,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
      :safetyReason(env)||channelPackIsolationReason(env);
    if(denied){state='blocked';reason=denied;return status()}
   if(typeof ctx?.inject!=='function'){state='blocked';reason='当前 DSH 宿主不支持按需服务注入';return status()}
-  state='waiting_host_services';reason='';errorStage='';
+  state='waiting_host_services';reason='';errorStage='';errorKind='';
   try{
     const onInjected=scope=>{
     let phase='service_injection';
@@ -141,15 +142,23 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
            isAlive:()=>!disposed&&state==='mounted'&&activeScope===scope})}
          catch{selectionGuard=null;ctx.logger?.warn?.('native-router: exact-account DSH credential isolation unavailable; multiaccount disabled safely')}
        }
-       state='mounted';reason='';errorStage='';
+       state='mounted';reason='';errorStage='';errorKind='';
     }).catch(error=>{
      if(disposed||state==='host_disposed')return;
      state='failed';errorStage=phase;
+     const code=String(error?.code??'');
+     const message=String(error?.message??'').slice(0,300);
+     errorKind=['ERR_MODULE_NOT_FOUND','MODULE_NOT_FOUND'].includes(code)?'missing_module':
+       code==='DUPLICATE_ADAPTER'||/already registered|duplicate|already occupied|adapter alias/i.test(message)
+         ?'model_adapter_collision':
+       /credential|inject|provide|service/i.test(message)?'missing_host_service':'runtime_incompatible';
      reason=['ERR_MODULE_NOT_FOUND','MODULE_NOT_FOUND'].includes(error?.code)
        ?'内置渠道包运行依赖缺失；请重新安装含完整依赖的插件发行包'
-       :error?.code==='DUPLICATE_ADAPTER'
-       ?'独立模型路由名称冲突，已保护宿主原路由；请检查其他插件'
-       :'渠道包挂载失败；宿主服务或运行时不兼容，原账号未被更改';
+       :errorKind==='model_adapter_collision'
+       ?'检测到自有模型路由残留或同名注册冲突：请完全重启 DSH Host；新版卸载会随 Cordis 作用域自动释放路由。原插件不受影响。'
+       :errorKind==='missing_host_service'
+       ?'渠道包尚未获得所需的 DSH 宿主服务，已保护原账号；请检查宿主注入与插件启用状态。'
+       :'渠道包加载或注册失败；宿主运行时不兼容，原账号未被更改';
      ctx.logger?.warn?.('dsh-native-router: source pack failed at '+errorStage);
     });
     };
@@ -280,7 +289,12 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
         seen.add(id);
         const name=typeof row?.name==='string'&&row.name.length<=120
           &&!/[\u0000-\u001f]/.test(row.name)?row.name:id;
-        models.push({id,name,...(row?.isFree===true?{upstreamFreeLabel:true}:{})});
+        models.push({id,name,
+          ...(row?.isFree===true||row?.free===true||row?.upstreamFreeLabel===true?{upstreamFreeLabel:true}:{}),
+          ...(row?.pricing&&typeof row.pricing==='object'
+           &&['number','string'].includes(typeof row.pricing.input)
+           &&['number','string'].includes(typeof row.pricing.output)
+           ?{pricing:{input:row.pricing.input,output:row.pricing.output}}:{})});
       }
       return {state:'ready',providerId,models};
     }catch{return {state:'error',providerId,models:[]}}

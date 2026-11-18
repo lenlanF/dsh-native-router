@@ -71,16 +71,18 @@ for(const original of ['loomy','zcode-start-plan']){
   assert.equal(f.cfg.accounts[0].providerId,f.own);
   assert.doesNotMatch(JSON.stringify(f.cfg),/FAKE_LOOMY_SECRET|FAKE_ZCODE_JWT|FAKE_UUID/);
   assert.deepEqual(f.cfg.providers.map(x=>x.id),[original,f.own]);
-  assert.equal(f.cfg.routes.find(x=>x.id==='existing').tiers.length,2);
+  assert.equal(f.cfg.routes.find(x=>x.id==='existing').tiers.length,1);
+  assert.equal(f.cfg.routes.length,1,'Original user chain must remain unchanged');
   const driver=createSourceChannelDriver({providerId:f.provider,accountProviderId:f.own,embeddedPack:f.pack});
   assert.equal(driver.runtimeReady,false);
   f.stopOriginal();
   assert.equal(driver.runtimeReady,true);
   const router=createNativeRouterAdapter({configStore:f.configStore,
    channelDrivers:new Map([[f.own,driver]]),vault:{resolve:()=>{throw Error('Original vault must not be used')}}});
-  assert.ok((await router.listModels()).some(x=>x.id==='chain:owned_'+f.provider));
+  const direct=(await router.listModels()).find(x=>x.id.startsWith('direct:'+f.own+':'));
+  assert.ok(direct,'Adopted source should be directly selectable');
   const events=[];
-  for await(const event of router.stream({model:'chain:owned_'+f.provider,
+  for await(const event of router.stream({model:direct.id,
    messages:[{role:'user',content:[{type:'text',text:'test'}]}]}))events.push(event);
   assert.ok(events.some(x=>x.type==='text-delta'&&x.text.includes('MIT '+f.provider)));
   assert.equal(router.getStatus().metrics.successfulTurns,1);

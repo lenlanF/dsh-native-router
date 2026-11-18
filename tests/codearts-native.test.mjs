@@ -83,7 +83,7 @@ test('CodeArts user-provisioned multi-account discover and import only public en
  assert.equal(a.cfg.accounts.length,0);
  const imported=await a.center.importCandidate('codearts','ca_BETA');
  assert.equal(imported.id,'ca_BETA');
- assert.equal(imported.enabled,false);
+ assert.equal(imported.enabled,true);
  assert.equal(a.cfg.accounts[0].credentialRef,'driver:codearts:ca_BETA');
  assert.equal(a.cfg.accounts[0].autoCheckin,false);
  await assert.rejects(()=>a.center.importCandidate('codearts','ca_BETA'),e=>e.status===409);

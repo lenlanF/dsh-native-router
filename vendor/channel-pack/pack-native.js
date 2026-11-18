@@ -33347,7 +33347,8 @@ async function* recordThroughStream(openStream, meta) {
     });
   }
 }
-function registerAdapterIdempotent(llm, providers, adapter, warn) {
+function registerAdapterIdempotent(ctx, providers, adapter, warn) {
+  const llm = ctx?.llm;
   const registered = llm?.listProviders?.();
   if (!Array.isArray(registered)) throw new Error("Host provider inventory unavailable");
   const existing = new Set(registered.map((row) => typeof row === "string" ? row : row?.id ?? row?.provider));
@@ -33385,10 +33386,15 @@ function registerAdapterIdempotent(llm, providers, adapter, warn) {
     stream(options) { return target.stream({ ...options, provider: actual(options.provider) }); }
   };
   const releaseAlias = llm.registerAdapter(aliases, aliasAdapter);
-  if (originalProviders.length === 0) return releaseAlias;
+  const retain = (cleanup) => {
+    try { ctx.effect(() => cleanup); }
+    catch (error) { cleanup?.(); throw error; }
+    return cleanup;
+  };
+  if (originalProviders.length === 0) return retain(releaseAlias);
   try {
     const releaseOriginal = llm.registerAdapter(originalProviders, target);
-    return () => { releaseOriginal?.(); releaseAlias?.(); };
+    return retain(() => { releaseOriginal?.(); releaseAlias?.(); });
   } catch (error) {
     if (!isDuplicateRegistrationError(error)) {
       releaseAlias?.();
@@ -33397,7 +33403,7 @@ function registerAdapterIdempotent(llm, providers, adapter, warn) {
     // Another host plugin won the original-name registration race. Keep the
     // independent alias; never borrow its route for our source-pool account.
     warn?.("[native-router] Original provider already owned by host; independent channel remains available");
-    return releaseAlias;
+    return retain(releaseAlias);
   }
 }
 
@@ -34928,7 +34934,7 @@ var CodeArtsAdapter = class extends LlmAdapter {
 };
 function registerCodeArtsLlm(ctx, options) {
   const adapter = new CodeArtsAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [PROVIDER], adapter);
+  registerAdapterIdempotent(ctx, [PROVIDER], adapter);
   return adapter;
 }
 var RATE_LIMIT_BUSINESS_CODE = 6004;
@@ -37264,7 +37270,7 @@ function positiveMaxTokens(value) {
 function registerBuddyLlm(ctx, options) {
   const product = options.product ?? CODEBUDDY;
   const adapter = new BuddyAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [product.id], adapter);
+  registerAdapterIdempotent(ctx, [product.id], adapter);
   return adapter;
 }
 
@@ -38552,7 +38558,7 @@ function displayNameFor2(model) {
 function registerLobsteraiLlm(ctx, options) {
   const product = options.product ?? LOBSTERAI;
   const adapter = new LobsteraiAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [product.id], adapter);
+  registerAdapterIdempotent(ctx, [product.id], adapter);
   return adapter;
 }
 function buildLobsteraiModelsUrl(product, credential, clientVersion) {
@@ -40596,7 +40602,7 @@ function qoderDisplayName(model, now = /* @__PURE__ */ new Date()) {
 function registerQoderLlm(ctx, options) {
   const product = options.product ?? QODER;
   const adapter = new QoderAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [product.id], adapter);
+  registerAdapterIdempotent(ctx, [product.id], adapter);
   return adapter;
 }
 
@@ -42482,7 +42488,7 @@ var TraeAdapter = class extends LlmAdapter5 {
 function registerTraeLlm(ctx, options) {
   const product = options.product ?? TRAE;
   const adapter = new TraeAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [product.id], adapter);
+  registerAdapterIdempotent(ctx, [product.id], adapter);
   return adapter;
 }
 
@@ -43696,7 +43702,7 @@ var CLINE_REGION_FORBIDDEN_MARKERS = [
 function registerClineLlm(ctx, options) {
   const product = options.product ?? CLINE;
   const adapter = new ClineAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [product.id], adapter);
+  registerAdapterIdempotent(ctx, [product.id], adapter);
   return adapter;
 }
 
@@ -44151,7 +44157,7 @@ function resolveChunkTimeoutMs7() {
 function registerLoomyLlm(ctx, options) {
   const product = options.product ?? LOOMY;
   const adapter = new LoomyAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [product.id], adapter);
+  registerAdapterIdempotent(ctx, [product.id], adapter);
   return adapter;
 }
 
@@ -44646,7 +44652,7 @@ function resolveChunkTimeoutMs8() {
 function registerRaccoonLlm(ctx, options) {
   const product = options.product ?? RACCOON;
   const adapter = new RaccoonAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [product.id], adapter);
+  registerAdapterIdempotent(ctx, [product.id], adapter);
   return adapter;
 }
 
@@ -57138,7 +57144,7 @@ function httpErrorCodeForZcode(status, body) {
 function registerZcodeLlm(ctx, options) {
   const product = options.product ?? ZCODE;
   const adapter = new ZcodeAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [product.id], adapter);
+  registerAdapterIdempotent(ctx, [product.id], adapter);
   return adapter;
 }
 
@@ -60808,7 +60814,7 @@ var GeminiAdapter = class extends LlmAdapter10 {
 function registerGeminiLlm(ctx, options) {
   const product = options.product ?? GEMINI;
   const adapter = new GeminiAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [product.id], adapter);
+  registerAdapterIdempotent(ctx, [product.id], adapter);
   return adapter;
 }
 
@@ -68633,7 +68639,7 @@ var MinimaxAdapter = class extends LlmAdapter11 {
 function registerMinimaxLlm(ctx, options) {
   const product = options.product ?? MINIMAX;
   const adapter = new MinimaxAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [product.id], adapter);
+  registerAdapterIdempotent(ctx, [product.id], adapter);
   return adapter;
 }
 
@@ -70161,7 +70167,7 @@ function sessionIdOf(options) {
 }
 function registerOpencodeLlm(ctx, options) {
   const adapter = new OpencodeAdapter(options);
-  registerAdapterIdempotent(ctx.llm, [OPENCODE.id], adapter);
+  registerAdapterIdempotent(ctx, [OPENCODE.id], adapter);
   return adapter;
 }
 

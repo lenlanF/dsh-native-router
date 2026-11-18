@@ -7,7 +7,7 @@ import {createAccountCenter} from '../src/account-center.mjs';
 import {createCheckinCenter} from '../src/checkins.mjs';
 import {sample} from './fixtures.mjs';
 function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={state:'disabled',reason:''},sourceRpcOverrides={},hostProviders=[],hostModelResult){
-  let cfg=normalizeConfig(sample),sequence=0,effectFn,component;
+  let cfg=normalizeConfig(sample),sequence=0,effectFn,tabEffectFn,component;
   const hooks=[];
   const react={
     Fragment:'fragment',
@@ -17,7 +17,7 @@ function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={stat
       if(!(pos in hooks))hooks[pos]=initial;
       return [hooks[pos],v=>{hooks[pos]=typeof v==='function'?v(hooks[pos]):v}];
     },
-    useEffect(fn){if(!effectFn)effectFn=fn},
+    useEffect(fn){if(!effectFn)effectFn=fn;else tabEffectFn=fn},
     useCallback(fn){return fn},
   };
   const configStore={get:()=>structuredClone(cfg),replace:v=>(cfg=normalizeConfig(v))};
@@ -51,6 +51,14 @@ function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={stat
       return response({ok:true,config:configStore.get()});
     }
     if(key==='/status')return response({ok:true,embeddedPack:embeddedStatus,sessionReuse:{hostProviders}});
+    if(key==='/models/autofree'||key==='/models/autofree/refresh'){
+      if(key.endsWith('/refresh'))mutations.push({kind:'autofree-refresh'});
+      return response({ok:true,result:{state:'ready',models:[],catalog:[],unknownPricing:0}});
+    }
+    if(key==='/channels/adopt/verify'){
+      mutations.push({kind:'adoption-verify'});
+      return response({ok:true,attempted:0,results:[]});
+    }
     if(key==='/channels/embedded/account-remove'){
       const input=JSON.parse(options.body);mutations.push({kind:'upstream-delete',...input});
       if(embeddedPreview)embeddedPreview.accounts=embeddedPreview.accounts.filter(row=>
@@ -134,91 +142,59 @@ if(key==='/host/models'){
     return found;
   }
   function render(){sequence=0;return expand(component())}
-  return {render,init:async()=>{render();effectFn();for(let i=0;i<60&&!hooks[0];i++)await new Promise(resolve=>setTimeout(resolve,1));if(!hooks[0])throw Error('Configuration was not loaded')},find,flatten,mutations,get cfg(){return cfg}};
+  return {render,init:async()=>{render();effectFn();for(let i=0;i<60&&!hooks[0];i++)await new Promise(resolve=>setTimeout(resolve,1));if(!hooks[0])throw Error('Configuration was not loaded')},
+   async flushTabEffect(){render();tabEffectFn?.();for(let i=0;i<20;i++)await new Promise(resolve=>setTimeout(resolve,1))},
+   find,flatten,mutations,get cfg(){return cfg}};
 }
-test('dashboard distinguishes WorkBuddy native DSH provider routes from authenticated account sessions',async()=>{
- const hostProviders=[
-  {providerId:'workbuddy',family:'workbuddy-native-plugin-route',accountAccess:'plugin-managed-or-unknown',loginVerified:false},
-  {providerId:'workbuddy-global',family:'workbuddy-native-plugin-route',accountAccess:'plugin-managed-or-unknown',loginVerified:false},
+test('dashboard shows original WorkBuddy routes, which enter directly without a second import step',async()=>{
+ const hosts=[
+  {providerId:'workbuddy',family:'workbuddy-native-plugin-route',loginVerified:false},
+  {providerId:'workbuddy-global',family:'workbuddy-native-plugin-route',loginVerified:false},
  ];
- const rig=createUiRig(new Map(),null,{state:'disabled'},{},hostProviders);await rig.init();
+ const rig=createUiRig(new Map(),null,{state:'disabled'},{},hosts);await rig.init();
  const overview=rig.flatten(rig.render()).join(' ');
- assert.match(overview,/渠道与聚合路由运行总览/);
  assert.match(overview,/WorkBuddy 国内原生路由/);
  assert.match(overview,/WorkBuddy 国际原生路由/);
  assert.match(overview,/路由已注册 · 登录未核实/);
-  rig.find(rig.render(),'button','复用管理')[0].props.onClick();
-  const channels=rig.flatten(rig.render()).join(' ');
-  assert.match(channels,/宿主原生渠道/);
-  assert.match(channels,/WorkBuddy · 国际/);
-  assert.doesNotMatch(channels,/已连接验证/);
-});
-test('host-owned WorkBuddy model can be selected into DSH failover without importing account credentials',async()=>{
- const rig=createUiRig(new Map(),null,{state:'disabled'},{},[
-  {providerId:'workbuddy-global',family:'workbuddy-native-plugin-route',accountAccess:'plugin-managed-or-unknown',loginVerified:false},
- ]);
- await rig.init();
-  rig.find(rig.render(),'button','复用管理')[0].props.onClick();
-  await rig.find(rig.render(),'button','查看模型')[0].props.onClick();
-  assert.ok(rig.mutations.some(x=>x.kind==='host-model-query'&&x.providerId==='workbuddy-global'));
-  assert.match(rig.flatten(rig.render()).join(' '),/WorkBuddy Native Flash/);
-  rig.find(rig.render(),'button','加入故障切换')[0].props.onClick();
-  assert.match(rig.flatten(rig.render()).join(' '),/宿主故障切换/);
-  await rig.find(rig.render(),'button','保存配置')[0].props.onClick();
-  assert.ok(rig.cfg.hostFailover.priority.some(r=>r.provider==='workbuddy-global'&&r.model==='wb-native-flash'));
-  assert.equal(rig.cfg.accounts.some(a=>a.providerId==='workbuddy-global'),false);
-  assert.ok(!rig.mutations.some(x=>x.action==='login'||x.action==='logout'));
-});
-test('reuse tab imports an existing host model into an actually selectable aggregate route without shadow login',async()=>{
- const rig=createUiRig(new Map(),null,{state:'disabled'},{},[
-  {providerId:'workbuddy-global',family:'workbuddy-native-plugin-route',
-   accountAccess:'plugin-managed-or-unknown',loginVerified:false},
- ]);
- await rig.init();
  rig.find(rig.render(),'button','复用管理')[0].props.onClick();
- await rig.find(rig.render(),'button','查看模型')[0].props.onClick();
+ rig.find(rig.render(),'button','宿主路由与模型')[0].props.onClick();
  const page=rig.render();
- assert.equal(rig.find(page,'button','接入聚合路由').length,1);
- rig.find(page,'button','接入聚合路由')[0].props.onClick();
- assert.equal(rig.cfg.providers.some(p=>p.id==='workbuddy-global'),false,
-  'a UI draft must not mutate the saved host config');
- await rig.find(rig.render(),'button','保存配置')[0].props.onClick();
- const provider=rig.cfg.providers.find(p=>p.id==='workbuddy-global');
- assert.equal(provider.protocol,'dsh-host');
- assert.deepEqual(provider.models,['wb-native-flash']);
- const route=rig.cfg.routes.find(r=>r.id==='host_workbuddy-global');
- assert.ok(route&&route.enabled);
- assert.equal(route.tiers[0].model,'wb-native-flash');
- assert.ok(!rig.cfg.accounts.some(a=>a.providerId==='workbuddy-global'),
-  'no duplicate DSH account must be created');
- assert.ok(!rig.mutations.some(x=>x.action==='login'||x.action==='logout'));
+ assert.match(rig.flatten(page).join(' '),/宿主原生渠道 · 自动接入/);
+ assert.match(rig.flatten(page).join(' '),/WorkBuddy 国际/);
+ assert.equal(rig.find(page,'button','接入聚合路由').length,0);
 });
-test('an installed host provider with empty model directory supports a manually verified model ID without a shadow account',async()=>{
+test('host channel click shows the original full model list on the right, not at page bottom',async()=>{
+ const host=[{providerId:'workbuddy-global',family:'workbuddy-native-plugin-route',
+   accountAccess:'plugin-managed-or-unknown',loginVerified:false}];
+ const rig=createUiRig(new Map(),null,{state:'disabled'},{},host);await rig.init();
+ rig.find(rig.render(),'button','复用管理')[0].props.onClick();
+ rig.find(rig.render(),'button','宿主路由与模型')[0].props.onClick();
+ const selected=rig.find(rig.render(),'button','WorkBuddy 国际原插件托管 · 登录待核验自动接入')[0];
+ assert.ok(selected,'selectable original provider exists in left pane');
+ await selected.props.onClick();
+ assert.ok(rig.mutations.some(x=>x.kind==='host-model-query'&&x.providerId==='workbuddy-global'));
+ const view=rig.flatten(rig.render()).join(' ');
+ assert.match(view,/WorkBuddy Native Flash/);
+ assert.match(view,/模型目录 · WorkBuddy 国际/);
+ assert.equal(rig.find(rig.render(),'button','加入故障切换').length,0);
+ assert.equal(rig.find(rig.render(),'button','接入聚合路由').length,0);
+ assert.equal(rig.cfg.accounts.some(x=>x.providerId==='workbuddy-global'),false);
+ assert.equal(rig.cfg.routes.some(x=>x.id.startsWith('host_')),false);
+});
+test('unavailable original provider model catalog cannot invent a model, but original route remains registered',async()=>{
  const host=[{providerId:'deepseek-official',family:'dsh-provider-route',loginVerified:false}];
  const rig=createUiRig(new Map(),null,{state:'disabled'},{},host,
   {state:'unavailable',providerId:'deepseek-official',models:[]});
  await rig.init();
  rig.find(rig.render(),'button','复用管理')[0].props.onClick();
- await rig.find(rig.render(),'button','查看模型')[0].props.onClick();
- let page=rig.render();
- assert.match(rig.flatten(page).join(' '),/原插件未发布模型目录/);
- assert.equal(rig.find(page,'button','按 ID 接入')[0].props.disabled,true);
- const findManual=node=>{
-  if(Array.isArray(node))return node.map(findManual).find(Boolean);
-  if(!node||typeof node!=='object')return null;
-  if(node.type==='input'&&node.props.placeholder==='从原插件复制 ID')return node;
-  return findManual(node.children);
- };
- const input=findManual(page);
- assert.ok(input,'manual host model input should be accessible even when no source model directory exists');
- input.props.onChange({target:{value:'deepseek-chat'}});
- page=rig.render();
- assert.equal(rig.find(page,'button','按 ID 接入')[0].props.disabled,false);
- rig.find(page,'button','按 ID 接入')[0].props.onClick();
- await rig.find(rig.render(),'button','保存配置')[0].props.onClick();
- assert.ok(rig.cfg.providers.some(x=>x.id==='deepseek-official'&&x.models.includes('deepseek-chat')));
- assert.ok(rig.cfg.routes.some(x=>x.tiers.some(t=>t.model==='deepseek-chat')));
- assert.equal(rig.cfg.accounts.some(x=>x.providerId==='deepseek-official'),false);
+ rig.find(rig.render(),'button','宿主路由与模型')[0].props.onClick();
+ const selected=rig.find(rig.render(),'button','deepseek-official原插件托管 · 登录待核验自动接入')[0];
+ assert.ok(selected);
+ await selected.props.onClick();
+ assert.match(rig.flatten(rig.render()).join(' '),/未提供可读取的模型目录/);
+ assert.equal(rig.find(rig.render(),'button','按 ID 接入').length,0);
+ assert.equal(rig.cfg.providers.some(x=>x.id==='deepseek-official'),false);
+ assert.equal(rig.cfg.routes.some(x=>x.tiers.some(t=>t.model==='deepseek-chat')),false);
 });
 test('source login tab distinguishes host reuse from independent source login',async()=>{
  const pack={state:'mounted',channelCount:1,channels:['loomy'],skippedProviders:['workbuddy']};
@@ -237,32 +213,28 @@ test('source login tab distinguishes host reuse from independent source login',a
  assert.equal(mutation.payload.provider,'loomy');
  assert.ok(!rig.mutations.some(x=>x.kind==='source-rpc'&&x.payload?.provider==='workbuddy'));
 });
-test('reuse adoption tab requires deliberate account selection, never auto-copies credentials or accepts private-only sessions',async()=>{
+test('adoption view puts owner-approved account transfer first, plus same-page bulk verification',async()=>{
  const rig=createUiRig();await rig.init();
  rig.find(rig.render(),'button','复用管理')[0].props.onClick();
- rig.find(rig.render(),'button','本机登录态')[0].props.onClick();
- assert.ok(!rig.mutations.some(x=>x.kind?.startsWith('adoption')),
-  'opening the reuse tab must not read or copy credentials');
+ await rig.flushTabEffect();
  const page=rig.render();
- await rig.find(page,'button','检查原插件账号')[0].props.onClick();
- assert.equal(rig.mutations.filter(x=>x.kind==='adoption-preview').length,1);
- const buttons=rig.find(rig.render(),'button','接管到本插件');
- assert.equal(buttons.length,1);
- assert.equal(buttons[0].props.disabled,false);
- const blocked=rig.find(rig.render(),'button','暂不能迁移');
+ assert.match(rig.flatten(page).join(' '),/接管原插件账号 · 迁入本插件/);
+ assert.equal(rig.find(page,'button','可扫码').length,0,
+   'Source listing must not claim to have a functional QR action');
+ assert.equal(rig.find(page,'button','批量验证已接管账号').length,1);
+ assert.equal(rig.mutations.filter(x=>x.kind==='adoption-preview').length,1,
+   'adoption inventory must be read automatically on opening this tab');
+ assert.equal(rig.mutations.some(x=>x.kind==='adoption'),false,
+   'automatic metadata read must not copy credentials');
+ const approved=rig.find(rig.render(),'button','接管到本插件');
+ assert.equal(approved.length,1);
+ const blocked=rig.find(rig.render(),'button','暂不能接管');
  assert.equal(blocked.length,1);
  assert.equal(blocked[0].props.disabled,true);
- const cardText=rig.flatten(rig.render()).join(' ');
- assert.match(cardText,/Lingxi/);
- assert.match(cardText,/ZCode Start Plan/);
- assert.match(cardText,/WorkBuddy/);
- assert.match(cardText,/Loomy/);
- await buttons[0].props.onClick();
- const imported=rig.mutations.filter(x=>x.kind==='adoption');
- assert.equal(imported.length,1);
- assert.deepEqual(imported[0],{kind:'adoption',providerId:'qoder',
-  accountId:'qoder-test',consent:true});
- assert.ok(!JSON.stringify(rig.mutations).includes('Bearer'));
+ await approved[0].props.onClick();
+ const adopted=rig.mutations.filter(x=>x.kind==='adoption');
+ assert.deepEqual(adopted,[{kind:'adoption',providerId:'qoder',accountId:'qoder-test',consent:true}]);
+ assert.doesNotMatch(JSON.stringify(rig.mutations),/Bearer/);
  assert.match(rig.flatten(rig.render()).join(' '),/授权副本已保存/);
  assert.match(rig.flatten(rig.render()).join(' '),/已接管 · 待验证/);
 });
@@ -347,7 +319,7 @@ test('mounted upstream channel controls query models explicitly and require conf
  page=rig.render();
  assert.match(rig.flatten(page).join(' '),/来源池已停用/);
 });
-test('WorkBuddy onboarding: a registered driver is offered as disabled provider, not a fake logged-in account',async()=>{
+test('WorkBuddy onboarding: approved provider activates directly without pretending account is logged in',async()=>{
  const rig=createUiRig(new Map([['workbuddy',{
    generate:async()=>({text:'mock',finishReason:'stop',toolCalls:[]}),
    discover:async()=>[],
@@ -365,7 +337,9 @@ test('WorkBuddy onboarding: a registered driver is offered as disabled provider,
  assert.ok(rig.find(page,'button','保存配置').length>=1);
  assert.equal(rig.cfg.providers.some(x=>x.id==='workbuddy'),false,'draft must not mutate config before save');
  await rig.find(page,'button','保存配置')[0].props.onClick();
- assert.equal(rig.cfg.providers.find(x=>x.id==='workbuddy').enabled,false);
+ assert.equal(rig.cfg.providers.find(x=>x.id==='workbuddy').enabled,true);
+ assert.equal(rig.cfg.accounts.some(x=>x.providerId==='workbuddy'),false,
+   'Registering native provider does not invent a logged-in account');
  assert.equal(rig.cfg.accounts.length,3);
  rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
  page=rig.render();

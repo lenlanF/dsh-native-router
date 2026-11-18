@@ -73,14 +73,8 @@ export function createPrivateOwnedAdoption({inventory,configStore,vault,makeCred
     const accounts=[...fresh.accounts,{
       id,providerId:ownerId,credentialRef:'driver:'+ownerId+':'+id,
       enabled:true,weight:1,autoCheckin:PRIVATE_PROVIDERS[providerId].autoCheckin}];
-    let routes=fresh.routes;
-    const routeId=('private_'+providerId).slice(0,63);
-    if(!routes.some(x=>x.id===routeId)){
-      routes=[...routes,{id:routeId,name:providerId+' · 独立模型链',
-       mode:'priority',enabled:true,maxSwitches:3,
-       tiers:models.map(model=>({providerId:ownerId,model,free:false,accountIds:[]}))
-         .slice(0,10)}];
-    }
+    // Independent account registration must never create a model chain.
+    const routes=fresh.routes;
     stage='persist_owned_account';
     configStore.replace({...fresh,providers,accounts,routes,
       sessionReuse:{...fresh.sessionReuse,

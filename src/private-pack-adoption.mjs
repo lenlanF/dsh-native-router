@@ -100,19 +100,8 @@ export function createPrivatePackAdoption({inventory,configStore,ownedPack,adapt
    const accounts=previousAccount?cfg.accounts:[...cfg.accounts,{
       id:opaque,providerId:source.owned,credentialRef:'driver:'+source.owned+':'+opaque,
       enabled:true,weight:1,autoCheckin:source.checkin}];
-   let routes=cfg.routes.map(route=>{
-     if(route.mode!=='priority')return route;
-     if(!route.tiers.some(x=>[source.provider,providerId].includes(x.providerId)))return route;
-     const tiers=[...route.tiers];
-     for(const item of route.tiers.filter(x=>[source.provider,providerId].includes(x.providerId)))
-      if(!tiers.some(x=>x.providerId===source.owned&&x.model===item.model)
-       &&tiers.length<50)tiers.push({...item,providerId:source.owned,accountIds:[]});
-     return {...route,tiers};
-   });
-   const routeId='owned_'+source.provider;
-   if(!routes.some(x=>x.id===routeId))routes=[...routes,{
-    id:routeId,name:source.provider+' · 自有模型',mode:'priority',enabled:true,maxSwitches:1,
-    tiers:[{providerId:source.owned,model:source.models[0],free:false,accountIds:[]}]}];
+   // No automatic chain synthesis or mutation on account import.
+   const routes=cfg.routes;
    configStore.replace({...cfg,providers,accounts,routes,
     sessionReuse:{...cfg.sessionReuse,
      linkedIds:[...new Set([...(cfg.sessionReuse.linkedIds??[]),opaque])].slice(-200),

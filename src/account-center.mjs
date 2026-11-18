@@ -171,14 +171,15 @@ export function createAccountCenter({
      const e=new Error('账号已存在，不重复导入');e.status=409;throw e;
    }
    const newAccount={id:result.id,providerId,credentialRef:result.credentialRef,
-     enabled:false,autoCheckin:false,weight:1};
+     enabled:true,autoCheckin:false,weight:1};
    configStore.replace({...cfg,accounts:[...cfg.accounts,newAccount]});
    adapter?.invalidateCatalog?.();
    // Preserve the remaining independently approved discovery candidates:
    // importing one account must not force rescanning the entire channel pool.
    cache.ids.delete(candidateId);
    if(cache.ids.size===0)discoverCache.delete(providerId);
-   return {id:newAccount.id,providerId,enabled:false,message:'已导入已授权账号引用，默认停用；启用前请先验证登录态'};
+   return {id:newAccount.id,providerId,enabled:true,
+    message:'已接入并启用原有授权引用；实际模型是否可用仍需在线验证'};
  }
  async function refreshAll(){
    const ids=list().accounts.filter(a=>a.enabled&&a.refreshAvailable).map(a=>a.id);
