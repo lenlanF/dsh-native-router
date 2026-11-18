@@ -29,7 +29,16 @@ test('the DSH-native bundle is deterministically derived from unchanged pinned M
   assert.equal(sha(canonicalText(crlf)),sha(original));
  assert.equal(sha(bundled),native.generatedSha256);
  assert.equal(bundled.length,native.generatedBytes);
- assert.equal(native.patches.length,11);
+ assert.equal(native.patches.length,15);
+ assert.ok(native.patches.includes('private-new-login-credential-prefix'));
+ assert.match(bundled.toString('utf8'),/NATIVE_ROUTER_SOURCE_\$\{provider\.toUpperCase\(\)\}_ACCOUNT_/);
+ assert.ok(native.patches.includes('private-account-pool-service'));
+ assert.ok(native.patches.includes('private-account-pool-lookup'));
+ assert.match(bundled.toString('utf8'),/ctx\.provide\("nativeRouterSourceAccountPool", pool\)/);
+ assert.match(bundled.toString('utf8'),/this\.ctx\.get\("nativeRouterSourceAccountPool"\)/);
+ assert.doesNotMatch(bundled.toString('utf8'),/ctx\.provide\("accountPool", pool\)/);
+ assert.ok(native.patches.includes('preserve-host-registered-provider-ownership'));
+ assert.match(bundled.toString('utf8'),/providers = providers.filter\(\(id\) => !existing.has\(id\)\)/);
  assert.equal(native.additionalRuntimeProcessRequired,false);
  assert.equal(native.bundledByDSHPlugin,true);
 });
@@ -58,7 +67,7 @@ test('release package ships only native in-process bundle with host-provided pee
   assert.equal(pkg.private,false);
   assert.equal(pkg.license,'MIT');
   assert.equal(pkg.engines.node,'>=22.10.0');
-   assert.equal(pkg.version,'1.0.0-rc.3');
+   assert.equal(pkg.version,'1.0.0-rc.5');
  assert.ok(pkg.files.includes('vendor/channel-pack/pack-native.js'));
  assert.ok(pkg.files.includes('vendor/channel-pack/NATIVE_BUILD_RECEIPT.json'));
  assert.ok(pkg.files.includes('vendor/channel-pack/SOURCE_RECEIPT.json'));

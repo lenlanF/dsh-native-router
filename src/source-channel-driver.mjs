@@ -13,14 +13,14 @@ const MAX_TOOL_CALLS=8;
 const ref=sourceAccountOpaqueId;
 const unable=(message,code='PROVIDER_NOT_READY')=>new UpstreamError(message,{code});
 const validSource=providerId=>SOURCE_PACK_PROVIDERS.includes(providerId);
-function requireSourceBinding(providerId,account){
+function requireSourceBinding(providerId,account,accountProviderId=providerId){
  const expected=String(account?.credentialRef??'');
- if(account?.providerId!==providerId||!new RegExp('^driver:'+providerId+':sp_[a-f0-9]{24}$').test(expected)
-   ||expected.slice(('driver:'+providerId+':').length)!==account.id)
+ if(account?.providerId!==accountProviderId||!new RegExp('^driver:'+accountProviderId+':sp_[a-f0-9]{24}$').test(expected)
+   ||expected.slice(('driver:'+accountProviderId+':').length)!==account.id)
   throw unable('Channel-pack account reference does not match its provider','CREDENTIAL');
- return expected.slice(('driver:'+providerId+':').length);
+ return expected.slice(('driver:'+accountProviderId+':').length);
 }
-function toSourceMessages(options,providerId,model){
+export function toSourceMessages(options,providerId,model){
  const messages=[];
  const system=flattenContent(options?.system);
  if(system)messages.push({id:randomUUID(),role:'system',source:{kind:'system'},content:[{type:'text',text:system}]});
@@ -135,15 +135,17 @@ export async function collectSourceDshStream(stream,{tools=[],signal}={}){
   total_tokens:usage.totalTokens};
  return validateModelCalls(output,tools);
 }
-export function createSourceChannelDriver({providerId,embeddedPack}={}){
- if(!validSource(providerId)||!embeddedPack)throw Error('Unknown embedded source provider');
+export function createSourceChannelDriver({providerId,embeddedPack,accountProviderId=providerId}={}){
+ if(!validSource(providerId)||!embeddedPack
+   ||![providerId,'own_'+providerId].includes(accountProviderId))
+   throw Error('Unknown embedded source provider');
  const snapshot=async()=>{
   const result=await embeddedPack.listAccounts();
   if(result?.state!=='ready')throw unable('Isolated upstream channel account pool is not available');
   return result.accounts.filter(row=>row.providerId===providerId);
  };
  async function resolve(account){
-  const accountRef=requireSourceBinding(providerId,account);
+  const accountRef=requireSourceBinding(providerId,account,accountProviderId);
   const rows=await snapshot();
   const matched=rows.filter(row=>ref(providerId,row.id)===accountRef);
   if(matched.length!==1)throw unable('Upstream account reference is stale or ambiguous','CREDENTIAL');
@@ -165,7 +167,7 @@ export function createSourceChannelDriver({providerId,embeddedPack}={}){
    const rows=await snapshot();
    const matched=rows.filter(row=>ref(providerId,row.id)===candidateId);
    if(matched.length!==1)throw unable('Source account no longer exists','CREDENTIAL');
-   return {id:candidateId,credentialRef:'driver:'+providerId+':'+candidateId};
+   return {id:candidateId,credentialRef:'driver:'+accountProviderId+':'+candidateId};
   },
   async listModels({account}={}){
    await resolve(account);

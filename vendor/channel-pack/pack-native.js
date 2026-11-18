@@ -33348,6 +33348,13 @@ async function* recordThroughStream(openStream, meta) {
   }
 }
 function registerAdapterIdempotent(llm, providers, adapter, warn) {
+  // Keep already registered DSH plugins as the sole owners of their providers.
+  // This source pack may still provide login for non-conflicting channels.
+  const registered = llm?.listProviders?.();
+  if (!Array.isArray(registered)) throw new Error("Host provider inventory unavailable");
+  const existing = new Set(registered.map((row) => typeof row === "string" ? row : row?.id ?? row?.provider));
+  providers = providers.filter((id) => !existing.has(id));
+  if (providers.length === 0) return void 0;
   let target = wrapAdapterWithTokenLedger(providers, adapter);
   if (typeof adapter === "object" && adapter !== null) {
     try {
@@ -54514,7 +54521,7 @@ var ZcodeAuth = class extends Service9 {
    */
   accountPool() {
     try {
-      const pool = this.ctx.get("accountPool");
+      const pool = this.ctx.get("nativeRouterSourceAccountPool");
       if (pool !== void 0 && pool !== null) return pool;
     } catch {
     }
@@ -62675,7 +62682,7 @@ async function handleMethod(method, payload, signal) {
         }
         const id = `${provider}-${shortId()}`;
         const suffix = shortId().toUpperCase();
-        const refName = `${provider.toUpperCase()}_ACCOUNT_${suffix}`;
+        const refName = `NATIVE_ROUTER_SOURCE_${provider.toUpperCase()}_ACCOUNT_${suffix}`;
         const product = productById(provider);
         // Gemini 不走 auth/state 那套（那是 CodeBuddy 系的产品专用接口），它是一条
         // 标准 OAuth：本地起回调服务器 → 浏览器授权 → 换 token。函数本来就在包里
@@ -71204,7 +71211,7 @@ function apply(ctx, config = {}) {
   });
   // Never launch upstream OpenAI 8326 gateway: DSH LlmRuntime is the only model entry point.
   // Native Router owns failover and DSH owns Agent lifetime; no second loop-resume listener.
-  ctx.provide("accountPool", pool);
+  ctx.provide("nativeRouterSourceAccountPool", pool);
 }
 export {
   Config,

@@ -5,28 +5,34 @@ export function directModelDecode(id){
   if(!m)return null;
   try{return {providerId:m[1],model:decodeURIComponent(m[2])}}catch{return null}
 }
-export function createCatalog({getConfig,fetchImpl=fetch,resolveKey=resolveCredential,credentialOptions={},ttlMs=60000,channelDrivers=new Map()}){
+export function createCatalog({getConfig,fetchImpl=fetch,resolveKey=resolveCredential,credentialOptions={},ttlMs=60000,channelDrivers=new Map(),hostProviderInventory}){
   const driverFor=id=>channelDrivers instanceof Map?channelDrivers.get(id):channelDrivers?.[id];
+  const hostRegistered=id=>id!=='native-router'&&hostProviderInventory?.status?.()
+    .hostProviders?.some(row=>row.providerId===id)===true;
   let cached=[],updatedAt=0,sourceAvailability='';
   const sourceState=()=>[...(channelDrivers instanceof Map?channelDrivers.entries():Object.entries(channelDrivers??{}))]
     .filter(([,driver])=>driver?.isSourceBridge===true)
     .map(([id,driver])=>id+':'+(driver.runtimeReady===true?'mounted':'unavailable')).sort().join('|');
   async function list(signal){
-    const currentSourceAvailability=sourceState();
+    const currentSourceAvailability=sourceState()+'|host:'+
+      (hostProviderInventory?.status?.().hostProviders??[]).map(row=>row.providerId).sort().join(',');
     if(updatedAt&&sourceAvailability===currentSourceAvailability&&Date.now()-updatedAt<ttlMs)
       return cached.map(x=>({...x}));
     const cfg=getConfig();
     const result=cfg.routes.filter(r=>r.enabled&&r.tiers.some(tier=>{
       const p=cfg.providers.find(row=>row.id===tier.providerId);
        const driver=driverFor(p?.id);
-       return p?.enabled && (p.protocol!=='native-channel'||
+       return p?.enabled && (p.protocol==='dsh-host'
+         ?hostRegistered(p.id)&&!tier.accountIds?.length
+         :(p.protocol!=='native-channel'||
           (typeof driver?.generate==='function'&&(driver?.isSourceBridge!==true||driver.runtimeReady===true)))
-        && cfg.accounts.some(a=>a.enabled&&a.providerId===tier.providerId);
+          && cfg.accounts.some(a=>a.enabled&&a.providerId===tier.providerId));
     })).map(r=>({
       provider:'native-router',id:'chain:'+r.id,name:r.name,inputModalities:['text'],
     }));
     for(const p of cfg.providers.filter(p=>p.enabled)){
       const driver=driverFor(p.id);
+      if(p.protocol==='dsh-host'&&!hostRegistered(p.id))continue;
        if(p.protocol==='native-channel'&&(typeof driver?.generate!=='function'||
          (driver?.isSourceBridge===true&&driver.runtimeReady!==true)))continue;
       const models=new Set(p.models);

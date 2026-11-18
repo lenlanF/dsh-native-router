@@ -44,7 +44,7 @@ function readJson(req){
     req.on('error',error=>{if(!finished){finished=true;reject(error)}});
   });
 }
-export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,checkinCenter,embeddedPack,sessionReuse,hostProviderInventory}){
+export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,checkinCenter,embeddedPack,sessionReuse,accountAdoption,hostProviderInventory}){
   const server=ctx.get?.('webServer')??ctx.webServer;
   if(!server?.register)return()=>{};
   const dispose=[];
@@ -105,6 +105,28 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
         ok:false,error:'请先在本插件内开启复用本机登录态并保存配置'});
       try{return json(res,200,{ok:true,...await sessionReuse.scan()})}
       catch{return json(res,503,{ok:false,error:'已有登录态扫描暂不可用，不会清除原程序账号'})}
+    });
+    // Account takeover is an explicit per-account owner action. The public
+    // inventory exposes no credential references or tokens.
+    mount('/channels/adopt/preview',async(req,res)=>{
+      if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
+      if(req.method!=='GET')return json(res,405,{ok:false,error:'Method not allowed'});
+      const result=await accountAdoption?.preview?.()??{state:'unavailable',accounts:[]};
+      return json(res,200,{ok:true,result});
+    });
+    mount('/channels/adopt',async(req,res)=>{
+      if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
+      if(req.method!=='POST')return json(res,405,{ok:false,error:'Method not allowed'});
+      try{
+        const body=await readJson(req);
+        if(typeof body?.providerId!=='string'||typeof body?.accountId!=='string'
+          ||body?.consent!==true)return json(res,400,{ok:false,error:'Explicit account migration consent required'});
+        const result=await accountAdoption?.adopt?.({providerId:body.providerId,
+          accountId:body.accountId,consent:true})??{state:'unavailable'};
+        const ok=result.state==='stored_unverified';
+        return json(res,ok?200:409,{ok,result,
+          ...(ok?{}:{error:'独立授权迁移未确认；原账号保持不变，可使用自主登录'})});
+      }catch{return json(res,400,{ok:false,error:'Invalid migration request'})}
     });
     // Explicit, owner-authenticated upstream channel-pack actions.
     // The source pack remains disabled unless all isolated-host gates pass.

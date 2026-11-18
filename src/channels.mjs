@@ -19,8 +19,9 @@ export function publicChannelMeta(provider,driver){
   const sourceReady=driver?.isSourceBridge!==true||driver.runtimeReady===true;
   return {
     id:provider.id,name:provider.name,protocol:provider.protocol,
-    authMethod:driver?.authMethod??(reference?.auth??'凭据引用 / API Key'),
-    adapterReady:(typeof driver?.generate==='function'&&sourceReady)||generic,
+    authMethod:provider.protocol==='dsh-host'?'沿用宿主原插件登录态（本插件不保存凭据）':
+      driver?.authMethod??(reference?.auth??'凭据引用 / API Key'),
+    adapterReady:(typeof driver?.generate==='function'&&sourceReady)||generic||provider.protocol==='dsh-host',
     // The third-party project's advertised check-in support is NOT a capability
     // implemented by this plugin.
     checkinAvailable:typeof driver?.checkIn==='function',

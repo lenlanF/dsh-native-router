@@ -1,4 +1,4 @@
-# DSH Native Router（聚合路由）— 1.0.0-rc.3 发布验收与放行门禁
+# DSH Native Router（聚合路由）— 1.0.0-rc.5 发布验收与放行门禁
 
 > 当前状态：**发行候选（Release Candidate），不是稳定版 1.0.0**。仅能在用户明确批准的隔离 DSH 中做实机验收。提交到 npm、发布 GitHub Release、覆盖 DSH 生产插件或接触真实登录态均需单独明确授权；离线测试通过不等同于业务账号、真实服务或桌面端验收通过。
 
@@ -9,6 +9,7 @@
 | 安装包 | 单个 Cordis 原生插件、纯 `.tgz`；无原始 MIT 渠道源码、无 `tools/`、`tests/`、`node_modules/`、密钥或独立启动脚本；源版权/NOTICE 和 SHA 固定 | npm pack 实物提取逐个 SHA |
 | 兼容环境 | 实际 Node 22.16 与 Cordis 4.1、DSH LlmRuntime/AgentLoop/Session/Tools 等 `0.2.2-rc.3` 公共组件；实际 .tgz 单独 npm 安装并通过 Cordis/Connection 加载和卸载 | 单独 `E:\\Temp` 隔离测试 Profile；正式 DSH Host 具体构建待验 |
 | 原渠道免登录复用 | DSH 原 Provider/AccountPool 原地借用；仅一个明确启用账号时才自动关联；不复制 Token；卸载后原渠道仍在 | 原始 DSH 组件 + 虚构 Qoder 账号 |
+| **原插件账号独立接管** | 用户逐账号确认后，将兼容授权复制到独立 DSH Credentials 引用和私有持久化账号池，原路由和账号不被修改，建立 `own_渠道` 自有模型链 | 虚构 Qoder + 模拟 DSH Credentials/原插件卸载，含独立模型及签到；未验证真实线上账号 |
 | 自动签到 | 保留 9 类有来源 `credits.status/claim` 的每日渠道；总开关默认禁用；状态未确认不冒充成功 | 固定 MIT 供应包和虚构账号；线上结果未知 |
 | 模型连续任务 | 同一真实 AgentLoop/Session 主模型故障后备用模型完成；原 Session 已提交工具结果不重新执行 | 单工具、两个并行虚构工具；主模型第 2 步模拟服务器故障 |
 | 生命周期 | 实际 Agent `cancel({kind:'user'})` 及 Agent 销毁时，测试中没有新模型重试/工具输出；自动 retry 只审查插件自建消息 ID | 真实 AgentLoop + 离线虚构请求 |
@@ -17,6 +18,10 @@
 | UI 模块生命周期 | DSH 模块加载器接收插件；注册 `settings.section`，卸载后撤销 | Node VM 模拟浏览器模块装载；并非实际 DSH 桌面截图 |
 | 许可证与可发布性 | MIT、第三方 NOTICE、固定上游 SHA；`npm publish --dry-run` 成功但未公开发布，发行包中没有独立 Agent2API | npm 干运行和逐文件验证；所有正式发布动作仍待审批 |
 | **发行包实装验收** | **从真实 .tgz 安装进全新 npm 环境**，实际 Cordis 加载/卸载、原生 Provider 存在、DSH Connection 200/401/404、没有默认配置写入、仅一个宿主监听器 | `tools/verify-packed-distribution.ps1`，临时 Profile 用后清理；不是正式桌面 DSH |
+
+**独立接管验收边界**：仅对兼容 DSH AccountPool 授权做逐账号所有者确认迁移，原 DSH Provider 不被替换；关闭原插件后须重新加载 DSH 并验证模型调用与签到才可声称独立可用。详见 [OWNED_CHANNEL_ADOPTION.md](OWNED_CHANNEL_ADOPTION.md)。
+
+**RC.4 双模式增补**（rc.5 保留）：模拟宿主的源码回归测试覆盖 DSH Provider 无账号委托推理、没有模型目录时手动导入、内置渠道授权与宿主同名 Provider 共存及专有账号池/凭据命名空间。内置来源的 13 种入口是总量，与宿主同名时以原插件为准，实际自主授权渠道数会减少；有独立逐账号签到实现的 9 种渠道仍需线上逐项验证。**尚未在当前正式 DSH 账号中做真实扫码、在线推理和签到。**
 
 **CI 与真实磁盘隔离的区别**：GitHub Windows 托管虚拟机没有实际 E: 磁盘，通过 `SUBST` 映射的 E: 在 `realpathSync.native` 后仍属于其它盘符，按设计会被 `channelPackIsolationReason` 拒绝。公开 Windows CI 因此运行 28 个无需物理 E: 的合成测试文件；`tests/embedded-pack.test.mjs` 和 `tests/source-checkin-bridge.test.mjs` 两个涉及真正 E: 磁盘安全门禁的集成测试，必须在项目绑定的真实 E: 测试机执行完整 `npm test`。**不得通过降低插件的真实目录校验让 CI 通过**。Ubuntu CI 核对 Git LF、来源哈希及跨平台配置测试。两类验证各有适用范围，不能混为一谈。
 
@@ -31,7 +36,7 @@
 ## 运维与安装要求
 
 - DSH Host Node.js 最低 **22.10.0**；额外进程、8326 网关、Windows 计划任务均不需要。源码版本的前端 UI 和认证 API 必须由 DSH Host 自带的 Connection 服务提供。
-- 如需试装：对准经允许的测试 DSH，使用本项目 `dsh-native-router-1.0.0-rc.3.tgz` 作为本地插件包、由 DSH 现有插件安装方式装载，并在系统插件页核对已安装版本和前端页面。**未对任何生产 DSH 执行安装。**
+- 如需试装：对准经允许的测试 DSH，使用本项目 `dsh-native-router-1.0.0-rc.4.tgz` 作为本地插件包、由 DSH 现有插件安装方式装载，并在系统插件页核对已安装版本和前端页面。**未对任何生产 DSH 执行安装。**
 - 插件配置默认不开启现有认证自动扫描、内置来源包自动加载、每日自动签到及宿主自动续跑；启用前请核对具体账号与模型链。
 - 回滚操作：通过宿主 DSH 原生插件管理卸载本插件或恢复原版本，再还原部署前备份的本插件配置；此操作不应删除其他 DSH 渠道账号或原 Provider。
 

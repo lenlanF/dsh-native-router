@@ -28,6 +28,10 @@ export function createAccountPool({now=()=>Date.now()}={}) {
   function eligible(config,tier,{sessionId,needTools=false}={}) {
     const provider=config.providers.find(p=>p.id===tier.providerId);
     if(!provider?.enabled || (needTools&&!provider.supportsTools))return [];
+    // Host-managed providers use the ORIGINAL plugin's own account selection.
+    // No duplicate token, imported secret or synthetic persisted account exists.
+    if(provider.protocol==='dsh-host')return tier.accountIds?.length?[]:
+      [{id:'__host_'+provider.id,providerId:provider.id,enabled:true,weight:1}];
     const allowed=tier.accountIds?.length?new Set(tier.accountIds):null;
     const accounts=config.accounts.filter(a=>a.enabled&&a.providerId===tier.providerId&&(!allowed||allowed.has(a.id))&&isReady(a,tier.model));
     if(!accounts.length)return [];

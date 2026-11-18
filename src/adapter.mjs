@@ -7,9 +7,11 @@ import {validateModelCalls} from './provider/openai.mjs';
 import {UpstreamError} from './failure.mjs';
 import {toDshEvents} from './protocol.mjs';
 import {RoutingError} from './router.mjs';
+import {toSourceMessages,collectSourceDshStream} from './source-channel-driver.mjs';
+import {visibleTools} from './host-tools.mjs';
 
 export const PROVIDER='native-router';
-export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=process.env,vault,logger,channelDrivers=new Map()}={}){
+export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=process.env,vault,logger,channelDrivers=new Map(),hostProviderInventory}={}){
   if(!configStore?.get)throw new Error('ConfigStore required');
   const getConfig=()=>configStore.get();
   const pool=createAccountPool();
@@ -17,6 +19,22 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
   const history=[];
   const driverFor=id=>channelDrivers instanceof Map?channelDrivers.get(id):channelDrivers?.[id];
   const transport=async arg=>{
+    if(arg.provider.protocol==='dsh-host'){
+      if(typeof hostProviderInventory?.streamHost!=='function')
+        throw new UpstreamError('Original DSH provider is not connected',{code:'PROVIDER_NOT_READY'});
+      try{
+        const native=await hostProviderInventory.streamHost({providerId:arg.provider.id,model:arg.model,
+          messages:toSourceMessages(arg.options,arg.provider.id,arg.model),
+          tools:visibleTools(arg.options.tools),signal:arg.signal,
+          maxTokens:arg.options.maxTokens});
+        return await collectSourceDshStream(native,{tools:arg.options.tools,signal:arg.signal});
+      }catch(error){
+        if(error instanceof UpstreamError)throw error;
+        if(arg.signal?.aborted)throw new UpstreamError('Host request cancelled',{code:'CANCELLED'});
+        throw new UpstreamError('Original DSH plugin request failed',{
+          code:'UPSTREAM',status:Number.isInteger(error?.status)?error.status:0});
+      }
+    }
     if(arg.provider.protocol==='native-channel'){
       const driver=driverFor(arg.provider.id);
       if(typeof driver?.generate!=='function')throw new UpstreamError('Native provider driver unavailable',{code:'PROVIDER_NOT_READY'});
@@ -38,7 +56,7 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
     const {usage,...safe}=evt;
     history.push({at:Date.now(),...safe});if(history.length>50)history.shift();
   }});
-  const catalog=createCatalog({getConfig,fetchImpl,credentialOptions:{env,vault},channelDrivers});
+  const catalog=createCatalog({getConfig,fetchImpl,credentialOptions:{env,vault},channelDrivers,hostProviderInventory});
   async function routeForModel(model){
     if(typeof model!=='string')throw new RoutingError('ERR_ROUTE_NOT_FOUND','Invalid DSH model');
     if(model.startsWith('chain:'))return model.slice(6);

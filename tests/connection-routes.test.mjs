@@ -7,6 +7,7 @@ function fixture(){
  const routes=new Map(),seen=[];
  let cfg=normalizeConfig({});
  let invalidations=0;
+ const adoptionCalls=[];
  const api={
   fetch:{register:row=>{
    assert.ok(row.path.startsWith('/api/plugins/dsh-native-router/'));
@@ -26,6 +27,10 @@ function fixture(){
   checkinCenter:{snapshot:()=>({today:'2026-11-17',accounts:[],groups:[]}),
     async refreshSources(){},async run(){return {record:{state:'pending_confirmation'}}}},
    embeddedPack:{status:()=>({state:'disabled'}),listAccounts:()=>({state:'disabled',accounts:[]})},
+   accountAdoption:{async preview(){return {state:'ready',accounts:[
+    {providerId:'qoder',accountId:'original-qoder',label:'Qoder',portable:true}]};},
+    async adopt(request){adoptionCalls.push(request);return {state:'stored_unverified',
+      activation:'requires_original_stop_and_host_restart'};}},
    hostProviderInventory:{async listHostModels(providerId){return {state:'ready',providerId,models:[{id:'test-native'}],loginVerified:false}}},
  });
   async function request(path,{method='GET',body,origin='http://127.0.0.1:12237',host='127.0.0.1:12237'}={}){
@@ -37,7 +42,7 @@ function fixture(){
     ...body===undefined?{}:{body:JSON.stringify(body)},
    }));
   }
- return {ctx,store,dispose,routes,seen,request,get invalidations(){return invalidations}};
+ return {ctx,store,dispose,routes,seen,request,adoptionCalls,get invalidations(){return invalidations}};
 }
 test('DSH native admin registers ONLY authenticated Connection exact Fetch paths, no unauthenticated WebServer routes',async()=>{
  const f=fixture();
@@ -105,6 +110,32 @@ test('authenticated reuse scan refuses disabled opt-in and hostile origins befor
  const blocked=await f.request('/channels/reuse/scan',{method:'POST',body:{}});
  assert.equal(blocked.status,409);
  assert.equal((await blocked.json()).ok,false);
+ await f.dispose();
+});
+test('owner-only transfer endpoints require explicit account consent and never return original credential references',async()=>{
+ const f=fixture();
+ const deny=await f.request('/channels/adopt/preview',{
+  origin:'https://attacker.invalid'});
+ assert.equal(deny.status,403);
+ const preview=await f.request('/channels/adopt/preview');
+ assert.equal(preview.status,200);
+ const snap=await preview.json();
+ assert.deepEqual(snap.result.accounts,[{providerId:'qoder',
+  accountId:'original-qoder',label:'Qoder',portable:true}]);
+ assert.doesNotMatch(JSON.stringify(snap),/PRIVATE_SOURCE_REF|TOP_SECRET/);
+ const missing=await f.request('/channels/adopt',{method:'POST',
+  body:{providerId:'qoder',accountId:'original-qoder'}});
+ assert.equal(missing.status,400);
+ const cross=await f.request('/channels/adopt',{method:'POST',
+  body:{providerId:'qoder',accountId:'original-qoder',consent:true},
+  origin:'http://evil.invalid'});
+ assert.equal(cross.status,403);
+ const permitted=await f.request('/channels/adopt',{method:'POST',
+  body:{providerId:'qoder',accountId:'original-qoder',consent:true}});
+ assert.equal(permitted.status,200);
+ const result=await permitted.json();
+ assert.equal(result.result.state,'stored_unverified');
+ assert.deepEqual(f.adoptionCalls,[{providerId:'qoder',accountId:'original-qoder',consent:true}]);
  await f.dispose();
 });
 test('authenticated remote HTTPS DSH Host can save config, while HTTP remote and mismatched Origins remain denied',async()=>{

@@ -86,6 +86,35 @@ def build(*, check=False):
             "source-per-account-native-checkin-service",
         ),
         (
+            'function registerAdapterIdempotent(llm, providers, adapter, warn) {\n'
+            '  let target = wrapAdapterWithTokenLedger(providers, adapter);',
+            'function registerAdapterIdempotent(llm, providers, adapter, warn) {\n'
+            '  // Keep already registered DSH plugins as the sole owners of their providers.\n'
+            '  // This source pack may still provide login for non-conflicting channels.\n'
+            '  const registered = llm?.listProviders?.();\n'
+            '  if (!Array.isArray(registered)) throw new Error("Host provider inventory unavailable");\n'
+            '  const existing = new Set(registered.map((row) => typeof row === "string" ? row : row?.id ?? row?.provider));\n'
+            '  providers = providers.filter((id) => !existing.has(id));\n'
+            '  if (providers.length === 0) return void 0;\n'
+            '  let target = wrapAdapterWithTokenLedger(providers, adapter);',
+            'preserve-host-registered-provider-ownership',
+        ),
+        (
+            '  ctx.provide("accountPool", pool);',
+            '  ctx.provide("nativeRouterSourceAccountPool", pool);',
+            'private-account-pool-service',
+        ),
+        (
+            'this.ctx.get("accountPool");',
+            'this.ctx.get("nativeRouterSourceAccountPool");',
+            'private-account-pool-lookup',
+        ),
+        (
+            'const refName = `${provider.toUpperCase()}_ACCOUNT_${suffix}`;',
+            'const refName = `NATIVE_ROUTER_SOURCE_${provider.toUpperCase()}_ACCOUNT_${suffix}`;',
+            'private-new-login-credential-prefix',
+        ),
+        (
             '  autoCheckin.start();',
             '  // Native Router owns opt-in daily check-in inside the same DSH plugin; no duplicate timer.',
             "remove-source-auto-checkin",

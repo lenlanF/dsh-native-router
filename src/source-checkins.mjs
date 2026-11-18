@@ -20,11 +20,12 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
  const latest=id=>history(id).at(-1);
  function configFor(row){
   const cfg=configStore.get();
-  const imported=cfg.accounts.find(x=>x.id===row.id&&x.providerId===row.providerId);
+  const imported=cfg.accounts.find(x=>x.id===row.id
+    &&(x.providerId===row.providerId||x.providerId==='own_'+row.providerId));
   return {
    enabled:row.enabled&&(!imported||imported.enabled===true),
    autoCheckin:cfg.checkin.autoSourceAccounts===true&&(!imported||imported.autoCheckin===true),
-   providerEnabled:!imported||cfg.providers.find(p=>p.id===row.providerId)?.enabled===true,
+   providerEnabled:!imported||cfg.providers.find(p=>p.id===imported.providerId)?.enabled===true,
   };
  }
  async function refresh(){

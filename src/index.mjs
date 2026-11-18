@@ -4,6 +4,7 @@ import {attachHostFailover} from './host-failover.mjs';
 import {registerAuthenticatedRouterRoutes} from './connection-routes.mjs';
 import {createAccountCenter} from './account-center.mjs';
 import {createSessionReuse} from './session-reuse.mjs';
+import {createAccountAdoption} from './account-adoption.mjs';
 import {createExistingDshChannelFacade,createPreferredSourceFacade} from './existing-dsh-channels.mjs';
 import {createCheckinCenter,createCheckinStore} from './checkins.mjs';
 import {getNativeChannelDrivers,onNativeChannelDriverChange,registerNativeChannelDriver} from './driver-registry.mjs';
@@ -47,15 +48,25 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
        if(drivers.has(providerId))continue;
        builtInCleanup.push(registerNativeChannelDriver(providerId,
          createSourceChannelDriver({providerId,embeddedPack:sourceFacade})));
+        // Separate self-owned channel identity: never overwrite the original
+        // DSH Provider and its login while the migration is pending.
+        const ownedId='own_'+providerId;
+        if(!drivers.has(ownedId))builtInCleanup.push(registerNativeChannelDriver(ownedId,
+          createSourceChannelDriver({providerId,accountProviderId:ownedId,
+            embeddedPack})));
+
      }
    }
   const ownAdapter=adapter??createNativeRouterAdapter({configStore:ownStore,logger:ctx.logger,
-   vault:vault??ctx.get?.('credentials'),fetchImpl,env,channelDrivers:drivers});
+   vault:vault??ctx.get?.('credentials'),fetchImpl,env,channelDrivers:drivers,
+    hostProviderInventory:existingHostSource});
  const accountCenter=createAccountCenter({configStore:ownStore,adapter:ownAdapter,
    drivers,fetchImpl,env,vault:vault??ctx.get?.('credentials'),getSourceStatus:()=>sourceFacade.status()});
  const sessionReuse=createSessionReuse({configStore:ownStore,drivers,
      embeddedPack:sourceFacade,adapter:ownAdapter,logger:ctx.logger});
-  const checkinCenter=createCheckinCenter({configStore:ownStore,accountCenter,
+  const accountAdoption=createAccountAdoption({configStore:ownStore,
+     originalSource:existingHostSource,ownedPack:embeddedPack,adapter:ownAdapter});
+   const checkinCenter=createCheckinCenter({configStore:ownStore,accountCenter,
     store:checkinStore??createCheckinStore({path:ownStore.path?join(dirname(ownStore.path),'checkins.json'):undefined}),
     sourcePack:embeddedPack,logger:ctx.logger});
  const cleanups=[...builtInCleanup];
@@ -85,7 +96,7 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
       // No direct localhost WebServer registration: localhost is not identity.
       const mountSecureRoutes=connectionCtx=>{
         connectionCtx.effect?.(()=>registerAuthenticatedRouterRoutes(connectionCtx,
-           {configStore:ownStore,adapter:ownAdapter,accountCenter,checkinCenter,embeddedPack,sessionReuse,hostProviderInventory:existingHostSource}));
+           {configStore:ownStore,adapter:ownAdapter,accountCenter,checkinCenter,embeddedPack,sessionReuse,accountAdoption,hostProviderInventory:existingHostSource}));
       };
       ctx.inject(['connection'],mountSecureRoutes);
       if(typeof ctx.registry?.delete==='function')

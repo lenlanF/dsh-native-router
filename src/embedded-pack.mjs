@@ -29,6 +29,12 @@ function safetyReason(env){
 }
 export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPack=loadPinnedPack,modelTimeoutMs=20000}){
   let state='disabled',reason='',disposed=false,activeScope=null,injectedCallback=null;
+   let skippedProviders=new Set();
+   // The bundled derivative owns a dedicated Cordis service and never binds to
+   // any already-installed plugin's accountPool. Test injected packs keep the
+   // strict legacy accountPool gate to avoid touching unknown implementations.
+   const sourcePoolService=loadPack===loadPinnedPack?'nativeRouterSourceAccountPool':'accountPool';
+   const sourcePool=scope=>scope?.get?.(sourcePoolService,false);
   // Multiaccount is intentionally off unless explicitly enabled in a separate
   // E:\Temp isolated profile. These are tentative adapter paths reviewed for
   // credential selection; actual DSH acceptance remains unverified.
@@ -37,7 +43,9 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
     &&(loadPack!==loadPinnedPack||process.env.DSH_NATIVE_ROUTER_SOURCE_MULTIACCOUNT_EXPERIMENT==='1');
   let selectionGuard=null;
   const providerStreams=new Set();
-  function status(){return {state,reason,channelCount:SOURCE_PACK_PROVIDERS.length,channels:SOURCE_PACK_PROVIDERS,
+  function status(){return {state,reason,channelCount:SOURCE_PACK_PROVIDERS.length-skippedProviders.size,
+     channels:SOURCE_PACK_PROVIDERS.filter(id=>!skippedProviders.has(id)),
+     skippedProviders:[...skippedProviders],
     experimentalMultiAccountProviders:selectionGuard&&multiAccountOptIn?MULTIACCOUNT_REVIEWED:[]}}
  function attach(){
   if(disposed||['waiting_host_services','loading','mounted'].includes(state))return status();
@@ -55,9 +63,9 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
     if(disposed)return;
      const profileDenied=loadPack===loadPinnedPack?'':channelPackIsolationReason(env,scope);
      if(profileDenied){state='blocked';reason=profileDenied;return}
-      if(scope.get?.('accountPool',false)){
-     state='blocked';reason='宿主已存在渠道包 accountPool，拒绝重复挂载';return;
-    }
+       if(sourcePool(scope)){
+        state='blocked';reason='本渠道授权服务已存在，拒绝覆盖其他账号池';return;
+       }
     state='loading';
       scope.effect?.(()=>()=>{
        selectionGuard?.restore();selectionGuard=null;
@@ -83,10 +91,15 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
        if(ids.length!==registered.length){
         state='blocked';reason='宿主 Provider 信息不完整，拒绝覆盖现有渠道';return null;
        }
-       const duplicate=ids.find(id=>SOURCE_PACK_PROVIDERS.includes(id));
-       if(duplicate){
-        state='blocked';reason='宿主已注册 '+duplicate+' 渠道，禁止上游包重复接管';return null;
-       }
+        const duplicate=ids.find(id=>SOURCE_PACK_PROVIDERS.includes(id));
+        if(duplicate){
+         if(loadPack!==loadPinnedPack){
+          state='blocked';reason='宿主已注册 '+duplicate+' 渠道，拒绝未经验证的来源包重复接管';return null;
+         }
+         // Bundled derivative skips existing providers at the registration boundary;
+         // keep independent login for remaining non-conflicting channels.
+         skippedProviders=new Set(ids.filter(id=>SOURCE_PACK_PROVIDERS.includes(id)));
+        }
       }
       if(disposed||state==='host_disposed')return null;
       return loadPack();
@@ -95,7 +108,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
      if(disposed||state==='host_disposed')return;
      if(scope.fiber?.uid===null){state='host_disposed';reason='上游渠道包 Host 作用域已停止';return}
      if(typeof pack?.apply!=='function')throw Error('上游渠道包缺少 apply 入口');
-      if(scope.get?.('accountPool',false))throw Error('账号池服务已被其他插件注册');
+       if(sourcePool(scope))throw Error('目标渠道账号池已注册，拒绝覆盖');
        // Recheck test-injected packs just before apply; the DSH-native bundle
        // uses an isolated private state namespace with no auxiliary listener.
        const changed=loadPack===loadPinnedPack?'':safetyReason(env)||channelPackIsolationReason(env,scope);
@@ -105,7 +118,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
        // Scoped overlays affect only request-local AsyncLocalStorage contexts;
        // unscoped source and other host consumers retain the original methods.
        if(multiAccountOptIn){
-         const pool=scope.get?.('accountPool');
+          const pool=sourcePool(scope);
          const credentials=scope.credentials??scope.get?.('credentials');
          try{selectionGuard=installSourceAccountSelection({pool,credentials,
            isAlive:()=>!disposed&&state==='mounted'&&activeScope===scope})}
@@ -132,12 +145,12 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
    if(disposed||state!=='mounted'||!activeScope)return {state,accounts:[]};
    const scope=activeScope;
    try{
-    const pool=scope.get?.('accountPool');
+     const pool=sourcePool(scope);
     if(typeof pool?.listAllAccounts!=='function')return {state:'unavailable',accounts:[]};
     const rows=await pool.listAllAccounts();
     if(disposed||state!=='mounted'||activeScope!==scope)return {state:'disposed',accounts:[]};
     if(!Array.isArray(rows))throw Error('Invalid upstream account pool');
-    const accounts=rows.filter(row=>row&&SOURCE_PACK_PROVIDERS.includes(row.provider)
+    const accounts=rows.filter(row=>row&&SOURCE_PACK_PROVIDERS.includes(row.provider)&&!skippedProviders.has(row.provider)
       &&typeof row.id==='string'&&row.id.length>0&&row.id.length<=100).slice(0,200).map(row=>({
       id:row.id.replace(/[\u0000-\u001f]/g,'').slice(0,100),
       providerId:row.provider,
@@ -151,18 +164,17 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
    }catch{return {state:'error',accounts:[]}}
   }
 
-  // These operations reuse the upstream accountPool / DSH llm services.
-  // They are never invoked by plugin startup, and are available only after
-  // an explicit isolated-host opt-in and a browser-originated action.
+   // Standalone source login and check-in use the plugin-owned sourcePool service.
+   // Startup never reads or mutates the host's registered AccountPool.
   const modifying=new Set();
   function mountedScope(){return !disposed&&state==='mounted'?activeScope:null}
   async function changeAccountEnabled({providerId,accountId,enabled}={}){
-    if(!SOURCE_PACK_PROVIDERS.includes(providerId)||typeof accountId!=='string'
+    if(!SOURCE_PACK_PROVIDERS.includes(providerId)||skippedProviders.has(providerId)||typeof accountId!=='string'
       ||accountId.length===0||accountId.length>100||!/^[a-zA-Z0-9_-]+$/.test(accountId)
       ||typeof enabled!=='boolean')return {state:'invalid',changed:false};
     const scope=mountedScope();
     if(!scope)return {state:'unavailable',changed:false};
-    const pool=scope.get?.('accountPool');
+    const pool=sourcePool(scope);
     if(typeof pool?.listAllAccounts!=='function'||typeof pool?.updateAccount!=='function')
       return {state:'unavailable',changed:false};
     if(modifying.has(accountId))return {state:'busy',changed:false};
@@ -191,12 +203,12 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
   // remove its stored credential. Refuse while any native source reference for
   // this provider remains: a model chain may still require it.
   async function removeSourceAccount({providerId,accountId}={}){
-    if(!SOURCE_PACK_PROVIDERS.includes(providerId)||typeof accountId!=='string'
+    if(!SOURCE_PACK_PROVIDERS.includes(providerId)||skippedProviders.has(providerId)||typeof accountId!=='string'
       ||accountId.length<1||accountId.length>100||!/^[a-zA-Z0-9_-]+$/.test(accountId))
       return {state:'invalid',removed:false};
     const scope=mountedScope();
     if(!scope)return {state:'unavailable',removed:false};
-    const pool=scope.get?.('accountPool');
+    const pool=sourcePool(scope);
     if(typeof pool?.removeAccount!=='function'||typeof pool?.listAllAccounts!=='function')
       return {state:'unavailable',removed:false};
     if(modifying.has(accountId))return {state:'busy',removed:false};
@@ -222,7 +234,8 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
   }
    const modelRequests=new Set();
   async function listModels(providerId){
-    if(!SOURCE_PACK_PROVIDERS.includes(providerId))return {state:'invalid',providerId:'',models:[]};
+    if(!SOURCE_PACK_PROVIDERS.includes(providerId)||skippedProviders.has(providerId))
+       return {state:'invalid',providerId:'',models:[]};
     const scope=mountedScope();
     if(!scope)return {state:'unavailable',providerId,models:[]};
     const llm=scope.llm??scope.get?.('llm');
@@ -262,14 +275,14 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
   // multiaccount requests are permitted ONLY for reviewed channel paths,
   // after an isolated-profile flag and request-local credential guard.
   async function streamNative({providerId,sourceAccountId,model,messages,tools,signal,maxTokens}={}){
-    if(!SOURCE_PACK_PROVIDERS.includes(providerId)||typeof sourceAccountId!=='string'
+    if(!SOURCE_PACK_PROVIDERS.includes(providerId)||skippedProviders.has(providerId)||typeof sourceAccountId!=='string'
       ||!sourceAccountId||sourceAccountId.length>100||typeof model!=='string'||!model.trim()
       ||model.length>160||!Array.isArray(messages)||!messages.length)
       throw Error('Invalid isolated source model request');
     const scope=mountedScope();
     if(!scope)throw Error('Isolated source pack not mounted');
     if(signal?.aborted)throw Error('Source model request aborted');
-    const pool=scope.get?.('accountPool');
+     const pool=sourcePool(scope);
     const llm=scope.llm??scope.get?.('llm');
     if(typeof pool?.listAllAccounts!=='function'||typeof pool?.getAvailableAccount!=='function'
       ||typeof llm?.stream!=='function')throw Error('Upstream source credential selection service unavailable');
@@ -326,12 +339,12 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
     })();
   }
   async function checkinAccount({providerId,sourceAccountId}={}){
-    if(!SOURCE_DAILY_SIGNIN_PROVIDERS.includes(providerId)
+    if(!SOURCE_DAILY_SIGNIN_PROVIDERS.includes(providerId)||skippedProviders.has(providerId)
       ||typeof sourceAccountId!=='string'||!sourceAccountId||sourceAccountId.length>100)
       return {state:'unsupported',message:'渠道没有经核验的每日签到服务'};
     const scope=mountedScope();
     if(!scope)return {state:'unavailable',message:'上游来源服务尚未装载'};
-    const pool=scope.get?.('accountPool',false);
+    const pool=sourcePool(scope);
     const ops=scope.get?.('nativeRouterSourceCheckins',false);
     if(typeof pool?.listAllAccounts!=='function'||typeof ops?.status!=='function'
       ||typeof ops?.claim!=='function')
@@ -372,7 +385,17 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
     return {state:'pending_confirmation',accepted:true,
       message:'签到操作已执行，但上游今日签到状态仍未确认'};
   }
-  function dispose(){
+   // Deliberately private in-process handoff to the owner-controlled migration
+ // service. Never expose this object via status, HTTP or user settings.
+ function ownedAdoptionContext(){
+  const scope=mountedScope();
+  if(!scope||sourcePoolService!=='nativeRouterSourceAccountPool')return null;
+  const pool=sourcePool(scope);
+  const credentials=scope.credentials??scope.get?.('credentials',false);
+  if(!pool||!credentials)return null;
+  return {pool,credentials};
+ }
+function dispose(){
     if(disposed)return;
     disposed=true;
     selectionGuard?.restore();selectionGuard=null;
@@ -386,5 +409,5 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
       catch{ctx.logger?.warn?.('native-router: source Cordis child scope cleanup failed')}
     }
   }
-  return {attach,status,listAccounts,listModels,changeAccountEnabled,removeSourceAccount,streamNative,checkinAccount,dispose};
+  return {attach,status,listAccounts,listModels,changeAccountEnabled,removeSourceAccount,streamNative,checkinAccount,ownedAdoptionContext,dispose};
 }

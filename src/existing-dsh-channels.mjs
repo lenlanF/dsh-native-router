@@ -7,6 +7,7 @@ import {SOURCE_PACK_PROVIDERS} from './embedded-pack.mjs';
  */
 const IDs=new Set(SOURCE_PACK_PROVIDERS);
 const safeId=x=>typeof x==='string'&&x.length>0&&x.length<=100&&!/[\u0000-\u001f]/.test(x);
+const safeModel=x=>typeof x==='string'&&!!x.trim()&&x.length<=160&&!/[\u0000-\u001f]/.test(x);
 function providerName(row){return typeof row==='string'?row:row?.id??row?.provider}
 export function createExistingDshChannelFacade({ctx,excludedHost,timeoutMs=15000}={}){
  let disposed=false;
@@ -31,7 +32,7 @@ export function createExistingDshChannelFacade({ctx,excludedHost,timeoutMs=15000
   }catch{return []}
  }
  function locate(){
-   if(disposed||['mounted','loading','waiting_host_services'].includes(excludedHost?.status?.().state))return null;
+   if(disposed)return null; // The owned pack uses a distinct accountPool; read-only legacy inventory may coexist.
   const pool=ctx?.get?.('accountPool',false),llm=ctx?.llm??ctx?.get?.('llm',false);
   if(typeof pool?.listAllAccounts!=='function'
     ||typeof pool?.getAvailableAccount!=='function'
@@ -106,7 +107,39 @@ export function createExistingDshChannelFacade({ctx,excludedHost,timeoutMs=15000
  }
  // Host plugins may own independent login/session stores (e.g. WorkBuddy).
  // Query original DSH model directories only after an owner requests it.
- async function listHostModels(providerId){
+  // Migration inventory: never include credential references in public JSON.
+ async function portableAccounts(){
+  const services=locate();
+  if(!services)return {state:'unavailable',accounts:[]};
+  try{
+   const rows=await roster(services),accounts=[];
+   for(const row of rows){
+    if(accounts.length>=100)break;
+    if(!row||!services.providers.has(row.provider)||!safeId(row.id)||row.enabled!==true
+      ||rows.filter(other=>other?.id===row.id).length!==1)continue;
+    accounts.push({providerId:row.provider,accountId:row.id,
+     label:typeof row.nickname==='string'?row.nickname.slice(0,64):row.id,
+     portable:typeof row.credentialRef==='string'&&/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(row.credentialRef)});
+   }
+   return {state:'ready',accounts};
+  }catch{return {state:'unavailable',accounts:[]}}
+ }
+ // PRIVATE metadata: never pass this result through the Connection response.
+ async function portableCredentialSource(providerId,sourceAccountId){
+  if(!IDs.has(providerId)||!safeId(sourceAccountId))return null;
+  const services=active(providerId);
+  if(!services)return null;
+  const rows=await roster(services);
+  const matching=rows.filter(row=>row?.provider===providerId&&row?.id===sourceAccountId
+   &&row.enabled===true&&typeof row.credentialRef==='string'
+   &&/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(row.credentialRef));
+  if(matching.length!==1||rows.filter(row=>row?.id===sourceAccountId).length!==1)return null;
+  const row=matching[0];
+  return {providerId,sourceAccountId,credentialRef:row.credentialRef,
+   nickname:typeof row.nickname==='string'?row.nickname.slice(0,64):sourceAccountId,
+   refreshable:row.refreshable===true};
+ }
+async function listHostModels(providerId){
   const llm=ctx?.llm??ctx?.get?.('llm',false);
   if(disposed||!safeId(providerId)||providerId==='native-router'
     ||!hostProviders().some(p=>p.providerId===providerId)
@@ -133,6 +166,29 @@ export function createExistingDshChannelFacade({ctx,excludedHost,timeoutMs=15000
    return {state:'ready',providerId,models,loginVerified:false};
   }catch{return {state:'unavailable',providerId,models:[]}}
   finally{clearTimeout(timer)}
+ }
+ // Delegate only to the original DSH provider. Its plugin retains login,
+ // account selection and credential storage; native-router never reads tokens.
+ async function streamHost({providerId,model,messages,tools,signal,maxTokens}={}){
+  const llm=ctx?.llm??ctx?.get?.('llm',false);
+  if(disposed||!safeId(providerId)||providerId==='native-router'||!safeModel(model)
+    ||!Array.isArray(messages)||!messages.length||signal?.aborted
+    ||typeof llm?.stream!=='function'||!hostProviders().some(p=>p.providerId===providerId))
+   throw Error('Original DSH provider is unavailable');
+  const request={provider:providerId,model,messages,tools:Array.isArray(tools)?tools:[],signal,
+   ...(Number.isInteger(maxTokens)&&maxTokens>0?{maxTokens}:{})};
+  return (async function*(){
+   if(disposed||signal?.aborted||!hostProviders().some(p=>p.providerId===providerId))
+    throw Error('Original DSH provider changed before request');
+   const started=llm.stream(request);
+   if(!started||typeof started[Symbol.asyncIterator]!=='function')
+    throw Error('Original DSH provider did not return a stream');
+   for await(const event of started){
+    if(disposed||signal?.aborted||!hostProviders().some(p=>p.providerId===providerId))
+     throw Error('Original DSH provider unloaded during request');
+    yield event;
+   }
+  })();
  }
  async function streamNative({providerId,sourceAccountId,model,messages,tools,signal,maxTokens}={}){
   const services=active(providerId);
@@ -175,7 +231,7 @@ export function createExistingDshChannelFacade({ctx,excludedHost,timeoutMs=15000
   })();
  }
  function dispose(){disposed=true}
-  return {status,listAccounts,listModels,listHostModels,streamNative,dispose};
+  return {status,listAccounts,listModels,listHostModels,portableAccounts,portableCredentialSource,streamHost,streamNative,dispose};
 }
 /**
  * Existing DSH channels have priority when registered in the Host; in-process

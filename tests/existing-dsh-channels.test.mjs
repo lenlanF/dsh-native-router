@@ -86,12 +86,19 @@ test('account pool availability check prevents accidental reuse of the wrong log
    /Isolated DSH native source request failed|not select requested/);
  assert.equal(h.data.modelCalls,0);
 });
-test('unregistered DSH providers, unrelated pool, and own-pack mid-mount never become borrowed fake logins',async()=>{
- for(const options of [{providers:[]},{providers:['strange-model']},{ownState:'loading'},
-   {ownState:'mounted'},{ownState:'waiting_host_services'}]){
+test('missing providers never fake a host login; an independent own source pool may coexist with a real original pool',async()=>{
+ for(const options of [{providers:[]},{providers:['strange-model']}]){
   const h=rig(options);
   assert.equal(h.existing.status().state,'unavailable');
   assert.equal((await h.existing.listAccounts()).state,'unavailable');
+  assert.equal(h.data.modelCalls,0);
+ }
+ for(const ownState of ['loading','mounted','waiting_host_services']){
+  const h=rig({ownState});
+  assert.equal(h.existing.status().state,'mounted');
+  const rows=await h.existing.listAccounts();
+  assert.equal(rows.state,'ready');
+  assert.doesNotMatch(JSON.stringify(rows),/SECRET_DO_NOT_COPY/);
   assert.equal(h.data.modelCalls,0);
  }
 });

@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-The current candidate source is `1.0.0-rc.3`; production compatibility and real-account authentication remain uncertified. Historical Git commits may still contain files subsequently removed from Git tracking; history rewriting, force push and production releases require separate authorization.
+The current candidate source is `1.0.0-rc.5`; production compatibility and real-account authentication remain uncertified. Historical Git commits may still contain files subsequently removed from Git tracking; history rewriting, force push and production releases require separate authorization.
 
 ## Report a vulnerability privately
 
@@ -13,8 +13,9 @@ Use GitHub's private vulnerability reporting / Security Advisories for this repo
 ## Security boundaries
 
 - The plugin is a single DSH Cordis plugin; it must not start an independent gateway or leak credentials into the router configuration.
-- Existing DSH providers and their credentials are borrowed by opaque references; they are not copied into this repository or debug logs.
+- Delegation mode borrows original providers without copying their credentials. With explicit per-account consent, independent adoption copies compatible AccountPool credentials only within DSH Credentials, under a fresh native-router-owned reference; original records remain untouched. Neither mode exports secrets into this repository, config JSON, admin API replies or debug logs.
 - Desktop WorkBuddy auth discovery is read-only and opt-in. Do not run secret-bearing tests against a real client profile.
+- Private plugin sessions are not presumed portable. An owned credential copy does not prove valid online authentication: verify models, refresh and check-in before retiring the original plugin. Abort adoption if owner consent or persistent private storage is absent.
 - Host routing and daily check-in are opt-in. Any real OAuth or account-dependent testing requires the account owner's explicit permission.
 - Admin routes must remain behind authenticated DSH Connection and enforce origin restrictions.
 - **No guarantee of exactly-once irreversible tool side effects across process crash or power loss.** Retain host failover disabled for such operations until separately validated.

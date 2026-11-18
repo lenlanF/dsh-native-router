@@ -84,33 +84,37 @@ window.__ModuleLoader__.load({
     }
     function EmbeddedPackConsole({pack,upstream,run,busy,modelProvider,setModelProvider,onModels,modelBusy,models,onSourceLogin,onSourcePoll,pendingLogin,onSourceRefresh,sourceBusy}){
       const rows=upstream?.accounts||[],live=pack?.state==='mounted';
-      const packLabel={disabled:'默认关闭',blocked:'安全门禁阻止',waiting_host_services:'等待宿主',loading:'加载中',mounted:'隔离挂载已运行',failed:'挂载失败',host_disposed:'宿主已释放',disposed:'已释放',unavailable:'不可用'}[pack?.state]||'状态未知';
-      return h(Panel,{title:'来源渠道包 · 账号与模型'},
+       const sourceChannels=pack?.channels||[],selectedSource=sourceChannels.includes(modelProvider)
+         ?modelProvider:sourceChannels[0]||'';
+      const packLabel={disabled:'默认关闭',blocked:'安全门禁阻止',waiting_host_services:'等待宿主',loading:'加载中',mounted:'已在 DSH 内挂载',failed:'挂载失败',host_disposed:'宿主已释放',disposed:'已释放',unavailable:'不可用'}[pack?.state]||'状态未知';
+      return h(Panel,{title:'自主登录 · 渠道账号与模型'},
         h('div',{style:css.line},
           h('strong',null,packLabel),
-          h('span',{style:css.small},'开源渠道 '+(pack?.channelCount||13)+' 个，启用需要隔离宿主许可')),
-        pack?.reason?h('p',{style:css.small},pack.reason):null,
-        h('p',{style:css.small},'上游来源池不等于 native-router 可用账号。仅复用来源接口，任何账号操作需手动确认；不复制授权信息。'),
-        h('p',{style:css.small},'重要：上游代码启动时可能清理旧版账号、注册相同 Provider 或执行自动签到。本实验仅允许在 E:\\Temp 下独立测试 Profile 进行；不得用于正式 DSH 配置。'),
-        live?h('div',null,
+           h('span',{style:css.mutedTag},'可自主授权 '+(pack?.channelCount??13)+' 个')),
+         pack?.reason?h('p',{style:css.small},pack.reason):null,
+         h('p',{style:css.small},'自主扫码或网页授权新账号，原渠道插件与本插件互不覆盖。'),
+         pack?.skippedProviders?.length?h('details',null,
+           h('summary',{style:{cursor:'pointer',fontSize:12}},
+             '另有 '+pack.skippedProviders.length+' 个由宿主插件接管的渠道'),
+           h('p',{style:css.small},pack.skippedProviders.join('、')+'：请在宿主模型 Tab 中复用；此处不重复登录。')):null,        live?h('div',null,
           h('div',{style:css.line},
-            h(Select,{label:'来源渠道',value:modelProvider,onChange:setModelProvider,
-              options:(pack.channels||[]).map(id=>({value:id,label:id}))}),
-            h(Button,{disabled:!!busy||!!modelBusy||!!sourceBusy,onClick:()=>onModels(modelProvider)},
+            h(Select,{label:'来源渠道',value:selectedSource,onChange:setModelProvider,
+              options:sourceChannels.map(id=>({value:id,label:id}))}),
+            h(Button,{disabled:!selectedSource||!!busy||!!modelBusy||!!sourceBusy,onClick:()=>onModels(selectedSource)},
               modelBusy?'模型查询中…':'查询模型'),
-            h(Button,{disabled:!!busy||!!sourceBusy,onClick:()=>onSourceLogin(modelProvider)},'发起来源登录')),
+            h(Button,{disabled:!selectedSource||!!busy||!!sourceBusy,onClick:()=>onSourceLogin(selectedSource)},'发起扫码/网页登录')),
           pendingLogin?h('div',{style:{...css.card,padding:10}},
             h('span',{style:css.small},'待授权渠道：'+pendingLogin.providerId+' / '+pendingLogin.accountId),
             pendingLogin.loginUrl?h('div',{style:css.line},
               h('a',{href:pendingLogin.loginUrl,target:'_blank',rel:'noopener noreferrer'},
                 '打开授权链接（先核对域名）')):h('p',{style:css.small},'来源未提供安全授权链接，不能自动打开'),
             h(Button,{disabled:!!sourceBusy,onClick:onSourcePoll},'检查登录结果')):null,
-          models?.state==='ready'&&models.providerId===modelProvider?h('div',{style:{...css.card,maxHeight:300,overflowY:'auto'}},
+          models?.state==='ready'&&models.providerId===selectedSource?h('div',{style:{...css.card,maxHeight:300,overflowY:'auto'}},
             h('p',{style:css.small},'模型 '+models.models.length+' 项；免费标记未经核实，需用户自行审核导入账号并配置模型链。'),
             models.models.map(m=>h('div',{key:m.id,style:{...css.line,marginBottom:5}},
               h('strong',null,m.name),h('span',{style:css.small},m.id),
               m.upstreamFreeLabel?h('span',{style:css.small},'来源标记免费 · 未核实'):null))):null
-        ):h('p',{style:css.small},'隔离挂载关闭时不会发起来源登录、刷新或模型查询。'),
+        ):h('p',{style:css.small},'启用并保存配置、重启 DSH 后可进行自主登录、刷新与模型查询。'),
         upstream?.state==='ready'?h('div',null,
           h('p',{style:css.small},'来源账号 '+rows.length+' 个；列表只反映上游设置，登录状态未知。'),
           h('div',{style:{maxHeight:320,overflowY:'auto'}},
@@ -136,82 +140,133 @@ window.__ModuleLoader__.load({
         upstream?.state==='unavailable'&&live?h('p',{style:css.small},'来源账号池暂不可读取。'):null
       );
     }
-    function AccountConsole({data,cfg,onReuseSettings,query,onQuery,run,setTab,busy,discovered,onAddProvider,embeddedPack,modelProvider,setModelProvider,onModels,modelBusy,models,onSourceLogin,onSourcePoll,pendingLogin,onSourceRefresh,sourceBusy,hostModels,hostModelBusy,hostSelectedModel,onSelectHostModel,onHostModels,onAddHostCandidate}){
-      if(!data)return h(Panel,{title:'渠道账号总览'},'账号管理服务尚未连接到当前 DSH Host。');
-      const accounts=data.accounts||[],channels=(data.channels||[]).filter(c=>
-        !query||[c.name,c.id,c.authMethod].some(x=>String(x||'').toLowerCase().includes(query.toLowerCase())));
-      const active=accounts.filter(a=>a.configuredEnabled).length,online=accounts.filter(a=>a.connectionState==='online').length;
-      const pack=embeddedPack??{state:'unavailable'};
-      const upstream=data.embeddedAccounts??{state:'unavailable',accounts:[]};
-      const reuse=data.sessionReuse??{enabled:false,channels:[],results:[]};
+    function ReuseConsole({data,cfg,onReuseSettings,run,busy,onRefresh,subtab,onSubtab,
+      embeddedPack,modelProvider,setModelProvider,onModels,modelBusy,models,
+      onSourceLogin,onSourcePoll,pendingLogin,onSourceRefresh,sourceBusy,
+      hostModels,hostModelBusy,hostSelectedModel,onSelectHostModel,onHostModels,
+      onAddHostCandidate,onImportHost,manualHostModel,onManualHostModel,
+      adoptionPreview,adoptionBusy,onPreviewAdoption,onAdoptAccount}){
+      const reuse=data?.sessionReuse||{hostProviders:[],channels:[],results:[]};
+      const hosts=reuse.hostProviders||[];
+      const subtabs=[['host','宿主路由与模型'],['sessions','本机登录态'],['source','自主登录']];
       return h(React.Fragment,null,
-        h(Panel,{title:'复用本机已登录的渠道程序',
-          actions:h('div',{style:css.line},
-            h(Button,{disabled:!!busy||!reuse.enabled,
-              onClick:()=>run('/channels/reuse/scan',{},'已重新扫描现有登录态；没有执行登录操作')},
-              '重新扫描现有登录态'),
-            (reuse.ignored??0)>0?h(Button,{disabled:!!busy,
-              onClick:()=>{if(window.confirm('确认重新允许此前主动解绑的已有登录态？请保存配置后再扫描。'))
-                onReuseSettings({resetIgnored:true})}},'解除忽略'):null)},
-          h('div',{style:css.line},
-            h(Toggle,{label:'自动关联本机已有登录态（无需重复登录）',
-              value:cfg?.sessionReuse?.enabled===true,
-              onChange:v=>onReuseSettings({enabled:v})}),
-            h(Toggle,{label:'启用内置 DSH 多渠道账号源',
-              value:cfg?.embeddedPack?.enabled===true,
-              onChange:v=>onReuseSettings({embeddedEnabled:v})})),
-           h('p',{style:css.small},'宿主已注册 DSH Provider、本机桌面端会话、内置渠道包是三种独立来源。已安装 WorkBuddy 插件可提供国内/国际宿主路由，但它内部管理的账号不等同于通用 AccountPool。仅对已安全验证精确引用的账号执行自动关联；不修改原插件登录态，也不重复启动授权。'),
-           h('div',{style:css.line},
-            h('span',{style:css.small},'当前自动关联 '+(reuse.autoLinked??0)+' 个账号'),
-            h('span',{style:css.small},'已忽略 '+(reuse.ignored??0)+' 个已解绑账号'),
-             h('span',{style:css.small},'认证来源：'+({
-               'external-dsh-provider':'已安装的其他 DSH 渠道插件',
-               'own-source-pack':'本插件内置 DSH 渠道包',
-             }[reuse.reusableSource]??'尚无来源账号池'))),
-          h('div',{style:{...css.line,flexWrap:'wrap',rowGap:5}},
-            ...(reuse.channels||[]).map(row=>h('span',{key:row.providerId,style:css.small},
-              row.providerId+'：'+(row.available?'可复用入口已就绪':'尚无经过核验的复用入口')))),
-          (reuse.results||[]).slice(-8).map((row,i)=>h('div',{key:i,style:css.line},
-            h('span',{style:css.small},row.providerId+' · '+({
-              linked_unverified:'已关联（远端状态待验证）',
-              already_configured:'已在账号池',
-              ignored:'手动解绑后已忽略',
-              provider_disabled:'渠道由用户停用',
-              source_changed:'原客户端登录态已变化',
-              multiple_accounts_unverified:'多个现有账号待核验精确选号',
-              invalid_reference:'账号引用不安全，已拒绝',
-              config_unavailable:'关联配置未成功保存',
-            }[row.state]??'未确认')))),
-          h('p',{style:css.small},'未支持的本机程序仍使用已有渠道授权入口，不会把机器标识或安装路径当作登录凭据。解除自动关联后会记入忽略清单，防止下次扫描又自动添加。')),
-        h(Panel,{title:'DSH 宿主已注册路由 · 与账号池分别管理'},
-          h('p',{style:css.small},'只使用 DSH Host 实际注册的 Provider。WorkBuddy 国内/国际等原生插件保留自己的登录认证与账号切换策略；在下方按需查询模型后，可将模型加入宿主故障切换链。注册路由不等于账号已登录。'),
-          (reuse.hostProviders||[]).length?(reuse.hostProviders||[]).map(row=>h('div',{
-            key:row.providerId,style:css.itemRow},
-            h('div',null,h('strong',null,row.providerId==='workbuddy'?'WorkBuddy · 国内':
-              row.providerId==='workbuddy-global'?'WorkBuddy · 国际':row.providerId),
-              h('div',{style:css.small},'Provider: '+row.providerId+' · '+
-                (row.accountAccess==='pool-required'?'需原账号池验证':'账号由原插件管理或未知'))),
+        h('div',{style:{...css.tabbar,marginBottom:14},role:'tablist','aria-label':'复用来源'},
+          subtabs.map(([id,label])=>h('button',{key:id,type:'button',role:'tab',
+            'aria-selected':subtab===id,style:{...css.tab,...(subtab===id?css.chosen:{})},
+            onClick:()=>onSubtab(id)},label))),
+        subtab==='host'?h(React.Fragment,null,
+          h('div',{style:css.metrics},
+            h(Metric,{label:'宿主 Provider',value:hosts.length,detail:'已注册'}),
+            h(Metric,{label:'已接入聚合',value:cfg.providers.filter(x=>x.protocol==='dsh-host').length,
+              detail:'凭据由原插件管理'})),
+          h(Panel,{title:'宿主原生渠道',actions:h(Button,{onClick:onRefresh,disabled:!!busy},'刷新')},
+            hosts.length?hosts.map(p=>h('div',{key:p.providerId,style:css.itemRow},
+              h('div',null,h('strong',null,p.providerId==='workbuddy'?'WorkBuddy · 国内':
+                p.providerId==='workbuddy-global'?'WorkBuddy · 国际':p.providerId),
+                h('div',{style:css.small},'原插件认证 · '+p.providerId)),
+              h('div',{style:{...css.line,marginBottom:0}},
+                h('span',{style:css.mutedTag},cfg.providers.some(x=>x.id===p.providerId
+                  &&x.protocol==='dsh-host')?'已接入':'待接入'),
+                h(Button,{disabled:!!hostModelBusy,onClick:()=>onHostModels(p.providerId)},
+                  hostModelBusy===p.providerId?'读取中…':'查看模型')))):
+              h('p',{style:css.small},'没有检测到宿主原生 Provider。')),
+          hostModels&&['ready','unavailable'].includes(hostModels.state)?h(Panel,{title:'模型目录 · '+hostModels.providerId},
+            h('p',{style:css.small},hostModels.models.length?'选择模型，接入聚合路由。':
+              '原插件未发布模型目录；可输入在原插件设置中核实的模型 ID。'),
+            hostModels.models.length?h('div',{style:{...css.line,alignItems:'flex-end'}},
+              h(Select,{label:'模型',value:hostSelectedModel,onChange:onSelectHostModel,
+                options:hostModels.models.map(x=>({value:x.id,label:x.name+' · '+x.id}))}),
+              h(Button,{kind:'primary',disabled:!hostSelectedModel,
+                onClick:()=>onImportHost(hostModels.providerId,hostSelectedModel)},'接入聚合路由'),
+              h(Button,{disabled:!hostSelectedModel,
+                onClick:()=>onAddHostCandidate(hostModels.providerId,hostSelectedModel)},'加入故障切换')):
+              h('div',{style:{...css.line,alignItems:'flex-end'}},
+                h(TextField,{label:'实际模型 ID',value:manualHostModel,onChange:onManualHostModel,
+                  placeholder:'从原插件复制 ID'}),
+                h(Button,{kind:'primary',disabled:!manualHostModel.trim(),
+                  onClick:()=>onImportHost(hostModels.providerId,manualHostModel.trim())},'按 ID 接入')),
+          h('p',{style:css.small},'接入后由原插件使用原有账号进行推理，无需再登录；保存配置后才发布模型。模型目录不等于授权验证。')
+         ):null):null,
+        subtab==='sessions'?h(React.Fragment,null,
+          h(Panel,{title:'本机授权关联',actions:h(Button,{disabled:!!busy||!reuse.enabled,
+            onClick:()=>run('/channels/reuse/scan',{},'已完成登录态扫描')},'扫描')},
             h('div',{style:css.line},
-              h('span',{style:css.mutedTag},'路由已注册 · 登录未核实'),
-              h(Button,{disabled:!!hostModelBusy,onClick:()=>onHostModels(row.providerId)},
-                hostModelBusy===row.providerId?'读取中…':'查询该路由模型')))):
-            h('p',{style:css.small},'未检测到其他宿主注册的 Provider；仅安装但未启用的插件不等于有可调用路由。')),
-        hostModels?.state==='ready'?h(Panel,{title:'宿主原生插件模型 · '+hostModels.providerId},
-          h('p',{style:css.small},'读取的是原插件发布的模型目录，不会读取账号 Token，也不代表远端鉴权成功。加入宿主候选仅编辑当前草稿，需保存后生效。'),
-          hostModels.models.length?h('div',{style:css.line},
-            h(Select,{label:'选择原插件模型',value:hostSelectedModel,onChange:onSelectHostModel,
-              options:hostModels.models.map(row=>({value:row.id,label:row.name+' · '+row.id}))}),
-            h(Button,{kind:'primary',disabled:!hostSelectedModel,
-              onClick:()=>onAddHostCandidate(hostModels.providerId,hostSelectedModel)},
-              '加入宿主故障切换链')):h('p',{style:css.small},'该路由目前没有公开模型；请检查原插件状态。')):null,
-        h(EmbeddedPackConsole,{pack,upstream,run,busy,modelProvider,setModelProvider,onModels,modelBusy,models,onSourceLogin,onSourcePoll,pendingLogin,onSourceRefresh,sourceBusy}),
+              h(Toggle,{label:'自动关联现有登录态',value:cfg.sessionReuse?.enabled===true,
+                onChange:v=>onReuseSettings({enabled:v})}),
+              h('span',{style:css.mutedTag},'已关联 '+(reuse.autoLinked??0)),
+              h('span',{style:css.mutedTag},'忽略 '+(reuse.ignored??0))),
+            (reuse.ignored??0)>0?h(Button,{onClick:()=>{
+              if(window.confirm('解除忽略并在保存后重新扫描？'))onReuseSettings({resetIgnored:true})},
+                disabled:!!busy},'解除忽略'):null),
+          h(Panel,{title:'可发现授权来源'},
+            (reuse.channels||[]).filter(row=>row.available).length?
+              (reuse.channels||[]).filter(row=>row.available).map(row=>
+                h('div',{key:row.providerId,style:css.itemRow},h('strong',null,row.providerId),
+                  h('span',{style:css.mutedTag},'可扫描'))):
+              h('p',{style:css.small},'暂无可验证的本机授权入口，不将机器标识当作登录凭据。')),
+                    h(Panel,{title:'接管原插件账号 · 迁入本插件',
+            actions:h(Button,{disabled:!!adoptionBusy,onClick:onPreviewAdoption},
+              adoptionBusy==='preview'?'查询中…':'检测可迁移账号')},
+            h('p',{style:css.small},'逐个确认后，将兼容的授权复制到本插件独立凭据库。原插件账号不删除；未验证前不代表能独立推理。'),
+            adoptionPreview?.accounts?.length?
+              adoptionPreview.accounts.map(row=>h('div',{key:row.providerId+':'+row.accountId,style:css.itemRow},
+                h('div',{style:{minWidth:0}},
+                  h('strong',null,row.label||row.accountId),
+                  h('div',{style:css.small},row.providerId+' · '+(row.portable?'可迁移 · 待确认':'请使用本插件自主登录'))),
+                h(Button,{disabled:!!adoptionBusy||!row.portable
+                  ||adoptionPreview.ownPackState!=='mounted',
+                  onClick:()=>onAdoptAccount(row)},'接管到本插件'))):
+              h('p',{style:css.small},adoptionPreview?.state==='ready'
+                ?'没有找到兼容的可迁移账号。其他私有会话需要使用自主登录。'
+                :'尚未扫描；只有原 DSH 共享账号池中可安全转移的授权才会列出。'),
+            adoptionPreview?.ownPackState!=='mounted'&&adoptionPreview
+              ?h('p',{style:css.small},'内置渠道尚未就绪，请在「自主登录」中启用并保存配置，重启 DSH 后再接管。'):null),
+(reuse.results||[]).length?h('details',{style:css.card},
+            h('summary',{style:{cursor:'pointer'}},'扫描记录 · '+reuse.results.length),
+            (reuse.results||[]).slice(-10).map((row,i)=>h('div',{key:i,style:css.itemRow},
+              h('strong',null,row.providerId),h('span',{style:css.small},({
+                linked_unverified:'已关联 · 待验证',already_configured:'已存在',
+                ignored:'已忽略',multiple_accounts_unverified:'需精确选择账号',
+                source_changed:'登录态已变化',invalid_reference:'已拒绝'
+              })[row.state]||'待确认')))):null
+        ):null,
+        subtab==='source'?h(React.Fragment,null,
+          h(Panel,{title:'独立原生登录',
+            actions:h('span',{style:css.mutedTag},({
+              mounted:'已挂载',disabled:'未启用',blocked:'安全门禁阻止',
+              waiting_host_services:'等待宿主',failed:'加载失败'
+            })[embeddedPack?.state]||'未知')},
+            h(Toggle,{label:'启用内置多渠道登录与签到',
+              value:cfg.embeddedPack?.enabled===true,
+              onChange:v=>onReuseSettings({embeddedEnabled:v})}),
+            h('p',{style:css.small},embeddedPack?.state==='mounted'
+              ?'可自主登录新账号、查询模型和管理已登录账号。':
+              embeddedPack?.reason||'保存开关、重启 DSH 后加载；不启动外部服务。'),
+            h('p',{style:css.small},'原有渠道登录态不会被覆盖；同名 Provider 冲突时安全阻止挂载。')),
+          h(EmbeddedPackConsole,{pack:embeddedPack,upstream:data?.embeddedAccounts,run,busy,
+            modelProvider,setModelProvider,onModels,modelBusy,models,
+            onSourceLogin,onSourcePoll,pendingLogin,onSourceRefresh,sourceBusy})
+        ):null);
+    }
+    function AccountConsole({data,query,onQuery,run,setTab,busy,discovered,onAddProvider,
+      showReferences,onToggleReferences}){
+      if(!data)return h(Panel,{title:'渠道账号'},'账号中心尚未连接 DSH Host。');
+      const accounts=data.accounts||[];
+      const channels=(data.channels||[]).filter(c=>(!c.referenceOnly||showReferences)
+        &&(!query||[c.name,c.id,c.authMethod].some(x=>String(x||'').toLowerCase().includes(query.toLowerCase()))));
+      const active=accounts.filter(a=>a.configuredEnabled).length,
+        online=accounts.filter(a=>a.connectionState==='online').length;
+      return h(React.Fragment,null,
         h(Panel,{title:'全部渠道 · 账号状态',actions:h(Button,{disabled:!!busy,onClick:()=>run('/channels/accounts/action',{action:'refresh-all'},'已重新验证可连接的账号')},'验证全部')},
           h('div',{style:{...css.line,justifyContent:'space-between'}},
             h('span',{style:css.small},'已登记 '+accounts.length+' 个账号；启用 '+active+'；最近验证通过 '+online+
               '。状态不会凭历史登录记录推断，须由对应渠道真实探针确认。'),
             h('input',{style:{...css.input,maxWidth:210},placeholder:'查找渠道 / 登录方式',
               value:query,onChange:e=>onQuery(e.target.value)})),
-          h('p',{style:css.small},'自建池：在账号池添加多个账号，并在模型链里限定账号；自动池：同渠道已启用账号自动加入候选（不代替实际登录）。')),
+           h('div',{style:css.line},
+             h(Button,{onClick:()=>onToggleReferences(!showReferences)},
+               showReferences?'收起待接入渠道':'查看待接入渠道'),
+             h(Button,{onClick:()=>setTab('reuse')},'自主登录与复用'))),
         channels.map(channel=>{
           const members=accounts.filter(a=>a.providerId===channel.id),
             pool=(data.pools||[]).find(x=>x.providerId===channel.id);
@@ -246,7 +301,7 @@ window.__ModuleLoader__.load({
                   h(Button,{disabled:!!busy,
                     onClick:()=>{if(window.confirm('确认将账号 '+account.id+' 从本插件解除关联？不会撤销上游 API Key。已被模型链引用的账号将拒绝退出。'))
                       run('/channels/accounts/action',{action:'logout',accountId:account.id},'已解除插件内账号引用')}},'退出/解绑')))
-            ):h('p',{style:css.small},'当前没有已配置账号。'+(channel.referenceOnly?
+            ):h('p',{style:css.small},'当前没有已配置账号。'+(channel.protocol==='dsh-host'?'此渠道由原 DSH 插件托管登录，不需要重复添加账号。':channel.referenceOnly?
               channel.adapterReady?'已具备原生驱动；先配置并启用渠道、保存后再主动扫描桌面登录态。':'需要先完成该渠道的专有登录适配。':'可在账号池页面添加多个账号。')),
             h('div',{style:{...css.line,marginBottom:0}},
               !channel.referenceOnly?h(Button,{onClick:()=>setTab('accounts')},'管理账号池'):null,
@@ -370,13 +425,13 @@ window.__ModuleLoader__.load({
             h('p',{style:{...css.caption,marginBottom:0}},'基于 DSH 当前实际数据展示。宿主路由注册、账号授权验证、每日签到互不等同；不以安装记录冒充已登录。')),
           h(Button,{onClick:onRefresh},'刷新运行状态')),
         h('div',{style:css.metrics},
-          h(Metric,{label:'宿主已注册路由',value:status?hostProviders.length:'—',detail:'其他 DSH Provider · 不代表登录',onClick:()=>onNavigate('channels')}),
+          h(Metric,{label:'宿主已注册路由',value:status?hostProviders.length:'—',detail:'原插件托管 · 状态待核验',onClick:()=>onNavigate('reuse')}),
           h(Metric,{label:'聚合账号',value:channelsView?accounts.length:'—',detail:'已验证在线 '+verified,onClick:()=>onNavigate('channels')}),
           h(Metric,{label:'已启用模型链',value:enabledChains,detail:'共配置 '+cfg.routes.length+' 条',onClick:()=>onNavigate('routes')}),
           h(Metric,{label:'今日确认签到',value:checkinsView?signed:'—',detail:'具备执行器 '+eligible+' · 失败 '+failed,onClick:()=>onNavigate('checkins')}),
           h(Metric,{label:'自动续跑',value:cfg.hostFailover?.enabled?'已开启':'已关闭',detail:'累计留存切换记录 '+switchLog.length,onClick:()=>onNavigate('host')})),
         h('div',{style:css.doubleGrid},
-          h(Panel,{title:'本机 DSH Provider · 插件路由状态',actions:h(Button,{onClick:()=>onNavigate('channels')},'查看渠道来源')},
+          h(Panel,{title:'本机 DSH Provider · 插件路由状态',actions:h(Button,{onClick:()=>onNavigate('reuse')},'查看渠道来源')},
             h('p',{style:css.small},'这些路由由 DSH Host 实际注册，可能由其他插件自行管理登录态；未核验账号前不将其计入已登录账号池。'),
             hostProviders.length?hostProviders.slice(0,14).map(p=>h('div',{key:p.providerId,style:css.itemRow},
               h('div',null,h('strong',null,routeName(p)),
@@ -422,7 +477,10 @@ window.__ModuleLoader__.load({
         [sourceCredits,setSourceCredits]=useState(null),
         [sourceClaims,setSourceClaims]=useState(null),
         [hostModels,setHostModels]=useState(null),[hostModelBusy,setHostModelBusy]=useState(''),
-        [hostSelectedModel,setHostSelectedModel]=useState('');
+        [hostSelectedModel,setHostSelectedModel]=useState(''),
+        [hostManualModel,setHostManualModel]=useState(''),[reuseSubtab,setReuseSubtab]=useState('host'),
+        [showReferenceChannels,setShowReferenceChannels]=useState(false),
+         [adoptionPreview,setAdoptionPreview]=useState(null),[adoptionBusy,setAdoptionBusy]=useState('');
       const refresh=useCallback(async()=>{
         setBusy(true);setError('');
         try{
@@ -579,15 +637,46 @@ window.__ModuleLoader__.load({
         }catch(error){setError(String(error?.message??error))}
         finally{setSourceRpcBusy('')}
       }
-      async function loadHostModels(providerId){
-        setHostModelBusy(providerId);setHostModels(null);setHostSelectedModel('');setError('');
+      async function loadAdoptionPreview(){
+         setAdoptionBusy('preview');setError('');
+         try{
+           const response=await fetch(URL+'/channels/adopt/preview',{cache:'no-store'});
+           const data=await response.json();
+           if(!response.ok||!data.ok)throw Error('独立接管账号检查暂不可用');
+           setAdoptionPreview(data.result);
+         }catch{setError('无法读取可迁移账号，未访问或改动授权')}finally{setAdoptionBusy('')}
+       }
+       async function adoptOriginalAccount(row){
+         if(!row?.portable||adoptionBusy||!window.confirm(
+            '将 '+row.providerId+' 的账号 '+(row.label||row.accountId)+' 复制到聚合路由独立授权库？原账号保持不变；迁移后仍需验证模型和签到。'))return;
+         setAdoptionBusy('adopt');setError('');setNotice('');
+         try{
+           const response=await fetch(URL+'/channels/adopt',{method:'POST',
+             headers:{'content-type':'application/json'},body:JSON.stringify({
+               providerId:row.providerId,accountId:row.accountId,consent:true})});
+           const data=await response.json();
+           if(!response.ok||!data.ok||data.result?.state!=='stored_unverified')
+             throw Error(data.error||'无法完成独立迁移；请尝试自主登录');
+           setAdoptionPreview(null);
+           await refresh();
+           setNotice(data.result.activation==='requires_original_stop_and_host_restart'
+             ?'独立授权副本已保存。请在隔离环境验收，停用原 Provider 并重启 DSH 后，验证聚合路由模型与签到；尚未确认可用。'
+             :'独立授权副本已保存，仍需真实模型调用和签到验收。');
+         }catch(error){setError(String(error.message||'迁移未完成'))}
+         finally{setAdoptionBusy('')}
+       }
+async function loadHostModels(providerId){
+        setHostModelBusy(providerId);setHostModels(null);setHostSelectedModel('');setHostManualModel('');setError('');
         try{
           const response=await fetch(URL+'/host/models',{
             method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({providerId}),
           });
           const data=await response.json();
-          if(!response.ok||data.ok!==true||data.result?.state!=='ready')
-            throw Error(data.error||'宿主插件模型目录不可用');
+           if(!data.result||!['ready','unavailable'].includes(data.result.state)
+             ||data.result.providerId!==providerId)
+             throw Error('宿主插件模型目录接口暂不可用');
+           if(data.result.state!=='ready')
+             setNotice('原插件未提供可读取模型目录。仅可手动填入原插件已确认的模型 ID，首次请求需验证登录态。');
           setHostModels(data.result);setHostSelectedModel(data.result.models?.[0]?.id||'');
         }catch(error){setError(String(error?.message??error))}
         finally{setHostModelBusy('')}
@@ -601,7 +690,36 @@ window.__ModuleLoader__.load({
         setTab('host');
         setNotice('已添加原 DSH 插件模型到故障切换候选草稿，未启用或保存。请核对优先级、设置启用状态后保存；调用仍由原插件处理认证。');
       }
-      async function loadUpstreamModels(providerId){
+             function addHostToAggregate(providerId,model){
+         const validProvider=/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(providerId);
+         const validModel=typeof model==='string'&&!!model.trim()&&model.length<=160
+           &&!/[\u0000-\u001f]/.test(model);
+         if(!validProvider||!validModel||providerId==='native-router'
+           ||hostModels?.providerId!==providerId
+           ||!['ready','unavailable'].includes(hostModels?.state)
+           ||!(channelsView?.sessionReuse?.hostProviders||[]).some(row=>row.providerId===providerId)
+           ||(hostModels.models?.length>0&&!hostModels.models.some(row=>row.id===model))){
+           setError('模型 ID 不属于当前宿主路由，或模型目录尚未加载');return;
+         }
+         const conflict=cfg.providers.find(row=>row.id===providerId&&row.protocol!=='dsh-host');
+         if(conflict){setError('已存在同名独立提供商，不能覆盖其登录和账号配置');return}
+         setCfg(old=>{
+           const current=old.providers.find(row=>row.id===providerId);
+           const providers=current?old.providers.map(row=>row.id===providerId
+             ?{...row,models:[...new Set([...(row.models||[]),model])]}:row):
+             [...old.providers,{id:providerId,name:providerId+' · 宿主复用',
+               protocol:'dsh-host',baseUrl:'',models:[model],enabled:true,supportsTools:true}];
+           const chainId=('host_'+providerId).slice(0,64);
+           const routes=old.routes.some(row=>row.id===chainId)?old.routes:
+             [...old.routes,{id:chainId,name:providerId+' · 宿主模型链',
+               mode:'priority',enabled:true,maxSwitches:3,
+               tiers:[{providerId,model,free:false,accountIds:[]}]}];
+           return {...old,providers,routes};
+         });
+         setNotice('模型已加入聚合路由草稿；保存后由原插件认证并运行。');
+         setError('');
+       }
+async function loadUpstreamModels(providerId){
         setModelBusy(true);setError('');setEmbeddedModels(null);
         try{
           const response=await fetch(URL+'/channels/embedded/models',{
@@ -634,23 +752,34 @@ window.__ModuleLoader__.load({
       }
        if(!cfg)return h('div',{style:css.root},h('h2',{style:css.title},'聚合路由'),error?h('p',{style:css.error},error):'读取配置中…');
        const providerChoices=cfg.providers.map(x=>({value:x.id,label:x.name+' ('+x.id+')'}));
+       const accountProviderChoices=cfg.providers.filter(x=>x.protocol!=='dsh-host')
+         .map(x=>({value:x.id,label:x.name+' ('+x.id+')'}));
       const modes=[{value:'priority',label:'按链条顺序降级'},{value:'pinned',label:'固定首个模型（账号可切）'},{value:'free',label:'仅显式标记免费'}];
-      const tabs=[['overview','总览'],['channels','渠道账号'],['checkins','每日签到'],['providers','提供商'],['accounts','账号池配置'],['routes','模型链条'],['host','宿主故障切换'],['advanced','高级 JSON']];
+      const tabs=[['overview','总览'],['channels','渠道账号'],['reuse','复用管理'],['checkins','每日签到'],['providers','提供商'],['accounts','账号池配置'],['routes','模型链条'],['host','宿主故障切换'],['advanced','高级 JSON']];
       let content=null;
        if(tab==='overview')content=h(OverviewConsole,{cfg,status,channelsView,checkinsView,onNavigate:setTab,onRefresh:refresh});
-       if(tab==='channels')content=h(AccountConsole,{data:channelsView,cfg,
-         onReuseSettings:change=>setCfg(old=>({...old,
-           embeddedPack:{...old.embeddedPack,...('embeddedEnabled' in change?{enabled:change.embeddedEnabled}:{})},
-            sessionReuse:{...old.sessionReuse,
-              ...('enabled' in change?{enabled:change.enabled}:{}),
-              ...('resetIgnored' in change?{ignoredIds:[]}:{}),}})),
-         query:channelQuery,onQuery:setChannelQuery,
-        run:runAction,setTab,busy:actionBusy,discovered,onAddProvider:addNativeProvider,embeddedPack:status?.embeddedPack,
-        modelProvider,setModelProvider:value=>{setModelProvider(value);setEmbeddedModels(null)},
-        onModels:loadUpstreamModels,modelBusy,models:embeddedModels,onSourceLogin:sourceLogin,
-        onSourcePoll:sourcePollLogin,pendingLogin:pendingSourceLogin,onSourceRefresh:sourceRefreshAccount,
-         sourceBusy:sourceRpcBusy,hostModels,hostModelBusy,hostSelectedModel,
-         onSelectHostModel:setHostSelectedModel,onHostModels:loadHostModels,onAddHostCandidate:addHostCandidate});
+       const changeReuseSettings=change=>setCfg(old=>({...old,
+         embeddedPack:{...old.embeddedPack,...('embeddedEnabled' in change?{enabled:change.embeddedEnabled}:{})},
+         sessionReuse:{...old.sessionReuse,
+           ...('enabled' in change?{enabled:change.enabled}:{}),
+           ...('resetIgnored' in change?{ignoredIds:[]}:{})}}));
+       if(tab==='channels')content=h(AccountConsole,{data:channelsView,
+         query:channelQuery,onQuery:setChannelQuery,run:runAction,setTab,
+         busy:actionBusy,discovered,onAddProvider:addNativeProvider,
+         showReferences:showReferenceChannels,onToggleReferences:setShowReferenceChannels});
+       if(tab==='reuse')content=h(ReuseConsole,{data:channelsView,cfg,
+         onReuseSettings:changeReuseSettings,run:runAction,busy:actionBusy,
+         onRefresh:refresh,subtab:reuseSubtab,onSubtab:setReuseSubtab,
+         embeddedPack:status?.embeddedPack,modelProvider,
+         setModelProvider:value=>{setModelProvider(value);setEmbeddedModels(null)},
+         onModels:loadUpstreamModels,modelBusy,models:embeddedModels,
+         onSourceLogin:sourceLogin,onSourcePoll:sourcePollLogin,pendingLogin:pendingSourceLogin,
+         onSourceRefresh:sourceRefreshAccount,sourceBusy:sourceRpcBusy,
+         hostModels,hostModelBusy,hostSelectedModel,onSelectHostModel:setHostSelectedModel,
+         onHostModels:loadHostModels,onAddHostCandidate:addHostCandidate,
+         onImportHost:addHostToAggregate,manualHostModel:hostManualModel,
+         onManualHostModel:setHostManualModel,adoptionPreview,adoptionBusy,
+          onPreviewAdoption:loadAdoptionPreview,onAdoptAccount:adoptOriginalAccount});
       if(tab==='checkins')content=h(CheckinConsole,{data:checkinsView,cfg,onSettings:setCheckinSettings,
         onAccountAuto:setAccountAuto,run:runAction,refresh,busy:actionBusy,
         embeddedPack:status?.embeddedPack,sourceProvider:sourceCreditsProvider,
@@ -663,26 +792,29 @@ window.__ModuleLoader__.load({
           h('div',{style:css.line},
             h(TextField,{label:'标识 ID',value:p.id,onChange:v=>edit('providers',i,{id:v})}),
             h(TextField,{label:'显示名称',value:p.name,onChange:v=>edit('providers',i,{name:v})}),
-            h(Select,{label:'协议类型',value:p.protocol,onChange:v=>edit('providers',i,{protocol:v}),options:[{value:'openai-chat',label:'OpenAI Chat'},{value:'anthropic-messages',label:'Anthropic Messages'},{value:'native-channel',label:'专有原生驱动（需适配器）'}]}),
+            h(Select,{label:'协议类型',value:p.protocol,onChange:v=>edit('providers',i,{protocol:v}),options:[{value:'openai-chat',label:'OpenAI Chat'},{value:'anthropic-messages',label:'Anthropic Messages'},{value:'native-channel',label:'专有原生驱动'},{value:'dsh-host',label:'复用宿主 Provider 原登录态'}]}),
+            ['native-channel','dsh-host'].includes(p.protocol)?null:
             h(TextField,{label:'Base URL（含 /v1）',value:p.baseUrl,width:'2 1 260px',onChange:v=>edit('providers',i,{baseUrl:v})})),
           h('div',{style:css.line},h(TextField,{label:'模型 ID，以逗号分隔（留空则查询 /models）',
             value:(p.models||[]).join(', '),width:'3 1 360px',onChange:v=>edit('providers',i,{models:v.split(',').map(s=>s.trim()).filter(Boolean)})}),
             h(Toggle,{label:'启用',value:p.enabled,onChange:v=>edit('providers',i,{enabled:v})}),
             h(Toggle,{label:'支持工具调用',value:p.supportsTools,onChange:v=>edit('providers',i,{supportsTools:v})})),
-          h('p',{style:css.small},'已支持 OpenAI Chat 和 Anthropic Messages 两套原生协议；专有 OAuth/短信账号适配将在后续版本加入。'))),
+          h('p',{style:css.small},p.protocol==='dsh-host'?'宿主原生路由复用原插件认证；不创建本插件账号。':
+             '通用 API 凭据、独立渠道授权以及本机登录态复用可以并存。'))),
         h(Button,{kind:'primary',onClick:()=>add('providers',{id:'provider'+(cfg.providers.length+1),name:'新提供商',
           protocol:'openai-chat',baseUrl:'https://api.example.invalid/v1',models:[],enabled:false,supportsTools:true})},'+ 新增提供商'));
       if(tab==='accounts')content=h(Section,{title:'账号池（仅保存凭据引用）'},cfg.accounts.map((a,i)=>
         h(Panel,{key:a.id,title:(i+1)+'. '+a.id,actions:h(Button,{onClick:()=>remove('accounts',i)},'删除')},
           h('div',{style:css.line},
             h(TextField,{label:'账号 ID',value:a.id,onChange:v=>edit('accounts',i,{id:v})}),
-            h(Select,{label:'所属提供商',value:a.providerId,onChange:v=>edit('accounts',i,{providerId:v}),options:providerChoices}),
+            h(Select,{label:'所属提供商',value:a.providerId,onChange:v=>edit('accounts',i,{providerId:v}),options:accountProviderChoices}),
             h(TextField,{label:'凭据引用，如 env:KEY / host:ref / driver:channel:id',value:a.credentialRef,width:'2 1 260px',onChange:v=>edit('accounts',i,{credentialRef:v})}),
             h(TextField,{label:'权重',value:String(a.weight??1),onChange:v=>edit('accounts',i,{weight:Number(v)})}),
             h(Toggle,{label:'启用',value:a.enabled,onChange:v=>edit('accounts',i,{enabled:v})}),
             h(Toggle,{label:'自动签到',value:a.autoCheckin,onChange:v=>edit('accounts',i,{autoCheckin:v})})))),
-        h(Button,{kind:'primary',disabled:!providerChoices.length,onClick:()=>add('accounts',{id:'account'+(cfg.accounts.length+1),
-          providerId:cfg.providers[0].id,credentialRef:'env:MY_API_KEY',enabled:false,weight:1})},'+ 新增账号'));
+        h(Button,{kind:'primary',disabled:!accountProviderChoices.length,onClick:()=>add('accounts',{
+          id:'account'+(cfg.accounts.length+1),providerId:accountProviderChoices[0].value,
+          credentialRef:'env:MY_API_KEY',enabled:false,weight:1})},'+ 新增账号'));
       if(tab==='routes')content=h(Section,{title:'自定义模型降级链'},cfg.routes.map((r,i)=>
         h(Panel,{key:r.id,title:r.name+' / chain:'+r.id,actions:h(Button,{onClick:()=>remove('routes',i)},'删除链条')},
           h('div',{style:css.line},
@@ -752,7 +884,7 @@ window.__ModuleLoader__.load({
           value:raw,onChange:e=>setRaw(e.target.value),'aria-label':'完整路由配置 JSON'}));
       return h('div',{style:css.root},
         h('h2',{style:css.title},'聚合路由'),
-        h('p',{style:css.caption},'DSH 原生插件复用 · 桌面授权复用 · 多账号池 · 每日签到 · 模型故障安全续跑 · v1.0.0-rc.3'),
+        h('p',{style:css.caption},'DSH 原生插件复用 · 桌面授权复用 · 多账号池 · 每日签到 · 模型故障安全续跑 · v1.0.0-rc.5'),
         h('div',{style:css.tabbar},tabs.map(([id,label])=>h('button',{key:id,type:'button',
           style:{...css.tab,...(tab===id?css.chosen:{})},onClick:()=>setTab(id)},label))),
         error?h('div',{role:'alert',style:css.error},error):null,

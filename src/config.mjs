@@ -36,10 +36,10 @@ export function normalizeConfig(source = {}) {
   const providers = (source.providers ?? []).map(value => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid provider');
     const protocol = value.protocol ?? 'openai-chat';
-    if (!['openai-chat','anthropic-messages','native-channel'].includes(protocol)) throw new Error('Unsupported provider protocol: ' + protocol);
+    if (!['openai-chat','anthropic-messages','native-channel','dsh-host'].includes(protocol)) throw new Error('Unsupported provider protocol: ' + protocol);
     const models = Array.isArray(value.models) ? value.models.filter(x => typeof x === 'string' && x.trim()).map(x => x.trim()) : [];
     return { id: id(value.id, 'provider id'), name: typeof value.name === 'string' && NAME.test(value.name) ? value.name : value.id,
-      protocol, baseUrl: protocol==='native-channel' ? '' : address(value.baseUrl), models: [...new Set(models)], enabled: value.enabled !== false,
+      protocol, baseUrl: ['native-channel','dsh-host'].includes(protocol) ? '' : address(value.baseUrl), models: [...new Set(models)], enabled: value.enabled !== false,
       timeoutMs: int(value.timeoutMs, 120000, 1000, 600000), supportsTools: value.supportsTools !== false };
   });
   unique(providers, 'id', 'provider');
@@ -48,6 +48,7 @@ export function normalizeConfig(source = {}) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid account');
     if ('apiKey' in value || 'token' in value || 'password' in value) throw new Error('Secrets may not be stored in account metadata');
     if (!providerIds.has(value.providerId)) throw new Error('Account refers to unknown provider: ' + value.providerId);
+    if (providers.find(p=>p.id===value.providerId)?.protocol==='dsh-host') throw new Error('DSH delegated providers own their login; do not configure shadow accounts');
     if (typeof value.credentialRef !== 'string' || !AUTH.test(value.credentialRef)) throw new Error('Account requires env: or host: credentialRef');
     if (value.credentialRef.startsWith('driver:') && !value.credentialRef.startsWith('driver:'+value.providerId+':')) throw new Error('Driver credential reference must match its provider');
     if (value.credentialRef.startsWith('driver:') && providers.find(p=>p.id===value.providerId)?.protocol!=='native-channel') throw new Error('Driver credential references require native-channel protocol');
