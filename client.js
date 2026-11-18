@@ -91,7 +91,8 @@ window.__ModuleLoader__.load({
         h('div',{style:css.line},
           h('strong',null,packLabel),
            h('span',{style:css.mutedTag},'可自主授权 '+(pack?.channelCount??13)+' 个')),
-         pack?.reason?h('p',{style:css.small},pack.reason):null,
+         pack?.reason?h('p',{role:pack?.state==='failed'?'alert':undefined,style:css.small},
+           pack.reason+(pack?.errorStage?'（失败阶段：'+pack.errorStage+'）':'')):null,
          h('p',{style:css.small},'自主扫码或网页授权新账号，原渠道插件与本插件互不覆盖。'),
          pack?.skippedProviders?.length?h('details',null,
            h('summary',{style:{cursor:'pointer',fontSize:12}},
@@ -145,7 +146,7 @@ window.__ModuleLoader__.load({
       onSourceLogin,onSourcePoll,pendingLogin,onSourceRefresh,sourceBusy,
       hostModels,hostModelBusy,hostSelectedModel,onSelectHostModel,onHostModels,
       onAddHostCandidate,onImportHost,manualHostModel,onManualHostModel,
-      adoptionPreview,adoptionBusy,adoptionResults,onPreviewAdoption,onAdoptAccount}){
+      adoptionPreview,adoptionBusy,adoptionResults,credentialService,onPreviewAdoption,onAdoptAccount}){
       const reuse=data?.sessionReuse||{hostProviders:[],channels:[],results:[]};
       const hosts=reuse.hostProviders||[];
       const subtabs=[['host','宿主路由与模型'],['sessions','本机登录态'],['source','自主登录']];
@@ -208,7 +209,11 @@ window.__ModuleLoader__.load({
                     h(Panel,{title:'接管原插件账号 · 迁入本插件',
             actions:h(Button,{disabled:!!adoptionBusy,onClick:onPreviewAdoption},
               adoptionBusy==='preview'?'检测中…':'检查原插件账号')},
-            h('p',{style:css.small},'按渠道识别本机已有授权。接管后复制至本插件独立凭据库，不退出原插件。发现授权不等于模型已实测成功。'),
+            h('p',{style:css.small},'按渠道识别本机已有授权。接管只复制授权到本插件，不退出原插件。独立接管与原插件模型复用可同时使用。'),
+            credentialService?.available===false?h('p',{role:'alert',style:css.small},
+             '宿主 Credentials 服务尚未连通：暂不能独立接管；仍可在「宿主路由与模型」直接复用已登录的原插件。'):null,
+            credentialService?.available===true?h('p',{style:css.small},
+             '宿主 Credentials 已连接（不代表任一渠道已通过远端登录验证）。'):null,
                         adoptionPreview?.plugins?.length?h('div',{style:{...css.metrics,marginTop:12,marginBottom:9}},
               adoptionPreview.plugins.map(p=>{
                 const count=(adoptionPreview.accounts||[]).filter(row=>row.providerId===p.providerId
@@ -695,7 +700,8 @@ adoptionPreview?.accounts?.length?
            const state=data?.result?.state??'unavailable';
            if(!response.ok||!data.ok||!['stored_unverified','already_owned'].includes(state)){
              const message=data?.error||'接管失败；原账号没有被修改。请刷新账号来源后再试。';
-             setAdoptionResults(old=>({...old,[key]:{state:'failed',message:'未接管（'+state+'）：'+message}}));
+             const stage=typeof data?.result?.stage==='string'?data.result.stage.slice(0,40):'';
+             setAdoptionResults(old=>({...old,[key]:{state:'failed',message:'未接管（'+state+'）：'+message+(stage?'；阶段：'+stage:'')}}));
              setError('账号接管失败：'+message);
              return;
            }
@@ -818,7 +824,7 @@ async function loadUpstreamModels(providerId){
        if(tab==='reuse')content=h(ReuseConsole,{data:channelsView,cfg,
          onReuseSettings:changeReuseSettings,run:runAction,busy:actionBusy,
          onRefresh:refresh,subtab:reuseSubtab,onSubtab:setReuseSubtab,
-         embeddedPack:status?.embeddedPack,modelProvider,
+         embeddedPack:status?.embeddedPack,credentialService:status?.credentialService,modelProvider,
          setModelProvider:value=>{setModelProvider(value);setEmbeddedModels(null)},
          onModels:loadUpstreamModels,modelBusy,models:embeddedModels,
          onSourceLogin:sourceLogin,onSourcePoll:sourcePollLogin,pendingLogin:pendingSourceLogin,
@@ -932,7 +938,7 @@ async function loadUpstreamModels(providerId){
           value:raw,onChange:e=>setRaw(e.target.value),'aria-label':'完整路由配置 JSON'}));
       return h('div',{style:css.root},
         h('h2',{style:css.title},'聚合路由'),
-        h('p',{style:css.caption},'DSH 原生插件复用 · 桌面授权复用 · 多账号池 · 每日签到 · 模型故障安全续跑 · v1.0.0-rc.9'),
+        h('p',{style:css.caption},'DSH 原生插件复用 · 桌面授权复用 · 多账号池 · 每日签到 · 模型故障安全续跑 · v1.0.0-rc.10'),
         h('div',{style:css.tabbar},tabs.map(([id,label])=>h('button',{key:id,type:'button',
           style:{...css.tab,...(tab===id?css.chosen:{})},onClick:()=>setTab(id)},label))),
         error?h('div',{role:'alert',style:css.error},error):null,

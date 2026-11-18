@@ -18,6 +18,7 @@ import {createCodeArtsDriver} from './channels/codearts.mjs';
 import {createLocalAndSourceDriver} from './channels/local-source.mjs';
 import {createEmbeddedChannelPack,SOURCE_PACK_PROVIDERS} from './embedded-pack.mjs';
 import {createSourceChannelDriver} from './source-channel-driver.mjs';
+import {createHostCredentialBridge} from './credentials-bridge.mjs';
 import {join,dirname} from 'node:path';
 export {registerNativeChannelDriver,getNativeChannelDrivers} from './driver-registry.mjs';
 
@@ -27,12 +28,8 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
  if(!ctx?.llm?.registerAdapter)throw new Error('DSH llm.registerAdapter is required');
  const ownStore=configStore??createConfigStore();
  const drivers=channelDrivers??getNativeChannelDrivers();
-  const effectiveVault=vault??ctx.get?.('credentials')??null;
-   const ownedVault={
-    resolve:(...args)=>effectiveVault?.resolve?.(...args),
-    set:(...args)=>{if(!effectiveVault?.set)throw Error('DSH credentials unavailable');return effectiveVault.set(...args)},
-    unset:(...args)=>{if(!effectiveVault?.unset)throw Error('DSH credentials unavailable');return effectiveVault.unset(...args)},
-   };
+  const credentialsBridge=createHostCredentialBridge({ctx,provided:vault});
+   const ownedVault=credentialsBridge.vault;
    const builtInCleanup=[];
    if(!channelDrivers)for(const providerId of Object.keys(PRIVATE_PROVIDERS)){
      const ownId=PRIVATE_PROVIDERS[providerId].ownedId;
@@ -79,10 +76,10 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
      }
    }
   const ownAdapter=adapter??createNativeRouterAdapter({configStore:ownStore,logger:ctx.logger,
-   vault:vault??ctx.get?.('credentials'),fetchImpl,env,channelDrivers:drivers,
+   vault:ownedVault,fetchImpl,env,channelDrivers:drivers,
     hostProviderInventory:existingHostSource});
  const accountCenter=createAccountCenter({configStore:ownStore,adapter:ownAdapter,
-   drivers,fetchImpl,env,vault:vault??ctx.get?.('credentials'),getSourceStatus:()=>sourceFacade.status()});
+   drivers,fetchImpl,env,vault:ownedVault,getSourceStatus:()=>sourceFacade.status()});
  const installedInventory=createInstalledPluginInventory();
   const sessionReuse=createSessionReuse({configStore:ownStore,drivers,
      embeddedPack:sourceFacade,adapter:ownAdapter,logger:ctx.logger,installedInventory});
@@ -100,7 +97,7 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
    const checkinCenter=createCheckinCenter({configStore:ownStore,accountCenter,
     store:checkinStore??createCheckinStore({path:ownStore.path?join(dirname(ownStore.path),'checkins.json'):undefined}),
     sourcePack:embeddedPack,logger:ctx.logger});
- const cleanups=[...builtInCleanup];
+ const cleanups=[...builtInCleanup,credentialsBridge.dispose];
  try{
    const release=ctx.llm.registerAdapter([PROVIDER],ownAdapter);
    if(typeof release==='function')cleanups.push(release);
@@ -127,7 +124,8 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
       // No direct localhost WebServer registration: localhost is not identity.
       const mountSecureRoutes=connectionCtx=>{
         connectionCtx.effect?.(()=>registerAuthenticatedRouterRoutes(connectionCtx,
-           {configStore:ownStore,adapter:ownAdapter,accountCenter,checkinCenter,embeddedPack,sessionReuse,accountAdoption,hostProviderInventory:existingHostSource}));
+           {configStore:ownStore,adapter:ownAdapter,accountCenter,checkinCenter,embeddedPack,sessionReuse,
+            accountAdoption,hostProviderInventory:existingHostSource,credentialsBridge}));
       };
       ctx.inject(['connection'],mountSecureRoutes);
       if(typeof ctx.registry?.delete==='function')

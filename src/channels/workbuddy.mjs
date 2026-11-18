@@ -10,6 +10,7 @@ import {toChatMessages} from '../protocol.mjs';
 import {decodeOpenAIResponse,validateModelCalls} from '../provider/openai.mjs';
 import {UpstreamError,safeRetryAfter} from '../failure.mjs';
 import {defaultConfigPath} from '../config.mjs';
+import {ownCredentialRef} from '../credential-ref.mjs';
 
 const AUTH_FILES=['workbuddy-desktop.info','workbuddy-desktop-ai.info'];
 const AUTH_TAIL=['CodeBuddyExtension','Data','Public','auth'];
@@ -123,7 +124,7 @@ export function createWorkBuddyDriver({
     catch(error){await fileIO.unlink(temp).catch(()=>{});throw error}
   }
   async function ownedCredentialRef(id){
-    const ref=makeCredentialRef??(await import('@deepseek-ai/dsh-credentials')).credentialRef;
+    const ref=makeCredentialRef??ownCredentialRef;
     return ref('NATIVE_ROUTER_WB_'+id.slice(4).toUpperCase());
   }
   async function readOwnedAuth(account){

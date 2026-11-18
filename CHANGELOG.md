@@ -1,5 +1,13 @@
 # Change Log
 
+## 1.0.0-rc.10 — 2026-11-18 — 修复正式 DSH 插件管理器的嵌套依赖丢失
+- 发布安全检查额外移除了来自 MIT 参考来源的 Google OAuth 默认客户端 ID/Secret，重新生成来源文件与单文件运行模块，并添加构建拒绝门禁。Gemini 自主 OAuth 登录需要操作员自行在本地安全设置上游环境凭据；不允许通过 GitHub 推送保护绕过许可。
+
+- 复现 rc.9 真实安装后缺少 DSH Credentials/LLM 的根因，弃用 npm bundleDependencies 方案，将 13 渠道来源包编译为无第三方 ESM 导入的单一原生运行文件，并附第三方 MIT 许可证及 SHA 回执。
+- 原生账号接管与 WorkBuddy 续期不再动态 import 被剔除的 DSH 凭据模块；从宿主延迟注入 Credentials，并以可观察的服务状态和阶段码诊断接管失败，不输出私有信息。
+- 自动模型续跑使用与 DSH 官方 `createUserMessage` 运行结构一致的本地不可变消息构造，避免漏网的动态模块解析故障。
+- 直接在 DSH 管理的 Node 24 和 Cordis/Connection 隔离宿主中验证无 node_modules 的发行包启用 13 个独立模型路由；原 WorkBuddy、Loomy 不覆盖。真实账号扫码/签到仍待上线验收。
+
 ## 1.0.0-rc.9 — 2026-11-18 — 账号接管可见反馈与 13 渠道独立自主登录
 
 - 账号接管返回明确的服务器结果码：`stored_unverified`、`already_owned`、`credentials_unavailable`、`native_login_not_ready` 等；客户端按账号显示操作进度、成功/失败、云端待核验及「复核接管」，刷新页面可识别已有配置，杜绝重复授权覆盖。

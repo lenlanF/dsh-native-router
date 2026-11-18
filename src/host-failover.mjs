@@ -2,6 +2,17 @@
 import {normalizeRules,normalizeMode,qualifies,canSwitch,allowsSelection,firstUsableSelection,
   nextUsableSelection,markExhausted,normalizeExhausted,isExhausted,appendSwitchLog,DEFAULT_COOLDOWN_MS} from './failover/rules.mjs';
 import {createStateStore,recordIntent,clearIntent,noteIncoming,requestDrive} from './failover/state.mjs';
+import {randomUUID} from 'node:crypto';
+// Equivalent to DSH createUserMessage for a zero-content retry intent:
+// deepFreeze(structuredClone({...input,id:randomUUID(),role:'user'})).
+// No runtime import of @deepseek-ai/dsh-llm (absent in unpack-only profiles).
+export function createOwnedRetryMessage(input){
+ const message=structuredClone({...input,id:randomUUID(),role:'user'});
+ if(message.source&&typeof message.source==='object')Object.freeze(message.source);
+ if(Array.isArray(message.content))Object.freeze(message.content);
+ return Object.freeze(message);
+}
+
 
 export function attachHostFailover(ctx,{configStore,now=()=>Date.now(),createUserMessage}={}){
  const states=createStateStore(),config=()=>configStore.get().hostFailover;
@@ -35,7 +46,7 @@ export function attachHostFailover(ctx,{configStore,now=()=>Date.now(),createUse
     if(!canSwitch(state,rules,now())){clearIntent(state);return}
     let next=nextUsableSelection(selected(agent),rules,{exhausted:spent,now:now(),cooldownMs:cooldown(),mode});
     if(!next){clearIntent(state);return}
-    const factory=createUserMessage??(await import('@deepseek-ai/dsh-llm')).createUserMessage;
+    const factory=createUserMessage??createOwnedRetryMessage;
     if(!current())return;
     for(let count=0;next&&count<rules.priority.length;count++){
       let message;

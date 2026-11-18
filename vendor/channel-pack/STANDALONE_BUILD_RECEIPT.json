@@ -1,0 +1,19 @@
+{
+  "kind": "single-file-in-process-channel-runtime",
+  "nativeSourceSha256": "91524939adf46d478589e97d3f493e4837b3ac5d0fcc4616c9538447bebb04f7",
+  "bundlerVersion": "0.25.12",
+  "dshLlmVersion": "0.2.2-rc.3",
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/dsh-llm": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-credentials": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-error": "0.2.2-rc.3",
+    "@deepseek-ai/schemastery": "3.19.0"
+  },
+  "runtimeFile": "pack-runtime.mjs",
+  "bytes": 3071605,
+  "runtimeSha256": "fbb6a8211de3ab466a47a2334b60811b190a957e9652217bed107030113b4969",
+  "extraProcesses": 0,
+  "independentCredentialStore": true,
+  "noBareRuntimeImports": true
+}

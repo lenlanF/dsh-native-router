@@ -1,8 +1,18 @@
 # DSH Native Router｜聚合路由
 
-**当前版本：1.0.0-rc.9（优先复用 MIT 开源能力候选版，尚非稳定版）。**「复用管理」包含「宿主路由与模型 / 本机登录态 / 自主登录」三个 Tab。宿主 Provider 的原始模型可以接入聚合路由，沿用原插件认证；内置来源包仍可独立发起扫码/网页登录并管理账号与每日签到。**注册 Provider 不等于已登录，目录不等于在线模型可用；真实登录和签到尚待实机验收。** 详见 [发行验收门禁](docs/RELEASE_ACCEPTANCE.md)。
+**当前版本：1.0.0-rc.10（修复实际 DSH 安装兼容性，尚非稳定版）。**「复用管理」包含「宿主路由与模型 / 本机登录态 / 自主登录」三个 Tab。宿主 Provider 的原始模型可以接入聚合路由，沿用原插件认证；内置来源包仍可独立发起扫码/网页登录并管理账号与每日签到。**注册 Provider 不等于已登录，目录不等于在线模型可用；真实登录和签到尚待实机验收。** 详见 [发行验收门禁](docs/RELEASE_ACCEPTANCE.md)。
 
 本项目将多提供商账号池、自定义模型降级链和宿主级 DSH 模型故障转移整合为一个 Cordis 插件。**不依赖 Agent2API 网关或独立常驻服务进程**：由 DSH 插件在本进程直接访问上游模型服务。可以独立卸载，不覆盖原有 WorkBuddy、Loomy、其他 Provider。
+
+## RC.10：真实 DSH 插件管理器兼容性修复（候选版）
+
+- **rc.9 的实际问题已确认**：标准 npm 隔离安装可成功，但 DSH 插件管理器不保留其 `node_modules`；安装后的内置来源包因 `@deepseek-ai/dsh-credentials` 等模块解析失败，Lingxi/WorkBuddy 等接管也可能仅返回 `unavailable`。不能将 rc.9 的 npm 验收视为正式 DSH 验收。
+- RC.10 将来源包连同必要的 11 个 MIT 运行模块编译为单个 `pack-runtime.mjs`，保留来源、构建回执、完整第三方许可证和 SHA-256 校验；自有 13 渠道与原插件同名 Provider 独立并行，不要求额外进程、`node_modules` 或单独网关。
+- 私有账号接管取消运行时外部凭据模块导入，凭据引用按 DSH 一致的语法校验；从 DSH 宿主延迟注入其 Credentials 服务。状态页显示宿主凭据服务可用性，失败返回固定阶段码，不输出原账号的 Token、Cookie 或本地路径。
+- 在实际 DSH 管理的 Node 24 运行时和隔离 Cordis/LLM/Connection 中，解压后无 `node_modules` 的包可以导入并注册全部 13 个独立来源路由，原 WorkBuddy/Loomy Provider 保留；完整回归、隔离安装、来源凭据及远端授权仍分别核验。
+- **边界**：尚未在当前生产 DSH 安装或执行真实账号接管、扫码及签到。须在升级后确认 Credentials 状态，再进行逐账号的在线授权验收；保存独立凭据不等于已验证远端模型。
+
+**Gemini 自主 OAuth 登录特别说明：** 上游开源包中嵌入的 Google OAuth 默认客户端凭据已从发布版本的代码中移除，不能直接发布到公开 GitHub。需要使用 Gemini 自有授权时，应在本地受保护的 DSH 运行环境中提供上游支持的 `CMDC_PAK_GOOGLE_CLIENT_ID`、`CMDC_PAK_GOOGLE_CLIENT_SECRET`，不可写入 GitHub、日志或公开配置。其他自主登录渠道不受这一凭据清理的影响。
 
 ## RC.9：接管结果可追踪、自主登录与复用并存、单插件自包含运行
 
@@ -10,7 +20,7 @@
 
 在固定 MIT 多渠道包中，原来的 `workbuddy`、`loomy` 等宿主 Provider 继续原样运行，**自有渠道统一使用 `native-router-source-渠道名` 独立模型适配器**。因此已有宿主登录态可委托复用，同一渠道也能在「自主登录」中创建聚合路由自己的独立授权与账号池；源路由不允许偷用宿主原账号。13 个来源适配器的登录、模型、签到能力仍使用原 MIT 实现，不增加进程或自定义网关。
 
-旧安装包缺少 `@deepseek-ai/dsh-credentials` 等真实运行依赖，导致渠道包显示「加载失败」。RC.9 将固定版本的 DSH Cordis、LlmRuntime、Credentials、Error 和 Schemastery 连同必要的间接依赖一起 **bundle 到单个 .tgz**。安装时无需另外运行服务、下载 Node 服务脚本、手动安装 DLL 或创建系统计划任务。发行前仅从 `package.json files` 白名单隔离复制源码到 `E:\Temp`，安装固定依赖并逐一校验打包文件哈希；原账号库、开发日志和未授权源文件不会进入安装包。稳定版仍须在生产环境验证登录、账单和故障恢复。
+旧安装包缺少 `@deepseek-ai/dsh-credentials` 等真实运行依赖，导致渠道包显示「加载失败」。RC.9 曾尝试将固定版本的 DSH Cordis、LlmRuntime、Credentials、Error 和 Schemastery 连同间接依赖放进 .tgz，但实际插件管理器剔除了嵌套依赖，造成加载失败；该发行方式已由 RC.10 的单文件运行模块替代。安装时无需另外运行服务、下载 Node 服务脚本、手动安装 DLL 或创建系统计划任务。发行前仅从 `package.json files` 白名单隔离复制源码到 `E:\Temp`，安装固定依赖并逐一校验打包文件哈希；原账号库、开发日志和未授权源文件不会进入安装包。稳定版仍须在生产环境验证登录、账单和故障恢复。
 
 ## RC.8：WorkBuddy 双区域独立接管、Lingxi 在线推理与多账号精确路由
 

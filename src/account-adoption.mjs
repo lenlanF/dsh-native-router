@@ -8,14 +8,13 @@ import {SOURCE_DAILY_SIGNIN_PROVIDERS} from './embedded-pack.mjs';
 import {ownedPrivateId} from './channels/private-owned.mjs';
 import {workbuddyOwnedId} from './workbuddy-vault-adoption.mjs';
 import {privatePackOwnedId} from './private-pack-adoption.mjs';
+import {ownCredentialRef} from './credential-ref.mjs';
 
 export function createAccountAdoption({configStore,originalSource,ownedPack,adapter,
  makeCredentialRef,installedInventory,privateOwnedAdoption,privatePackAdoption,workbuddyVaultAdoption}={}){
  const loadRef=async()=>{
   if(typeof makeCredentialRef==='function')return makeCredentialRef;
-  const module=await import('@deepseek-ai/dsh-credentials');
-  if(typeof module.credentialRef!=='function')throw Error('DSH Credentials unavailable');
-  return module.credentialRef;
+  return ownCredentialRef;
  };
   async function preview(){
    const original=await originalSource?.portableAccounts?.()??{state:'unavailable',accounts:[]};

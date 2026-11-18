@@ -2,6 +2,7 @@
 // Credentials service. No runtime import/dependency on dsh-connect-workbuddy.
 // The original CN/global account vaults are never mutated.
 import {createHash} from 'node:crypto';
+import {ownCredentialRef} from './credential-ref.mjs';
 
 const REGION=Object.freeze({
  'workbuddy-cn':{owner:'own_workbuddy-cn',original:'workbuddy',model:'auto'},
@@ -15,8 +16,7 @@ export const workbuddyVaultKey=ownedId=>'NATIVE_ROUTER_WB_'+ownedId.slice(4).toU
 const running=new Set();
 export function createWorkbuddyVaultAdoption({inventory,configStore,vault,
  makeCredentialRef,adapter,drivers}={}){
- const resolveRef=async name=>(makeCredentialRef??
-  (await import('@deepseek-ai/dsh-credentials')).credentialRef)(name);
+ const resolveRef=async name=>(makeCredentialRef??ownCredentialRef)(name);
  async function adopt({providerId,accountId,consent}={}){
   if(consent!==true)return {state:'consent_required'};
   const provider=REGION[providerId];
@@ -29,6 +29,7 @@ export function createWorkbuddyVaultAdoption({inventory,configStore,vault,
   const key=providerId+':'+accountId;
   if(running.has(key))return {state:'busy'};
   running.add(key);
+  let stage='credential_ref';
   try{
    const ref=await resolveRef(workbuddyVaultKey(id));
    const cfg=configStore.get();
@@ -43,6 +44,7 @@ export function createWorkbuddyVaultAdoption({inventory,configStore,vault,
    }
    if(cfg.providers.some(x=>x.id===provider.owner&&x.protocol!=='native-channel'))
     return {state:'provider_conflict'};
+   stage='read_source';
    const source=await inventory?.readCredential?.(providerId,accountId);
    if(!source||source.providerId!==providerId||source.accountId!==accountId
        ||typeof source.secret!=='string'||source.secret.length>100000)
@@ -54,6 +56,7 @@ export function createWorkbuddyVaultAdoption({inventory,configStore,vault,
      ||typeof payload.accessToken!=='string'||payload.accessToken.length<8
      ||typeof payload.refreshToken!=='string')return {state:'invalid_source_credential'};
    if(await vault.resolve(ref))return {state:'conflict'};
+   stage='save_private_credential';
    await vault.set(ref,source.secret);
    // Resolve the actual account's catalog with its copied independent secret.
    // Model IDs in the original plugin's other region are not interchangeable.
@@ -98,6 +101,7 @@ export function createWorkbuddyVaultAdoption({inventory,configStore,vault,
       id:routeId,name:(providerId==='workbuddy-cn'?'WorkBuddy 国内':'WorkBuddy 国际')+' · 独立模型',
       mode:'priority',enabled:true,maxSwitches:1,tiers:[bestModel,...models.filter(x=>x!==bestModel)]
        .slice(0,10).map(model=>({providerId:provider.owner,model,free:false,accountIds:[id]}))}];
+    stage='persist_owned_account';
     configStore.replace({...fresh,providers,accounts,routes,
       sessionReuse:{...fresh.sessionReuse,
        linkedIds:[...new Set([...(fresh.sessionReuse.linkedIds??[]),id])].slice(-200),
@@ -108,7 +112,8 @@ export function createWorkbuddyVaultAdoption({inventory,configStore,vault,
    return {state:'stored_unverified',accountId:id,ownedProviderId:provider.owner,
     originalUnchanged:true,modelCatalogVerified:onlineModels.length>0,
     activation:onlineModels.length?'requires_live_inference_validation':'requires_live_model_validation'};
-  }catch{return {state:'unavailable'}}
+  }catch(error){return {state:error?.code==='CREDENTIALS_UNAVAILABLE'?'credentials_unavailable':'unavailable',
+    stage,originalUnchanged:true}}
   finally{running.delete(key)}
  }
  return {adopt};

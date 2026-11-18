@@ -13,7 +13,9 @@ export const SOURCE_DAILY_SIGNIN_PROVIDERS=Object.freeze([
 // Excluded deliberately: WorkBuddy/Cline have no daily check-in; Raccoon is
 // credited daily by its server and its claim button is a one-time login bonus.
 // Gemini has no source daily claim endpoint.
-const loadPinnedPack=()=>import('../vendor/channel-pack/pack-native.js');
+// The runtime is prebundled into one self-contained ESM file. The DSH plugin
+// manager does not preserve nested node_modules from npm bundleDependencies.
+const loadPinnedPack=()=>import('../vendor/channel-pack/pack-runtime.mjs');
 const OFF=new Set(['0','off','false','no']);
 const disabled=(env,key)=>OFF.has(String(env[key]??'').trim().toLowerCase());
 function safetyReason(env){
@@ -28,7 +30,7 @@ function safetyReason(env){
  return '';
 }
 export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPack=loadPinnedPack,modelTimeoutMs=20000}){
-  let state='disabled',reason='',disposed=false,activeScope=null,injectedCallback=null;
+  let state='disabled',reason='',errorStage='',disposed=false,activeScope=null,injectedCallback=null;
    let skippedProviders=new Set();
    // The bundled derivative owns a dedicated Cordis service and never binds to
    // any already-installed plugin's accountPool. Test injected packs keep the
@@ -53,7 +55,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
       &&loadPack!==loadPinnedPack);
   let selectionGuard=null;
   const providerStreams=new Set();
-  function status(){return {state,reason,
+  function status(){return {state,reason,errorStage,
      channelCount:nativeOwned?SOURCE_PACK_PROVIDERS.length:SOURCE_PACK_PROVIDERS.length-skippedProviders.size,
      channels:SOURCE_PACK_PROVIDERS.filter(id=>sourceAllowed(id)),
      skippedProviders:[...skippedProviders],independentLogin:nativeOwned,
@@ -68,16 +70,17 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
      :safetyReason(env)||channelPackIsolationReason(env);
    if(denied){state='blocked';reason=denied;return status()}
   if(typeof ctx?.inject!=='function'){state='blocked';reason='当前 DSH 宿主不支持按需服务注入';return status()}
-  state='waiting_host_services';reason='';
+  state='waiting_host_services';reason='';errorStage='';
   try{
     const onInjected=scope=>{
+    let phase='service_injection';
     if(disposed)return;
      const profileDenied=loadPack===loadPinnedPack?'':channelPackIsolationReason(env,scope);
      if(profileDenied){state='blocked';reason=profileDenied;return}
        if(sourcePool(scope)){
         state='blocked';reason='本渠道授权服务已存在，拒绝覆盖其他账号池';return;
        }
-    state='loading';
+    state='loading';phase='host_provider_inventory';
       scope.effect?.(()=>()=>{
        selectionGuard?.restore();selectionGuard=null;
        activeScope=null;
@@ -113,6 +116,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
         }
       }
       if(disposed||state==='host_disposed')return null;
+      phase='import_standalone_runtime';
       return loadPack();
      }).then(pack=>{
       if(pack===null)return;
@@ -124,10 +128,12 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
        // uses an isolated private state namespace with no auxiliary listener.
        const changed=loadPack===loadPinnedPack?'':safetyReason(env)||channelPackIsolationReason(env,scope);
        if(changed){state='blocked';reason=changed;return}
+       phase='register_owned_adapter';
        pack.apply(scope,{disableOpencode:true});
        activeScope=scope;
        // Scoped overlays affect only request-local AsyncLocalStorage contexts;
        // unscoped source and other host consumers retain the original methods.
+       phase='pin_independent_accounts';
        if(multiAccountOptIn){
           const pool=sourcePool(scope);
          const credentials=scope.credentials??scope.get?.('credentials');
@@ -135,16 +141,16 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
            isAlive:()=>!disposed&&state==='mounted'&&activeScope===scope})}
          catch{selectionGuard=null;ctx.logger?.warn?.('native-router: exact-account DSH credential isolation unavailable; multiaccount disabled safely')}
        }
-       state='mounted';reason='';
+       state='mounted';reason='';errorStage='';
     }).catch(error=>{
      if(disposed||state==='host_disposed')return;
-     state='failed';
+     state='failed';errorStage=phase;
      reason=['ERR_MODULE_NOT_FOUND','MODULE_NOT_FOUND'].includes(error?.code)
        ?'内置渠道包运行依赖缺失；请重新安装含完整依赖的插件发行包'
        :error?.code==='DUPLICATE_ADAPTER'
        ?'独立模型路由名称冲突，已保护宿主原路由；请检查其他插件'
        :'渠道包挂载失败；宿主服务或运行时不兼容，原账号未被更改';
-     ctx.logger?.warn?.('dsh-native-router: embedded channel pack unavailable');
+     ctx.logger?.warn?.('dsh-native-router: source pack failed at '+errorStage);
     });
     };
     injectedCallback=onInjected;

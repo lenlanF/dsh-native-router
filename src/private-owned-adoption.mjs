@@ -3,6 +3,7 @@
 // with an exact opaque id is copied, never the original file/database.
 // Stored secrets use the DSH Credentials service; no token enters config.
 import {PRIVATE_PROVIDERS,ownedPrivateId} from './channels/private-owned.mjs';
+import {ownCredentialRef} from './credential-ref.mjs';
 const SUPPORTED=new Set(Object.keys(PRIVATE_PROVIDERS));
 const credentialKey=id=>'NATIVE_ROUTER_PRIVATE_'+id.slice(3).toUpperCase();
 const USED=new Set();
@@ -15,8 +16,7 @@ export function createPrivateOwnedAdoption({inventory,configStore,vault,makeCred
  adapter,now=()=>Date.now()}={}){
  async function getRef(){
   if(typeof makeCredentialRef==='function')return makeCredentialRef;
-  const {credentialRef}=await import('@deepseek-ai/dsh-credentials');
-  return credentialRef;
+  return ownCredentialRef;
  }
  async function adopt({providerId,accountId,consent}={}){
   if(consent!==true)return {state:'consent_required'};
@@ -30,6 +30,7 @@ export function createPrivateOwnedAdoption({inventory,configStore,vault,makeCred
   const key=providerId+':'+accountId;
   if(USED.has(key))return {state:'busy'};
   USED.add(key);
+  let stage='credential_ref';
   try{
    const cfg=configStore.get();
    const ownerId=PRIVATE_PROVIDERS[providerId].ownedId,refName=credentialKey(id);
@@ -48,12 +49,14 @@ export function createPrivateOwnedAdoption({inventory,configStore,vault,makeCred
     return {state:'provider_conflict'};
    // Read raw source authorization ONLY after the user explicitly chose it.
    // The opaque account ID must still match the current persistent source.
+   stage='read_source';
    const original=await inventory?.readCredential?.(providerId,accountId);
    if(!original||original.providerId!==providerId||original.accountId!==accountId
       ||typeof original.secret!=='string'||!original.secret)
     return {state:'source_missing_or_changed'};
    const current=await vault.resolve(ref);
    if(current)return {state:'conflict'};
+   stage='save_private_credential';
    await vault.set(ref,original.secret);
    let written=false;
    try{
@@ -78,6 +81,7 @@ export function createPrivateOwnedAdoption({inventory,configStore,vault,makeCred
        tiers:models.map(model=>({providerId:ownerId,model,free:false,accountIds:[]}))
          .slice(0,10)}];
     }
+    stage='persist_owned_account';
     configStore.replace({...fresh,providers,accounts,routes,
       sessionReuse:{...fresh.sessionReuse,
        linkedIds:[...new Set([...(fresh.sessionReuse.linkedIds||[]),id])].slice(-200),
@@ -89,7 +93,8 @@ export function createPrivateOwnedAdoption({inventory,configStore,vault,makeCred
    adapter?.invalidateCatalog?.();
    return {state:'stored_unverified',providerId:ownerId,accountId:id,
     originalUnchanged:true,activation:'requires_live_model_validation'};
-  }catch{return {state:'unavailable'}}
+  }catch(error){return {state:error?.code==='CREDENTIALS_UNAVAILABLE'?'credentials_unavailable':'unavailable',
+    stage,originalUnchanged:true}}
   finally{USED.delete(key)}
  }
  return {adopt};

@@ -61,7 +61,7 @@ function readJson(req){
     req.on('error',error=>{if(!finished){finished=true;reject(error)}});
   });
 }
-export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,checkinCenter,embeddedPack,sessionReuse,accountAdoption,hostProviderInventory}){
+export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,checkinCenter,embeddedPack,sessionReuse,accountAdoption,hostProviderInventory,credentialsBridge}){
   const server=ctx.get?.('webServer')??ctx.webServer;
   if(!server?.register)return()=>{};
   const dispose=[];
@@ -89,6 +89,7 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
     if(!isLoopback(req))return json(res,403,{error:'Loopback only'});
     if(req.method!=='GET')return json(res,405,{error:'Method not allowed'});
     return json(res,200,{ok:true,...adapter.getStatus(),embeddedPack:embeddedPack?.status?.()??{state:'unavailable'},
+      credentialService:credentialsBridge?.status?.()??{state:'unknown',available:false},
       sessionReuse:sessionReuse?.snapshot?.()??{enabled:false,channels:[]}});
   });
   mount('/host/models',async(req,res)=>{

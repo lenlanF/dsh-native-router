@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$ExpectedVersion='1.0.0-rc.9')
+param([string]$ExpectedVersion='1.0.0-rc.10')
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 
@@ -18,6 +18,9 @@ if($packageJson.name -ne 'dsh-native-router' -or $packageJson.version -ne $Expec
 if($packageJson.private -ne $false){throw 'Release candidate must not be private'}
 if($packageJson.license -ne 'MIT'){throw 'Public license metadata must be MIT'}
 if($packageJson.engines.node -ne '>=22.10.0'){throw 'Source pack minimum supported Node version missing'}
+if($packageJson.PSObject.Properties['dependencies'] -or $packageJson.PSObject.Properties['bundleDependencies']){
+ throw 'DSH plugin-manager release must have no runtime node_modules dependency'
+}
 foreach($hook in @('start','postinstall','preinstall')){
  if($packageJson.scripts.PSObject.Properties[$hook]){
   throw ('A native Cordis plugin cannot expose a '+$hook+' lifecycle script')
@@ -27,7 +30,10 @@ $manifest=@('LICENSE','SECURITY.md','README.md','CHANGELOG.md','client.js','cord
  'src/index.mjs','src/host-failover.mjs','src/failover/state.mjs',
  'src/connection-routes.mjs','src/existing-dsh-channels.mjs',
  'docs/RELEASE_ACCEPTANCE.md','vendor/channel-pack/pack-native.js',
- 'vendor/channel-pack/SOURCE_RECEIPT.json','vendor/channel-pack/NATIVE_BUILD_RECEIPT.json')
+ 'vendor/channel-pack/pack-runtime.mjs','vendor/channel-pack/STANDALONE_BUILD_RECEIPT.json',
+ 'vendor/channel-pack/THIRD_PARTY_NOTICES.md','src/credential-ref.mjs',
+ 'src/credentials-bridge.mjs','vendor/channel-pack/SOURCE_RECEIPT.json',
+ 'vendor/channel-pack/NATIVE_BUILD_RECEIPT.json')
 Push-Location $root
 try {
  # Build ONLY from the package.json release allowlist, never directly from the
@@ -47,12 +53,11 @@ try {
   New-Item -Path (Split-Path -Parent $to) -ItemType Directory -Force|Out-Null
   Copy-Item -LiteralPath $from -Destination $to -Recurse -Force
  }
- # Install pinned, allowlisted DSH runtime modules in temporary storage. npm
- # bundleDependencies embeds them in this ONE plugin package, not a daemon.
+ # The self-contained, hash-verified runtime already lives under vendor/.
+ # DSH's real plugin manager strips nested node_modules; do not npm-install
+ # dependency packages here and falsely certify a plain npm install.
  Push-Location $stage
  try {
-  $install=& npm.cmd install --legacy-peer-deps --ignore-scripts --no-audit --no-fund --loglevel=error 2>&1
-  if($LASTEXITCODE -ne 0){throw 'Cannot assemble pinned DSH dependencies in isolated release stage'}
   $stdout=& npm.cmd pack --json --pack-destination $root 2>&1
   if($LASTEXITCODE -ne 0){throw 'Cannot package self-contained DSH plugin'}
  }finally{Pop-Location}
@@ -68,25 +73,25 @@ try {
  foreach($file in $manifest){
   if(-not ($paths -ccontains $file)){throw ('Missing mandatory release member '+$file)}
  }
- $deny='(^|/)(?:\.git|\.env(?:\.[^/]*)?|config\.json|credentials?\.json|accounts?\.json|tokens?\.json|auth\.json|session\.json)(?:/|$)'
+ $deny='(^|/)(?:\.git|node_modules|\.env(?:\.[^/]*)?|config\.json|credentials?\.json|accounts?\.json|tokens?\.json|auth\.json|session\.json)(?:/|$)'
  if(@($paths|Where-Object {$_ -match $deny -or $_ -match '^(?:tools|tests)/' -or $_ -eq 'vendor/channel-pack/pack.js'}).Count){
   throw 'Archive contains original source, test helpers, config/secret files or runtime dependencies'
  }
- # Exact bundled credential/LLM runtime required for autonomous login.
- foreach($required in @(
-  'node_modules/@deepseek-ai/cordis/package.json',
-  'node_modules/@deepseek-ai/dsh-llm/package.json',
-  'node_modules/@deepseek-ai/dsh-credentials/package.json',
-  'node_modules/@deepseek-ai/dsh-error/package.json',
-  'node_modules/@deepseek-ai/schemastery/package.json')){
-  if(-not($paths -ccontains $required)){
-   throw ('Self-contained runtime module missing: '+$required)
-  }
+ # Runtime imports are statically embedded in pack-runtime.mjs, not node_modules.
+ $standalone=Get-Content (Join-Path $extract 'package/vendor/channel-pack/STANDALONE_BUILD_RECEIPT.json') -Raw | ConvertFrom-Json
+ if($standalone.extraProcesses -ne 0 -or $standalone.noBareRuntimeImports -ne $true){
+  throw 'Compiled runtime must have no extra processes or bare ESM package imports'
+ }
+ if((Get-FileHash (Join-Path $extract 'package/vendor/channel-pack/pack-runtime.mjs') -Algorithm SHA256).Hash.ToLowerInvariant() -ne $standalone.runtimeSha256){
+  throw 'Runtime compiled source SHA256 mismatch'
+ }
+ if($standalone.nativeSourceSha256 -ne $((Get-Content (Join-Path $extract 'package/vendor/channel-pack/NATIVE_BUILD_RECEIPT.json') -Raw | ConvertFrom-Json).generatedSha256)){
+  throw 'Standalone build receipt does not match the pinned MIT native source'
  }
  $count=0
  foreach($item in $pkg.files){
   $part=$item.path.Replace('/','\')
-  $actual=Join-Path $(if($item.path.StartsWith('node_modules/')){$stage}else{$root}) $part
+  $actual=Join-Path $root $part
   $unpacked=Join-Path (Join-Path $extract 'package') $part
   if(!(Test-Path -LiteralPath $actual -PathType Leaf)-or
      !(Test-Path -LiteralPath $unpacked -PathType Leaf)){
@@ -128,7 +133,21 @@ try {
    }
   }
  if($derivative.additionalRuntimeProcessRequired -ne $false){throw 'Extra runtime process forbidden'}
- $distribution=[pscustomobject]@{
+ # Reproduce the exact DSH plugin-manager failure mode: after extracting
+ # only the allowlisted .tgz files, the channel ESM must import with no
+ # installed node_modules at all. Use the actual DSH-managed Node runtime.
+ $runtimeNode=Join-Path ([Environment]::GetFolderPath('UserProfile')) '.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe'
+ if(-not(Test-Path -LiteralPath $runtimeNode -PathType Leaf)){
+  throw 'Cannot verify independent source ESM against the DSH-managed Node runtime'
+ }
+ $runtimePath=Join-Path $extract 'package/vendor/channel-pack/pack-runtime.mjs'
+ $moduleUrl=([Uri]([IO.Path]::GetFullPath($runtimePath))).AbsoluteUri
+ $sourceProbe="const m=await import('$moduleUrl');if(typeof m.apply!=='function')process.exit(7);console.log('standalone-import-pass')"
+ $sourceResult=& $runtimeNode '--input-type=module' '-e' $sourceProbe
+ if($LASTEXITCODE -ne 0 -or $sourceResult -ne 'standalone-import-pass'){
+  throw 'Standalone runtime cannot import without node_modules; reject release'
+ }
+  $distribution=[pscustomobject]@{
   result='PASS'
   releaseStage='candidate-offline-verified'
   stableProductionAcceptance='PENDING_MANUAL_APPROVAL'
@@ -140,6 +159,9 @@ try {
   pinnedMITReferences=$original.referenceFiles.Count
   originalSha256=$derivative.originalSha256
   nativeSourceSha256=$derivative.generatedSha256
+  standaloneRuntimeSha256=$standalone.runtimeSha256
+  importedWithNoNodeModules=$true
+  importedUnderDshManagedNode=$true
   private=$packageJson.private
   license=$packageJson.license
   nodeMinimum=$packageJson.engines.node

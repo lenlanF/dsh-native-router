@@ -1,6 +1,6 @@
 {
   "name": "dsh-native-router",
-  "version": "1.0.0-rc.9",
+  "version": "1.0.0-rc.10",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -33,6 +33,9 @@
     "docs/RELEASE_ACCEPTANCE.md",
     "docs/WORKBUDDY_NATIVE.md",
     "vendor/channel-pack/pack-native.js",
+    "vendor/channel-pack/pack-runtime.mjs",
+    "vendor/channel-pack/STANDALONE_BUILD_RECEIPT.json",
+    "vendor/channel-pack/THIRD_PARTY_NOTICES.md",
     "vendor/channel-pack/qoder-auth-wasm.wasm",
     "vendor/channel-pack/LICENSE",
     "vendor/channel-pack/NOTICE.md",
@@ -56,20 +59,6 @@
       ]
     }
   },
-  "dependencies": {
-    "@deepseek-ai/cordis": "4.1.0",
-    "@deepseek-ai/dsh-llm": "0.2.2-rc.3",
-    "@deepseek-ai/dsh-credentials": "0.2.2-rc.3",
-    "@deepseek-ai/dsh-error": "0.2.2-rc.3",
-    "@deepseek-ai/schemastery": "3.19.0"
-  },
-  "bundleDependencies": [
-    "@deepseek-ai/cordis",
-    "@deepseek-ai/dsh-llm",
-    "@deepseek-ai/dsh-credentials",
-    "@deepseek-ai/dsh-error",
-    "@deepseek-ai/schemastery"
-  ],
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=4.0.2 <5",
     "@deepseek-ai/dsh-llm": ">=0.2.0-rc.2 <0.3.0-0",

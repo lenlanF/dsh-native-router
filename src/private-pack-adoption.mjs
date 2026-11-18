@@ -4,6 +4,7 @@
 // Chat, login, refresh and check-in are executed by pack-native.js, NOT copied.
 import {createHash} from 'node:crypto';
 import {sourceAccountOpaqueId} from './source-account-ref.mjs';
+import {ownCredentialRef} from './credential-ref.mjs';
 
 const SOURCE=Object.freeze({
  loomy:Object.freeze({provider:'loomy',owned:'own_loomy',
@@ -24,7 +25,7 @@ export function createPrivatePackAdoption({inventory,configStore,ownedPack,adapt
  makeCredentialRef}={}){
  const getRef=async()=>{
   if(makeCredentialRef)return makeCredentialRef;
-  return (await import('@deepseek-ai/dsh-credentials')).credentialRef;
+  return ownCredentialRef;
  };
  async function adopt({providerId,accountId,consent}={}){
   if(consent!==true)return {state:'consent_required'};

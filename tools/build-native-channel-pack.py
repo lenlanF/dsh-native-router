@@ -6,6 +6,7 @@ DSH plugin. Never change or overwrite the pinned MIT upstream snapshot.
 from __future__ import annotations
 import hashlib
 import json
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -218,6 +219,22 @@ def build(*, check=False):
         raise SystemExit(f"Source credits scope changed upstream: expected many per-provider pool reads, got {count}")
     text = text[:start] + region.replace(old, 'await nativeRouterCreditAccounts(req)') + text[end:]
     names.append("scope-all-credits-status-and-claims-to-one-account")
+    # Upstream Gemini embeds a Google OAuth client ID/secret. They are not
+    # plugin-owned credentials and must NEVER be distributed or pushed to a
+    # public repository. Preserve upstream snapshot unchanged; the derived
+    # source requires explicit local OAuth credentials through the already
+    # supported CMDC_PAK_GOOGLE_CLIENT_ID/SECRET environment variables.
+    for suffix in ("ID", "SECRET"):
+        name = "GEMINI_DEFAULT_CLIENT_" + suffix
+        pattern = re.compile(r'(?m)^var ' + name + r' = (.+);$')
+        matches = list(pattern.finditer(text))
+        if len(matches) != 1 or len(matches[0].group(1)) < 10:
+            raise SystemExit("Pinned upstream Google OAuth default cannot be safely redacted: " + suffix)
+        text = text[:matches[0].start()] + 'var ' + name + ' = "";' + text[matches[0].end():]
+        names.append("remove-upstream-google-oauth-default-" + suffix.lower())
+    for key in ("GEMINI_DEFAULT_CLIENT_ID", "GEMINI_DEFAULT_CLIENT_SECRET"):
+        if not re.search(r'(?m)^var ' + key + r' = "";$', text):
+            raise SystemExit("Google OAuth default redaction did not hold")
     generated = text.encode("utf8")
     metadata = {
         "kind": "deterministic-in-process-derivative",

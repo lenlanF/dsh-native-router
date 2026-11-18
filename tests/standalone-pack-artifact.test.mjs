@@ -1,0 +1,37 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {createHash} from 'node:crypto';
+const bytes=p=>readFileSync(new URL('../'+p,import.meta.url));
+const sha=value=>createHash('sha256').update(value).digest('hex');
+test('rc.10 embeds source channel implementation in a hash-pinned, dependency-free DSH module',()=>{
+ const receipt=JSON.parse(bytes('vendor/channel-pack/STANDALONE_BUILD_RECEIPT.json').toString('utf8'));
+ const generated=bytes('vendor/channel-pack/pack-runtime.mjs');
+ const native=JSON.parse(bytes('vendor/channel-pack/NATIVE_BUILD_RECEIPT.json').toString('utf8'));
+ assert.equal(receipt.kind,'single-file-in-process-channel-runtime');
+ assert.equal(receipt.bundlerVersion,'0.25.12');
+ assert.equal(receipt.nativeSourceSha256,native.generatedSha256);
+ assert.equal(receipt.dshLlmVersion,'0.2.2-rc.3');
+ assert.equal(receipt.extraProcesses,0);
+ assert.equal(receipt.noBareRuntimeImports,true);
+ assert.equal(receipt.runtimeFile,'pack-runtime.mjs');
+ assert.equal(receipt.bytes,generated.length);
+ assert.equal(receipt.runtimeSha256,sha(generated));
+ const text=generated.toString('utf8');
+ assert.doesNotMatch(text,/createRequire\(import\.meta\.url\)\("\.\.\/package\.json"\)/);
+ assert.doesNotMatch(text,/^import .*? from ["']@deepseek-ai\//m);
+ assert.match(text,/native-router-source-/);
+ assert.match(text,/nativeRouterSourceAccountPool/);
+ assert.match(text,/var version = "0\.2\.2-rc\.3"/);
+ // Never ship or publish upstream default Google OAuth client credentials.
+ assert.match(text,/^var GEMINI_DEFAULT_CLIENT_ID = "";$/m);
+ assert.match(text,/^var GEMINI_DEFAULT_CLIENT_SECRET = "";$/m);
+ const declared=Object.entries(receipt.dependencies);
+ assert.equal(declared.length,5);
+ assert.equal(declared.every(([key,value])=>key.startsWith('@deepseek-ai/')&&typeof value==='string'),true);
+ const pkg=JSON.parse(bytes('package.json').toString('utf8'));
+ assert.ok(pkg.files.includes('vendor/channel-pack/pack-runtime.mjs'));
+ assert.ok(pkg.files.includes('vendor/channel-pack/THIRD_PARTY_NOTICES.md'));
+ assert.equal(pkg.bundleDependencies,undefined);
+ assert.equal(pkg.dependencies,undefined);
+});

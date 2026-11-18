@@ -4,8 +4,8 @@
   "originalFile": "pack.js",
   "originalSha256": "5a87770f727c2827f6d75b34351de54b92facfc67dd8a4b52fb0ecf794158247",
   "generatedFile": "pack-native.js",
-  "generatedBytes": 3017776,
-  "generatedSha256": "0a15fb5f00f2b047ca48b32219c78d8ab10b1ef82b1a16c896eabdfa12284013",
+  "generatedBytes": 3017658,
+  "generatedSha256": "91524939adf46d478589e97d3f493e4837b3ac5d0fcc4616c9538447bebb04f7",
   "patches": [
     "private-settings-namespace",
     "private-profile-subdirectory",
@@ -22,7 +22,9 @@
     "remove-separate-openai-gateway",
     "remove-duplicate-loop-resume",
     "register-independent-source-provider-aliases",
-    "scope-all-credits-status-and-claims-to-one-account"
+    "scope-all-credits-status-and-claims-to-one-account",
+    "remove-upstream-google-oauth-default-id",
+    "remove-upstream-google-oauth-default-secret"
   ],
   "additionalRuntimeProcessRequired": false,
   "bundledByDSHPlugin": true

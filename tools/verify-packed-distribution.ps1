@@ -1,15 +1,18 @@
 [CmdletBinding()]
 param(
- [string]$Version='1.0.0-rc.9',
+ [string]$Version='1.0.0-rc.10',
  [string]$NodePath='E:\Temp\dsh-native-router-isolated-alpha11-node-runtime\package\bin\node.exe'
 )
 $ErrorActionPreference='Stop'
 $project=([IO.DirectoryInfo](Resolve-Path (Join-Path $PSScriptRoot '..')).Path).FullName
 $archive=Join-Path $project ('dsh-native-router-'+$Version+'.tgz')
 if(!(Test-Path -LiteralPath $archive -PathType Leaf)){throw 'Audited local .tgz is required first'}
+$realDshNode=Join-Path ([Environment]::GetFolderPath('UserProfile')) '.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe'
+$actualNode=[IO.Path]::GetFullPath($NodePath)
 if(!(Test-Path -LiteralPath $NodePath -PathType Leaf)-or
- -not [IO.Path]::GetFullPath($NodePath).StartsWith('E:\Temp\',[StringComparison]::OrdinalIgnoreCase)){
- throw 'Portable Node from E:\Temp is required'}
+ -not ($actualNode.StartsWith('E:\Temp\',[StringComparison]::OrdinalIgnoreCase) -or
+       $actualNode.Equals($realDshNode,[StringComparison]::OrdinalIgnoreCase))){
+ throw 'Only isolated E:\Temp Node or the DSH-managed Node runtime may be used'}
 $nodeVersion=& $NodePath -p 'process.versions.node'
 if($LASTEXITCODE -ne 0 -or [Version]$nodeVersion -lt [Version]'22.10.0'){
  throw 'Node runtime is too old to import the embedded DSH source channels'}
@@ -72,9 +75,38 @@ try{
  assert.equal(data.ok,true);
  assert.equal(data.sessionReuse.enabled,false);
  assert.equal(data.embeddedPack.state,'disabled');
+ assert.equal(data.credentialService.available,true,'Credentials must be available through the actual DSH Host service');
  assert.equal(ports.length,1,'Only DSH WebServer may open a listener');
  assert.equal(existsSync(join(process.env.DSH_HOME,'plugins','dsh-native-router','config.json')),false,
   'Fresh installation must not write DSH configuration before explicit user changes');
+ // The source pack must also activate from the EXACT published tarball when
+ // host WorkBuddy/Loomy already own their public provider names. No real auth,
+ // remote traffic or external runtime process is permitted in this acceptance.
+ const originalAdapter={
+  providerInfo:id=>({id,name:'Original '+id}),
+  providerRetryPolicy:()=>undefined,
+  listModels:async()=>[],
+  async *stream(){},
+ };
+ const releaseOriginal=llm.registerAdapter(['workbuddy','loomy'],originalAdapter);
+ const {createEmbeddedChannelPack}=await import(
+   new URL('./node_modules/dsh-native-router/src/embedded-pack.mjs',import.meta.url));
+ const ownedSource=createEmbeddedChannelPack({ctx,getConfig:()=>({embeddedPack:{enabled:true}})});
+ try{
+  ownedSource.attach();
+  for(let i=0;i<40&&!['mounted','failed','blocked','host_disposed'].includes(ownedSource.status().state);i++)
+   await new Promise(resolve=>setTimeout(resolve,75));
+  const sourceStatus=ownedSource.status();
+  assert.equal(sourceStatus.state,'mounted',
+   'Self-contained native channels cannot mount in actual DSH: '+sourceStatus.reason);
+  assert.equal(sourceStatus.channelCount,13);
+  const after=llm.listProviders().map(row=>row.id);
+  assert.ok(after.includes('workbuddy')&&after.includes('loomy'));
+  assert.equal(after.filter(id=>id.startsWith('native-router-source-')).length,13);
+  assert.ok(after.includes('native-router-source-workbuddy'));
+  assert.ok(after.includes('native-router-source-loomy'));
+  assert.equal(ports.length,1,'No source pack extra web server listener');
+ }finally{ownedSource.dispose();releaseOriginal()}
  loaded=true;
 }finally{
  ctx.registry.delete(router);
@@ -88,7 +120,8 @@ assert.ok(loaded);
 console.log(JSON.stringify({result:'PASS',packagedModuleImported:true,
  nativeProviderRegisteredAndUnloaded:true,authenticatedOwnerStatus:200,
  anonymousStatus:401,afterUnload:404,
- sourcePackDefaultDisabled:true,configNotWritten:true,
+ sourcePackDefaultDisabled:true,sourceMountWithHostCollisions:true,
+ thirteenIndependentAdapters:true,credentialsServiceReady:true,configNotWritten:true,
  onlyDshWebServerListener:true,realAccounts:0,networkCloudCalls:0,
  independentProcesses:0}));
 process.exit(0);
