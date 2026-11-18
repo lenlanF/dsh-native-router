@@ -1,5 +1,13 @@
 # Change Log
 
+## 1.0.0-rc.8 — 2026-11-18 — WorkBuddy 双区原生独立接管、Lingxi 真正推理、13 渠道多账号隔离
+
+- WorkBuddy MIT v5 私有 vault 的 CN/global 双区账号可只读识别，用户逐个确认后复制到独立 DSH Credentials，分别创建 `own_workbuddy-cn`、`own_workbuddy-global` 模型链；原账号文件与原插件完全不变。
+- 对齐原 WorkBuddy MIT 实现的目录、会话消息身份、`X-Refresh-Token` 续期和签到状态回查；测试包括删除原插件来源文件后的独立调用、刷新凭据落盘和模拟重启复用。
+- 真机只读模型目录国内 60 项/国际 28 项；双区各经自有驱动实时返回 2 字符正文。Lingxi 修复 `data.models[].key` 模型列表，11 个真实模型、独立对话返回 2 字符正文。
+- 内置 MIT 来源包 13 渠道的选中账号凭据隔离已经验证 26 个虚构账号，拒绝错误账号回退。ZCode SQLite 在 Node 22.16 可见 1 个账号，Node 22.5 缺少 SQLite 的原因明确提示。
+- UI 改为按原插件显示已发现账号，并区分需要 MIT 来源包的渠道与可独立接管 WorkBuddy/Lingxi。不将令牌存在、模型目录、模拟签到视为正式环境交付完成。
+
 ## 1.0.0-rc.7 — 2026-11-18 — 优先复用 MIT Loomy/ZCode 并支持独立账号接管
 
 - 核对上游 [hulibuld/dsh-get-it-for-free](https://github.com/hulibuld/dsh-get-it-for-free) 的 MIT 原生渠道实现；Loomy 既有扫码、短信、额度领取、模型与 SSE；ZCode 既有设备授权、验证码和 Anthropic 协议，不另造一套简化协议。

@@ -7,7 +7,7 @@ import {sourceAccountOpaqueId} from './source-account-ref.mjs';
 import {SOURCE_DAILY_SIGNIN_PROVIDERS} from './embedded-pack.mjs';
 
 export function createAccountAdoption({configStore,originalSource,ownedPack,adapter,
- makeCredentialRef,installedInventory,privateOwnedAdoption,privatePackAdoption}={}){
+ makeCredentialRef,installedInventory,privateOwnedAdoption,privatePackAdoption,workbuddyVaultAdoption}={}){
  const loadRef=async()=>{
   if(typeof makeCredentialRef==='function')return makeCredentialRef;
   const module=await import('@deepseek-ai/dsh-credentials');
@@ -30,8 +30,11 @@ export function createAccountAdoption({configStore,originalSource,ownedPack,adap
     label:row.label,portable:row.providerId==='lingxi'
       ?typeof privateOwnedAdoption?.adopt==='function':
        ['loomy','zcode-start-plan'].includes(row.providerId)
-        &&typeof privatePackAdoption?.adopt==='function',
-    privatePortable:true,state:'private_authorization_unverified',source:row.source,
+        ?typeof privatePackAdoption?.adopt==='function':
+         ['workbuddy-cn','workbuddy-global'].includes(row.providerId)
+          &&typeof workbuddyVaultAdoption?.adopt==='function',
+    privatePortable:true,requiresPack:['loomy','zcode-start-plan'].includes(row.providerId),
+    state:'private_authorization_unverified',source:row.source,
    }));
    return {state:original.state==='ready'||privatePlugins?.state==='ready'?'ready':'unavailable',
     ownPackState:owned.state,plugins:privatePlugins?.plugins??[],
@@ -40,6 +43,8 @@ export function createAccountAdoption({configStore,originalSource,ownedPack,adap
   }
  async function adopt({providerId,accountId,consent}={}){
   if(consent!==true)return {state:'consent_required'};
+  if(['workbuddy-cn','workbuddy-global'].includes(providerId))
+    return workbuddyVaultAdoption?.adopt?.({providerId,accountId,consent})??{state:'unsupported'};
   if(/^local_[a-f0-9]{20}$/.test(String(accountId))
     &&['loomy','zcode-start-plan'].includes(providerId))
    return privatePackAdoption?.adopt?.({providerId,accountId,consent})??{state:'unsupported'};

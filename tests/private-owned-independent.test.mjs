@@ -72,7 +72,7 @@ function rig(providerId){
   }
   if(providerId==='lingxi'){
    assert.ok((init.headers?.cookie??'').includes(secret));
-   if(name.endsWith('/sessions/plans'))return response({data:{models:[{id:'qwen3.8_flash'}]}});
+   if(name.endsWith('/sessions/plans'))return response({data:{models:[{key:'qwen3.8_flash',name:'Qwen Flash'}],plans:[{id:'agent-mode-not-a-model'}]}});
    if(name.endsWith('/cowork/sessions'))return response({data:{session_id:'session-test'}});
    if(name.endsWith('/credits/runs'))return response({data:{run_id:'run-test'}});
    if(name.endsWith('/chat/completions'))return response(lingxiSse(),{
@@ -109,6 +109,8 @@ for(const providerId of Object.keys(PRIVATE_PROVIDERS)){
   const identity=ownedPrivateId(providerId,r.sourceId);
   assert.equal(r.cfg.accounts[0].id,identity);
   r.removeOriginal();
+  const checkedModels=await r.driver.listModels({account:r.cfg.accounts[0]});
+  assert.deepEqual(checkedModels.map(m=>m.id),['qwen3.8_flash']);
   const adapter=createNativeRouterAdapter({configStore:r.configStore,
    channelDrivers:new Map([[ownedId,r.driver]]),vault:{
     resolve:async()=>{throw Error('must not read original plugin')}}});

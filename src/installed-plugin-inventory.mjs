@@ -5,6 +5,7 @@ import {existsSync,lstatSync,readFileSync,readdirSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 import {createHash} from 'node:crypto';
+import {createWorkbuddyVaultInventory} from './workbuddy-vault.mjs';
 const SOURCES=[
  {packageName:'dsh-connect-workbuddy',providerId:'workbuddy',name:'WorkBuddy',kind:'private-vault'},
  {packageName:'dsh-connect-lingxi',providerId:'lingxi',name:'Lingxi',kind:'private-json'},
@@ -46,6 +47,7 @@ export function createInstalledPluginInventory({home=homedir(),
  publicLoomyDir=process.platform==='win32'?'C:\\Users\\Public\\Loomy':null,
  sqliteReader}={}){
  const root=join(profileDir,'node_modules'),data=join(profileDir,'data');
+  const workbuddyVault=createWorkbuddyVaultInventory({home});
  function installed(pkg){
   const info=readLimited(join(root,pkg,'package.json'),256*1024);
   return info?.name===pkg?{version:compact(info.version)||'unknown'}:null;
@@ -55,7 +57,9 @@ export function createInstalledPluginInventory({home=homedir(),
   let db;
   try{
    if(sqliteReader)return {state:'ready',rows:await sqliteReader(file)};
-   const {DatabaseSync}=await import('node:sqlite');
+   let DatabaseSync;
+   try{({DatabaseSync}=await import('node:sqlite'))}
+   catch{return {state:'node_sqlite_unavailable',rows:[]}}
    db=new DatabaseSync(file,{readOnly:true});
    // Explicit column allowlist: never SELECT credential.
    const rows=db.prepare('SELECT id, enabled FROM accounts LIMIT 101').all();
@@ -64,6 +68,9 @@ export function createInstalledPluginInventory({home=homedir(),
   finally{try{db?.close()}catch{}}
  }
  async function readCredential(providerId,accountId){
+   if(providerId==='workbuddy-cn'||providerId==='workbuddy-global')
+    return installed('dsh-connect-workbuddy')
+     ?workbuddyVault.readCredential(providerId,accountId):null;
   if(typeof accountId!=='string'||!/^local_[a-f0-9]{20}$/.test(accountId))return null;
   if(providerId==='lingxi'&&installed('dsh-connect-lingxi')){
    const state=readLimited(join(data,'dsh-connect-lingxi','state.json'));
@@ -177,10 +184,11 @@ export function createInstalledPluginInventory({home=homedir(),
     }
    }else issues.push({providerId:'zcode-start-plan',state:state.state});
   }
-  // WorkBuddy stores login in its own plugin vault; don't classify a
-  // registered Provider as a verified logged-in user or probe its vault.
+  // Read-only WorkBuddy vault metadata is independent of the host route list.
+  if(plugins.find(p=>p.providerId==='workbuddy')?.installed)
+   for(const row of workbuddyVault.discover())add(row);
   return {state:'ready',plugins,accounts,issues,
-   detected:accounts.length,verified:0,portable:0};
+   detected:accounts.length,verified:0,portable:accounts.filter(x=>x.portable).length};
  }
  return {scan,readCredential};
 }

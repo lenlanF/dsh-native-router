@@ -35,18 +35,22 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
    // strict legacy accountPool gate to avoid touching unknown implementations.
    const sourcePoolService=loadPack===loadPinnedPack?'nativeRouterSourceAccountPool':'accountPool';
    const sourcePool=scope=>scope?.get?.(sourcePoolService,false);
-  // Multiaccount is intentionally off unless explicitly enabled in a separate
-  // E:\Temp isolated profile. These are tentative adapter paths reviewed for
-  // credential selection; actual DSH acceptance remains unverified.
-  const MULTIACCOUNT_REVIEWED=Object.freeze(['lobsterai','cline','minimax','gemini','zcode']);
-  const multiAccountOptIn=env.DSH_NATIVE_ROUTER_SOURCE_MULTIACCOUNT_EXPERIMENT==='1'
-    &&(loadPack!==loadPinnedPack||process.env.DSH_NATIVE_ROUTER_SOURCE_MULTIACCOUNT_EXPERIMENT==='1');
+  // Exact-account native-router ownership is already an explicit user choice:
+  // the bundled pack receives its OWN private account pool. Guard all sources
+  // with request-local AsyncLocalStorage and deny any source that cannot prove
+  // it consumed exactly the requested credential. No second process or env flag.
+  // Test-injected ORIGINAL packs retain their opt-in isolation fence.
+  const MULTIACCOUNT_REVIEWED=Object.freeze([...SOURCE_PACK_PROVIDERS]);
+  const multiAccountOptIn=loadPack===loadPinnedPack
+    ||(env.DSH_NATIVE_ROUTER_SOURCE_MULTIACCOUNT_EXPERIMENT==='1'
+      &&loadPack!==loadPinnedPack);
   let selectionGuard=null;
   const providerStreams=new Set();
   function status(){return {state,reason,channelCount:SOURCE_PACK_PROVIDERS.length-skippedProviders.size,
      channels:SOURCE_PACK_PROVIDERS.filter(id=>!skippedProviders.has(id)),
      skippedProviders:[...skippedProviders],
-    experimentalMultiAccountProviders:selectionGuard&&multiAccountOptIn?MULTIACCOUNT_REVIEWED:[]}}
+    experimentalMultiAccountProviders:selectionGuard&&multiAccountOptIn?MULTIACCOUNT_REVIEWED:[],
+     exactAccountGate:selectionGuard?'ready':multiAccountOptIn?'unavailable':'disabled'}}
  function attach(){
   if(disposed||['waiting_host_services','loading','mounted'].includes(state))return status();
   if(getConfig()?.embeddedPack?.enabled!==true){state='disabled';reason='';return status()}
@@ -122,7 +126,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
          const credentials=scope.credentials??scope.get?.('credentials');
          try{selectionGuard=installSourceAccountSelection({pool,credentials,
            isAlive:()=>!disposed&&state==='mounted'&&activeScope===scope})}
-         catch{selectionGuard=null;ctx.logger?.warn?.('native-router: experimental multi-account service unavailable')}
+         catch{selectionGuard=null;ctx.logger?.warn?.('native-router: exact-account DSH credential isolation unavailable; multiaccount disabled safely')}
        }
        state='mounted';reason='';
     }).catch(error=>{

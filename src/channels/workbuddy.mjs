@@ -18,6 +18,9 @@ const HEADROOM_MS=5*60*1000;
 const ID=/^wb_[0-9a-f]{20}$/;
 const TOKEN_REF=/^driver:workbuddy:(wb_[0-9a-f]{20})$/;
 const DOMAIN_CN='https://copilot.tencent.com',DOMAIN_INTL='https://www.codebuddy.ai';
+// Original WorkBuddy hosts differ from the similarly named CodeBuddy IDE.
+const OWN_DOMAINS=Object.freeze({cn:'https://www.workbuddy.cn',global:'https://www.workbuddy.ai'});
+const OWNED_REF=/^driver:(own_workbuddy-cn|own_workbuddy-global):(wbp_[a-f0-9]{24})$/;
 const sha=value=>createHash('sha256').update(value).digest('hex');
 const safeText=value=>typeof value==='string'?value.trim().slice(0,180):
   Number.isFinite(value)?String(value):'';
@@ -79,6 +82,7 @@ export function createWorkBuddyDriver({
   env=process.env,now=()=>Date.now(),fetchImpl=fetch,
   fileIO={stat,readFile,mkdir,rename,writeFile,unlink},manifestPath=sourceManifestPath(defaultConfigPath()),
   authFiles,allowTestEndpoint,timeoutMs=30000,
+  ownedRegion=null,ownedVault=null,makeCredentialRef,
 }={}){
   const listed=()=>Array.isArray(authFiles)?authFiles:possibleFiles(env);
   // Volatile session tokens are never copied to disk. Desktop files stay read-only.
@@ -118,7 +122,39 @@ export function createWorkBuddyDriver({
     try{await fileIO.rename(temp,manifestPath)}
     catch(error){await fileIO.unlink(temp).catch(()=>{});throw error}
   }
+  async function ownedCredentialRef(id){
+    const ref=makeCredentialRef??(await import('@deepseek-ai/dsh-credentials')).credentialRef;
+    return ref('NATIVE_ROUTER_WB_'+id.slice(4).toUpperCase());
+  }
+  async function readOwnedAuth(account){
+    const match=OWNED_REF.exec(String(account?.credentialRef??''));
+    if(!OWN_DOMAINS[ownedRegion]||!match||match[1]!=='own_workbuddy-'+ownedRegion
+       ||account?.providerId!==match[1]||account?.id!==match[2])
+      throw new UpstreamError('Invalid WorkBuddy independent account binding',{code:'CREDENTIAL'});
+    const resolved=await ownedVault?.resolve?.(await ownedCredentialRef(account.id));
+    let data;try{data=JSON.parse(resolved?.value??resolved)}catch{}
+    const expectedDomain=ownedRegion==='cn'?'www.workbuddy.cn':'www.workbuddy.ai';
+    if(data?.domain!==expectedDomain)throw new UpstreamError('WorkBuddy source region mismatch',{code:'CREDENTIAL'});
+    const auth=validateAuth({auth:data});
+    if(!auth)throw new UpstreamError('WorkBuddy private credential not usable',{code:'CREDENTIAL'});
+    return {...auth,endpoint:OWN_DOMAINS[ownedRegion]};
+  }
+  async function writeOwnedRefresh(accountId,auth,cached){
+    if(!ownedRegion)return;
+    if(typeof ownedVault?.set!=='function')throw new UpstreamError('DSH Credentials unavailable',{code:'CREDENTIAL'});
+    await ownedVault.set(await ownedCredentialRef(accountId),JSON.stringify({
+      accessToken:cached.access,refreshToken:cached.refresh,
+      expiresAt:Math.floor(cached.expiresAt/1000),
+      domain:ownedRegion==='cn'?'www.workbuddy.cn':'www.workbuddy.ai',
+      ...(auth.accountId?{uid:auth.accountId}:{}),
+    }));
+  }
   async function findAccount(account){
+    if(ownedRegion){
+      const auth=await readOwnedAuth(account);
+      const prior=tokenCache.get(account.id);
+      return prior&&prior.expiresAt>auth.expiresAt?{...auth,...prior}:auth;
+    }
     const id=TOKEN_REF.exec(account?.credentialRef??'')?.[1];
     if(!id||account?.id!==id)throw new UpstreamError('Invalid WorkBuddy account reference',{code:'CREDENTIAL'});
     const entries=await loadManifest(),record=entries[id];
@@ -134,7 +170,7 @@ export function createWorkBuddyDriver({
   function endpoint(auth){
     // Never allow untrusted contents of a local auth file to select an arbitrary host.
     if(allowTestEndpoint)return allowTestEndpoint(auth);
-    return auth.endpoint===DOMAIN_INTL?DOMAIN_INTL:DOMAIN_CN;
+    return ownedRegion?OWN_DOMAINS[ownedRegion]:auth.endpoint===DOMAIN_INTL?DOMAIN_INTL:DOMAIN_CN;
   }
   function headers(auth,model=''){
     const requestId=randomUUID().replaceAll('-','');
@@ -144,7 +180,8 @@ export function createWorkBuddyDriver({
       'content-type':'application/json',
       'x-requested-with':'XMLHttpRequest',
       'x-agent-intent':'craft',
-      'x-domain':endpoint(auth)===DOMAIN_INTL?'www.codebuddy.ai':'www.codebuddy.cn',
+      'x-domain':ownedRegion?(ownedRegion==='cn'?'www.workbuddy.cn':'www.workbuddy.ai'):
+        endpoint(auth)===DOMAIN_INTL?'www.codebuddy.ai':'www.codebuddy.cn',
       'x-product':'SaaS',
       'x-ide-type':'VSCode','x-ide-name':'VSCode',
       'x-ide-version':'1.119.0',
@@ -153,6 +190,26 @@ export function createWorkBuddyDriver({
       'x-conversation-id':randomUUID().replaceAll('-',''),
       'x-conversation-request-id':requestId,
     };
+    if(ownedRegion){
+      // Header contract traced to installed MIT dsh-connect-workbuddy 5.24.10.
+      // Include conversation message identity and the official CLI UA; a
+      // synthetic CodeBuddy product or missing conversation ID is rejected.
+      const base=endpoint(auth);
+      hd['user-agent']='CLI/2.63.2 CodeBuddy/2.63.2';
+      hd.origin=base;hd.referer=base+'/';
+      hd['x-conversation-message-id']=randomUUID();
+      hd['x-conversation-id']=randomUUID();
+      hd['x-conversation-request-id']=randomUUID();
+      hd['x-requested-with']='XMLHttpRequest';
+      hd['x-product']='SaaS';
+      hd['x-user-id']=auth.accountId||auth.sub||'';
+      if(!hd['x-user-id']){delete hd['x-user-id'];hd['x-no-user-id']='1'}
+      if(!auth.enterprise){hd['x-no-enterprise-id']='1'}
+      else{hd['x-enterprise-id']=auth.enterprise;hd['x-tenant-id']=auth.enterprise}
+      delete hd['x-ide-name'];delete hd['x-ide-type'];
+      delete hd['x-ide-version'];delete hd['x-product-version'];
+      delete hd['x-agent-intent'];
+    }
     if(model)hd['x-model-id']=model;
     if(auth.sub)hd['x-user-id']=auth.sub;
     if(auth.enterprise)hd['x-enterprise-id']=auth.enterprise;
@@ -183,8 +240,14 @@ export function createWorkBuddyDriver({
     const request=linkedSignal(signal,Math.min(timeoutMs,12000));
     try{
       const res=await fetchImpl(endpoint(auth)+'/v2/plugin/auth/token/refresh',{
-        method:'POST',headers:{authorization:'Bearer '+auth.refresh,'content-type':'application/json',accept:'application/json'},
-        body:'{}',signal:request.signal,
+        method:'POST',headers:ownedRegion?{
+          accept:'application/json, text/plain, */*',
+          'x-refresh-token':auth.refresh,'x-auth-refresh-source':'workbuddy',
+          origin:endpoint(auth),referer:endpoint(auth)+'/',
+          'user-agent':'CLI/2.63.2 CodeBuddy/2.63.2',
+          ...(auth.enterprise?{'x-enterprise-id':auth.enterprise}:{}),
+        }:{authorization:'Bearer '+auth.refresh,'content-type':'application/json',accept:'application/json'},
+        ...(ownedRegion?{}:{body:'{}'}),signal:request.signal,
       });
       if(!res.ok)return null;
       let payload;try{payload=JSON.parse(await readResponse(res,request.signal))}catch{return null}
@@ -193,6 +256,7 @@ export function createWorkBuddyDriver({
       const expiresIn=Number(next.expiresIn)||3600;
       const cached={access:next.accessToken,refresh:typeof next.refreshToken==='string'?next.refreshToken:auth.refresh,
         expiresAt:now()+expiresIn*1000,sub:jwtClaims(next.accessToken).sub||auth.sub};
+      if(ownedRegion)await writeOwnedRefresh(accountId,auth,cached);
       tokenCache.set(accountId,cached);
       return {...auth,...cached};
     }catch(e){if(signal?.aborted)throw e;return null}
@@ -228,6 +292,61 @@ export function createWorkBuddyDriver({
     }finally{req.cleanup()}
   }
   async function modelList(account,signal){
+    if(ownedRegion){
+      // Match the licensed original WorkBuddy plugin's split model catalogs.
+      // CN uses the product-desktop UA and a legacy personal roster fallback;
+      // global merges CLI and desktop catalogs (neither is a superset).
+      let auth=await validSession(account,signal);
+      const request=linkedSignal(signal,Math.min(timeoutMs,18000));
+      const readCatalog=async(path,userAgent,withOrigin=false)=>{
+        const send=a=>fetchImpl(endpoint(a)+path,{
+          headers:{
+            authorization:'Bearer '+a.access,accept:'application/json',
+            ...(a.accountId?{'x-user-id':a.accountId}:{}),
+            'x-domain':ownedRegion==='cn'?'www.workbuddy.cn':'www.workbuddy.ai',
+            'x-product':'SaaS','x-requested-with':'XMLHttpRequest',
+            'user-agent':userAgent,
+            ...(withOrigin?{origin:endpoint(a),referer:endpoint(a)+'/'}:{}),
+          },signal:request.signal});
+        let res=await send(auth);
+        if([401,403].includes(res.status)&&auth.refresh){
+          const renewed=await refreshVolatile(auth,account.id,signal);
+          if(renewed){auth=renewed;res=await send(auth)}
+        }
+        if(!res.ok)throw new UpstreamError('WorkBuddy model catalog HTTP '+res.status,{status:res.status});
+        let doc;try{doc=JSON.parse(await readResponse(res,request.signal))}catch{
+          throw new UpstreamError('Malformed WorkBuddy model catalog',{code:'BAD_JSON'})}
+        if(doc?.code!==0||!Array.isArray(doc?.data?.models))
+          throw new UpstreamError('WorkBuddy model catalog rejected',{code:'BAD_JSON'});
+        const map=new Map();
+        for(const item of doc.data.models){
+          if(typeof item?.id==='string'&&item.id.length<160&&item.id
+             &&item.supportsToolCall!==false)
+            map.set(item.id,{id:item.id,name:typeof item.name==='string'?item.name:item.id});
+        }
+        const cli=Array.isArray(doc?.data?.agents)
+          ?doc.data.agents.find(x=>x?.name==='cli'&&Array.isArray(x.models)):null;
+        const ids=cli?.models?.length?cli.models:[...map.keys()];
+        return ids.filter(x=>typeof x==='string'&&map.has(x)).map(x=>map.get(x));
+      };
+      try{
+        let rows;
+        if(ownedRegion==='global'){
+          const cli=await readCatalog('/v3/config','CLI/2.63.2 CodeBuddy/2.63.2').catch(()=>[]);
+          const desktop=await readCatalog('/v3/config','WorkBuddy/5.8.3').catch(()=>[]);
+          const seen=new Map();
+          for(const item of [...cli,...desktop])if(!seen.has(item.id))seen.set(item.id,item);
+          rows=[...seen.values()];
+        }else{
+          const ua='WorkBuddy/5.8.3 WorkBuddy/5.8.3 CLI/2.161.0';
+          rows=await readCatalog('/v3/config',ua,true).catch(()=>
+            readCatalog('/v2/enterprises/personal/models',ua,true));
+        }
+        if(!rows.length)throw new UpstreamError('No WorkBuddy models confirmed by upstream',{code:'MODEL_CATALOG'});
+        return rows.slice(0,160);
+      }finally{request.cleanup()}
+    }
+
     const {text}=await request(account,'/v3/config',{signal,maxMs:Math.min(timeoutMs,15000)});
     let response;
     try{response=JSON.parse(text)}catch{throw new UpstreamError('Invalid WorkBuddy model catalog',{code:'BAD_JSON'})}
@@ -236,9 +355,46 @@ export function createWorkBuddyDriver({
     return rows.filter(x=>typeof x?.id==='string'&&x.id&&x.supportsToolCall!==false)
       .map(x=>({id:x.id,name:typeof x.name==='string'?x.name:x.id}));
   }
+  async function workbuddyCheckIn({account,date}={}){
+    if(!ownedRegion)return {state:'unsupported'};
+    if(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date))
+      return {state:'failed',message:'签到日期非法'};
+    const auth=await validSession(account);
+    if(auth.enterprise)return {state:'no_task',message:'企业账号无个人每日签到活动'};
+    const url=ownedRegion==='cn'?'https://www.codebuddy.cn':'https://www.workbuddy.ai';
+    const request=linkedSignal(undefined,Math.min(timeoutMs,15000));
+    const hd={authorization:'Bearer '+auth.access,accept:'application/json',
+      'content-type':'application/json',
+      ...(auth.accountId?{'x-user-id':auth.accountId}:{}),
+      'x-domain':ownedRegion==='cn'?'www.workbuddy.cn':'www.workbuddy.ai'};
+    const post=async path=>{
+      const response=await fetchImpl(url+path,{method:'POST',headers:hd,body:'{}',signal:request.signal});
+      if(!response.ok)return {ok:false};
+      let payload;try{payload=JSON.parse(await readResponse(response,request.signal))}catch{}
+      return {ok:payload?.code===0,data:payload?.data??{}};
+    };
+    try{
+      const statusPath='/v2/billing/meter/checkin-activity-status';
+      const before=await post(statusPath);
+      if(!before.ok)return {state:'failed',message:'WorkBuddy 今日签到状态无法验证'};
+      if(before.data?.today_checked_in===true)return {confirmed:true,date,
+        message:'WorkBuddy 上游确认今日已经签到'};
+      if(before.data?.active!==true)return {state:'no_task',message:'今日签到活动未开放'};
+      const claimed=await post('/v2/billing/meter/daily-checkin');
+      if(!claimed.ok)return {state:'failed',message:'WorkBuddy 签到请求未被上游接受'};
+      const after=await post(statusPath);
+      if(after.ok&&after.data?.today_checked_in===true)return {confirmed:true,date,
+        message:'WorkBuddy 今日签到已由上游二次确认'};
+      return {state:'pending_confirmation',accepted:true,message:'已请求签到，但尚未核实上游今日状态'};
+    }catch{return {state:'failed',message:'WorkBuddy 签到通信未成功'}}
+    finally{request.cleanup()}
+  }
   return {
-    authMethod:'WorkBuddy 桌面客户端登录态（只读引用）',
+    ...(ownedRegion?{checkIn:workbuddyCheckIn}:{}),
+    authMethod:ownedRegion?'WorkBuddy 自有凭据 · 已与原 DSH 插件分离':
+       'WorkBuddy 桌面客户端登录态（只读引用）',
     async discover(){
+       if(ownedRegion)return [];
       const candidates=await enumerate();
       discovered=new Map(candidates.map(row=>[row.id,row]));
       scanTime=now();
@@ -250,6 +406,7 @@ export function createWorkBuddyDriver({
            ||!!row.auth.refresh}));
     },
     async importCandidate({candidateId,consent}={}){
+       if(ownedRegion)throw Error('Use explicit WorkBuddy vault adoption instead');
       if(consent!==true||!ID.test(candidateId)||now()-scanTime>10*60*1000||!discovered.has(candidateId))
         throw Error('WorkBuddy candidate requires recent discovery and explicit confirmation');
       const matching=(await enumerate()).find(row=>row.id===candidateId);
@@ -283,6 +440,14 @@ export function createWorkBuddyDriver({
       }
     },
     async logout({account}={}){
+       if(ownedRegion){
+         const owner='own_workbuddy-'+ownedRegion;
+         const found=OWNED_REF.exec(String(account?.credentialRef??''));
+         if(!found||found[1]!==owner||found[2]!==account?.id)throw Error('Invalid owned WorkBuddy identity');
+         await ownedVault?.unset?.(await ownedCredentialRef(account.id));
+         tokenCache.delete(account.id);
+         return {revokedUpstream:false,message:'已解除聚合路由独立授权，原插件账号未改变'};
+       }
       const id=TOKEN_REF.exec(account?.credentialRef??'')?.[1];
       if(!id)throw Error('Invalid WorkBuddy account reference');
       const entries=await loadManifest();
@@ -296,7 +461,9 @@ export function createWorkBuddyDriver({
     async generate({account,model,options={},signal}={}){
       if(typeof model!=='string'||!model.trim())throw new UpstreamError('Invalid WorkBuddy model',{code:'MODEL'});
       const tools=visibleTools(options.tools);
-      const payload={model,messages:toChatMessages(options),stream:true,
+      const messages=toChatMessages(options);
+      if(ownedRegion&&!messages.some(row=>row.role==='system'))messages.unshift({role:'system',content:'You are a helpful assistant.'});
+      const payload={model,messages,stream:true,
         ...(tools.length?{tools:openAiTools(tools),tool_choice:options.toolChoice??'auto'}:{})};
       const maxTokens=options.maxTokens??options.max_tokens;
       if(Number.isInteger(maxTokens)&&maxTokens>0)payload.max_tokens=maxTokens;

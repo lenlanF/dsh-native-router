@@ -45,11 +45,15 @@ function buildLingxiHeaders(secret,base){
   origin:base,referer:base+'/'};
 }
 function planModels(json){
- const candidates=json?.data?.models??json?.data?.plans??json?.models??[];
- return Array.isArray(candidates)?candidates.filter(x=>x&&typeof x==='object')
-  .map(x=>({id:typeof x.id==='string'?x.id:x.model_id??x.modelId,name:x.name??x.id??x.model_id}))
-  .filter(x=>typeof x.id==='string'&&x.id.length>0&&x.id.length<160)
-  .slice(0,100):[];
+ // Follow the existing Lingxi adapter: data.plans lists client modes,
+ // NOT inference models. Model id primarily uses entry.key.
+ const candidates=Array.isArray(json?.data?.models)?json.data.models:[];
+ const seen=new Set();return candidates.filter(x=>x&&typeof x==='object')
+  .map(x=>({id:typeof x.key==='string'&&x.key?x.key:x.id,
+    name:typeof x.name==='string'&&x.name?x.name:x.key??x.id}))
+  .filter(x=>typeof x.id==='string'&&x.id.length>0&&x.id.length<160
+    &&!seen.has(x.id)&&seen.add(x.id))
+  .slice(0,100);
 }
 function requireOwnAccount(providerId,account){
  const expectedProvider=ownedIdFor(providerId);

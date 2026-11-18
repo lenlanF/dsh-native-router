@@ -9,6 +9,7 @@ import {createInstalledPluginInventory} from './installed-plugin-inventory.mjs';
 import {createPrivateOwnedDriver,PRIVATE_PROVIDERS} from './channels/private-owned.mjs';
 import {createPrivateOwnedAdoption} from './private-owned-adoption.mjs';
 import {createPrivatePackAdoption} from './private-pack-adoption.mjs';
+import {createWorkbuddyVaultAdoption} from './workbuddy-vault-adoption.mjs';
 import {createExistingDshChannelFacade,createPreferredSourceFacade} from './existing-dsh-channels.mjs';
 import {createCheckinCenter,createCheckinStore} from './checkins.mjs';
 import {getNativeChannelDrivers,onNativeChannelDriverChange,registerNativeChannelDriver} from './driver-registry.mjs';
@@ -37,6 +38,11 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
      const ownId=PRIVATE_PROVIDERS[providerId].ownedId;
      if(!drivers.has(ownId))builtInCleanup.push(registerNativeChannelDriver(ownId,
        createPrivateOwnedDriver({providerId,vault:ownedVault,fetchImpl})));
+   }
+   if(!channelDrivers)for(const region of ['cn','global']){
+     const owner='own_workbuddy-'+region;
+     if(!drivers.has(owner))builtInCleanup.push(registerNativeChannelDriver(owner,
+       createWorkBuddyDriver({env,fetchImpl,ownedRegion:region,ownedVault})));
    }
    const embeddedPack=createEmbeddedChannelPack({ctx,getConfig:()=>ownStore.get(),env:env??process.env});
    const existingHostSource=createExistingDshChannelFacade({ctx,excludedHost:embeddedPack});
@@ -80,14 +86,17 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
  const installedInventory=createInstalledPluginInventory();
   const sessionReuse=createSessionReuse({configStore:ownStore,drivers,
      embeddedPack:sourceFacade,adapter:ownAdapter,logger:ctx.logger,installedInventory});
-  const privatePackAdoption=createPrivatePackAdoption({
+  const workbuddyVaultAdoption=createWorkbuddyVaultAdoption({
+      inventory:installedInventory,configStore:ownStore,vault:ownedVault,
+      adapter:ownAdapter,drivers});
+   const privatePackAdoption=createPrivatePackAdoption({
      inventory:installedInventory,configStore:ownStore,ownedPack:embeddedPack,
      adapter:ownAdapter});
    const privateOwnedAdoption=createPrivateOwnedAdoption({
      inventory:installedInventory,configStore:ownStore,vault:ownedVault,adapter:ownAdapter});
    const accountAdoption=createAccountAdoption({configStore:ownStore,
      originalSource:existingHostSource,ownedPack:embeddedPack,adapter:ownAdapter,
-      installedInventory,privateOwnedAdoption,privatePackAdoption});
+      installedInventory,privateOwnedAdoption,privatePackAdoption,workbuddyVaultAdoption});
    const checkinCenter=createCheckinCenter({configStore:ownStore,accountCenter,
     store:checkinStore??createCheckinStore({path:ownStore.path?join(dirname(ownStore.path),'checkins.json'):undefined}),
     sourcePack:embeddedPack,logger:ctx.logger});

@@ -1,11 +1,11 @@
-# 原生 DSH 插件复用能力矩阵（RC.7）
+# 原生 DSH 插件复用能力矩阵（RC.8）
 
 本说明仅描述代码结构及可执行离线验收结果，不记录任何设备用户名、真实账号、凭据、个人文件绝对路径或系统扫描结果。
 
 | 渠道 | 原插件授权形式 | 模型路由 | 本插件当前能力 | 原插件移除后的独立性 |
 | --- | --- | --- | --- | --- |
-| WorkBuddy（国内/国际） | 原插件独立凭据保管库；官方桌面认证可能另存一份 | `workbuddy`、`workbuddy-global` | 识别已安装插件；委托已注册宿主模型；另有独立的 WorkBuddy 桌面只读驱动 | 委托路由依赖原插件。桌面只读驱动不依赖 DSH 原插件，但仍依赖仍然有效的官方桌面会话。私有凭据不能自动转移 |
-| Lingxi | 插件私有 JSON 账号池，wpsSid 会话 | `lingxi` / `own_lingxi` | 用户确认后复制到独立 DSH Credentials，自有会话/流式聊天及签到适配；离线模拟通过 | 不在现成 MIT 包内；原插件停用后的在线推理与签到尚待实机验收 |
+| WorkBuddy（国内/国际） | 原插件 MIT WorkBuddy vault 区分 CN/global | `workbuddy`、`workbuddy-global`、`own_workbuddy-cn`、`own_workbuddy-global` | 按区域只读发现，所有者确认后复制到自有 DSH Credentials；自有模型目录、消息会话、续期和签到回查采用原插件协议。两区线上目录和聊天小请求已通过 | 原插件停用的离线模拟通过，真实生产卸载/长期续期/签到仍待验收 |
+| Lingxi | 原插件私有 JSON `wpsSid` | `lingxi`、`own_lingxi` | 所有者确认复制自有 Session，正确解析 `data.models[].key`；实时发现 11 个模型并通过真实推理生成 2 字符正文 | 隔离停用模拟通过，生产卸载后长期续期和实际签到仍待验收 |
 | Loomy | 插件私有 JSON 账号池和桌面 `auth-session.json` | `loomy` / `own_loomy` | 已使用现成 MIT 来源包的微信扫码、短信登录、模型及每日额度；支持账号所有者确认后将旧 Session 按 MIT 源格式复制到自有来源池 | 离线模拟移除原插件后可继续走 MIT 包模型链；线上推理与签到未验收，且 Loomy 会话无法自动续期 |
 | ZCode Start Plan | 私有 SQLite 账号池，设备会话字段为 `zcode_jwt`、`device_mid` | `zcode-start-plan` / `own_zcode` | 只读扫描；所有者逐账号确认后，转换为 MIT 来源包兼容的 ZCode 账号副本。无需复制 GPL 原插件源码 | 已核对同一免费套餐模型端点与授权字段，离线停用模拟通过；真实验证码/推理/签到需验收 |
 
@@ -29,3 +29,5 @@
 ZCode Start Plan 的原代码许可证为 GPL-3.0-or-later；本 MIT 插件不直接复制、打包其 GPL 源码。Lingxi 当前已安装包缺少明确的 license 元数据，未确认许可证前也不照搬私有模块。
 
 所有原插件的状态文件、数据库、官方桌面登录文件维持只读，保留原账号及原集成。
+
+RC.8 源码包的 13 类渠道共用一个请求内精确账号隔离层，26 个虚构账号逐一测试不会自动偷换其他授权。ZCode SQLite 在 Node 22.16 下读取正常；Node 22.5 的内置 SQLite 缺失应报告运行时不兼容，不能据此说没有账号。

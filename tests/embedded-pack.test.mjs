@@ -443,7 +443,7 @@ test('isolated multiaccount beta pins the selected upstream credential without c
   assert.equal(credentials.resolve,baseResolve);
  }
 });
-test('multiaccount remains blocked for unreviewed channels, even when the experimental opt-in is present',async()=>{
+test('all-source multiaccount guard refuses a Qoder request when upstream tries a different account',async()=>{
  const rows=[
   {id:'q-a',provider:'qoder',enabled:true,credentialRef:'QODER_A'},
   {id:'q-b',provider:'qoder',enabled:true,credentialRef:'QODER_B'},
@@ -461,8 +461,8 @@ test('multiaccount remains blocked for unreviewed channels, even when the experi
    loadPack:async()=>({apply(){livePool=pool}})});
  bridge.attach();await tick();await tick();
  assert.equal(bridge.status().state,'mounted');
- await assert.rejects(()=>bridge.streamNative({providerId:'qoder',sourceAccountId:'q-a',
-  model:'q-chat',messages:[{role:'user',content:[]}]}),/not verified/);
+ await assert.rejects(()=>bridge.streamNative({providerId:'qoder',sourceAccountId:'q-b',
+  model:'q-chat',messages:[{role:'user',content:[]}]}),/not currently available/);
  assert.equal(called,0);
  bridge.dispose();
 });
