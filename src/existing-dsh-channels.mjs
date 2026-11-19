@@ -239,18 +239,108 @@ async function listHostModels(providerId){
   return {status,listAccounts,listModels,listHostModels,portableAccounts,portableCredentialSource,streamHost,streamNative,dispose};
 }
 /**
- * Existing DSH channels have priority when registered in the Host; in-process
- * own source pack is used only when no active Host-owned source was available.
- * The caller never registers or replaces any original provider/accountPool.
+ * A provider is not a credential identity. Merge only the SAME provider and
+ * SAME opaque source account id. Keep both original and private login paths,
+ * and retry the other path only before any stream event is emitted.
+ * Never copy credentials, toggle an original plugin or infer identities from nicknames.
  */
 export function createPreferredSourceFacade({own,existing}={}){
- const choose=()=>existing?.status?.().state==='mounted'?existing:
-   own?.status?.().state==='mounted'?own:own??existing;
- return {
-  status:()=>({...choose()?.status?.()??{state:'unavailable'},
-   hostProviders:existing?.status?.().hostProviders??[]}),
-  listAccounts:(...args)=>choose()?.listAccounts?.(...args)??Promise.resolve({state:'unavailable',accounts:[]}),
-  listModels:(...args)=>choose()?.listModels?.(...args)??Promise.resolve({state:'unavailable',models:[]}),
-  streamNative:(...args)=>choose()?.streamNative?.(...args)??Promise.reject(Error('DSH source unavailable')),
- };
+  let healthFor=()=>null;
+  const confidence=state=>state==='online'?100:
+    state==='recently_verified'?40:state==='expired'||state==='disabled'?-50:0;
+  const mounted=facade=>facade?.status?.().state==='mounted';
+  const candidates=()=>[['owned',own],['reused',existing]].filter(([,item])=>mounted(item));
+  const accountKey=row=>row.providerId+'\u0000'+row.id;
+  const accountValid=row=>row&&typeof row.providerId==='string'&&row.providerId
+    &&typeof row.id==='string'&&row.id&&row.enabled===true;
+  async function inventory(){
+    const active=candidates();
+    const results=await Promise.all(active.map(async ([kind,facade])=>{
+      try{return {kind,facade,result:await facade.listAccounts()}}
+      catch{return {kind,facade,result:{state:'unavailable',accounts:[]}}}
+    }));
+    return results.filter(row=>row.result?.state==='ready'
+      &&Array.isArray(row.result.accounts));
+  }
+  return {
+    setHealthResolver:resolve=>{healthFor=typeof resolve==='function'?resolve:()=>null;},
+    status:()=>{
+      const primary=mounted(own)?own:mounted(existing)?existing:own??existing;
+      return {...(primary?.status?.()??{state:'unavailable'}),
+        hostProviders:existing?.status?.().hostProviders??[]};
+    },
+    async listAccounts(){
+      const sources=await inventory(),grouped=new Map();
+      for(const {kind,result} of sources){
+        for(const row of result.accounts.slice(0,200)){
+          if(!accountValid(row))continue;
+          const key=accountKey(row);
+          if(!grouped.has(key))grouped.set(key,{...row,sources:[]});
+          const previous=grouped.get(key);
+          if(!previous.nickname&&row.nickname)previous.nickname=row.nickname;
+          if(!previous.sources.includes(kind))previous.sources.push(kind);
+        }
+      }
+      return {state:sources.length?'ready':'unavailable',
+        accounts:[...grouped.values()].slice(0,200)};
+    },
+    async listModels(providerId){
+      const active=candidates(),models=[],seen=new Set();
+      let ready=false;
+      for(const [,facade] of active){
+        let result;
+        try{result=await facade.listModels?.(providerId)}catch{continue}
+        if(result?.state!=='ready'||!Array.isArray(result.models))continue;
+        ready=true;
+        for(const model of result.models){
+          const id=typeof model==='string'?model:model?.id;
+          if(typeof id!=='string'||!id.trim()||seen.has(id))continue;
+          seen.add(id);
+          models.push(typeof model==='string'?{id,name:id}:model);
+          if(models.length===256)break;
+        }
+      }
+      return {state:ready?'ready':'unavailable',providerId,models};
+    },
+    async streamNative(request){
+      const {providerId,sourceAccountId,signal}=request??{};
+      if(typeof providerId!=='string'||!providerId||typeof sourceAccountId!=='string'
+        ||!sourceAccountId||signal?.aborted)
+        throw Error('Source account identity is required');
+      const rows=await inventory(),active=[];
+      for(const row of rows){
+        const matching=row.result.accounts.filter(account=>
+          accountValid(account)&&account.providerId===providerId&&account.id===sourceAccountId);
+        if(matching.length!==1)continue;
+        active.push(row);
+      }
+       if(!active.length)throw Error('Requested source account not present in available login sources');
+       active.sort((a,b)=>{
+         const read=row=>{try{return confidence(healthFor({kind:row.kind,providerId,sourceAccountId}))}
+           catch{return 0}};
+         return read(b)-read(a);
+       });      return (async function*(){
+        let lastError;
+        for(let i=0;i<active.length;i++){
+          if(signal?.aborted)throw Error('Source request cancelled');
+          let emitted=false;
+          try{
+            const stream=await active[i].facade.streamNative(request);
+            if(!stream||typeof stream[Symbol.asyncIterator]!=='function')
+              throw Error('Source stream unavailable');
+            for await(const event of stream){
+              emitted=true;
+              yield event;
+            }
+            return;
+          }catch(error){
+            lastError=error;
+            // A partial output can contain a tool call; replay could duplicate side effects.
+            if(emitted||signal?.aborted||i===active.length-1)throw error;
+          }
+        }
+        throw lastError??Error('All identical-account source paths unavailable');
+      })();
+    },
+  };
 }

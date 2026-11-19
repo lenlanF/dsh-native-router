@@ -542,11 +542,13 @@ window.__ModuleLoader__.load({
               h('div',{style:{...css.line,justifyContent:'space-between',marginBottom:5}},
                 h('strong',null,account.nickname||account.username||'账号 '+(accountIndex+1)),
                 h(StateTag,{value:account.connectionState})),
-              h('div',{style:css.line},
-                h('span',{style:css.mutedTag},displayBalance(account)),
-                account.balanceCheckedAt?h('span',{style:css.small},
-                  '余额更新 '+new Date(account.balanceCheckedAt).toLocaleString()):null),
-              h('details',{style:{marginBottom:8}},
+               h('div',{style:css.line},
+                 h('span',{style:css.mutedTag},displayBalance(account)),
+                 account.backupSources?.length?h('span',{style:css.mutedTag},
+                   '首选：'+(account.activeSource==='owned'?'自主登录':'原渠道复用')+
+                   ' · 备援 '+account.backupSources.length):null,
+                 account.balanceCheckedAt?h('span',{style:css.small},
+                   '余额更新 '+new Date(account.balanceCheckedAt).toLocaleString()):null),              h('details',{style:{marginBottom:8}},
                 h('summary',{style:css.small},'详情 · 账号来源与诊断信息'),
                 h('div',{style:css.small},'内部账号：'+account.id),
                 h('div',{style:css.small},'凭据：'+account.credentialKind+' 引用'),
@@ -555,9 +557,11 @@ window.__ModuleLoader__.load({
                     account.connectionState==='expired'?'登录失效':'后台自动复核')):null,
                 h('div',{style:css.small},'来源：'+(account.origin?.label||'来源未识别')),
                 h('div',{style:css.small},'权重：'+account.weight),
-                account.checkedAt?h('div',{style:css.small},'最近检查：'+new Date(account.checkedAt).toLocaleString()):null,
-                h('div',{style:css.small},account.message||'未返回校验详情')),
-               account.managed===false?
+                 account.checkedAt?h('div',{style:css.small},'最近检查：'+new Date(account.checkedAt).toLocaleString()):null,
+                 (account.backupSources||[]).map((s,i)=>h('div',{key:'backup-'+i,style:css.small},
+                   '保留备援 '+(i+1)+'：'+(s.kind==='owned'?'本插件自主登录':'原渠道复用')+
+                   ' · '+(s.available?'可选':'已停用')+' · '+(s.state==='online'?'已验证':'待核验/不可用'))),
+                 h('div',{style:css.small},account.message||'未返回校验详情')),               account.managed===false?
                h('div',{style:{...css.line,marginBottom:0}},
                  h('span',{style:css.small},'本插件独立账号池 · 已保存授权引用；是否可用取决于来源鉴权'),
                  h(Button,{onClick:onOpenOwnedSource},'管理独立登录态')):
@@ -1412,8 +1416,7 @@ window.__ModuleLoader__.load({
            h('div',{style:{minWidth:0}},
              h('h2',{style:css.title},'聚合路由'),
              h('div',{className:'dnr-header-note'},'来源复用 · 账号池 · 模型调度 · 每日签到 · 故障续跑')),
-           h('span',{className:'dnr-version'},'1.0.0-rc.18')),
-           h('div',{className:'dnr-layout'},            h('label',{className:'dnr-mobile-nav'},
+            h('span',{className:'dnr-version'},'1.0.0-rc.19')),           h('div',{className:'dnr-layout'},            h('label',{className:'dnr-mobile-nav'},
               h('span',null,'设置页面'),
               h('select',{'aria-label':'选择设置页面',value:activeNav,
                 onChange:e=>setTab(e.target.value)},

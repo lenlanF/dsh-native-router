@@ -89,6 +89,34 @@ test('source metadata returned under original provider aliases is normalized and
  r.releaseScope();
  assert.equal(r.registry.has('native-router-source-loomy'),false);
 });
+test('DSH prepareCall and resolveModel contracts are present on every native alias',async()=>{
+ const r=rig(['native-router','codearts','loomy','zcode']);
+ const native={...r.adapter,
+   async resolveModel(provider,model){r.calls.push(['resolve',provider,model]);
+     return {provider,id:model,name:'upstream name',reasoning:{efforts:['on']}}},
+   async prepareCall(provider,model){r.calls.push(['prepare',provider,model]);
+     return {model:{provider,id:model,name:'upstream name',context:{contextWindow:120000}},
+       stream:options=>{r.calls.push(['preparedStream',options.provider]);
+         return {provider:options.provider}}};}
+ };
+ for(const provider of ['codearts','loomy','zcode']){
+   assert.equal(typeof register(r.ctx,[provider],native),'function');
+   const id='native-router-source-'+provider;
+   const alias=r.registry.get(id);
+   assert.equal(typeof alias.resolveModel,'function');
+   assert.equal(typeof alias.prepareCall,'function');
+   const model=await alias.resolveModel(id,'test-model');
+   assert.equal(model.provider,id);
+   assert.deepEqual(model.reasoning,{efforts:['on']});
+   const prepared=await alias.prepareCall(id,'test-model');
+   assert.equal(prepared.model.provider,id);
+   assert.equal(prepared.model.context.contextWindow,120000);
+   assert.equal(prepared.stream({provider:id}).provider,provider);
+   assert.ok(r.calls.some(x=>x[0]==='prepare'&&x[1]===provider));
+ }
+  await assert.rejects(r.registry.get('native-router-source-loomy')
+    .resolveModel('codearts','test-model'),/Invalid independent source/); r.releaseScope();
+});
 test('repeat DSH plugin loading after Cordis scope cleanup does not leak previously owned aliases',()=>{
  const r=rig();
  for(let i=0;i<3;i++){

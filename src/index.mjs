@@ -98,8 +98,13 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
       installedInventory,privateOwnedAdoption,privatePackAdoption,workbuddyVaultAdoption});
    const checkinCenter=createCheckinCenter({configStore:ownStore,accountCenter,
     store:checkinStore??createCheckinStore({path:ownStore.path?join(dirname(ownStore.path),'checkins.json'):undefined}),
-    sourcePack:embeddedPack,logger:ctx.logger});
- const cleanups=[...builtInCleanup,credentialsBridge.dispose];
+     sourcePack:embeddedPack,logger:ctx.logger});
+   sourceFacade.setHealthResolver?.(({kind,providerId,sourceAccountId})=>{
+     const id=sourceAccountOpaqueId(providerId,sourceAccountId);
+     if(kind==='owned')
+       return checkinCenter.snapshot().accounts.find(a=>a.id===id&&a.sourceAccount)?.connectionState??null;
+     return accountCenter.list().accounts.find(a=>a.id===id&&a.providerId===providerId)?.connectionState??null;
+   }); const cleanups=[...builtInCleanup,credentialsBridge.dispose];
  try{
    const release=ctx.llm.registerAdapter([PROVIDER],ownAdapter);
    if(typeof release==='function')cleanups.push(release);

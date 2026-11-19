@@ -55,6 +55,75 @@ test('existing installed DSH provider is recognized without enabling, registerin
  assert.equal(h.data.modelCalls,0);
  h.existing.dispose();assert.equal((await h.existing.listAccounts()).state,'unavailable');
 });
+test('owned login is not hidden by active external channel and survives original plugin stop',async()=>{
+ let external=true;const calls=[];
+ const own={status:()=>({state:'mounted',channels:['codearts']}),
+  listAccounts:async()=>({state:'ready',accounts:[
+   {providerId:'codearts',id:'same-account',nickname:'私有 CodeArts',enabled:true},
+   {providerId:'codearts',id:'own-only',enabled:true}]}),
+  listModels:async()=>({state:'ready',models:[{id:'ca-model'}]}),
+  streamNative:async()=>{calls.push('owned');return textStream('OWNED')}};
+ const old={status:()=>({state:external?'mounted':'unavailable'}),
+  listAccounts:async()=>({state:'ready',accounts:[
+   {providerId:'codearts',id:'same-account',nickname:'外部 CodeArts',enabled:true},
+   {providerId:'codearts',id:'external-only',enabled:true}]}),
+  listModels:async()=>({state:'ready',models:[{id:'ca-model'},{id:'other-model'}]}),
+  streamNative:async()=>{calls.push('reused');return textStream('REUSED')}};
+ const facade=createPreferredSourceFacade({own,existing:old});
+ let result=await facade.listAccounts();
+ assert.deepEqual(result.accounts.map(x=>x.id),['same-account','own-only','external-only']);
+ assert.deepEqual(result.accounts[0].sources,['owned','reused']);
+ assert.equal(result.accounts[0].nickname,'私有 CodeArts');
+ assert.equal((await facade.listModels('codearts')).models.length,2);
+ const events=[];
+ for await(const x of await facade.streamNative({providerId:'codearts',sourceAccountId:'same-account'}))events.push(x);
+ assert.match(JSON.stringify(events),/OWNED/);
+ assert.deepEqual(calls,['owned']);
+ external=false;
+ result=await facade.listAccounts();
+ assert.deepEqual(result.accounts.map(x=>x.id),['same-account','own-only']);
+ assert.equal((await facade.listModels('codearts')).models.length,1);
+});
+test('same verified account can use backup if primary fails before output but not after partial stream',async()=>{
+ let unavailable=true,backupCalls=0;
+ const own={status:()=>({state:'mounted'}),
+  listAccounts:async()=>({state:'ready',accounts:[{providerId:'zcode',id:'same',enabled:true}]}),
+  streamNative:async()=>{
+   if(unavailable)throw Error('Primary unavailable');
+   return (async function*(){yield {type:'text-delta',text:'partial'};throw Error('Partial failure')})();
+  }};
+ const other={status:()=>({state:'mounted'}),
+  listAccounts:async()=>({state:'ready',accounts:[{providerId:'zcode',id:'same',enabled:true}]}),
+  streamNative:async()=>{backupCalls++;return textStream('BACKUP')}};
+ const facade=createPreferredSourceFacade({own,existing:other}),out=[];
+ for await(const x of await facade.streamNative({providerId:'zcode',sourceAccountId:'same'}))out.push(x);
+ assert.match(JSON.stringify(out),/BACKUP/);assert.equal(backupCalls,1);
+ unavailable=false;
+ await assert.rejects(async()=>{
+  for await(const event of await facade.streamNative({providerId:'zcode',sourceAccountId:'same'}))void event
+ },/Partial failure/);
+ assert.equal(backupCalls,1);
+ await assert.rejects(facade.streamNative({providerId:'zcode',sourceAccountId:'other'}),/not present/);
+});
+test('verified source wins, then automatic rank change switches primary without changing login stores',async()=>{
+ const output=[];
+ const source=(kind)=>({
+   status:()=>({state:'mounted'}),
+   listAccounts:async()=>({state:'ready',accounts:[{providerId:'loomy',id:'same',enabled:true}]}),
+   streamNative:async()=>{output.push(kind);return textStream(kind)}
+ });
+ const facade=createPreferredSourceFacade({own:source('owned'),existing:source('reused')});
+ let states={owned:'not_checked',reused:'online'};
+ facade.setHealthResolver(({kind})=>states[kind]);
+ for await(const x of await facade.streamNative({providerId:'loomy',sourceAccountId:'same'}))void x;
+ assert.equal(output.at(-1),'reused','recently verified original must be preferred');
+ states={owned:'online',reused:'expired'};
+ for await(const x of await facade.streamNative({providerId:'loomy',sourceAccountId:'same'}))void x;
+ assert.equal(output.at(-1),'owned','verified autonomous account takes over after original expires');
+ states={owned:'expired',reused:'online'};
+ for await(const x of await facade.streamNative({providerId:'loomy',sourceAccountId:'same'}))void x;
+ assert.equal(output.at(-1),'reused','restored original can resume automatically');
+});
 test('directly reuse an existing logged-in DSH provider via its original llm adapter; model output is complete and tool-safe',async()=>{
  const h=rig(),driver=createSourceChannelDriver({providerId:'qoder',embeddedPack:h.preferred});
  const choices=await driver.discover();

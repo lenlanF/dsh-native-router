@@ -280,6 +280,36 @@ function registerAdapterIdempotent(ctx, providers, adapter, warn) {
       }
       return models;
     },
+    async resolveModel(provider, model, signal) {
+      const source = actual(provider);
+      if (typeof model !== "string" || !model.trim() || model.length > 160)
+        throw new Error("Invalid independent source model");
+      let resolved;
+      if (typeof target.resolveModel === "function") {
+        resolved = await target.resolveModel(source, model, signal);
+      } else {
+        const listed = await this.listModels(provider);
+        resolved = listed.find(row => row.id === model);
+      }
+      if (!resolved || resolved.id !== model ||
+        (resolved.provider && resolved.provider !== source && resolved.provider !== provider))
+        throw new Error("Independent source model metadata unavailable");
+      return {...resolved, provider};
+    },
+    async prepareCall(provider, model, signal) {
+      const source = actual(provider);
+      const resolved = await this.resolveModel(provider, model, signal);
+      if (typeof target.prepareCall === "function") {
+        const prepared = await target.prepareCall(source, model, signal);
+        if (!prepared || typeof prepared.stream !== "function" ||
+          prepared.model?.id !== model)
+          throw new Error("Independent source call preparation failed");
+        return {...prepared, model:{...prepared.model, ...resolved,provider},
+          stream:options=>prepared.stream({...options,provider:source})};
+      }
+      return {model:resolved,
+        stream:options=>target.stream({...options,provider:source})};
+    },
     stream(options) { return target.stream({...options, provider: actual(options.provider)}); }
   };
   let cleanup;

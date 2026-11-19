@@ -4,8 +4,8 @@
   "originalFile": "pack.js",
   "originalSha256": "5a87770f727c2827f6d75b34351de54b92facfc67dd8a4b52fb0ecf794158247",
   "generatedFile": "pack-native.js",
-  "generatedBytes": 3020440,
-  "generatedSha256": "a11b60f4fb3a2c4e5b7860e8a5d1d3ff9adc704931fecca5d2d0d85468bdc5ad",
+  "generatedBytes": 3021943,
+  "generatedSha256": "c77bf62b6ad6939b3620e6e16bc7e0bb3712042fb31ba5565a19e89a710307d8",
   "patches": [
     "private-settings-namespace",
     "private-profile-subdirectory",

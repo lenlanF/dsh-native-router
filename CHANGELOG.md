@@ -1,5 +1,13 @@
 # Change Log
 
+## 1.0.0-rc.19 — 2026-11-19 — Independent source runtime model contract and verified-source arbitration
+
+- 独立 Provider 补充 resolveModel/prepareCall，防止 DSH 模型加载报缺少方法。
+- 自有 CodeArts 账号不再被已安装 DSH Provider 账号库存遮蔽，按可证明同账号身份去重和备援。
+- Loomy/ZCode/CodeArts 使用本插件隔离凭据的源端只读状态核验，不虚报鉴权或积分。
+- 已验证来源优先，失效后切到同身份另一来源；不推断同昵称等于同账号，不重放已经输出的请求。
+- 新增模型契约、来源失效、账号去重、CodeArts OAuth 展示及授权核验自动测试。
+
 ## 1.0.0-rc.18 — 2026-11-19 — 自主授权账号/独立模型目录修复
 
 - 更正 native-router-source-* 模型元数据归属并消除来源内重复模型，使用确定性 MIT 衍生构建脚本重新生成源包及无外部包运行时。

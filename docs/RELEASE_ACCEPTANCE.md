@@ -1,5 +1,12 @@
-# DSH Native Router（聚合路由）— 1.0.0-rc.18 发布验收与放行门禁
-> 当前状态：发行候选（Release Candidate），非稳定版。任何在实际 DSH 安装、启用以及云端模型推理均需要另外确认。
+# DSH Native Router（聚合路由）— 1.0.0-rc.19 发行候选验收> 当前状态：发行候选（Release Candidate），非稳定版。任何在实际 DSH 安装、启用以及云端模型推理均需要另外确认。
+## RC.19：模型适配与多来源身份验证
+
+- 必须执行 source-provider-collision / existing-dsh-channels / account-source-view / source-channel-driver 专项测试，验证 resolveModel/prepareCall 合同、模型元数据归属、旧插件关闭后自有账号仍存在。
+- CodeArts 自主账号显示在 CodeArts 渠道；同渠道同来源账号 ID 一个首选和若干备援；不同账号 ID 不得自动合并。
+- 远端已认证只读结果才能显示在线；状态缺失为待确认，不得永久显示检查中。
+- 仅同一原生账号 ID 的来源可自动切换。流已产生事件就不重放，杜绝重复工具副作用。
+- 全量离线测试、隐私审计、DSH Node 24 隔离安装与实际线上状态验收需独立进行。
+
 ## RC.18：实际问题验收门禁
 
 - 对 native-router-source-loomy / codearts / zcode 等 Provider 的模型目录校验元数据归属和唯一模型 ID，要求 Host 不再报 Invalid/Duplicate Metadata。

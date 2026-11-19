@@ -63,6 +63,26 @@ test('independent Loomy verifier uses only own account pool and authenticated cr
  rig.embeddedPack.status=()=>({state:'mounted',modelAdapterUnready:['loomy']});
  assert.equal((await driver.refresh({account})).state,'error');
 });
+test('CodeArts and ZCode autonomous logins verify only on authenticated upstream status',async()=>{
+ for(const providerId of ['codearts','zcode']){
+   const row={providerId,id:'owned-01',enabled:true,nickname:'user'};
+   const src=mockSource([row]);
+   let verified=true,attempts=0;
+   src.embeddedPack.status=()=>({state:'mounted',modelAdapterReady:[providerId]});
+   src.embeddedPack.readSourceStatuses=async()=>{attempts++;
+     return {state:'ready',accounts:[{accountId:row.id,
+       authVerified:verified}]};};
+   const id=sourceAccountOpaqueId(providerId,row.id),owner='own_'+providerId;
+   const driver=createSourceChannelDriver({providerId,accountProviderId:owner,
+     embeddedPack:src.embeddedPack});
+   const account={id,providerId:owner,credentialRef:'driver:'+owner+':'+id};
+   assert.equal((await driver.refresh({account})).state,'online');
+   verified=false;
+   assert.equal((await driver.refresh({account})).state,'pending');
+   assert.equal(attempts,2);
+   assert.equal(src.calls.length,0,'read-only verification must not call inference');
+ }
+});
 test('single enabled source account streams through existing DSH LLM with host tool metadata only',async()=>{
  const rig=mockSource([{id:'qoder-a',providerId:'qoder',enabled:true,connectionState:'not_checked'}]);
  const driver=createSourceChannelDriver({providerId:'qoder',embeddedPack:rig.embeddedPack});

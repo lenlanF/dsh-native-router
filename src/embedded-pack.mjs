@@ -528,10 +528,12 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
           nickname:typeof row.nickname==='string'?row.nickname.slice(0,80):'',
           todayCheckedIn:typeof status?.todayCheckedIn==='boolean'?status.todayCheckedIn:null,
            active:typeof status?.active==='boolean'?status.active:null,
-           // Loomy status requires a successful authenticated /points/records request.
-           // Other channels may return local activity metadata; do not generalize.
-           ...(providerId==='loomy'&&status?.active===true?{authVerified:true}:{}),          ...(field?{balance:status[field],
-            balanceUnit:field==='points'?'积分':field.toLowerCase().includes('credit')?'额度':'余额'}:{})}];
+           // Only non-null status from these reviewed endpoints follows an
+           // authenticated read-only upstream request. "active:false" can
+           // mean no credit plan, NOT invalid authorization (CodeArts).
+           ...(status&&['loomy','codearts','zcode'].includes(providerId)
+             &&typeof status.active==='boolean'?{authVerified:true}:{}),
+           ...(field?{balance:status[field],            balanceUnit:field==='points'?'积分':field.toLowerCase().includes('credit')?'额度':'余额'}:{})}];
       });
       return {state:'ready',accounts,checkedAt:Date.now()};
     }catch{return {state:'unavailable',accounts:[]}}

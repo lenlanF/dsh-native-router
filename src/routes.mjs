@@ -1,5 +1,6 @@
 import {freeEvidence} from './auto-free.mjs';
 import {sourceAccountOpaqueId} from './source-account-ref.mjs';
+import {mergeAccountSources} from './account-source-view.mjs';
 // Owner-authenticated DSH Connection admin APIs; same-origin management writes, loopback-only HTTP.
 const BASE='/plugins/dsh-native-router';
 // Stable owner-facing migration results. Never forward raw upstream failures,
@@ -178,57 +179,19 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
       await checkinCenter?.refreshSources?.().catch(()=>{});
       const rawEmbedded=embeddedPack?.listAccounts?await embeddedPack.listAccounts().catch(()=>
         ({state:'unavailable',accounts:[]})):{state:'unavailable',accounts:[]};
-      const sourceRows=(checkinCenter?.snapshot?.().accounts??[]).filter(a=>a.sourceAccount);
-      const sourceMap=new Map(sourceRows.map(a=>[a.id,a]));
-      const embeddedAccounts={...rawEmbedded,accounts:(rawEmbedded.accounts??[]).map(row=>{
-        const source=sourceMap.get(sourceAccountOpaqueId(row.providerId,row.id));
-        return {...row,nickname:source?.nickname||row.nickname||'',
-          ...(Number.isFinite(source?.balance)?{balance:source.balance,
-            balanceUnit:source.balanceUnit,balanceCheckedAt:source.balanceCheckedAt}:{})};
-      })};
-      const roster=accountCenter.list();
-      const accounts=roster.accounts.map(a=>{
-        const source=sourceMap.get(a.id);
-        if(!source)return a;
-        return {...a,nickname:source.nickname||a.nickname||'',
-          ...(source.connectionState==='online'?{connectionState:'online',
-            message:'本插件独立账号已通过来源只读鉴权'}:{}),
-          ...(Number.isFinite(source.balance)?{balance:source.balance,
-            balanceUnit:source.balanceUnit,balanceCheckedAt:source.balanceCheckedAt}:{})};
-      });
-      const registeredIds=new Set(accounts.map(a=>a.id));
-      const channels=[...roster.channels];
-      const channelIds=new Set(channels.map(x=>x.id));
-      // The isolated account pool is authoritative for owner-created login.
-      // Do not require user to adopt an account out of their own plugin again.
-      for(const row of embeddedAccounts.accounts){
-        if(typeof row.providerId!=='string'||typeof row.id!=='string')continue;
-        const opaque=sourceAccountOpaqueId(row.providerId,row.id);
-        const ownId='own_'+row.providerId,source=sourceMap.get(opaque);
-        if(!channelIds.has(ownId)){
-          channels.push({id:ownId,name:row.providerId+' · 自主登录',
-            authMethod:'聚合路由独立登录态',adapterReady:
-              embeddedPack?.status?.().modelAdapterReady?.includes(row.providerId)===true,
-            referenceOnly:true,discoveryAvailable:false});
-          channelIds.add(ownId);
-        }
-        if(registeredIds.has(opaque))continue;
-        registeredIds.add(opaque);
-        accounts.push({id:opaque,providerId:ownId,providerName:row.providerId,
-          nickname:row.nickname||source?.nickname||'',
-          configuredEnabled:row.enabled===true,enabled:row.enabled===true,
-          credentialKind:'driver',
-          origin:{kind:'owned-source',label:'本插件自主登录账号池（不依赖原渠道插件）'},
-          connectionState:!row.enabled?'disabled':
-            source?.connectionState==='online'?'online':'not_checked',
-          message:'独立账号已保存；模型可用性需依据来源实际校验',
-          weight:1,sourceAccount:true,managed:false,
-          checkinState:source?.checkinState??'not_run',
-          ...(Number.isFinite(row.balance)?{balance:row.balance,
-            balanceUnit:row.balanceUnit,balanceCheckedAt:row.balanceCheckedAt}:{})});
-      }
-      return json(res,200,{ok:true,...roster,channels,accounts,embeddedAccounts,
-        sessionReuse:sessionReuse?.snapshot?.()??{enabled:false,channels:[]}});
+       const sourceRows=(checkinCenter?.snapshot?.().accounts??[]).filter(a=>a.sourceAccount);
+       const sourceMap=new Map(sourceRows.map(a=>[a.id,a]));
+       const embeddedAccounts={...rawEmbedded,accounts:(rawEmbedded.accounts??[]).map(row=>{
+         const source=sourceMap.get(sourceAccountOpaqueId(row.providerId,row.id));
+         return {...row,nickname:source?.nickname||row.nickname||'',
+           ...(Number.isFinite(source?.balance)?{balance:source.balance,
+             balanceUnit:source.balanceUnit,balanceCheckedAt:source.balanceCheckedAt}:{})};
+       })};
+       const roster=accountCenter.list();
+       const {channels,accounts}=mergeAccountSources({roster,embeddedAccounts,sourceRows,
+         embeddedStatus:embeddedPack?.status?.()??{}});
+       return json(res,200,{ok:true,...roster,channels,accounts,embeddedAccounts,
+         sessionReuse:sessionReuse?.snapshot?.()??{enabled:false,channels:[]}});
     });    // Explicit login/session reuse is mediated by DSH's authenticated
     // Connection owner Peer. No source token or auth file is returned.
     mount('/channels/reuse/scan',async(req,res)=>{

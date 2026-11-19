@@ -187,15 +187,16 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
          return {state:'error',message:'独立模型 Provider 尚未正确注册，不能作为可用模型'};
        if(Array.isArray(info.modelAdapterReady)&&!info.modelAdapterReady.includes(providerId))
          return {state:'pending',message:'独立账号已保存，等待本插件模型适配器就绪'};
-        // For Loomy, a non-null status is backed by its authenticated
-        // /points/records request using this plugin's own credential copy.
-        if(providerId==='loomy'&&typeof embeddedPack.readSourceStatuses==='function'){
+        // The reviewed Loomy, CodeArts and ZCode source status methods
+        // require successful authenticated upstream reads. No login mutation.
+        if(['loomy','codearts','zcode'].includes(providerId)
+          &&typeof embeddedPack.readSourceStatuses==='function'){
           const remote=await embeddedPack.readSourceStatuses(providerId);
-          if(remote?.state==='ready'&&remote.accounts?.some(row=>
-            row.accountId===selected.id&&row.authVerified===true))
-            return {state:'online',message:'本插件独立账号已通过 Loomy 远端积分接口鉴权，无需原插件'};
-        }
-        // A registered model adapter alone is not account-level verification.
+          const matched=(remote?.state==='ready'?remote.accounts:[]).filter(row=>
+            row.accountId===selected.id);
+          if(matched.length===1&&matched[0].authVerified===true)
+            return {state:'online',message:'本插件自有凭据已通过来源只读授权核查；原渠道插件不参与'};
+        }        // A registered model adapter alone is not account-level verification.
         return {state:'pending',message:'独立账号已就绪，但远端账号鉴权尚未确认；不会持续显示核验中'};
      }catch{
        return {state:'error',message:'本插件独立账号不可读取或授权引用已失效'};
