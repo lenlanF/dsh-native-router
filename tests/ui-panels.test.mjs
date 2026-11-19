@@ -6,7 +6,7 @@ import {normalizeConfig} from '../src/config.mjs';
 import {createAccountCenter} from '../src/account-center.mjs';
 import {createCheckinCenter} from '../src/checkins.mjs';
 import {sample} from './fixtures.mjs';
-function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={state:'disabled',reason:''},sourceRpcOverrides={},hostProviders=[],hostModelResult){
+function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={state:'disabled',reason:''},sourceRpcOverrides={},hostProviders=[],hostModelResult,confirmFn=()=>true){
   let cfg=normalizeConfig(sample),sequence=0,effectFn,tabEffectFn,component;
   const hooks=[];
   const react={
@@ -124,7 +124,7 @@ if(key==='/host/catalog'){
   };
   let mod;
   const code=readFileSync(new URL('../client.js',import.meta.url),'utf8');
-  const browser={__ModuleLoader__:{load:input=>{mod=input}},confirm:()=>true,URL};
+  const browser={__ModuleLoader__:{load:input=>{mod=input}},confirm:confirmFn,URL};
   vm.runInNewContext(code,{window:browser,fetch,console,structuredClone,Date,JSON,URL});
   const plugin=mod.factory(name=>name==='react'?react:undefined);
   plugin.apply({slots:{inject(_id,register){register();return()=>{}},
@@ -166,7 +166,7 @@ test('dashboard shows original WorkBuddy routes, which enter directly without a 
  const overview=rig.flatten(rig.render()).join(' ');
  assert.match(overview,/WorkBuddy 国内原生路由/);
  assert.match(overview,/WorkBuddy 国际原生路由/);
- assert.match(overview,/路由已注册 · 登录未核实/);
+ assert.match(overview,/已注册 · 原插件维护认证/);
  rig.find(rig.render(),'button','复用管理')[0].props.onClick();
  rig.find(rig.render(),'button','宿主路由与模型')[0].props.onClick();
  const page=rig.render();
@@ -247,7 +247,8 @@ test('adoption view puts owner-approved account transfer first, plus same-page b
  assert.deepEqual(adopted,[{kind:'adoption',providerId:'qoder',accountId:'qoder-test',consent:true}]);
  assert.doesNotMatch(JSON.stringify(rig.mutations),/Bearer/);
  assert.match(rig.flatten(rig.render()).join(' '),/授权副本已保存/);
- assert.match(rig.flatten(rig.render()).join(' '),/已接管 · 待验证/);
+  assert.match(rig.flatten(rig.render()).join(' '),/已接管/);
+  assert.doesNotMatch(rig.flatten(rig.render()).join(' '),/已接管 · 待验证/);
 });
 test('real client render: channel account page exposes login, refresh, logout and enable controls',async()=>{
   const rig=createUiRig();await rig.init();
@@ -274,7 +275,7 @@ test('real client render: login button triggers account authentication probe, no
   await login.props.onClick();
   assert.ok(rig.mutations.some(m=>m.action==='login'));
   page=rig.render();
-  assert.match(rig.flatten(page).join(' '),/已连接验证/);
+ assert.match(rig.flatten(page).join(' '),/鉴权通过/);
 });
 test('real client render: daily check-in page displays per-channel statuses and disabled unsupported actions',async()=>{
   const rig=createUiRig();await rig.init();
@@ -610,4 +611,120 @@ test('source login is never enabled just because model package mounted without a
  assert.match(text,/登录接口等待中/);
  assert.equal(rig.find(screen,'button','发起扫码\/网页登录').length,0);
  assert.equal(rig.mutations.filter(row=>row.kind==='source-rpc').length,0);
+});
+
+// Regress the real settings component tree, not just a claimed visual design.
+function uiNodes(node,predicate,found=[]){
+ if(Array.isArray(node)){for(const part of node)uiNodes(part,predicate,found);return found}
+ if(!node||typeof node!=='object')return found;
+ if(predicate(node))found.push(node);
+ uiNodes(node.children,predicate,found);
+ return found;
+}
+test('WorkBuddy-style page shell keeps all nine settings destinations, scoped themes and responsive nav',async()=>{
+ const rig=createUiRig();await rig.init();
+ let page=rig.render();
+ const cssNode=uiNodes(page,node=>node.type==='style')[0];
+ assert.ok(cssNode?.props?.dangerouslySetInnerHTML?.__html,'WorkBuddy-like scoped CSS must be mounted');
+ const stylesheet=cssNode.props.dangerouslySetInnerHTML.__html;
+ assert.match(stylesheet,/\.dnr-shell .*?\.dnr-layout/);
+ assert.match(stylesheet,/var\(--dsw-alias-bg-layer-2/);
+ assert.match(stylesheet,/@media \(max-width:760px\)/);
+ assert.match(stylesheet,/@media \(max-width:520px\)/);
+ assert.match(stylesheet,/:focus-visible/);
+ assert.match(stylesheet,/prefers-reduced-motion/);
+ const nav=uiNodes(page,node=>node.type==='nav')[0];
+ assert.equal(nav?.props?.['aria-label'],'聚合路由设置导航');
+ const buttons=uiNodes(nav,node=>node.type==='button');
+ assert.equal(buttons.length,9);
+ assert.equal(new Set(buttons.map(b=>rig.flatten(b).join(''))).size,9);
+ assert.equal(buttons.filter(b=>b.props['aria-current']==='page').length,1);
+ rig.find(page,'button','模型链条')[0].props.onClick();
+ page=rig.render();
+ assert.equal(uiNodes(page,node=>node.props?.className==='dnr-nav-group').length,4);
+ assert.match(rig.flatten(page).join(' '),/模型链条 · 仅手工维护/);
+ assert.equal(uiNodes(page,node=>node.type==='button'&&node.props['aria-current']==='page')
+   .map(x=>rig.flatten(x).join('')).join(''),'模型链条');
+ assert.equal(rig.find(page,'button','保存配置').length,1);
+ assert.equal(rig.find(page,'button','重新读取').length,1);
+});
+test('channel selection shows one real channel by default but allows every configured provider',async()=>{
+ const rig=createUiRig();await rig.init();
+ rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
+ let screen=rig.render(),lines=rig.flatten(screen).join(' ');
+ assert.match(lines,/alpha.*a1/);
+ assert.doesNotMatch(lines,/local · 1 个账号/);
+ const chooser=uiNodes(screen,node=>node.type==='label'&&rig.flatten(node).join(' ').includes('快速切换渠道'))[0];
+ assert.ok(chooser,'provider picker must be accessible within the channel overview');
+ const select=uiNodes(chooser,node=>node.type==='select')[0];
+ assert.ok(select);
+ select.props.onChange({target:{value:'local'}});
+ screen=rig.render();lines=rig.flatten(screen).join(' ');
+ assert.match(lines,/local/);
+ assert.match(lines,/l1/);
+ assert.doesNotMatch(lines,/alpha.*a1/);
+ const after=uiNodes(screen,node=>node.type==='label'&&rig.flatten(node).join(' ').includes('快速切换渠道'))[0];
+ uiNodes(after,node=>node.type==='select')[0].props.onChange({target:{value:'all'}});
+ screen=rig.render();lines=rig.flatten(screen).join(' ');
+ assert.match(lines,/alpha.*a1/);
+ assert.match(lines,/local.*l1/);
+});
+test('source account actions are grouped and unsafe operations remain guarded',async()=>{
+ const preview={state:'ready',accounts:[{id:'q-01',providerId:'qoder',nickname:'A long source account label',
+   enabled:true,refreshable:true,connectionState:'not_checked'}]};
+ const source={state:'mounted',rpcReady:true,channelCount:13,channels:['qoder','workbuddy']};
+ const rig=createUiRig(new Map(),preview,source);await rig.init();
+ rig.find(rig.render(),'button','复用管理')[0].props.onClick();
+ rig.find(rig.render(),'button','自主登录')[0].props.onClick();
+ const screen=rig.render();
+ assert.equal(uiNodes(screen,node=>node.props?.className==='dnr-source-entry').length,1);
+ const actions=uiNodes(screen,node=>node.props?.className==='dnr-action-list')[0];
+ const labels=uiNodes(actions,node=>node.type==='button').map(b=>rig.flatten(b).join(''));
+ assert.deepEqual(labels,['停用来源账号','刷新来源凭据','退出来源账号（尝试清凭据）']);
+ const disclosures=uiNodes(screen,node=>node.props?.className==='dnr-disclosure');
+ assert.equal(disclosures.length,0,'source safety actions should never be buried in generic config disclosures');
+});
+test('status refresh preserves unsubmitted provider edits and canceled reload keeps draft',async()=>{
+ let confirmations=0;
+ const rig=createUiRig(undefined,undefined,undefined,undefined,undefined,undefined,
+   ()=>{confirmations++;return false});
+ await rig.init();
+ rig.find(rig.render(),'button','提供商')[0].props.onClick();
+ let page=rig.render();
+ const label=uiNodes(page,node=>node.type==='label'
+   &&rig.flatten(node).join('').startsWith('显示名称'))[0];
+ assert.ok(label,'provider editor must expose a visibly labelled name input');
+ const input=uiNodes(label,node=>node.type==='input')[0];
+ assert.ok(input);
+ input.props.onChange({target:{value:'保留我的未保存渠道名称'}});
+ page=rig.render();
+ assert.match(rig.flatten(page).join(' '),/有未保存修改/);
+ rig.find(page,'button','总览')[0].props.onClick();
+ await rig.find(rig.render(),'button','刷新运行状态')[0].props.onClick();
+ rig.find(rig.render(),'button','提供商')[0].props.onClick();
+ page=rig.render();
+ assert.match(rig.flatten(page).join(' '),/保留我的未保存渠道名称/);
+ assert.match(rig.flatten(page).join(' '),/有未保存修改/);
+ rig.find(page,'button','重新读取')[0].props.onClick();
+ page=rig.render();
+ assert.equal(confirmations,1,'discard must require positive confirmation');
+ assert.match(rig.flatten(page).join(' '),/保留我的未保存渠道名称/);
+ assert.equal(rig.mutations.filter(x=>x.kind==='save').length,0);
+});
+test('compact mobile navigation selects every major page while desktop sidebar remains complete',async()=>{
+ const rig=createUiRig();await rig.init();
+ let page=rig.render();
+ const mobile=uiNodes(page,node=>node.props?.className==='dnr-mobile-nav')[0];
+ assert.ok(mobile,'mobile navigation must exist');
+ const select=uiNodes(mobile,node=>node.type==='select')[0];
+ assert.equal(select?.props?.['aria-label'],'选择设置页面');
+ assert.equal(uiNodes(mobile,node=>node.type==='option').length,9);
+ assert.equal(uiNodes(mobile,node=>node.type==='optgroup').length,4);
+ const css=uiNodes(page,node=>node.type==='style')[0].props.dangerouslySetInnerHTML.__html;
+ assert.match(css,/@media \(max-width:760px\).*?\.dnr-shell \.dnr-rail\{display:none\}/s);
+ assert.match(css,/@media \(max-width:760px\).*?\.dnr-shell \.dnr-mobile-nav\{display:flex/s);
+ select.props.onChange({target:{value:'pool'}});
+ page=rig.render();
+ assert.match(rig.flatten(page).join(' '),/AutoFree · 动态免费模型池/);
+ assert.equal(uiNodes(page,node=>node.type==='select'&&node.props?.['aria-label']==='选择设置页面')[0].props.value,'pool');
 });

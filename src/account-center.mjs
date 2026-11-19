@@ -1,15 +1,36 @@
 import {resolveCredential} from './accounts.mjs';
 import {describeChannels,automaticPools} from './channels.mjs';
 
-const MAX_PROBE_MS=15000;
+const MAX_PROBE_MS=15000, AUTO_VERIFY_MS=15*60*1000, FRESH_MS=30*60*1000;
 function concise(message){return String(message??'').replace(/(?:Bearer\s+|sk-)[\w.~+-]{12,}/gi,'[REDACTED]').slice(0,160)}
 function accountNotFound(id){const e=new Error('Account not configured: '+String(id).slice(0,80));e.status=404;return e}
 export function createAccountCenter({
  configStore,adapter,drivers=new Map(),fetchImpl=fetch,env=process.env,vault,now=()=>Date.now(),
- getSourceStatus=()=>({state:'unavailable'}),
+ getSourceStatus=()=>({state:'unavailable'}),verificationStore,autoVerifyMs=AUTO_VERIFY_MS,
 }={}){
   if(!configStore?.get||!configStore?.replace)throw Error('ConfigStore must support get and replace');
   const checks=new Map(),pending=new Set(),discoverCache=new Map();
+  let automaticTimer=null,initialTimer=null,autoBusy=false,disposed=false;
+  const storedFor=account=>verificationStore?.get?.(account)??null;
+  function checkFor(account){
+    const stored=storedFor(account),cached=checks.get(account.id);
+    const live=cached?.bindingRef===account.credentialRef?cached:null;
+    if(live){
+     const lastSuccess=live.state==='online'?live.at:stored?.verifiedAt??null;
+     if(live.state==='online'&&now()-live.at>FRESH_MS)
+      return {...live,state:'recently_verified',verifiedAt:lastSuccess,
+       message:'上次鉴权成功，后台即将复核'};
+     return {...live,verifiedAt:lastSuccess};
+    }
+   if(!stored)return {state:'not_checked',at:null,verifiedAt:null,message:'尚未完成首次鉴权复核'};
+   const fresh=stored.state!=='online'||now()-stored.checkedAt<=FRESH_MS;
+   return {state:fresh?stored.state:'recently_verified',at:stored.checkedAt,
+     verifiedAt:stored.verifiedAt,
+     message:fresh&&stored.state==='online'?'最近鉴权通过（由渠道自行维护登录态）':
+       stored.state==='expired'?'上次确认授权失效，后台将继续检查':
+       stored.state==='online'?'此前鉴权通过，后台将自动复核，无需手工验证':
+       '上次连接检查未成功，后台将自动复核'};
+   }
  const driverFor=providerId=>drivers instanceof Map?drivers.get(providerId):drivers?.[providerId];
  function originOf(account,cfg){
   const ref=account.credentialRef,linked=cfg.sessionReuse?.linkedIds?.includes(account.id)===true;
@@ -35,6 +56,7 @@ export function createAccountCenter({
  }
  function list(){
    const cfg=configStore.get(),registered=describeChannels(cfg,drivers instanceof Map?drivers:new Map(Object.entries(drivers??{})));
+   const statusMap=new Map(cfg.accounts.map(account=>[account.id,checkFor(account)]));
    return {
      channels:registered.map(channel=>{
        const accounts=cfg.accounts.filter(a=>a.providerId===channel.id);
@@ -44,21 +66,23 @@ export function createAccountCenter({
      accounts:cfg.accounts.map(account=>{
        const provider=cfg.providers.find(p=>p.id===account.providerId);
        const driver=driverFor(provider.id);
-       const check=checks.get(account.id)??{state:'not_checked',at:null,message:'未执行连接验证'};
-       return {id:account.id,providerId:account.providerId,providerName:provider.name,
+        const check=statusMap.get(account.id);
+        return {id:account.id,providerId:account.providerId,providerName:provider.name,
          enabled:account.enabled&&provider.enabled,configuredEnabled:account.enabled,weight:account.weight,
           reusedExistingSession:cfg.sessionReuse?.linkedIds?.includes(account.id)===true,
           origin:originOf(account,cfg),
           credentialKind:account.credentialRef.startsWith('env:')?'env':account.credentialRef.startsWith('driver:')?'driver':'host',
-         checkedAt:check.at,connectionState:!account.enabled?'disabled':!provider.enabled?'provider_disabled':check.state,
+         checkedAt:check.at,lastVerifiedAt:check.verifiedAt,
+         connectionState:!account.enabled?'disabled':!provider.enabled?'provider_disabled':check.state,
          message:!account.enabled?'此账号已停用':!provider.enabled?'所属渠道已停用':check.message,
          busy:pending.has(account.id),loginAvailable:!!driver?.login||['openai-chat','anthropic-messages'].includes(provider.protocol),
          refreshAvailable:!!driver?.refresh||['openai-chat','anthropic-messages'].includes(provider.protocol),
          checkinAvailable:typeof driver?.checkIn==='function',
        };
      }),
-     pools:automaticPools(cfg,checks),
-     checkedAt:now(),
+      pools:automaticPools(cfg,statusMap),
+       checkedAt:now(),
+       verificationCache:{state:verificationStore?(verificationStore.writable?'ready':'degraded'):'memory'},
    };
  }
  function find(id){
@@ -68,16 +92,14 @@ export function createAccountCenter({
    if(!provider)throw Error('Account provider not configured');
    return {account,provider,cfg,driver:driverFor(provider.id)};
  }
- async function basicProbe({account,provider}){
-   const token=await resolveCredential(account,{env,vault});
+  async function basicProbe({account,provider},signal){    const token=await resolveCredential(account,{env,vault});
    const headers=provider.protocol==='anthropic-messages'
      ?{'x-api-key':token,'anthropic-version':'2023-06-01'}
      :{authorization:'Bearer '+token};
    const url=provider.baseUrl+'/models';
    const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),Math.min(provider.timeoutMs??MAX_PROBE_MS,MAX_PROBE_MS));
    try{
-     const result=await fetchImpl(url,{method:'GET',headers,signal:controller.signal});
-     if(!result?.ok){
+      const result=await fetchImpl(url,{method:'GET',headers,signal:signal?AbortSignal.any([controller.signal,signal]):controller.signal});     if(!result?.ok){
        if(result.status===401||result.status===403)return {state:'expired',message:'鉴权失败（HTTP '+result.status+'），请核对凭据'};
        if(result.status===429)return {state:'limited',message:'上游暂时限流（HTTP 429）'};
        return {state:'error',message:'模型目录检测失败（HTTP '+Number(result.status||0)+'），并不代表模型推理不可用'};
@@ -85,35 +107,58 @@ export function createAccountCenter({
      return {state:'online',message:'已通过上游模型目录鉴权验证'};
    }finally{clearTimeout(timeout)}
  }
- async function verify(id,{login=false}={}){
-   if(pending.has(id)){const e=new Error('Account operation already in progress');e.status=409;throw e}
+   async function verify(id,{login=false,signal}={}){
+    if(pending.has(id)){const e=new Error('Account operation already in progress');e.status=409;throw e}
    const entry=find(id);
    if(!entry.account.enabled||!entry.provider.enabled){const e=new Error('Account or provider is disabled');e.status=409;throw e}
    const method=login?'login':'refresh',driver=entry.driver;
    if(!driver?.[method]&&!['openai-chat','anthropic-messages'].includes(entry.provider.protocol)){
      const e=new Error('此渠道尚未接入原生登录或刷新适配器');e.status=501;throw e
    }
-   pending.add(id);checks.set(id,{state:'checking',at:now(),message:login?'正在校验账号授权':'正在刷新账号状态'});
+    pending.add(id);checks.set(id,{state:'checking',at:now(),bindingRef:entry.account.credentialRef,
+      message:login?'正在校验账号授权':'正在刷新账号状态'});
    let result;
+   const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),20000);
+   const onAbort=()=>controller.abort();
+   signal?.addEventListener('abort',onAbort,{once:true});
+   if(signal?.aborted)controller.abort();
    try{
-     result=driver?.[method]?await driver[method]({
-       provider:entry.provider,account:entry.account,resolveCredential:()=>resolveCredential(entry.account,{env,vault}),
-     }):await basicProbe(entry);
+     const task=driver?.[method]?driver[method]({
+       provider:entry.provider,account:entry.account,
+       resolveCredential:()=>resolveCredential(entry.account,{env,vault}),signal:controller.signal,
+     }):basicProbe(entry,controller.signal);
+      const aborted=new Promise((_,reject)=>{
+        const fail=()=>reject(Error('连接校验超时或已取消'));
+        if(controller.signal.aborted)fail();
+        else controller.signal.addEventListener('abort',fail,{once:true});
+      });
+      result=await Promise.race([task,aborted]);
      if(!['online','expired','limited','error','client_required','pending'].includes(result?.state))throw Error('Invalid account driver response');
      result={state:result.state,message:concise(result.message??'操作已返回状态'),at:now()};
    }catch(error){
      result={state:'error',message:error?.code==='CREDENTIAL'?'登录凭据不可用':concise(error?.message??'网络检查失败'),at:now()};
-   }finally{pending.delete(id)}
-   checks.set(id,result);
-   return {id,...result,manualKeyVerification:!driver?.[method]};
- }
+   }finally{
+     clearTimeout(timeout);signal?.removeEventListener('abort',onAbort);pending.delete(id);
+    }
+    const stillBound=configStore.get().accounts.some(a=>a.id===id
+      &&a.providerId===entry.account.providerId
+      &&a.credentialRef===entry.account.credentialRef);
+    if(disposed||!stillBound){
+      checks.delete(id);
+      return {id,state:'error',at:now(),message:'账号绑定已改变，等待重新校验'};
+    }
+    checks.set(id,{...result,bindingRef:entry.account.credentialRef});
+    try{verificationStore?.set?.(entry.account,result)}catch{}
+    return {id,...result,manualKeyVerification:!driver?.[method]};
+  }
  function setEnabled(id,enabled){
    if(typeof enabled!=='boolean'){const e=new Error('enabled must be boolean');e.status=400;throw e}
    const {cfg}=find(id);
    const next={...cfg,accounts:cfg.accounts.map(a=>a.id===id?{...a,enabled}:a)};
    configStore.replace(next);
-   if(!enabled)checks.delete(id);
-   adapter?.invalidateCatalog?.();
+    if(!enabled){checks.delete(id);try{verificationStore?.forget?.(id)}catch{}}
+    adapter?.invalidateCatalog?.();
    return {id,enabled,changed:true};
  }
  async function logout(id){
@@ -131,8 +176,8 @@ export function createAccountCenter({
       sessionReuse:autoLinked?{...cfg.sessionReuse,
         linkedIds:cfg.sessionReuse.linkedIds.filter(x=>x!==id),
         ignoredIds:[...new Set([...cfg.sessionReuse.ignoredIds,id])].slice(-200)}:cfg.sessionReuse});
-   checks.delete(id);
-   adapter?.invalidateCatalog?.();
+    checks.delete(id);try{verificationStore?.forget?.(id)}catch{}
+    adapter?.invalidateCatalog?.();
    return {id,detached:true,revokedUpstream:outcome?.revokedUpstream===true,
      message:outcome?.message??(outcome?.revokedUpstream===true?'已撤销渠道授权并解除插件关联':
        '已解除插件中的账号引用；外部登录态及上游凭据没有被撤销')};
@@ -188,5 +233,44 @@ export function createAccountCenter({
    for(const id of ids){try{results.push(await verify(id))}catch(e){results.push({id,state:'error',message:concise(e.message)})}}
    return {attempted:ids.length,results};
  }
- return {list,verify,setEnabled,logout,discover,importCandidate,refreshAll,drivers,driverFor,find};
+
+ async function autoCheckDue(){
+  if(disposed||autoBusy)return {attempted:0};
+  autoBusy=true;let attempted=0;
+  try{
+   const cfg=configStore.get(),linked=new Set(cfg.sessionReuse?.linkedIds??[]);
+   // Only previously checked or explicitly adopted accounts; no host shadow
+   // accounts, no inference calls, no original-plugin login or logout.
+   for(const account of cfg.accounts){
+    if(disposed||attempted>=20)break;
+    const provider=cfg.providers.find(p=>p.id===account.providerId);
+    if(!account.enabled||provider?.enabled!==true||provider.protocol==='dsh-host'
+      ||(!linked.has(account.id)&&!account.providerId.startsWith('own_')
+        &&!storedFor(account)))continue;
+    const driver=driverFor(account.providerId);
+    if(typeof driver?.refresh!=='function'
+      &&!['openai-chat','anthropic-messages'].includes(provider.protocol))continue;
+    const last=storedFor(account);
+    if(pending.has(account.id)||(last?.checkedAt&&now()-last.checkedAt<autoVerifyMs))continue;
+    attempted++;
+    try{await verify(account.id)}catch{}
+   }
+  }finally{autoBusy=false}
+  return {attempted};
+ }
+ function start(){
+  if(disposed||automaticTimer)return stop;
+  automaticTimer=setInterval(()=>void autoCheckDue().catch(()=>{}),Math.max(60000,autoVerifyMs));
+  automaticTimer.unref?.();
+   initialTimer=setTimeout(()=>{initialTimer=null;void autoCheckDue().catch(()=>{})},5000);
+  initialTimer.unref?.();
+  return stop;
+ }
+ function stop(){
+  disposed=true;
+  if(automaticTimer)clearInterval(automaticTimer);
+  if(initialTimer)clearTimeout(initialTimer);
+  automaticTimer=null;initialTimer=null;
+ }
+ return {list,verify,setEnabled,logout,discover,importCandidate,refreshAll,autoCheckDue,start,stop,drivers,driverFor,find};
 }

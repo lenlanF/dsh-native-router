@@ -221,6 +221,10 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
         const state=typeof result?.state==='string'?result.state:'unavailable';
         const ok=state==='stored_unverified'||state==='already_owned';
         const error=ADOPTION_ERRORS[state]??'接管尚未完成，请检查自有渠道状态；原账号保持不变';
+        // A successful owner-approved adoption should be verified by a
+        // bounded background metadata probe, not require another click.
+        if(ok&&typeof accountCenter?.autoCheckDue==='function')
+          setImmediate(()=>void accountCenter.autoCheckDue().catch(()=>{}));
         return json(res,ok?200:state==='busy'?409:state==='credentials_unavailable'?503:409,
           {ok,result:{...result,state},...(ok?{message:state==='already_owned'
             ?'该账号已接管到本插件，未重复写入授权；尚需验证模型可用性'

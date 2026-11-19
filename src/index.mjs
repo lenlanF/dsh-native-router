@@ -3,6 +3,7 @@ import {createNativeRouterAdapter,PROVIDER} from './adapter.mjs';
 import {attachHostFailover} from './host-failover.mjs';
 import {registerAuthenticatedRouterRoutes} from './connection-routes.mjs';
 import {createAccountCenter} from './account-center.mjs';
+import {createAccountVerificationStore} from './account-verification-store.mjs';
 import {createSessionReuse} from './session-reuse.mjs';
 import {createAccountAdoption} from './account-adoption.mjs';
 import {createInstalledPluginInventory} from './installed-plugin-inventory.mjs';
@@ -77,8 +78,10 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
   const ownAdapter=adapter??createNativeRouterAdapter({configStore:ownStore,logger:ctx.logger,
    vault:ownedVault,fetchImpl,env,channelDrivers:drivers,
     hostProviderInventory:existingHostSource,ownedPack:embeddedPack});
- const accountCenter=createAccountCenter({configStore:ownStore,adapter:ownAdapter,
-   drivers,fetchImpl,env,vault:ownedVault,getSourceStatus:()=>sourceFacade.status()});
+  const verificationStore=createAccountVerificationStore({
+    path:ownStore.path?join(dirname(ownStore.path),'account-verification.json'):undefined});
+  const accountCenter=createAccountCenter({configStore:ownStore,adapter:ownAdapter,
+    drivers,fetchImpl,env,vault:ownedVault,getSourceStatus:()=>sourceFacade.status(),verificationStore});
  const installedInventory=createInstalledPluginInventory();
   const sessionReuse=createSessionReuse({configStore:ownStore,drivers,
      embeddedPack:sourceFacade,adapter:ownAdapter,logger:ctx.logger,installedInventory});
@@ -112,7 +115,8 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
    const failover=attachHostFailover(ctx,{configStore:ownStore,createUserMessage});
    cleanups.push(failover.dispose);
     cleanups.push(checkinCenter.start());
-    cleanups.push(sessionReuse.start());
+     cleanups.push(sessionReuse.start());
+     cleanups.push(accountCenter.start());
     // The source drivers reuse this single lifetime-bound channel-pack facade.
     cleanups.push(existingHostSource.dispose);
     cleanups.push(embeddedPack.dispose);

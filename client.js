@@ -5,54 +5,126 @@ window.__ModuleLoader__.load({
     const h=React.createElement;
     const {useState,useEffect,useCallback}=React;
     const NS='dsh-native-router',URL='/api/plugins/dsh-native-router';
+
+    // WorkBuddy 5.24.14-inspired compact Host-native surfaces. Strictly
+    // scoped: never alter other DSH settings or source plugin controls.
+    const UI_STYLES=`
+.dnr-shell{--dnr-border:var(--dsw-alias-border-l2,rgba(130,144,166,.27));--dnr-surface:var(--dsw-alias-bg-layer-2,rgba(120,138,162,.055));--dnr-elevated:var(--dsw-alias-bg-layer-3,rgba(120,138,162,.09));--dnr-ink:var(--dsw-alias-label-primary,var(--text,inherit));--dnr-muted:var(--dsw-alias-label-secondary,inherit);--dnr-brand:var(--dsw-alias-brand-primary,#5686fe);color:var(--dnr-ink);font-size:13px;line-height:1.55}
+.dnr-shell,.dnr-shell *,.dnr-shell *::before,.dnr-shell *::after{box-sizing:border-box}
+.dnr-shell button,.dnr-shell input,.dnr-shell select,.dnr-shell textarea{font:inherit}
+.dnr-shell button{touch-action:manipulation}
+.dnr-shell button:focus-visible,.dnr-shell input:focus-visible,.dnr-shell select:focus-visible,.dnr-shell textarea:focus-visible,.dnr-shell summary:focus-visible{outline:2px solid var(--dnr-brand);outline-offset:2px}
+.dnr-shell .dnr-header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 14px;padding:0 0 11px;border-bottom:1px solid var(--dnr-border)}
+.dnr-shell .dnr-header-note{color:var(--dnr-muted);font-size:12px;line-height:1.5}
+.dnr-shell .dnr-version{border:1px solid var(--dnr-border);border-radius:8px;padding:3px 8px;color:var(--dnr-muted);font-variant-numeric:tabular-nums;font-size:11px;white-space:nowrap}
+.dnr-shell .dnr-layout{display:grid;grid-template-columns:184px minmax(0,1fr);gap:14px;align-items:start}
+.dnr-shell .dnr-rail{position:sticky;top:12px;min-width:0;max-height:calc(100vh - 24px);overflow-y:auto;padding:8px;background:var(--dnr-surface);border:1px solid var(--dnr-border);border-radius:11px;scrollbar-width:thin}
+.dnr-shell .dnr-nav-group+.dnr-nav-group{border-top:1px solid var(--dnr-border);margin-top:7px;padding-top:7px}
+.dnr-shell .dnr-group-title{font-size:10px;letter-spacing:.055em;font-weight:700;opacity:.68;padding:7px 9px 5px}
+.dnr-shell .dnr-nav-button{display:flex;align-items:center;width:100%;min-width:0;text-align:left;border:1px solid transparent;border-radius:8px;min-height:35px;padding:7px 10px;color:var(--dnr-muted);background:transparent;font-size:12.5px;cursor:pointer;transition:background-color .14s,border-color .14s,color .14s}
+.dnr-shell .dnr-nav-button:hover{background:var(--dnr-elevated);color:var(--dnr-ink)}
+.dnr-shell .dnr-nav-button[aria-current="page"]{background:var(--dnr-elevated);border-color:var(--dnr-brand);color:var(--dnr-ink);font-weight:700}
+.dnr-shell .dnr-main{min-width:0}
+.dnr-shell .dnr-page-head{margin:1px 0 12px;min-width:0}
+.dnr-shell .dnr-page-head h3{font-size:17px;font-weight:700;margin:0 0 3px}
+.dnr-shell .dnr-page-head p{font-size:12px;color:var(--dnr-muted);margin:0;line-height:1.5}
+.dnr-shell .dnr-button{appearance:none;display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:0;min-height:34px;border:1px solid var(--dnr-border);border-radius:7px;padding:5px 10px;background:transparent;color:var(--dnr-ink);font-size:12px;font-weight:550;line-height:1.4;cursor:pointer;transition:background-color .14s,border-color .14s}
+.dnr-shell .dnr-button:hover:not(:disabled){border-color:var(--dsw-alias-label-dimmed,#888);background:var(--dnr-elevated)}
+.dnr-shell .dnr-button:active:not(:disabled){background:var(--dnr-surface)}
+.dnr-shell .dnr-button:disabled{opacity:.43;cursor:not-allowed}
+.dnr-shell .dnr-button-primary{border-color:var(--dnr-brand);background:var(--dnr-brand);color:var(--dsw-alias-bg-layer-1,#fff);font-weight:700}
+.dnr-shell .dnr-button-primary:hover:not(:disabled){filter:brightness(1.09);background:var(--dnr-brand);border-color:var(--dnr-brand)}
+.dnr-shell .dnr-panel{min-width:0;overflow-wrap:anywhere}
+.dnr-shell .dnr-panel-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:9px;min-width:0}
+.dnr-shell .dnr-panel-head>strong{font-size:13px;font-weight:700;min-width:0}
+.dnr-shell .dnr-panel-head>div{max-width:100%;display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+.dnr-shell .dnr-input-field{min-width:0;max-width:100%}
+.dnr-shell .dnr-input-field input,.dnr-shell .dnr-input-field select{min-width:0;text-overflow:ellipsis}
+.dnr-shell .dnr-subtab:hover:not([aria-selected="true"]){background:var(--dnr-elevated)}
+.dnr-shell .dnr-source-group{border-top:1px solid var(--dnr-border)}
+.dnr-shell .dnr-source-entry{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--dnr-border);padding:9px 0;min-width:0}
+.dnr-shell .dnr-source-entry>div{min-width:0}
+.dnr-shell .dnr-source-entry .dnr-action-list{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.dnr-shell .dnr-savebar{position:sticky;z-index:4;bottom:0;display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:9px 10px;margin-top:10px;border:1px solid var(--dnr-border);border-radius:10px;background:var(--dsw-alias-bg-layer-1,var(--background,#242528));box-shadow:0 -4px 14px rgba(0,0,0,.07)}
+.dnr-shell .dnr-savebar .dnr-save-note{margin-left:auto;min-width:0;color:var(--dnr-muted);font-size:11px}
+.dnr-shell .dnr-savebar details{max-width:100%}
+.dnr-shell .dnr-savebar summary{cursor:pointer}
+.dnr-shell .dnr-savebar details p{max-width:480px;margin:5px 0}
+.dnr-shell .dnr-status-inline{color:var(--dnr-muted);font-size:11px}
+.dnr-shell .dnr-section-title{font-size:13px;font-weight:700;margin:10px 0}
+.dnr-shell .dnr-disclosure{margin-bottom:9px;border:1px solid var(--dnr-border);border-radius:10px;background:var(--dnr-surface);min-width:0}
+.dnr-shell .dnr-disclosure-summary{padding:10px 13px;font-size:13px;font-weight:650;cursor:pointer;overflow-wrap:anywhere}
+.dnr-shell .dnr-disclosure[open]>.dnr-disclosure-summary{border-bottom:1px solid var(--dnr-border)}
+.dnr-shell .dnr-disclosure-body{padding:10px 12px 12px;min-width:0}
+.dnr-shell .dnr-metric-link:hover{border-color:var(--dnr-brand)!important;background:var(--dnr-elevated)!important}
+.dnr-shell .dnr-panel details summary{cursor:pointer}
+.dnr-shell .dnr-panel details[open]>summary{margin-bottom:8px}
+.dnr-shell .dnr-mobile-nav{display:none}
+.dnr-shell .dnr-mobile-nav select{min-width:0;width:100%;min-height:39px;border:1px solid var(--dnr-border);border-radius:8px;background:var(--dnr-elevated);color:var(--dnr-ink);padding:7px 10px}
+@media (max-width:920px){.dnr-shell .dnr-layout{grid-template-columns:156px minmax(0,1fr);gap:9px}.dnr-shell .dnr-rail{padding:5px}.dnr-shell .dnr-nav-button{padding:6px 8px}}
+@media (max-width:760px){.dnr-shell .dnr-layout{display:block}.dnr-shell .dnr-rail{display:none}.dnr-shell .dnr-mobile-nav{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}.dnr-shell .dnr-mobile-nav span{color:var(--dnr-muted);font-size:11px}.dnr-shell .dnr-panel-head{align-items:flex-start}.dnr-shell .dnr-savebar{position:sticky;bottom:0}}
+@media (max-width:520px){.dnr-shell .dnr-nav-group{grid-template-columns:repeat(2,minmax(0,1fr))}.dnr-shell .dnr-savebar{gap:6px}.dnr-shell .dnr-savebar .dnr-save-note{flex-basis:100%;margin-left:0}.dnr-shell .dnr-header-note{flex-basis:100%}.dnr-shell .dnr-panel-head{display:block}.dnr-shell .dnr-panel-head>div{margin-top:7px}}
+@media (prefers-reduced-motion:reduce){.dnr-shell button{transition:none!important}}
+`;
     const css={
-      root:{color:'var(--text,inherit)',maxWidth:1260,margin:'0 auto',padding:'22px clamp(12px,2.5vw,30px) 96px',fontSize:14,lineHeight:1.56},
-      title:{fontSize:25,fontWeight:760,letterSpacing:'-.025em',margin:'0 0 5px'},
-      caption:{fontSize:13,opacity:.76,lineHeight:1.7,margin:'0 0 17px'},
-      tabbar:{display:'flex',gap:8,flexWrap:'wrap',padding:'10px 0 20px',borderBottom:'1px solid rgba(128,145,164,.18)',marginBottom:18},
-      tab:{border:'1px solid rgba(120,140,160,.26)',borderRadius:11,padding:'10px 15px',minHeight:42,cursor:'pointer',background:'rgba(128,140,160,.045)',color:'inherit',font:'inherit'},
-      chosen:{background:'rgba(69,124,228,.15)',borderColor:'rgba(69,124,228,.55)',fontWeight:700,boxShadow:'inset 0 -2px 0 rgba(69,124,228,.70)'},
-      card:{border:'1px solid rgba(125,144,167,.22)',borderRadius:16,padding:'19px 20px',marginBottom:16,background:'var(--dsw-alias-bg-layer-2,rgba(128,140,160,.055))',boxShadow:'0 4px 20px rgba(25,40,64,.055)'},
-      line:{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:12},
-      field:{display:'flex',gap:5,flexDirection:'column',flex:'1 1 160px',minWidth:120},
-      input:{padding:'10px 12px',minHeight:40,borderRadius:10,border:'1px solid rgba(120,140,160,.4)',color:'inherit',background:'var(--dsw-alias-bg-layer-3,transparent)',font:'inherit',width:'100%',boxSizing:'border-box'},
-      btn:{padding:'8px 13px',minHeight:38,borderRadius:9,border:'1px solid rgba(120,140,160,.38)',color:'inherit',background:'transparent',cursor:'pointer',font:'inherit'},
-      primary:{background:'rgba(60,130,230,.21)',borderColor:'rgba(60,130,230,.57)',fontWeight:650},
-      error:{padding:13,borderRadius:10,border:'1px solid #cc5555',marginBottom:14},
-      success:{padding:13,borderRadius:10,border:'1px solid #46a47b',marginBottom:14},
-      small:{fontSize:12,opacity:.8,lineHeight:1.55},
-      overline:{fontSize:11,fontWeight:750,letterSpacing:'.13em',opacity:.67},
-      hero:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:14,flexWrap:'wrap',padding:'20px 23px',marginBottom:18,borderRadius:17,background:'linear-gradient(115deg,rgba(64,122,223,.13),rgba(83,153,156,.045))',border:'1px solid rgba(75,132,215,.23)'},
-      metrics:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(175px,1fr))',gap:12,marginBottom:18},
-      metric:{minWidth:0,display:'flex',flexDirection:'column',alignItems:'flex-start',gap:6,padding:'17px',border:'1px solid rgba(125,144,167,.22)',borderRadius:14,background:'var(--dsw-alias-bg-layer-2,rgba(128,140,160,.055))'},
-      doubleGrid:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,440px),1fr))',gap:14},
-      itemRow:{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10,padding:'11px 0',borderBottom:'1px solid rgba(120,140,160,.16)'},
-      mutedTag:{padding:'4px 9px',borderRadius:8,border:'1px solid rgba(125,144,167,.31)',fontSize:12,opacity:.8},
-    };    function TextField({label,value,onChange,placeholder,width}){
-      return h('label',{style:{...css.field,...(width?{flex:width}:{})}},
+      root:{color:'var(--dsw-alias-label-primary,var(--text,inherit))',maxWidth:1400,margin:'0 auto',padding:'12px clamp(8px,1.7vw,20px) 40px',fontSize:13,lineHeight:1.55},
+      title:{fontSize:21,fontWeight:740,letterSpacing:'-.025em',margin:'0 0 3px'},
+      caption:{fontSize:12,opacity:.78,lineHeight:1.55,margin:'0 0 10px'},
+      tabbar:{display:'flex',gap:6,flexWrap:'wrap',padding:'0 0 10px',borderBottom:'1px solid var(--dsw-alias-border-l2,rgba(130,144,166,.27))',marginBottom:11},
+      tab:{border:'1px solid var(--dsw-alias-border-l2,rgba(130,144,166,.27))',borderRadius:8,padding:'6px 11px',minHeight:34,cursor:'pointer',background:'var(--dsw-alias-bg-layer-3,rgba(128,140,160,.04))',color:'inherit',font:'inherit',fontSize:12},
+      chosen:{background:'var(--dsw-alias-bg-layer-2,rgba(69,124,228,.15))',borderColor:'var(--dsw-alias-brand-primary,#5686fe)',fontWeight:700},
+      card:{border:'1px solid var(--dsw-alias-border-l2,rgba(130,144,166,.27))',borderRadius:11,padding:'12px 13px',marginBottom:10,background:'var(--dsw-alias-bg-layer-2,rgba(128,140,160,.055))'},
+      line:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:9,minWidth:0},
+      field:{display:'flex',gap:4,flexDirection:'column',flex:'1 1 170px',minWidth:0,maxWidth:'100%'},
+      input:{padding:'7px 10px',minHeight:35,borderRadius:7,border:'1px solid var(--dsw-alias-border-l2,rgba(120,140,160,.38))',color:'inherit',background:'var(--dsw-alias-bg-layer-3,transparent)',font:'inherit',fontSize:12,width:'100%',minWidth:0,maxWidth:'100%',boxSizing:'border-box'},
+      btn:{padding:'5px 10px',minHeight:34,borderRadius:7,border:'1px solid var(--dsw-alias-border-l2,rgba(120,140,160,.38))',color:'inherit',cursor:'pointer',font:'inherit'},
+      primary:{background:'var(--dsw-alias-brand-primary,#5686fe)',fontWeight:700},
+      error:{padding:10,borderRadius:8,border:'1px solid #c45b64',marginBottom:10,overflowWrap:'anywhere'},
+      success:{padding:10,borderRadius:8,border:'1px solid var(--dsw-alias-brand-primary,#5686fe)',marginBottom:10,overflowWrap:'anywhere'},
+      small:{fontSize:12,opacity:.83,lineHeight:1.5,overflowWrap:'anywhere'},
+      overline:{fontSize:10,fontWeight:720,letterSpacing:'.08em',opacity:.7},
+      hero:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap',padding:'13px 16px',marginBottom:10,borderRadius:11,background:'var(--dsw-alias-bg-layer-2,rgba(128,140,160,.055))',border:'1px solid var(--dsw-alias-border-l2,rgba(130,144,166,.27))'},
+      metrics:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,145px),1fr))',gap:9,marginBottom:10},
+      metric:{minWidth:0,display:'flex',flexDirection:'column',alignItems:'flex-start',gap:4,padding:'11px 12px',border:'1px solid var(--dsw-alias-border-l2,rgba(130,144,166,.27))',borderRadius:9,background:'var(--dsw-alias-bg-layer-2,rgba(128,140,160,.055))'},
+      doubleGrid:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,340px),1fr))',gap:9},
+      itemRow:{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:7,padding:'8px 0',borderBottom:'1px solid var(--dsw-alias-border-l2,rgba(130,144,166,.22))',minWidth:0},
+      mutedTag:{padding:'2px 7px',borderRadius:7,border:'1px solid var(--dsw-alias-border-l2,rgba(130,144,166,.31))',fontSize:11,opacity:.82,maxWidth:'100%',overflowWrap:'anywhere'},
+    };
+    function TextField({label,value,onChange,placeholder,width}){
+      return h('label',{className:'dnr-input-field',style:{...css.field,...(width?{flex:width}:{})}},
         h('span',{style:css.small},label),
         h('input',{style:css.input,value:value??'',placeholder,onChange:e=>onChange(e.target.value)}));
     }
     function Toggle({label,value,onChange}){
-      return h('label',{style:{...css.line,marginBottom:0,whiteSpace:'nowrap',cursor:'pointer'}},
+      return h('label',{style:{...css.line,marginBottom:0,cursor:'pointer',maxWidth:'100%',whiteSpace:'normal'}},
         h('input',{type:'checkbox',checked:!!value,onChange:e=>onChange(e.target.checked)}),
-        label);
+        h('span',{style:{minWidth:0,overflowWrap:'anywhere'}},label));
     }
     function Select({label,value,onChange,options}){
-      return h('label',{style:css.field},h('span',{style:css.small},label),
+      return h('label',{className:'dnr-input-field',style:css.field},h('span',{style:css.small},label),
         h('select',{style:css.input,value:value??'',onChange:e=>onChange(e.target.value)},
           options.map(x=>h('option',{key:x.value,value:x.value},x.label))));
     }
-    function Button({children,onClick,kind='normal',disabled=false}){
-      return h('button',{type:'button',style:{...css.btn,...(kind==='primary'?css.primary:{})},onClick,disabled},children);
+    function Button({children,onClick,kind='normal',disabled=false,title,ariaLabel}){
+      const isText=typeof children==='string'||typeof children==='number';
+      return h('button',{type:'button',className:'dnr-button'+(kind==='primary'?' dnr-button-primary':''),
+        title:title??(isText?String(children):undefined),
+        'aria-label':ariaLabel??(isText?String(children):undefined),onClick,disabled},children);
     }
     function Panel({title,children,actions}){
-      return h('div',{style:css.card},
-        h('div',{style:{...css.line,justifyContent:'space-between'}},
-          h('strong',{style:{fontSize:14}},title),actions),children);
+      return h('section',{className:'dnr-panel',style:css.card},
+        h('div',{className:'dnr-panel-head'},
+          h('strong',null,title),actions),children);
+    }
+    function DisclosurePanel({title,children,actions,initiallyOpen=false}){
+      return h('details',{className:'dnr-disclosure',open:initiallyOpen},
+        h('summary',{className:'dnr-disclosure-summary'},title),
+        h('div',{className:'dnr-disclosure-body'},
+          actions?h('div',{style:{...css.line,justifyContent:'flex-end'}},actions):null,
+          children));
     }
     function Section({title,children}){
-      return h('div',null,h('h3',{style:{fontSize:14,margin:'12px 0 10px'}},title),children);
+      return h('section',{style:{minWidth:0}},h('h3',{className:'dnr-section-title'},title),children);
     }
 
     // Reuse the upstream channel RPC inside THIS DSH plugin's namespace.
@@ -70,14 +142,14 @@ window.__ModuleLoader__.load({
       }catch{}
       return '';
     }
-    const accountLabels={online:'已连接验证',not_checked:'待验证',checking:'验证中',
-      expired:'登录失效',limited:'限流中',error:'检测异常',disabled:'已停用',provider_disabled:'渠道已停用'};
+    const accountLabels={online:'鉴权通过',recently_verified:'上次通过 · 后台复核中',not_checked:'首次校验中',checking:'检查中',
+      expired:'登录失效',limited:'限流中',error:'连接检查异常',disabled:'已停用',provider_disabled:'渠道已停用'};
     const checkinLabels={success:'今日已签到',failed:'签到失败',pending_confirmation:'等待服务端确认',
       no_task:'今日无签到任务',client_required:'需官方客户端操作',unsupported:'待适配',
       not_run:'今日未签到',running:'执行中'};
     function StateTag({value,kind='account'}){
       const good=value==='online'||value==='success';
-      const warn=['pending_confirmation','limited','not_run','not_checked','checking','running'].includes(value);
+      const warn=['pending_confirmation','limited','not_run','not_checked','checking','running','recently_verified'].includes(value);
       return h('span',{style:{borderRadius:99,padding:'3px 9px',fontSize:11,border:'1px solid '+(good?'#39a777':warn?'#b89237':'rgba(140,140,150,.55)'),
         color:good?'#38b87a':warn?'#c29d44':'inherit',whiteSpace:'nowrap'}},
         kind==='checkin'?(checkinLabels[value]||value):(accountLabels[value]||value));
@@ -130,24 +202,27 @@ window.__ModuleLoader__.load({
         upstream?.state==='ready'?h('div',null,
           h('p',{style:css.small},'来源账号 '+rows.length+' 个；列表只反映上游设置，登录状态未知。'),
           h('div',{style:{maxHeight:320,overflowY:'auto'}},
-            rows.map(row=>h('div',{key:row.providerId+':'+row.id,
-              style:{...css.line,padding:'7px 0',borderBottom:'1px solid rgba(120,130,150,.16)'}},
-              h('strong',null,row.providerId),
-              h('span',null,row.nickname||row.id),
-              h('span',{style:css.small},row.enabled?'来源池已启用':'来源池已停用'),
-              h('span',{style:css.small},'登录状态未知 · 仅查看'),
-               h(Button,{disabled:!!busy||!!sourceBusy||!live,onClick:()=>{
-                 if(window.confirm('确认'+(row.enabled?'停用':'启用')+'来源渠道 '+row.providerId+' 的账号 '+row.id+' ？修改仅作用于隔离来源池。'))
-                   run('/channels/embedded/account-state',{providerId:row.providerId,accountId:row.id,enabled:!row.enabled},
-                     '来源账号已修改并回查状态。');
-               }},row.enabled?'停用来源账号':'启用来源账号'),
-               h(Button,{disabled:!!busy||!!sourceBusy||!live||!row.refreshable,
-                 onClick:()=>onSourceRefresh(row)},'刷新来源凭据'),
-               h(Button,{disabled:!!busy||!!sourceBusy||!live,onClick:()=>{
-                 if(window.confirm('确认永久移除来源账号 '+row.id+' ？此操作调用上游账号池删除接口，并尝试清除本地保存的来源凭据；不等于撤销云端授权。若本插件仍引用该渠道账号则拒绝删除。'))
-                   run('/channels/embedded/account-remove',{providerId:row.providerId,accountId:row.id,
-                      acknowledgedSourceCredentialDeletion:true},'来源账号已从上游账号池移除；云端授权撤销需到官方服务检查。');
-               }},'退出来源账号（尝试清凭据）'))))):null,
+            rows.map(row=>h('div',{key:row.providerId+':'+row.id,className:'dnr-source-entry'},
+              h('div',{style:{flex:'1 1 205px',minWidth:0}},
+                h('div',{style:{...css.line,marginBottom:2}},
+                  h('strong',null,row.providerId),
+                  h('span',{style:{fontSize:12,overflowWrap:'anywhere'}},row.nickname||row.id)),
+                h('div',{style:{...css.line,marginBottom:0}},
+                  h('span',{style:css.small},row.enabled?'来源池已启用':'来源池已停用'),
+                  h('span',{style:css.small},'登录状态未知 · 仅查看'))),
+              h('div',{className:'dnr-action-list'},
+                h(Button,{disabled:!!busy||!!sourceBusy||!live,onClick:()=>{
+                  if(window.confirm('确认'+(row.enabled?'停用':'启用')+'来源渠道 '+row.providerId+' 的账号 '+row.id+' ？修改仅作用于隔离来源池。'))
+                    run('/channels/embedded/account-state',{providerId:row.providerId,accountId:row.id,enabled:!row.enabled},
+                      '来源账号已修改并回查状态。');
+                }},row.enabled?'停用来源账号':'启用来源账号'),
+                h(Button,{disabled:!!busy||!!sourceBusy||!live||!row.refreshable,
+                  onClick:()=>onSourceRefresh(row)},'刷新来源凭据'),
+                h(Button,{disabled:!!busy||!!sourceBusy||!live,onClick:()=>{
+                  if(window.confirm('确认永久移除来源账号 '+row.id+' ？此操作调用上游账号池删除接口，并尝试清除本地保存的来源凭据；不等于撤销云端授权。若本插件仍引用该渠道账号则拒绝删除。'))
+                    run('/channels/embedded/account-remove',{providerId:row.providerId,accountId:row.id,
+                       acknowledgedSourceCredentialDeletion:true},'来源账号已从上游账号池移除；云端授权撤销需到官方服务检查。');
+                }},'退出来源账号（尝试清凭据）')))))):null,
         upstream?.state==='error'?h('p',{style:css.small},'来源账号池读取失败；未修改任何账号。'):null,
         upstream?.state==='unavailable'&&live?h('p',{style:css.small},'来源账号池暂不可读取。'):null
       );
@@ -161,7 +236,7 @@ window.__ModuleLoader__.load({
       verifyResults,verifyBusy,onVerifyAdopted}){
       const reuse=data?.sessionReuse||{hostProviders:[],channels:[],results:[]};
       const hosts=reuse.hostProviders||[],available=(reuse.channels||[]).filter(x=>x.available);
-      const accountLabels={online:'已验证',expired:'授权过期',pending:'等待确认',checking:'检查中',error:'验证失败',limited:'额度/频率受限'};
+      const accountLabels={online:'本次鉴权通过',recently_verified:'上次鉴权通过 · 自动复核中',not_checked:'首次鉴权排队中',expired:'授权已失效',pending:'等待确认',checking:'自动检查中',error:'连接检查异常',limited:'限流中',client_required:'需要原客户端操作'};
       const checkedAccounts=data?.accounts||[];
       const selectedHost=hostModelBusy||hostModels?.providerId||'';
       const hostLabel=id=>id==='workbuddy'?'WorkBuddy 国内':
@@ -190,8 +265,8 @@ window.__ModuleLoader__.load({
                   background:selectedHost===p.providerId?'rgba(72,127,235,.17)':'rgba(125,144,167,.04)',
                   border:'1px solid '+(selectedHost===p.providerId?'rgba(75,135,232,.63)':'rgba(125,144,167,.24)'),
                   padding:'7px 9px',borderRadius:9,minHeight:34}},
-                h('strong',{style:{fontSize:12,fontWeight:650,minWidth:0,
-                  maxWidth:'min(45vw,185px)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},
+                h('strong',{style:{fontSize:12,fontWeight:650,minWidth:0,maxWidth:'100%',
+                  flex:'1 1 120px',overflowWrap:'anywhere',textAlign:'left',whiteSpace:'normal'}},
                   hostLabel(p.providerId)),
                 h('span',{style:{...css.mutedTag,fontSize:10,padding:'1px 5px',whiteSpace:'nowrap',opacity:1}},
                   hostModelBusy===p.providerId?'加载中':selectedHost===p.providerId?'已选择':'已接入'))):
@@ -224,17 +299,22 @@ window.__ModuleLoader__.load({
               h(Button,{kind:'primary',disabled:!!verifyBusy||!!adoptionBusy||
                 !adoptionPreview?.accounts?.some(x=>x.ownedAccountId),
                 onClick:onVerifyAdopted},verifyBusy?'验证中…':'批量验证已接管账号'))},
-            h('p',{style:css.small},'打开本页自动读取已安装插件的账号清单。只有点击具体账号的「接管」才复制授权；接管后自动启用独立账号、可在此页批量验证，不更改原插件账号。'),
+            h('p',{style:css.small},'原插件负责维护登录态，已接管账号按有效期自动进行只读鉴权复核；仅需在首次接管或明确失效时人工操作。原插件账号不会被修改。'),
+            data?.verificationCache?.state==='degraded'?h('p',{role:'alert',style:css.small},
+              '校验历史记录无法可靠写入本地文件；本次检查结果可能不会在重启后保留。请检查本插件状态目录的文件权限或损坏记录，原账号不受影响。'):null,
             credentialService?.available===false?h('p',{role:'alert',style:css.small},
               '当前宿主 Credentials 服务不可用，无法安全复制独立授权。宿主插件的原生模型仍能直接复用。'):null,
             h('div',{style:css.line},
               h('span',{style:css.mutedTag},'发现 '+(adoptionPreview?.accounts?.length??0)+' 个'),
               h('span',{style:css.mutedTag},'已接管 '+(adoptionPreview?.accounts?.filter(x=>x.ownedAccountId).length??0)+' 个'),
-              h('span',{style:css.mutedTag},'批量验证 '+(verifyResults?.length??0)+' 个')),
+              h('span',{style:css.mutedTag},'最近确认 '+checkedAccounts.filter(x=>x.connectionState==='online'&&x.reusedExistingSession).length+' 个')),
             adoptionPreview?.accounts?.length?
               adoptionPreview.accounts.map(row=>{
                 const key=row.providerId+':'+row.accountId;
-                const verify=verifyResults?.find(x=>x.id===row.ownedAccountId);
+                const live=checkedAccounts.find(x=>x.id===row.ownedAccountId);
+                const verify=live?{state:live.connectionState,message:live.message,
+                  at:live.checkedAt,lastVerifiedAt:live.lastVerifiedAt}:
+                  verifyResults?.find(x=>x.id===row.ownedAccountId);
                 const disabled=!!adoptionBusy||!row.portable||
                   (row.requiresPack&&adoptionPreview.ownPackState!=='mounted')||
                   (!row.privatePortable&&adoptionPreview.ownPackState!=='mounted');
@@ -242,16 +322,23 @@ window.__ModuleLoader__.load({
                   h('div',{style:{minWidth:0,flex:'1 1 200px'}},
                     h('strong',null,row.label||row.providerId),
                     h('div',{style:css.small},row.providerId+' · '+
-                      (row.ownedAccountId?'已迁入独立账号（在线状态待验证）':
+                      (row.ownedAccountId?
+                        verify?.state==='online'?'已接管 · 鉴权正常':
+                        verify?.state==='recently_verified'?'已接管 · 之前鉴权成功，正在复核':
+                        verify?.state==='expired'?'已接管 · 授权失效':
+                        '已接管 · 自动核验中':
                         row.portable?'具备可审核接管方案':'暂不可独立接管')),
                     adoptionResults?.[key]?h('div',{role:'status',style:css.small},
                       adoptionResults[key].message):null,
                     verify?h('div',{role:'status',style:css.small},
-                      '模型/授权检查：'+(accountLabels[verify.state]||verify.state)+' · '+verify.message):null),
+                      '模型/授权检查：'+(accountLabels[verify.state]||verify.state)+' · '+verify.message+
+                      (verify.at?' · 检查于 '+new Date(verify.at).toLocaleString():'')+
+                      (verify.lastVerifiedAt&&verify.state!=='online'?
+                        ' · 上次成功 '+new Date(verify.lastVerifiedAt).toLocaleString():'')):null),
                   h(Button,{disabled:disabled||adoptionResults?.[key]?.state==='success',
                     onClick:()=>onAdoptAccount(row)},
                     adoptionBusy==='adopt:'+row.accountId?'接管中…':
-                    adoptionResults?.[key]?.state==='success'?'已接管 · 待验证':
+                    adoptionResults?.[key]?.state==='success'?'已接管':
                     row.ownedAccountId?'复核接管':row.portable?'接管到本插件':'暂不能接管'));
               }):
               h('p',{style:css.small},adoptionBusy==='preview'?'正在读取原插件账号…':
@@ -359,25 +446,35 @@ window.__ModuleLoader__.load({
             h('p',{style:css.small},'没有具有明确免费证据或人工免费标记、且来源可用的模型。AutoFree 会拒绝路由，不会默认改用收费模型。')));
     }
     function AccountConsole({data,query,onQuery,run,setTab,busy,discovered,onAddProvider,
-      showReferences,onToggleReferences,onManageAccounts}){
+      showReferences,onToggleReferences,onManageAccounts,selectedChannel,onSelectChannel}){
       if(!data)return h(Panel,{title:'渠道账号'},'账号中心尚未连接 DSH Host。');
       const accounts=data.accounts||[];
       const channels=(data.channels||[]).filter(c=>(!c.referenceOnly||showReferences)
         &&(!query||[c.name,c.id,c.authMethod].some(x=>String(x||'').toLowerCase().includes(query.toLowerCase()))));
       const active=accounts.filter(a=>a.configuredEnabled).length,
-        online=accounts.filter(a=>a.connectionState==='online').length;
+         online=accounts.filter(a=>a.connectionState==='online').length;
+      const selected=channels.some(c=>c.id===selectedChannel)?selectedChannel:
+        (channels.find(c=>accounts.some(a=>a.providerId===c.id))?.id||channels[0]?.id||'');
+       const visibleChannels=query||selectedChannel==='all'||(showReferences&&!selectedChannel)?channels:
+         channels.filter(c=>c.id===selected);
       return h(React.Fragment,null,
         h(Panel,{title:'全部渠道 · 账号状态',actions:h(Button,{disabled:!!busy,onClick:()=>run('/channels/accounts/action',{action:'refresh-all'},'已重新验证可连接的账号')},'验证全部')},
           h('div',{style:{...css.line,justifyContent:'space-between'}},
             h('span',{style:css.small},'已登记 '+accounts.length+' 个账号；启用 '+active+'；最近验证通过 '+online+
               '。状态不会凭历史登录记录推断，须由对应渠道真实探针确认。'),
-            h('input',{style:{...css.input,maxWidth:210},placeholder:'查找渠道 / 登录方式',
-              value:query,onChange:e=>onQuery(e.target.value)})),
+            h('input',{'aria-label':'搜索渠道名称或登录方式',style:{...css.input,maxWidth:220,flex:'1 1 170px'},
+              placeholder:'搜索渠道 / 登录方式',value:query,onChange:e=>onQuery(e.target.value)})),
            h('div',{style:css.line},
+             h('label',{className:'dnr-input-field',style:{...css.field,flex:'1 1 220px',maxWidth:320}},
+               h('span',{style:css.small},'快速切换渠道'),
+                h('select',{style:css.input,value:selectedChannel==='all'||(showReferences&&!selectedChannel)?'all':selected,
+                 onChange:e=>onSelectChannel(e.target.value)},
+                 h('option',{value:'all'},'全部渠道（展开全部）'),
+                 channels.map(c=>h('option',{key:c.id,value:c.id},c.name+' · '+accounts.filter(a=>a.providerId===c.id).length+' 账号')))),
              h(Button,{onClick:()=>onToggleReferences(!showReferences)},
                showReferences?'收起待接入渠道':'查看待接入渠道'),
              h(Button,{onClick:()=>setTab('reuse')},'自主登录与复用'))),
-        channels.map(channel=>{
+        visibleChannels.map(channel=>{
           const members=accounts.filter(a=>a.providerId===channel.id),
             pool=(data.pools||[]).find(x=>x.providerId===channel.id);
           return h(Panel,{key:channel.id,title:channel.name,actions:
@@ -389,12 +486,16 @@ window.__ModuleLoader__.load({
               channel.referenceCheckin?h('span',{style:css.small},'参考项目包含签到流程，本插件尚需逐渠道验收'):null,
               pool?h('span',{style:css.small},'自动候选：'+pool.enabled+' / 已验证：'+pool.verified):null),
             members.length?members.map(account=>
-              h('div',{key:account.id,style:{...css.card,padding:10,marginBottom:7}},
+              h('div',{key:account.id,style:{...css.itemRow,display:'block',marginBottom:0,padding:'9px 0'}},
                 h('div',{style:{...css.line,justifyContent:'space-between',marginBottom:6}},
                   h('strong',null,account.id),h(StateTag,{value:account.connectionState})),
                 h('div',{style:{...css.line,marginBottom:7}},
                    h('span',{style:css.small},'凭据：'+account.credentialKind+' 引用'),
-                    account.reusedExistingSession?h('span',{style:css.small},'已关联既有账号引用（远端授权待核验）'):null,
+                     account.reusedExistingSession?h('span',{style:css.small},
+                       account.connectionState==='online'?'复用原账号 · 最近鉴权通过':
+                       account.connectionState==='recently_verified'?'复用原账号 · 上次鉴权通过，自动复核中':
+                       account.connectionState==='expired'?'复用原账号 · 认证失效，请检查原客户端':
+                       '复用原账号 · 后台自动检查中'):null,
                     h('span',{style:css.small},'来源：'+(account.origin?.label||'尚未识别')),
                     account.origin?.sourceAvailable===false?h('span',{style:css.small},'原账号源当前不匹配或不可用 · 不应自动切换至其他账号'):null,
                     h('span',{style:css.small},'权重：'+account.weight),
@@ -481,11 +582,12 @@ window.__ModuleLoader__.load({
             h(TextField,{label:'时区',value:cfg.checkin?.timeZone||'Asia/Shanghai',
               onChange:v=>onSettings({timeZone:v})})),
           h('p',{style:css.small},'开启总开关后：已配置的常规账号按逐账号开关执行；来源渠道自动覆盖全部已启用且确实具备每日签到功能的账号，可单独关闭来源自动覆盖。已受理不算成功，必须回查；失败与待确认最多按间隔重试三次。全部任务在 DSH 进程内运行，无需额外服务。')),
-        groups.map(channel=>{
+        groups.map((channel,i)=>{
           const members=accounts.filter(a=>a.providerId===channel.id);
-          return h(Panel,{key:channel.id,title:channel.name,actions:
-            h('span',{style:css.small},members.length+' 个账号 · 今日确认 '+channel.success)},
-            members.length?members.map(a=>h('div',{key:a.id,style:{...css.card,padding:10,marginBottom:7}},
+          return h(DisclosurePanel,{key:channel.id,initiallyOpen:i===0,
+            title:channel.name+' · '+members.length+' 账号 · 确认 '+channel.success,
+            actions:h('span',{style:css.small},'今日只统计服务端真实回执')},
+            members.length?members.map(a=>h('div',{key:a.id,style:{...css.itemRow,display:'block',marginBottom:0,padding:'9px 0'}},
               h('div',{style:{...css.line,justifyContent:'space-between',marginBottom:4}},
                 h('strong',null,a.id),h(StateTag,{kind:'checkin',value:a.checkinState})),
               h('p',{style:css.small},a.checkinMessage),
@@ -510,11 +612,13 @@ window.__ModuleLoader__.load({
     }
 
     function Metric({label,value,detail,onClick}){
-      return h('div',{style:css.metric},
+      return h(onClick?'button':'div',{className:onClick?'dnr-metric-link':undefined,
+        type:onClick?'button':undefined,style:{...css.metric,textAlign:'left',color:'inherit',
+          ...(onClick?{cursor:'pointer'}:{})},onClick,
+        title:onClick?'打开'+label:undefined,'aria-label':onClick?'打开'+label:undefined},
         h('span',{style:css.small},label),
-        h('strong',{style:{fontSize:26,fontWeight:760,fontVariantNumeric:'tabular-nums',lineHeight:1.3}},String(value)),
-        h('span',{style:css.small},detail),
-        onClick?h(Button,{onClick},'查看详情'):null);
+        h('strong',{style:{fontSize:20,fontWeight:730,fontVariantNumeric:'tabular-nums',lineHeight:1.2}},String(value)),
+        h('span',{style:css.small},detail));
     }
     function OverviewConsole({cfg,status,channelsView,checkinsView,onNavigate,onRefresh}){
       const accounts=channelsView?.accounts||[],checkins=checkinsView?.accounts||[];
@@ -535,7 +639,7 @@ window.__ModuleLoader__.load({
             h('p',{style:{...css.caption,marginBottom:0}},'基于 DSH 当前实际数据展示。宿主路由注册、账号授权验证、每日签到互不等同；不以安装记录冒充已登录。')),
           h(Button,{onClick:onRefresh},'刷新运行状态')),
         h('div',{style:css.metrics},
-          h(Metric,{label:'宿主已注册路由',value:status?hostProviders.length:'—',detail:'原插件托管 · 状态待核验',onClick:()=>onNavigate('reuse')}),
+           h(Metric,{label:'宿主已注册路由',value:status?hostProviders.length:'—',detail:'认证由原插件管理，无需再次接入',onClick:()=>onNavigate('reuse')}),
           h(Metric,{label:'聚合账号',value:channelsView?accounts.length:'—',detail:'已验证在线 '+verified,onClick:()=>onNavigate('channels')}),
           h(Metric,{label:'已启用模型链',value:enabledChains,detail:'共配置 '+cfg.routes.length+' 条',onClick:()=>onNavigate('routes')}),
           h(Metric,{label:'今日确认签到',value:checkinsView?signed:'—',detail:'具备执行器 '+eligible+' · 失败 '+failed,onClick:()=>onNavigate('checkins')}),
@@ -546,7 +650,7 @@ window.__ModuleLoader__.load({
             hostProviders.length?hostProviders.slice(0,14).map(p=>h('div',{key:p.providerId,style:css.itemRow},
               h('div',null,h('strong',null,routeName(p)),
                 h('div',{style:css.small},'Provider: '+p.providerId+' · '+(p.accountAccess==='pool-required'?'需匹配原 DSH 账号池':'账号由原插件管理或未知'))),
-              h('span',{style:css.mutedTag},'路由已注册 · 登录未核实'))):
+               h('span',{style:css.mutedTag},'已注册 · 原插件维护认证'))):
               h('p',{style:css.small},'尚未发现其他已注册 Provider，或运行状态尚未加载。')),
           h(Panel,{title:'账号来源 · 分别核验',actions:h(Button,{onClick:()=>onNavigate('channels')},'管理账号')},
             h('p',{style:css.small},'DSH 原插件账号池、本机桌面只读会话和本插件配置账号分别列示，不复制原插件凭据。'),
@@ -599,24 +703,40 @@ window.__ModuleLoader__.load({
          [hostCatalogBusy,setHostCatalogBusy]=useState(false),
          [freeProvider,setFreeProvider]=useState(''),
          [freeModel,setFreeModel]=useState(''),
-         [manualFreeModel,setManualFreeModel]=useState('');
-      const refresh=useCallback(async()=>{
-        setBusy(true);setError('');
-        try{
-          const a=await fetch(URL+'/config',{cache:'no-store'});
-          if(!a.ok)throw Error('配置读取失败 ('+a.status+')');
-          const data=await a.json();if(!data.ok||!data.config)throw Error('插件未返回配置');
-          setCfg(data.config);setRaw(JSON.stringify(data.config,null,2));
-          const response=await fetch(URL+'/status',{cache:'no-store'});
-          if(response.ok)setStatus(await response.json());
-          await Promise.all([
-            fetch(URL+'/channels/accounts',{cache:'no-store'}).then(async r=>{if(r.ok)setChannelsView(await r.json());}),
-            fetch(URL+'/checkins',{cache:'no-store'}).then(async r=>{if(r.ok)setCheckinsView(await r.json());}),
-            fetch(URL+'/models/autofree',{cache:'no-store'}).then(async r=>{if(r.ok){const d=await r.json();setAutoFreeView(d.result)}}),
-          ]);
-        }catch(e){setError(String(e.message??e))}finally{setBusy(false)}
-      },[]);
-      useEffect(()=>{refresh()},[refresh]);
+          [manualFreeModel,setManualFreeModel]=useState(''),
+          [savedConfig,setSavedConfig]=useState(null),
+          [selectedAccountChannel,setSelectedAccountChannel]=useState('');
+       const refreshRuntime=useCallback(async()=>{
+         const response=await fetch(URL+'/status',{cache:'no-store'});
+         if(response.ok)setStatus(await response.json());
+         await Promise.all([
+           fetch(URL+'/channels/accounts',{cache:'no-store'}).then(async r=>{if(r.ok)setChannelsView(await r.json());}),
+           fetch(URL+'/checkins',{cache:'no-store'}).then(async r=>{if(r.ok)setCheckinsView(await r.json());}),
+           fetch(URL+'/models/autofree',{cache:'no-store'}).then(async r=>{if(r.ok){const d=await r.json();setAutoFreeView(d.result)}}),
+         ]);
+       },[]);
+       const refresh=useCallback(async()=>{
+         setBusy(true);setError('');
+         try{
+           const a=await fetch(URL+'/config',{cache:'no-store'});
+           if(!a.ok)throw Error('配置读取失败 ('+a.status+')');
+           const data=await a.json();if(!data.ok||!data.config)throw Error('插件未返回配置');
+           setCfg(data.config);setRaw(JSON.stringify(data.config,null,2));setSavedConfig(data.config);
+           await refreshRuntime();
+         }catch(e){setError(String(e.message??e))}finally{setBusy(false)}
+       },[refreshRuntime]);
+       useEffect(()=>{
+         refresh();
+         // Read local validation snapshots only; never start OAuth or inference
+         // simply because the user has opened the settings page.
+         if(typeof setInterval!=='function')return;
+         const timer=setInterval(()=>{
+           void fetch(URL+'/channels/accounts',{cache:'no-store'})
+             .then(async res=>{if(res.ok)setChannelsView(await res.json())})
+             .catch(()=>{});
+         },30000);
+         return ()=>clearInterval(timer);
+       },[refresh]);
       // Visiting the adoption tab scans metadata only; no account migration.
       useEffect(()=>{
         if(tab==='reuse'&&reuseSubtab==='sessions')void loadAdoptionPreview();
@@ -655,7 +775,7 @@ window.__ModuleLoader__.load({
           if(!res.ok||!data.ok)throw Error(data.error||'批量验证失败');
           setVerifyResults(Array.isArray(data.results)?data.results:[]);
           setNotice('已对 '+data.attempted+' 个已接管账号执行来源授权探针；失败的不标记为在线。');
-          await refresh();
+           await refreshRuntime();
           await loadAdoptionPreview();
         }catch(error){setError(String(error?.message??error))}
         finally{setVerifyBusy(false)}
@@ -703,13 +823,20 @@ window.__ModuleLoader__.load({
           const next=structuredClone(old);const rows=next[collection];[rows[index],rows[target]]=[rows[target],rows[index]];return next;
         });
       };
-      async function runAction(path,body,success){
-        setActionBusy(path+':'+(body.accountId||body.providerId||body.action));setError('');setNotice('');
-        try{
-          const response=await fetch(URL+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
-          const data=await response.json();
-          if(!response.ok||!data.ok)throw Error(data.error||'操作失败（'+response.status+'）');
-          await refresh();
+       async function runAction(path,body,success){
+         const changesConfig=path==='/channels/import'||
+           (path==='/channels/accounts/action'&&['enable','logout'].includes(body.action));
+         const hasDraft=Boolean(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig));
+         if(changesConfig&&hasDraft){
+           setError('当前表单存在未保存修改。请先保存配置，再修改账号关联，以免覆盖新旧账号状态。');
+           return;
+         }
+         setActionBusy(path+':'+(body.accountId||body.providerId||body.action));setError('');setNotice('');
+         try{
+           const response=await fetch(URL+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+           const data=await response.json();
+           if(!response.ok||!data.ok)throw Error(data.error||'操作失败（'+response.status+'）');
+           await (changesConfig?refresh():refreshRuntime());
           if(path==='/channels/discover'){
             setDiscovered(old=>({...old,[body.providerId]:data.candidates||[]}));
             setNotice('发现 '+(data.candidates?.length||0)+' 个候选；需人工确认后才能导入。');
@@ -759,7 +886,7 @@ window.__ModuleLoader__.load({
           setPendingSourceLogin({providerId,accountId:result.accountId,loginUrl});
           setNotice(loginUrl?'已创建来源授权流程。请核对链接域名，打开授权后手动点击检查登录结果。':
             '来源授权流程已建立，但返回的授权链接不符合安全要求，未自动打开。');
-          await refresh();
+           await refreshRuntime();
         }catch(error){setError(String(error?.message??error))}
         finally{setSourceRpcBusy('')}
       }
@@ -775,7 +902,7 @@ window.__ModuleLoader__.load({
           if(result.success!==true)throw Error('来源账号未能完成授权，请从原渠道确认');
           setPendingSourceLogin(null);
           setNotice('来源端确认已保存登录凭据，新账号已经成为独立来源；在线推理和签到仍需核验。');
-          await refresh();
+           await refreshRuntime();
           await refreshAutoFree();
         }catch(error){setError(String(error?.message??error))}
         finally{setSourceRpcBusy('')}
@@ -786,7 +913,7 @@ window.__ModuleLoader__.load({
           const result=await callSourceRpc('account.refresh',{accountId:account.id});
           if(result.success!==true)throw Error('来源未确认续期成功');
           setNotice('来源端返回续期操作成功；请另外验证账号连接状态。');
-          await refresh();
+           await refreshRuntime();
         }catch(error){setError(String(error?.message??error))}
         finally{setSourceRpcBusy('')}
       }
@@ -834,6 +961,10 @@ window.__ModuleLoader__.load({
          }catch{setError('无法读取可迁移账号，未访问或改动授权')}finally{setAdoptionBusy('')}
        }
        async function adoptOriginalAccount(row){
+         if(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig)){
+           setError('当前存在未保存配置草稿。请先保存后再接管账号，避免覆盖新接管的账号设置。');
+           return;
+         }
          if(!row?.portable||adoptionBusy||!window.confirm(
            '将 '+row.providerId+' 的账号 '+(row.label||row.accountId)+' 复制到聚合路由独立授权库？原账号保持不变；迁移后仍需验证模型和签到。'))return;
          const key=row.providerId+':'+row.accountId;
@@ -910,7 +1041,7 @@ async function loadHostModels(providerId){
           const res=await fetch(URL+'/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(value)});
           const data=await res.json();
           if(!res.ok||!data.ok)throw Error(data.error??'保存失败');
-          setCfg(data.config);setRaw(JSON.stringify(data.config,null,2));
+           setCfg(data.config);setRaw(JSON.stringify(data.config,null,2));setSavedConfig(data.config);
           await refresh();
           if(tab==='pool')await refreshAutoFree();
           setNotice('配置保存成功，模型池及账号状态已更新；涉及宿主级路由注册时请完整重启 DSH Host。');
@@ -921,9 +1052,32 @@ async function loadHostModels(providerId){
        const accountProviderChoices=cfg.providers.filter(x=>x.protocol!=='dsh-host')
          .map(x=>({value:x.id,label:x.name+' ('+x.id+')'}));
       const modes=[{value:'priority',label:'按链条顺序降级'},{value:'pinned',label:'固定首个模型（账号可切）'},{value:'free',label:'仅显式标记免费'}];
-      const tabs=[['overview','总览'],['channels','渠道账号'],['reuse','复用管理'],['checkins','每日签到'],['providers','提供商'],['pool','模型池'],['routes','模型链条'],['host','宿主故障切换'],['advanced','高级 JSON']];
-      let content=null;
-       if(tab==='overview')content=h(OverviewConsole,{cfg,status,channelsView,checkinsView,onNavigate:setTab,onRefresh:refresh});
+       const tabs=[['overview','总览'],['channels','渠道账号'],['reuse','复用管理'],['checkins','每日签到'],['providers','提供商'],['pool','模型池'],['routes','模型链条'],['host','宿主故障切换'],['advanced','高级 JSON']];
+       const navGroups=[
+         {name:'运行',ids:['overview']},
+         {name:'渠道与账号',ids:['channels','reuse','checkins']},
+         {name:'模型与策略',ids:['providers','pool','routes']},
+         {name:'运维',ids:['host','advanced']},
+       ];
+       const pageNotes={
+         overview:'查看真实来源接入、账号、签到与模型调度状态',
+         channels:'管理每个渠道的账号、授权状态与启停操作',
+         reuse:'沿用原插件登录态，独立授权与宿主路由互不干扰',
+         checkins:'按账号与渠道核对真实签到回执及执行计划',
+         providers:'维护来源名称与协议，授权仍由对应渠道处理',
+         pool:'自动发现可用模型并明确免费依据',
+         routes:'人工制定模型优先级与跨来源降级链条',
+         host:'DSH Agent 后续回合的故障续跑配置',
+         advanced:'仅用于排障的账号引用与完整 JSON 配置',
+         'account-debug':'管理所选渠道的账号引用与权限',
+       };
+       const activeNav=tab==='account-debug'?'channels':tab;
+       const pageTitle=tab==='account-debug'?'账号池维护':tabs.find(x=>x[0]===tab)?.[1]||'运行总览';
+       const unsaved=Boolean(cfg&&savedConfig&&(tab==='advanced'
+         ?raw!==JSON.stringify(savedConfig,null,2)
+         :JSON.stringify(cfg)!==JSON.stringify(savedConfig)));
+       let content=null;
+       if(tab==='overview')content=h(OverviewConsole,{cfg,status,channelsView,checkinsView,onNavigate:setTab,onRefresh:refreshRuntime});
        const changeReuseSettings=change=>setCfg(old=>({...old,
          embeddedPack:{...old.embeddedPack,...('embeddedEnabled' in change?{enabled:change.embeddedEnabled}:{})},
          sessionReuse:{...old.sessionReuse,
@@ -932,11 +1086,12 @@ async function loadHostModels(providerId){
        if(tab==='channels')content=h(AccountConsole,{data:channelsView,
          query:channelQuery,onQuery:setChannelQuery,run:runAction,setTab,
          busy:actionBusy,discovered,onAddProvider:addNativeProvider,
-         showReferences:showReferenceChannels,onToggleReferences:setShowReferenceChannels,
-         onManageAccounts:channel=>{setManagedAccountProvider(channel.id);setTab('account-debug')}});
+          showReferences:showReferenceChannels,onToggleReferences:setShowReferenceChannels,
+          selectedChannel:selectedAccountChannel,onSelectChannel:setSelectedAccountChannel,
+          onManageAccounts:channel=>{setManagedAccountProvider(channel.id);setTab('account-debug')}});
        if(tab==='reuse')content=h(ReuseConsole,{data:channelsView,cfg,
          onReuseSettings:changeReuseSettings,run:runAction,busy:actionBusy,
-         onRefresh:refresh,subtab:reuseSubtab,onSubtab:setReuseSubtab,
+          onRefresh:refreshRuntime,subtab:reuseSubtab,onSubtab:setReuseSubtab,
          embeddedPack:status?.embeddedPack,credentialService:status?.credentialService,modelProvider,
          setModelProvider:value=>{setModelProvider(value);setEmbeddedModels(null)},
          onModels:loadUpstreamModels,modelBusy,models:embeddedModels,
@@ -948,14 +1103,15 @@ async function loadHostModels(providerId){
           verifyResults,verifyBusy,onVerifyAdopted:verifyAdopted,
           onPreviewAdoption:loadAdoptionPreview,onAdoptAccount:adoptOriginalAccount});
       if(tab==='checkins')content=h(CheckinConsole,{data:checkinsView,cfg,onSettings:setCheckinSettings,
-        onAccountAuto:setAccountAuto,run:runAction,refresh,busy:actionBusy,
+         onAccountAuto:setAccountAuto,run:runAction,refresh:refreshRuntime,busy:actionBusy,
         embeddedPack:status?.embeddedPack,sourceProvider:sourceCreditsProvider,
         setSourceProvider:value=>{setSourceCreditsProvider(value);setSourceCredits(null);setSourceClaims(null)},
         sourceCredits,sourceClaims,sourceBusy:sourceRpcBusy,
         onSourceStatus:sourceCheckinStatus,onSourceClaim:sourceClaimAll});
       if(tab==='providers')content=h(Section,{title:'提供商注册表'},cfg.providers.map((p,i)=>
-        h(Panel,{key:p.id,title:(i+1)+'. '+(p.name||p.id),actions:
-          h(Button,{onClick:()=>remove('providers',i)},'删除')},
+         h(DisclosurePanel,{key:p.id,title:(i+1)+'. '+(p.name||p.id),
+           initiallyOpen:i===0||i===cfg.providers.length-1,actions:
+           h(Button,{onClick:()=>{if(window.confirm('确认从本插件配置草稿移除提供商 '+p.name+'？请保存配置后才会生效。'))remove('providers',i)}},'删除')},
           h('div',{style:css.line},
             h(TextField,{label:'标识 ID',value:p.id,onChange:v=>edit('providers',i,{id:v})}),
             h(TextField,{label:'显示名称',value:p.name,onChange:v=>edit('providers',i,{name:v})}),
@@ -999,7 +1155,10 @@ async function loadHostModels(providerId){
             options:[{value:'',label:'所有已登记渠道'},...cfg.providers.filter(p=>p.protocol!=='dsh-host')
               .map(p=>({value:p.id,label:p.name+' · '+p.id}))]})),
         cfg.accounts.map((a,i)=>managedAccountProvider&&a.providerId!==managedAccountProvider?null:
-        h(Panel,{key:a.id,title:(i+1)+'. '+a.id,actions:h(Button,{onClick:()=>remove('accounts',i)},'删除')},
+         h(DisclosurePanel,{key:a.id,initiallyOpen:i===0||a.providerId===managedAccountProvider,
+           title:(i+1)+'. '+a.id,actions:h(Button,{onClick:()=>{
+             if(window.confirm('确认从配置草稿中移除账号引用 '+a.id+'？保存后才会生效。'))remove('accounts',i)
+           }},'删除')},
           h('div',{style:css.line},
             h(TextField,{label:'账号 ID',value:a.id,onChange:v=>edit('accounts',i,{id:v})}),
             h(Select,{label:'所属提供商',value:a.providerId,onChange:v=>edit('accounts',i,{providerId:v}),options:accountProviderChoices}),
@@ -1017,7 +1176,10 @@ async function loadHostModels(providerId){
              '+ 新增 API 账号引用'));
       if(tab==='routes')content=h(Section,{title:'模型链条 · 仅手工维护'},
         h('p',{style:css.small},'渠道接入、扫码授权、账号接管均不会自动生成或更改模型链。这里手工选择跨来源模型及降级顺序；AutoFree 在模型池单独管理。'),cfg.routes.map((r,i)=>
-        h(Panel,{key:r.id,title:r.name+' / chain:'+r.id,actions:h(Button,{onClick:()=>remove('routes',i)},'删除链条')},
+        h(DisclosurePanel,{key:r.id,initiallyOpen:i===0||i===cfg.routes.length-1,
+          title:r.name+' / chain:'+r.id,actions:h(Button,{onClick:()=>{
+            if(window.confirm('确认从配置草稿中移除模型链 '+r.name+'？保存后生效。'))remove('routes',i);
+          }},'删除链条')},
           h('div',{style:css.line},
             h(TextField,{label:'链条 ID',value:r.id,onChange:v=>edit('routes',i,{id:v})}),
             h(TextField,{label:'链条名称',value:r.name,onChange:v=>edit('routes',i,{name:v})}),
@@ -1092,10 +1254,10 @@ async function loadHostModels(providerId){
                 free:!!models.find(m=>m.id===v)?.freeHint})}),
             h(Toggle,{label:'仅免费策略允许',value:entry.free,
               onChange:v=>changeHostTier(i,{free:v})}),
-            h(Button,{disabled:i===0,onClick:()=>setCfg(old=>{
+            h(Button,{title:'上移优先级',ariaLabel:'上移优先级',disabled:i===0,onClick:()=>setCfg(old=>{
               const next=structuredClone(old),items=next.hostFailover.priority;[items[i],items[i-1]]=[items[i-1],items[i]];return next;
             })},'↑'),
-            h(Button,{disabled:i===cfg.hostFailover.priority.length-1,onClick:()=>setCfg(old=>{
+            h(Button,{title:'下移优先级',ariaLabel:'下移优先级',disabled:i===cfg.hostFailover.priority.length-1,onClick:()=>setCfg(old=>{
               const next=structuredClone(old),items=next.hostFailover.priority;[items[i],items[i+1]]=[items[i+1],items[i]];return next;
             })},'↓'),
             h(Button,{onClick:()=>changeHost({priority:cfg.hostFailover.priority.filter((_,j)=>j!==i)})},'删除'));
@@ -1125,19 +1287,46 @@ async function loadHostModels(providerId){
         h('p',{style:css.small},'高级模式会直接替换整份配置。仅保存提供商、账号引用与链条规则；不要填写 Token、密码或明文 API Key。'),
         h('textarea',{style:{...css.input,width:'100%',minHeight:400,fontFamily:'ui-monospace,monospace',fontSize:12},
           value:raw,onChange:e=>setRaw(e.target.value),'aria-label':'完整路由配置 JSON'})));
-      return h('div',{style:css.root},
-        h('h2',{style:css.title},'聚合路由'),
-        h('p',{style:css.caption},'DSH 原生插件复用 · 桌面授权复用 · 多账号池 · 每日签到 · 模型故障安全续跑 · v1.0.0-rc.13'),
-        h('div',{style:css.tabbar},tabs.map(([id,label])=>h('button',{key:id,type:'button',
-          style:{...css.tab,...(tab===id?css.chosen:{})},onClick:()=>setTab(id)},label))),
-        error?h('div',{role:'alert',style:css.error},error):null,
-        notice?h('div',{role:'status',style:css.success},notice):null,
-        content,
-        h('div',{style:{...css.line,position:'sticky',bottom:0,padding:12,
-          background:'var(--dsw-alias-bg-layer-2,var(--background,#222))',borderTop:'1px solid rgba(120,130,150,.24)'}},
-          h(Button,{kind:'primary',disabled:busy,onClick:save},busy?'正在保存…':'保存配置'),
-          h(Button,{disabled:busy,onClick:refresh},'重新读取'),
-          h('span',{style:css.small},'渠道初始化、模型目录等配置可能需要重启 DSH；宿主故障切换规则会在后续事件读取，已在运行的任务不直接修改。')));
+       return h('div',{className:'dnr-shell',style:css.root},
+         h('style',{dangerouslySetInnerHTML:{__html:UI_STYLES}}),
+         h('header',{className:'dnr-header'},
+           h('div',{style:{minWidth:0}},
+             h('h2',{style:css.title},'聚合路由'),
+             h('div',{className:'dnr-header-note'},'来源复用 · 账号池 · 模型调度 · 每日签到 · 故障续跑')),
+           h('span',{className:'dnr-version'},'1.0.0-rc.16')),
+          h('div',{className:'dnr-layout'},
+            h('label',{className:'dnr-mobile-nav'},
+              h('span',null,'设置页面'),
+              h('select',{'aria-label':'选择设置页面',value:activeNav,
+                onChange:e=>setTab(e.target.value)},
+                navGroups.map(group=>h('optgroup',{key:group.name,label:group.name},
+                  group.ids.map(id=>h('option',{key:id,value:id},tabs.find(x=>x[0]===id)?.[1]||id)))))),           h('nav',{className:'dnr-rail','aria-label':'聚合路由设置导航'},
+             navGroups.map(group=>h('div',{key:group.name,className:'dnr-nav-group'},
+               h('div',{className:'dnr-group-title'},group.name),
+               group.ids.map(id=>{
+                 const label=tabs.find(x=>x[0]===id)?.[1]||id;
+                 return h('button',{key:id,type:'button',className:'dnr-nav-button',
+                   'aria-current':activeNav===id?'page':undefined,
+                   title:label,onClick:()=>setTab(id)},label);
+               })))),
+           h('main',{className:'dnr-main',id:'dnr-settings-content'},
+             h('div',{className:'dnr-page-head'},
+               h('h3',null,pageTitle),
+               h('p',null,pageNotes[tab]||'')),
+             error?h('div',{role:'alert',style:css.error},error):null,
+             notice?h('div',{role:'status',style:css.success},notice):null,
+             content,
+             h('footer',{className:'dnr-savebar'},
+               h(Button,{kind:'primary',disabled:busy,onClick:save},busy?'正在保存…':'保存配置'),
+               h(Button,{disabled:busy,onClick:()=>{
+                 if(unsaved&&!window.confirm('当前有未保存的修改。重新读取将丢弃草稿，确定继续？'))return;
+                 refresh();
+               }},'重新读取'),
+               h('span',{className:'dnr-status-inline','aria-live':'polite'},
+                 unsaved?'● 有未保存修改':'配置已载入'),
+               h('div',{className:'dnr-save-note'},
+                 h('details',null,h('summary',null,'生效说明'),
+                   h('p',null,'渠道初始化等配置可能需要重启 DSH；已运行中的任务不会被直接修改。')))))));
     }
     function apply(ctx){
       const slots=ctx.slots;

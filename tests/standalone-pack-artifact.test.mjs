@@ -21,6 +21,9 @@ test('rc.12 embeds source channel implementation in a hash-pinned, dependency-fr
  assert.doesNotMatch(text,/createRequire\(import\.meta\.url\)\("\.\.\/package\.json"\)/);
  assert.doesNotMatch(text,/^import .*? from ["']@deepseek-ai\//m);
  assert.match(text,/native-router-source-/);
+ assert.match(text,/nativeRouterSourceCodeartsAuth/);
+ assert.match(text,/nativeRouterSource\$\{product\.id\}Auth/);
+ assert.doesNotMatch(text,/super\(ctx, "codeartsAuth"\);/);
  assert.match(text,/nativeRouterPoolReady/);
  assert.doesNotMatch(text,/ctx\.provide\("nativeRouterSourceAccountPool"/);
  assert.match(text,/var version = "0\.2\.2-rc\.3"/);

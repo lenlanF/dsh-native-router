@@ -4,8 +4,8 @@
   "originalFile": "pack.js",
   "originalSha256": "5a87770f727c2827f6d75b34351de54b92facfc67dd8a4b52fb0ecf794158247",
   "generatedFile": "pack-native.js",
-  "generatedBytes": 3019117,
-  "generatedSha256": "15e2cdef2ce656c0c48b6107ac6d6eeff995c476684fa4886111f45cb6bc6b2d",
+  "generatedBytes": 3019315,
+  "generatedSha256": "91b983110465f186aaee93b14069f3b5f7efa8d6983b13c09d110367743fbad7",
   "patches": [
     "private-settings-namespace",
     "private-profile-subdirectory",
@@ -24,6 +24,7 @@
     "private-source-pool-scope-map",
     "bind-private-pool-to-injected-scope",
     "private-source-checkins-callback",
+    "namespace-all-private-auth-services",
     "scope-llm-adapter-cleanup",
     "register-independent-source-provider-aliases",
     "failed-source-alias-transactional-rollback",

@@ -176,6 +176,21 @@ def build(*, check=False):
             raise SystemExit(f"Patch {name}: expected exactly one pinned anchor, got {count}")
         text = text.replace(old, new, 1)
         names.append(name)
+    # Auth Service constructors in the MIT pack ordinarily publish names such as
+    # codeartsAuth, workbuddyAuth and loomyAuth into the Host Cordis registry.
+    # The original plugins keep those names. Give every privately-owned auth
+    # service a unique name before the first constructor runs, not only the
+    # account pool and model provider aliases. No original Host service changes.
+    original_auth = 'super(ctx, options.serviceName ?? `${product.id}Auth`);'
+    owned_auth = 'super(ctx, options.serviceName ?? `nativeRouterSource${product.id}Auth`);'
+    if text.count(original_auth) != 10:
+        raise SystemExit("Pinned Auth Service default names changed; refuse collision-prone build")
+    text = text.replace(original_auth, owned_auth)
+    codearts_auth = 'super(ctx, "codeartsAuth");'
+    if text.count(codearts_auth) != 1:
+        raise SystemExit("Pinned CodeArts Auth Service name changed")
+    text = text.replace(codearts_auth, 'super(ctx, "nativeRouterSourceCodeartsAuth");', 1)
+    names.append("namespace-all-private-auth-services")
     # Always register a namespaced DSH model adapter for the plugin-owned
     # account pool. The original registered host Provider is never replaced.
     # Source login and inference must remain possible even if an original

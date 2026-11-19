@@ -44970,7 +44970,7 @@ var CodeArtsAuth = class extends Service {
    */
   terminalWarned = /* @__PURE__ */ new Map();
   constructor(ctx, options = {}) {
-    super(ctx, "codeartsAuth");
+    super(ctx, "nativeRouterSourceCodeartsAuth");
     if (options.fetcher) this.fetchImpl = options.fetcher;
   }
   /** 取（或建）某个凭据 ref 的续期队列。 */
@@ -45664,7 +45664,7 @@ function parseCredential2(value) {
 var BuddyAuth = class extends Service2 {
   constructor(ctx, options = {}) {
     const product = options.product ?? CODEBUDDY;
-    super(ctx, options.serviceName ?? `${product.id}Auth`);
+    super(ctx, options.serviceName ?? `nativeRouterSource${product.id}Auth`);
     this.options = options;
     this.product = product;
     this.credentialRefName = this.product.defaultCredentialRef;
@@ -46161,7 +46161,7 @@ function parseCredential3(value) {
 var LobsteraiAuth = class extends Service3 {
   constructor(ctx, options = {}) {
     const product = options.product ?? LOBSTERAI;
-    super(ctx, options.serviceName ?? `${product.id}Auth`);
+    super(ctx, options.serviceName ?? `nativeRouterSource${product.id}Auth`);
     this.options = options;
     this.product = product;
     this.credentialRefName = this.product.defaultCredentialRef;
@@ -46790,7 +46790,7 @@ function parseCredential4(value) {
 var QoderAuth = class extends Service4 {
   constructor(ctx, options = {}) {
     const product = options.product ?? QODER;
-    super(ctx, options.serviceName ?? `${product.id}Auth`);
+    super(ctx, options.serviceName ?? `nativeRouterSource${product.id}Auth`);
     this.options = options;
     this.product = product;
     this.credentialRefName = this.product.defaultCredentialRef;
@@ -47534,7 +47534,7 @@ function parseCredential5(value) {
 var TraeAuth = class _TraeAuth extends Service5 {
   constructor(ctx, options = {}) {
     const product = options.product ?? TRAE;
-    super(ctx, options.serviceName ?? `${product.id}Auth`);
+    super(ctx, options.serviceName ?? `nativeRouterSource${product.id}Auth`);
     this.options = options;
     this.product = product;
     this.credentialRefName = this.product.defaultCredentialRef;
@@ -48279,7 +48279,7 @@ function parseCredential6(value) {
 var ClineAuth = class extends Service6 {
   constructor(ctx, options = {}) {
     const product = options.product ?? CLINE;
-    super(ctx, options.serviceName ?? `${product.id}Auth`);
+    super(ctx, options.serviceName ?? `nativeRouterSource${product.id}Auth`);
     this.options = options;
     this.product = product;
     this.credentialRefName = this.product.defaultCredentialRef;
@@ -49546,7 +49546,7 @@ function parseCredential7(value) {
 var LoomyAuth = class extends Service7 {
   constructor(ctx, options = {}) {
     const product = options.product ?? LOOMY;
-    super(ctx, options.serviceName ?? `${product.id}Auth`);
+    super(ctx, options.serviceName ?? `nativeRouterSource${product.id}Auth`);
     this.options = options;
     this.product = product;
     this.credentialRefName = this.product.defaultCredentialRef;
@@ -51258,7 +51258,7 @@ function normalizeRemoteModel(entry) {
 var RaccoonAuth = class extends Service8 {
   constructor(ctx, options = {}) {
     const product = options.product ?? RACCOON;
-    super(ctx, options.serviceName ?? `${product.id}Auth`);
+    super(ctx, options.serviceName ?? `nativeRouterSource${product.id}Auth`);
     this.options = options;
     this.product = product;
     this.credentialRefName = this.product.defaultCredentialRef;
@@ -54467,7 +54467,7 @@ var ZcodeAuth = class extends Service9 {
   lastError;
   constructor(ctx, options = {}) {
     const product = options.product ?? ZCODE;
-    super(ctx, options.serviceName ?? `${product.id}Auth`);
+    super(ctx, options.serviceName ?? `nativeRouterSource${product.id}Auth`);
     this.product = product;
     this.fetchImpl = options.fetchImpl ?? sanitizingFetch;
     this.injectedPool = options.accountPool;
@@ -67808,7 +67808,7 @@ function parseMinimaxCredential(value) {
 var MinimaxAuth = class extends Service10 {
   constructor(ctx, options = {}) {
     const product = options.product ?? MINIMAX;
-    super(ctx, options.serviceName ?? `${product.id}Auth`);
+    super(ctx, options.serviceName ?? `nativeRouterSource${product.id}Auth`);
     this.options = options;
     this.product = product;
     this.credentialRefName = product.defaultCredentialRef;
@@ -69011,7 +69011,7 @@ var GeminiRefreshTokenExpiredError = class extends Error {
 var GeminiAuth = class extends Service11 {
   constructor(ctx, options = {}) {
     const product = options.product ?? GEMINI;
-    super(ctx, options.serviceName ?? `${product.id}Auth`);
+    super(ctx, options.serviceName ?? `nativeRouterSource${product.id}Auth`);
     this.options = options;
     this.product = product;
     this.credentialRefName = product.defaultCredentialRef;

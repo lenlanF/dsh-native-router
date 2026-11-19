@@ -430,14 +430,15 @@ export function createWorkBuddyDriver({
     async login({account}={}){
       return this.refresh({account});
     },
-    async refresh({account}={}){
+    async refresh({account,signal}={}){
       try{
-        await modelList(account);
+        await modelList(account,signal);
         return {state:'online',message:'WorkBuddy 远端模型目录校验通过（引用桌面端登录态）'};
       }catch(e){
-        return {state:e?.status===401||e?.status===403?'expired':e?.status===429?'limited':'error',
-          message:e?.status===401?'桌面端登录已失效，请使用官方客户端重新登录':
-            'WorkBuddy 远程连接验证未通过（'+String(e?.code??e?.status??'network').slice(0,36)+'）'};
+        return {state:e?.status===401||e?.status===403||e?.code==='CREDENTIAL'?'expired':e?.status===429?'limited':'error',
+          message:e?.status===401||e?.status===403||e?.code==='CREDENTIAL'
+            ?'WorkBuddy 授权已失效或本地凭据不可用，请检查原客户端':
+            'WorkBuddy 远程连接暂不可用（'+String(e?.code??e?.status??'network').slice(0,36)+'）'};
       }
     },
     async logout({account}={}){

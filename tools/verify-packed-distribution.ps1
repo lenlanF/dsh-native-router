@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
- [string]$Version='1.0.0-rc.13',
+ [string]$Version='1.0.0-rc.16',
  [string]$NodePath='E:\Temp\dsh-native-router-isolated-alpha11-node-runtime\package\bin\node.exe'
 )
 $ErrorActionPreference='Stop'
@@ -49,6 +49,17 @@ ctx.provide('credentials',{
  async modifyRecord(_key,update){storedBrowserCookie=await update(storedBrowserCookie);return storedBrowserCookie},
 });
 ctx.provide('commands',{register(){return()=>{}}});
+// Existing Host channels own the original auth Service names.
+const preservedAuthServices=new Map(
+ ['codeartsAuth','buddyAuth','workbuddyAuth','lobsteraiAuth',
+  'qoderAuth','qodercnAuth','traeAuth','clineAuth','loomyAuth',
+  'raccoonAuth','minimaxAuth','zcodeAuth','geminiAuth']
+ .map(name=>[name,{ownedBy:'original-source-plugin'}]));
+for(const [name,original] of preservedAuthServices)ctx.provide(name,original);
+const assertOriginalAuthServices=()=>{
+ for(const [name,original] of preservedAuthServices)
+  assert.equal(ctx.get(name),original,'Original Host auth Service replaced: '+name);
+};
 const ws=ctx.plugin(WebServer,{host:'127.0.0.1',port:0});
 await ws;
 const conn=ctx.plugin(Connection,{trustedHosts:[]});
@@ -110,6 +121,7 @@ try{
   const sourceStatus=ownedSource.status();
   assert.equal(sourceStatus.state,'mounted',
    'Self-contained native channels cannot mount in actual DSH: '+sourceStatus.reason);
+  assertOriginalAuthServices();
   assert.equal(sourceStatus.channelCount,13);
   assert.equal(sourceStatus.rpcReady,true,
     'Account login RPC must be registered, not merely the model adapters');
@@ -183,6 +195,7 @@ try{
  ctx.registry.delete(Connection);
  ctx.registry.delete(WebServer);
 }
+assertOriginalAuthServices();
 assert.ok(loaded);
 console.log(JSON.stringify({result:'PASS',packagedModuleImported:true,
  nativeProviderRegisteredAndUnloaded:true,authenticatedOwnerStatus:200,

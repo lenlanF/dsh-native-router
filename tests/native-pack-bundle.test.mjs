@@ -28,8 +28,12 @@ test('the DSH-native bundle is deterministically derived from unchanged pinned M
   const crlf=Buffer.from(original.toString('utf8').replace(/\n/g,'\r\n'),'utf8');
   assert.equal(sha(canonicalText(crlf)),sha(original));
  assert.equal(sha(bundled),native.generatedSha256);
- assert.equal(bundled.length,native.generatedBytes);
- assert.equal(native.patches.length,31);
+ assert.equal(native.patches.length,32); assert.ok(native.patches.includes('namespace-all-private-auth-services'));
+ const generated=bundled.toString('utf8');
+ assert.equal((generated.match(/super\(ctx, options\.serviceName \?\? `nativeRouterSource\$\{product\.id\}Auth`\);/g)||[]).length,10);
+ assert.match(generated,/super\(ctx, "nativeRouterSourceCodeartsAuth"\);/);
+ assert.doesNotMatch(generated,/super\(ctx, "codeartsAuth"\);/);
+ assert.doesNotMatch(generated,/super\(ctx, options\.serviceName \?\? `\$\{product\.id\}Auth`\);/);
  assert.ok(native.patches.includes('scope-llm-adapter-cleanup'));
  assert.ok(native.patches.includes('private-source-checkins-callback'));
  assert.ok(native.patches.includes('failed-source-alias-transactional-rollback'));
@@ -83,8 +87,7 @@ test('release package ships only native in-process bundle with host-provided pee
   assert.equal(pkg.private,false);
   assert.equal(pkg.license,'MIT');
   assert.equal(pkg.engines.node,'>=22.10.0');
-   assert.equal(pkg.version,'1.0.0-rc.13');
- assert.ok(pkg.files.includes('vendor/channel-pack/pack-native.js'));
+   assert.equal(pkg.version,'1.0.0-rc.16');
  assert.ok(pkg.files.includes('vendor/channel-pack/NATIVE_BUILD_RECEIPT.json'));
  assert.ok(pkg.files.includes('vendor/channel-pack/SOURCE_RECEIPT.json'));
  assert.ok(!pkg.files.includes('vendor/channel-pack'));
