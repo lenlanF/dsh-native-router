@@ -293,10 +293,10 @@ test('upstream read-only account preview shows source states without falsely ena
   rig.find(rig.render(),'button','复用管理')[0].props.onClick();
   rig.find(rig.render(),'button','自主登录')[0].props.onClick();
  const page=rig.render(),label=rig.flatten(page).join(' ');
- assert.match(label,/来源账号 2 个/);
+  assert.match(label,/来源池共 2 条记录/);
  assert.match(label,/Test WorkBuddy/);
  assert.match(label,/Test Loomy/);
- assert.match(label,/登录状态未知 · 仅查看/);
+  assert.match(label,/尚未校验/);
  assert.ok(rig.find(page,'button','停用来源账号').every(x=>x.props.disabled),
    'source controls must be disabled when pack is not mounted');
   assert.equal(rig.find(page,'button','登录/校验').length,0,
@@ -728,18 +728,34 @@ test('overview uses complete deduplicated source chips ordered verified connecte
  assert.doesNotMatch(rig.flatten(page).join(' '),/账号来源 · 分别核验/);
 });
 test('account names and verified source credits lead; technical ID is folded into account details',async()=>{
- const preview={state:'ready',accounts:[{id:'q01',providerId:'qoder',nickname:'Readable Qoder User',
-   balance:83,balanceUnit:'积分',enabled:true}]};
- const rig=createUiRig(new Map(),preview);await rig.init();
- rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
- const page=rig.render(),lines=rig.flatten(page).join(' ');
- assert.match(lines,/Readable Qoder User/);
- assert.match(lines,/积分\/余额：83 积分/);
- assert.equal(rig.find(page,'button','查看待接入渠道').length,0);
- assert.equal(rig.find(page,'button','自主登录与复用').length,0);
- const disclosures=uiNodes(page,node=>node.type==='details');
- assert.ok(disclosures.some(node=>rig.flatten(node).join(' ').includes('内部账号：a1')),
-   'technical ID should be in native details rather than main title');
+  const preview={state:'ready',accounts:[{id:'q01',providerId:'qoder',
+    nickname:'Readable Qoder User',balance:83,balanceUnit:'积分',
+    enabled:true,authorizationSource:'autonomous'}]};
+  const inventory={ok:true,accounts:[
+    {id:'a1',providerId:'alpha',nickname:'Alpha',enabled:true,configuredEnabled:true,
+      connectionState:'not_checked',weight:1,credentialKind:'env',
+      origin:{label:'环境变量凭据引用'}},
+    {id:'sp_q01',providerId:'qoder',nickname:'Readable Qoder User',
+      enabled:true,configuredEnabled:true,connectionState:'online',
+      weight:1,credentialKind:'driver',sourceKind:'autonomous',managed:false,
+      origin:{label:'本插件自主登录'},balance:83,balanceUnit:'积分'},
+  ],channels:[{id:'alpha',name:'alpha',adapterReady:true,authMethod:'API Key'},
+    {id:'qoder',name:'Qoder',adapterReady:true,authMethod:'自主登录'}],
+    embeddedAccounts:preview,pools:[]};
+  const rig=createUiRig(new Map(),preview,{state:'mounted'}, {}, [],
+    undefined,()=>true,inventory);
+  await rig.init();
+  rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
+  const page=rig.render(),lines=rig.flatten(page).join(' ');
+  assert.match(lines,/Readable Qoder User/);
+  assert.match(lines,/余额：83 积分/);
+  assert.equal((lines.match(/Readable Qoder User/g)||[]).length,1,
+    'the raw pool and unified account must never appear as two account cards');
+  assert.equal(rig.find(page,'button','查看待接入渠道').length,0);
+  assert.equal(rig.find(page,'button','自主登录与复用').length,0);
+  const disclosures=uiNodes(page,node=>node.type==='details');
+  assert.ok(disclosures.some(node=>rig.flatten(node).join(' ').includes('内部账号：a1')),
+    'technical ID should be folded into native details');
 });
 test('provider search filters by name ID and protocol and defaults every disclosure closed',async()=>{
  const rig=createUiRig();await rig.init();
@@ -790,12 +806,10 @@ test('independent login is visible in channel account and local-session pages wi
  let page=rig.render(),lines=rig.flatten(page).join(' ');
  assert.match(lines,/独立 Loomy 账号/);
  assert.match(lines,/Loomy · 自主登录/);
- assert.ok(rig.find(page,'button','管理独立登录态').length>0);
- assert.equal(rig.find(page,'button','校验').length,0,
+  assert.ok(rig.find(page,'button','管理来源授权池').length>0); assert.equal(rig.find(page,'button','校验').length,0,
    'ephemeral own-account inventory must not expose invalid config mutations');
- rig.find(page,'button','管理独立登录态')[0].props.onClick();
- page=rig.render();
- assert.match(rig.flatten(page).join(' '),/自主登录 · 独立账号/);
+  rig.find(page,'button','管理来源授权池')[0].props.onClick(); page=rig.render();
+  assert.match(rig.flatten(page).join(' '),/来源授权池 · 自主登录与原授权接管/);
  rig.find(page,'button','本机登录态')[0].props.onClick();
  page=rig.render();
  assert.match(rig.flatten(page).join(' '),/本插件独立登录态 · 无需原渠道插件/);

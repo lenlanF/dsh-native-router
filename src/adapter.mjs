@@ -16,7 +16,15 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
   if(!configStore?.get)throw new Error('ConfigStore required');
   const autoFreePool=createAutoFreePool({hostProviderInventory,ownedPack,
     getConfig:()=>configStore.get()});
-  const getConfig=()=>autoFreePool.effectiveConfig(configStore.get());
+   let verifiedAccount=()=>true;
+   const getConfig=()=>{
+     const cfg=autoFreePool.effectiveConfig(configStore.get());
+     cfg.accounts=cfg.accounts.filter(a=>{
+       const p=cfg.providers.find(provider=>provider.id===a.providerId);
+       return p?.protocol!=='native-channel'||verifiedAccount(a)===true;
+     });
+     return cfg;
+   };
   let freeCursor=0;
   const pool=createAccountPool();
   const counters={successfulTurns:0,failedAttempts:0,inputTokens:0,outputTokens:0};
@@ -66,7 +74,12 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
     if(typeof model!=='string')throw new RoutingError('ERR_ROUTE_NOT_FOUND','Invalid DSH model');
     if(model==='autofree'){
       await autoFreePool.refresh();
-      const items=autoFreePool.tiers();
+       const current=getConfig();
+       const items=autoFreePool.tiers().filter(tier=>{
+         const p=current.providers.find(x=>x.id===tier.providerId);
+         return p?.protocol==='dsh-host'||current.accounts.some(a=>
+           a.providerId===tier.providerId&&a.enabled);
+       });
       if(!items.length)throw new RoutingError('ERR_FREE_EXHAUSTED',
         'No upstream-confirmed free models are currently available; unknown pricing is excluded');
       const shift=freeCursor++%items.length;
@@ -103,7 +116,11 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
       return {provider:provider??PROVIDER,id:model,name:found?.name??model,inputModalities:['text']}},
     async prepareCall(provider,model){return {model:await this.resolveModel(provider,model),stream}},
     stream,
-    invalidateCatalog(){catalog.invalidate();autoFreePool.invalidate()},
+     invalidateCatalog(){catalog.invalidate();autoFreePool.invalidate()},
+     setAccountVerificationResolver:fn=>{
+       verifiedAccount=typeof fn==='function'?fn:()=>false;
+       catalog.invalidate();
+     },
     autoFreeSnapshot(){return autoFreePool.snapshot()},
     async refreshAutoFree(){await autoFreePool.refresh({force:true});catalog.invalidate();
       return autoFreePool.snapshot()},

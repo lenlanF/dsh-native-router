@@ -37812,6 +37812,7 @@ async function* recordThroughStream(openStream, meta) {
 }
 var nativeSourceAliasDisposers = /* @__PURE__ */ new WeakMap();
 var nativeSourceAdapterStates = /* @__PURE__ */ new WeakMap();
+var nativeSourceModelEligibility = /* @__PURE__ */ new WeakMap();
 function rollbackNativeRouterSourceAdapters(ctx) {
   const members = nativeSourceAliasDisposers.get(ctx) ?? [];
   for (const release of [...members].reverse()) {
@@ -37866,6 +37867,14 @@ function registerAdapterIdempotent(ctx, providers, adapter, warn) {
     if (!providers.includes(provider)) throw new Error("Unowned source provider");
     return provider;
   };
+  const allow = (source) => {
+    const proof = nativeSourceModelEligibility.get(ctx);
+    try {
+      return typeof proof === "function" && proof(source) === true;
+    } catch {
+      return false;
+    }
+  };
   const aliasAdapter = {
     providerInfo(id) {
       const value = target.providerInfo(actual(id));
@@ -37876,6 +37885,7 @@ function registerAdapterIdempotent(ctx, providers, adapter, warn) {
     },
     async listModels(id, ...rest) {
       const source = actual(id);
+      if (!allow(source)) return [];
       const rows = await target.listModels(source, ...rest);
       if (!Array.isArray(rows)) return [];
       const ids = /* @__PURE__ */ new Set(), models = [];
@@ -37894,6 +37904,7 @@ function registerAdapterIdempotent(ctx, providers, adapter, warn) {
     },
     async resolveModel(provider, model, signal) {
       const source = actual(provider);
+      if (!allow(source)) throw new Error("Independent source account not verified");
       if (typeof model !== "string" || !model.trim() || model.length > 160)
         throw new Error("Invalid independent source model");
       let resolved;
@@ -37926,7 +37937,9 @@ function registerAdapterIdempotent(ctx, providers, adapter, warn) {
       };
     },
     stream(options) {
-      return target.stream({ ...options, provider: actual(options.provider) });
+      const source = actual(options.provider);
+      if (!allow(source)) throw new Error("Independent source account not verified");
+      return target.stream({ ...options, provider: source });
     }
   };
   let cleanup;
@@ -66230,6 +66243,8 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
   };
   config.nativeRouterCheckinsReady?.({
     status: (provider, accountId) => handleMethod("credits.status", { provider, accountId }),
+    balances: (provider) => handleMethod("credits.balances", { provider }),
+    identity: (provider) => handleMethod("account.list", { provider }),
     claim: (provider, accountId) => handleMethod("credits.claimAll", { provider, accountId })
   });
   const qoderFamily = [
@@ -66329,6 +66344,21 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
   config.nativeRouterRpcReady?.(true);
   ctx.effect(() => () => config.nativeRouterRpcReady?.(false));
   async function enrichAccountIdentity(accounts, provider) {
+    if (provider === "codearts") {
+      const out2 = [];
+      for (const entry of accounts) {
+        let accountName = "";
+        try {
+          const resolved = await ctx.credentials.resolve(credentialRef(entry.credentialRef));
+          const credential = resolved ? parseCodeArtsCredential(resolved.value) : null;
+          if (typeof credential?.user_name === "string")
+            accountName = credential.user_name.trim().slice(0, 80);
+        } catch {
+        }
+        out2.push(accountName ? { ...entry, accountName } : entry);
+      }
+      return out2;
+    }
     if (provider !== ZCODE.id) return [...accounts];
     const out = [];
     for (const account of accounts) {
@@ -73063,6 +73093,7 @@ function apply(ctx, config = {}) {
   config.nativeRouterPoolReady?.(pool);
   config.nativeRouterModelReady?.(nativeSourceAdapterStates.get(ctx) ?? {});
   config.nativeRouterPhase?.("complete");
+  nativeSourceModelEligibility.set(ctx, config.nativeRouterModelEligibility);
 }
 export {
   Config,

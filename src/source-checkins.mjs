@@ -1,9 +1,8 @@
 import {sourceAccountOpaqueId} from './source-account-ref.mjs';
-import {SOURCE_DAILY_SIGNIN_PROVIDERS} from './embedded-pack.mjs';
+import {SOURCE_DAILY_SIGNIN_PROVIDERS,SOURCE_PACK_PROVIDERS} from './embedded-pack.mjs';
 import {todayKey,clockAt} from './checkins.mjs';
 
-const supported=new Set(SOURCE_DAILY_SIGNIN_PROVIDERS);
-const RETRY_DELAY_MS=60*60*1000;
+const supported=new Set(SOURCE_DAILY_SIGNIN_PROVIDERS);const RETRY_DELAY_MS=60*60*1000;
 const MAX_AUTO_ATTEMPTS=3;
 const safeText=x=>String(x??'').replace(/(?:Bearer\s+|sk-)[A-Za-z0-9._~-]{12,}/gi,'[REDACTED]').slice(0,160);
 
@@ -49,9 +48,8 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
     roster.clear();
     for(const [id,row] of next)roster.set(id,row);
     for(const key of [...statusCache.keys()])if(!roster.has(key))statusCache.delete(key);
-    const providers=[...new Set([...roster.values()].filter(row=>supported.has(row.providerId))
-      .map(row=>row.providerId))].slice(0,13);
-    for(const key of [...statusAttempts.keys()]){
+     const providers=[...new Set([...roster.values()].filter(row=>row.enabled===true&&SOURCE_PACK_PROVIDERS.includes(row.providerId))
+       .map(row=>row.providerId))].slice(0,13);    for(const key of [...statusAttempts.keys()]){
       if(!providers.includes(key))statusAttempts.delete(key);
     }
     if(typeof sourcePack.readSourceStatuses==='function'){
@@ -72,17 +70,18 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
           const matches=members.filter(row=>row.sourceAccountId===entry.accountId);
           if(matches.length!==1)continue;
           const row=matches[0];
-          const nickname=(row.nickname||entry.nickname||'').slice(0,80);
-          statusCache.set(row.id,{day:today(),checkedAt:now(),nickname,
-            todayCheckedIn:entry.todayCheckedIn===true?true:
-              entry.todayCheckedIn===false?false:null,
-            active:entry.active===true?true:entry.active===false?false:null,
+           const nickname=(entry.nickname||row.nickname||'').slice(0,80);
+           statusCache.set(row.id,{day:today(),checkedAt:now(),nickname,
+             todayCheckedIn:entry.todayCheckedIn===true?true:
+               entry.todayCheckedIn===false?false:null,
+             active:entry.active===true?true:entry.active===false?false:null,
              authVerified:entry.authVerified===true,
-             ...(Number.isFinite(entry.balance)&&entry.balance>=0?{balance:entry.balance,              balanceUnit:entry.balanceUnit==='积分'?'积分':
-                entry.balanceUnit==='额度'?'额度':'余额'}:{})});
-          if(!row.nickname)row.nickname=nickname;
-        }
-      }));
+             balanceState:entry.balanceState==='available'?'available':'not_available',
+             maskedPhone:typeof entry.maskedPhone==='string'?entry.maskedPhone.slice(0,32):null,
+             ...(Number.isFinite(entry.balance)&&entry.balance>=0?{balance:entry.balance,
+               balanceUnit:typeof entry.balanceUnit==='string'?entry.balanceUnit.slice(0,12):'余额'}:{})});
+           if(nickname)row.nickname=nickname;
+         }      }));
     }
     return snapshot();
   })().finally(()=>{refreshing=null});
@@ -105,9 +104,10 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
      connectionState:!row.enabled?'disabled':report?.authVerified===true?'online':'not_checked',
      sourceAccount:true,autoCheckin:state.autoCheckin,    checkinSupported:implemented,checkinAvailable:implemented,
     checkinState:accountState,checkinAt:report?.checkedAt??recent?.at??null,
-    ...(Number.isFinite(report?.balance)?{balance:report.balance,
-      balanceUnit:report.balanceUnit,balanceCheckedAt:report.checkedAt}:{}),
-    checkinMessage:report?.todayCheckedIn===true?'来源服务确认今日已签到':
+     ...(Number.isFinite(report?.balance)?{balance:report.balance,
+       balanceUnit:report.balanceUnit,balanceCheckedAt:report.checkedAt}:{}),
+     ...(report?.maskedPhone?{maskedPhone:report.maskedPhone}:{}),
+     balanceState:report?.balanceState??'not_checked',    checkinMessage:report?.todayCheckedIn===true?'来源服务确认今日已签到':
       report?.active===false?'来源服务确认今日无签到活动':
       report?.todayCheckedIn===false?'来源服务确认今日尚未签到':
       recent?.message??(implemented?'今日签到状态暂未核实':

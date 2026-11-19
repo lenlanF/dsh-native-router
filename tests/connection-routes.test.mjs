@@ -94,13 +94,11 @@ test('source login is visible in channel inventory without original plugin or co
  assert.equal(data.accounts.length,1);
  const item=data.accounts[0];
  assert.equal(item.id,opaque);
- assert.equal(item.providerId,'own_loomy');
- assert.equal(item.nickname,'自主Loomy账号');
+  assert.equal(item.providerId,'loomy'); assert.equal(item.nickname,'自主Loomy账号');
  assert.equal(item.balance,108);
  assert.equal(item.connectionState,'online');
  assert.equal(item.managed,false);
- assert.equal(data.channels.some(c=>c.id==='own_loomy'),true);
- assert.equal(f.store.get().accounts.length,0);
+  assert.equal(data.channels.some(c=>c.id==='loomy'),true); assert.equal(f.store.get().accounts.length,0);
  assert.ok(scans>0);
  assert.doesNotMatch(JSON.stringify(data),/access_token|zcode_jwt|password/i);
  await f.dispose();

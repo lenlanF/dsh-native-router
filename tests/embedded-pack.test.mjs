@@ -220,14 +220,74 @@ test('embedded facade maps only safe account metadata, never raw credential refe
  assert.equal(snapshot.state,'ready');
  assert.equal(snapshot.accounts.length,2);
  assert.equal(poolCalls,1);
- assert.deepEqual(snapshot.accounts[0],{
-  id:'workbuddy-01',providerId:'workbuddy',nickname:'My WorkBuddy',enabled:true,refreshable:true,connectionState:'not_checked'});
+  assert.deepEqual(snapshot.accounts[0],{
+    id:'workbuddy-01',providerId:'workbuddy',nickname:'My WorkBuddy',
+    enabled:true,refreshable:true,authorizationSource:'unclassified',
+    connectionState:'not_checked'});
  assert.equal(snapshot.accounts[1].enabled,false);
  const asText=JSON.stringify(snapshot);
  assert.doesNotMatch(asText,/TOKEN_REF|TOP_SECRET|VERY_SECRET|ANOTHER_SECRET|credentialRef|accessToken|token/);
  bridge.dispose();
  assert.equal((await bridge.listAccounts()).accounts.length,0);
  assert.equal(poolCalls,1);
+});
+test('independent source read-only identity and credit APIs provide usernames, ZCode token and CodeArts credits',async()=>{
+ const rows=[
+   {id:'codearts-oauth',provider:'codearts',nickname:'codearts-oauth',
+     credentialRef:'NATIVE_ROUTER_SOURCE_CODEARTS_ACCOUNT_X',enabled:true},
+   {id:'zcode-oauth',provider:'zcode',nickname:'zcode-oauth',
+     credentialRef:'NATIVE_ROUTER_SOURCE_ZCODE_ACCOUNT_Y',enabled:true},
+   {id:'nr_adopted',provider:'loomy',nickname:'loomy · 独立账号',
+     credentialRef:'NATIVE_ROUTER_PRIVATE_PACK_Z',enabled:true},
+ ];
+ const ops={
+  async identity(provider){
+   return {ok:true,value:{accounts:rows.filter(row=>row.provider===provider).map(row=>({
+     id:row.id,nickname:row.nickname,
+     ...(provider==='codearts'?{accountName:'actual-huawei-user'}:{}),
+     ...(provider==='zcode'?{accountName:'actual-zcode-name',phone:'13812345678'}:{})}))}};
+  },
+  async status(provider){
+   return {ok:true,value:{accounts:rows.filter(row=>row.provider===provider).map(row=>({
+     accountId:row.id,status:{active:true,todayCheckedIn:false}}))}};
+  },
+  async balances(provider){
+   return {ok:true,value:{accounts:rows.filter(row=>row.provider===provider).map(row=>({
+     accountId:row.id,balance:{total:provider==='zcode'?9000:provider==='codearts'?75:15,
+       packages:[{unit:provider==='zcode'?'token':'积分'}]}}))}};
+  },
+ };
+ let pool;
+ const scope={get:key=>key==='accountPool'?pool:key==='nativeRouterSourceCheckins'?ops:undefined};
+ const bridge=createEmbeddedChannelPack({
+   ctx:{inject(_names,callback){callback(scope)}},
+   getConfig:enabled,env:isolatedEnv,
+   loadPack:async()=>({apply(){pool={async listAllAccounts(){return rows}}}}),
+ });
+ bridge.attach();await tick();await tick();
+ assert.equal(bridge.status().state,'mounted');
+ const inventory=await bridge.listAccounts();
+ const loomy=inventory.accounts.find(row=>row.providerId==='loomy');
+ assert.equal(loomy.authorizationSource,'adopted');
+ assert.equal(loomy.nickname,'','generated independent nickname must never be shown');
+ assert.equal(inventory.accounts.find(row=>row.providerId==='codearts').authorizationSource,'autonomous');
+ for(const [providerId,value,unit,username] of [
+   ['codearts',75,'积分','actual-huawei-user'],
+   ['zcode',9000,'token','actual-zcode-name'],
+   ['loomy',15,'积分',''],
+ ]){
+   const status=await bridge.readSourceStatuses(providerId);
+   assert.equal(status.state,'ready');
+   assert.equal(status.accounts.length,1);
+   assert.equal(status.accounts[0].authVerified,true);
+   assert.equal(status.accounts[0].balance,value);
+   assert.equal(status.accounts[0].balanceUnit,unit);
+   assert.equal(status.accounts[0].nickname,username);
+   assert.doesNotMatch(JSON.stringify(status),/NATIVE_ROUTER_PRIVATE_PACK|access_token|credentialRef/);
+ }
+ const masked=await bridge.readSourceStatuses('zcode');
+ assert.equal(masked.accounts[0].maskedPhone,'138****5678');
+ bridge.dispose();
 });
 test('unavailable upstream pool and failed metadata read never mutate accounts or expose errors',async()=>{
  const scope={get:()=>undefined};

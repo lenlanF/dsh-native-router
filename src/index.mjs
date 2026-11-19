@@ -99,12 +99,28 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
    const checkinCenter=createCheckinCenter({configStore:ownStore,accountCenter,
     store:checkinStore??createCheckinStore({path:ownStore.path?join(dirname(ownStore.path),'checkins.json'):undefined}),
      sourcePack:embeddedPack,logger:ctx.logger});
+   const sourceHealth=()=>checkinCenter.sourceSnapshot?.()??[];
+   const sourceVerified=(providerId,id)=>sourceHealth().some(a=>
+     a.id===id&&a.providerId===providerId&&a.connectionState==='online'&&a.enabled);
+   embeddedPack.setModelEligibility?.(providerId=>sourceHealth().some(a=>
+     a.providerId===providerId&&a.connectionState==='online'&&a.enabled));
+   ownAdapter.setAccountVerificationResolver?.(account=>{
+     if(typeof account?.id!=='string'||typeof account.providerId!=='string')return false;
+     const sourceId=account.providerId.startsWith('own_')?
+       account.providerId.slice(4):account.providerId;
+     if(account.id.startsWith('sp_')&&SOURCE_PACK_PROVIDERS.includes(sourceId))
+       return sourceVerified(sourceId,account.id);
+     const local=accountCenter.list().accounts.find(row=>row.id===account.id
+       &&row.providerId===account.providerId);
+     return local?.connectionState==='online';
+   });
    sourceFacade.setHealthResolver?.(({kind,providerId,sourceAccountId})=>{
      const id=sourceAccountOpaqueId(providerId,sourceAccountId);
-     if(kind==='owned')
-       return checkinCenter.snapshot().accounts.find(a=>a.id===id&&a.sourceAccount)?.connectionState??null;
-     return accountCenter.list().accounts.find(a=>a.id===id&&a.providerId===providerId)?.connectionState??null;
-   }); const cleanups=[...builtInCleanup,credentialsBridge.dispose];
+     if(kind==='owned')return sourceVerified(providerId,id)?'online':'not_checked';
+     return accountCenter.list().accounts.find(a=>a.id===id
+       &&a.providerId===providerId)?.connectionState??null;
+   });
+   const cleanups=[...builtInCleanup,credentialsBridge.dispose];
  try{
    const release=ctx.llm.registerAdapter([PROVIDER],ownAdapter);
    if(typeof release==='function')cleanups.push(release);

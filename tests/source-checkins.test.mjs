@@ -39,8 +39,7 @@ test('source checkin and reported balance sync when automatic checkin is disable
    }});
  await h.center.refreshSources();
  const record=h.center.snapshot().accounts[0];
- assert.equal(record.nickname,'qoder account','do not replace existing account nickname');
- assert.equal(record.checkinState,'success');
+  assert.equal(record.nickname,'Qoder Verified User','prefer verified upstream username'); assert.equal(record.checkinState,'success');
  assert.equal(record.balance,72);
  assert.equal(record.balanceUnit,'积分');
  assert.ok(record.balanceCheckedAt);

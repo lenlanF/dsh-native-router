@@ -13,6 +13,31 @@ test('chat picker labels show only channel model and sourced multiplier',()=>{
  assert.equal(conciseModelName('own_zcode','ZCode · 自有授权','glm','GLM-5'),
    'ZCode · GLM-5 · x?');
 });
+test('native chat model visibility tracks actual authentication changes without waiting for catalog TTL',async()=>{
+ const {createNativeRouterAdapter}=await import('../src/adapter.mjs');
+ const {normalizeConfig}=await import('../src/config.mjs');
+ const {sourceAccountOpaqueId}=await import('../src/source-account-ref.mjs');
+ const id=sourceAccountOpaqueId('codearts','oauth-01');
+ const cfg=normalizeConfig({providers:[{id:'own_codearts',protocol:'native-channel',
+   name:'华为云 CodeArts',models:['test-model'],enabled:true}],
+   accounts:[{id,providerId:'own_codearts',enabled:true,
+     credentialRef:'driver:own_codearts:'+id}]});
+ let auth=false;
+ const drivers=new Map([['own_codearts',{isSourceBridge:true,
+   get runtimeReady(){return true},
+   async generate(){return {text:'ok',finishReason:'stop'}}}]]);
+ const router=createNativeRouterAdapter({
+   configStore:{get:()=>structuredClone(cfg)},channelDrivers:drivers,
+   hostProviderInventory:{status:()=>({hostProviders:[]})}});
+ router.setAccountVerificationResolver(()=>auth);
+ const names=async()=>(await router.listModels()).filter(row=>
+   row.id==='direct:own_codearts:test-model');
+ assert.equal((await names()).length,0,'unverified OAuth must not advertise model');
+ auth=true;
+ assert.equal((await names()).length,1,'verified OAuth activates model immediately');
+ auth=false;
+ assert.equal((await names()).length,0,'expired authorization evicts cached model immediately');
+});
 test('dynamic original host model and owned source use compact labels without changing model identity',async()=>{
  const originals={
    status:()=>({hostProviders:[{providerId:'workbuddy-global'}]}),

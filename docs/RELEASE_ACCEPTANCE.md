@@ -1,4 +1,14 @@
-# DSH Native Router（聚合路由）— 1.0.0-rc.19 发行候选验收> 当前状态：发行候选（Release Candidate），非稳定版。任何在实际 DSH 安装、启用以及云端模型推理均需要另外确认。
+# DSH Native Router（聚合路由）— 1.0.0-rc.20 发行候选验收
+
+> 当前状态：发行候选（Release Candidate），非稳定版。实际 DSH 插件升级、远端账号查询及模型推理仍需独立确认。
+
+## RC.20：真实账户与模型授权联动验收
+
+- 模拟真实池中四条记录：Loomy 接管 1、ZCode 接管 1 + 自主登录 1、CodeArts OAuth 1；渠道账号只显示 1 / 2 / 1，绝不混用来源身份。
+- 来源原生 username/积分/余额字段与来源币种一致；余额查询失败没有数字，不把 token 当积分；公开 API 不包含 token、secret、原始手机号和凭据引用。
+- 只有已通过上游只读鉴权的独立来源账户才可在聊天模型选择中出现，授权失效后即时撤下（目录缓存签名必须包含授权候选集）。
+- 重新生成源包、单文件运行时及 receipt，完成全量回归、安全扫描和实际 DSH Node 隔离安装；实际在线 OAuth 仍需用户确认更新后验证。
+
 ## RC.19：模型适配与多来源身份验证
 
 - 必须执行 source-provider-collision / existing-dsh-channels / account-source-view / source-channel-driver 专项测试，验证 resolveModel/prepareCall 合同、模型元数据归属、旧插件关闭后自有账号仍存在。

@@ -74,10 +74,16 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
     });
      for(const sourceRow of sourceCenter?.snapshot()??[]){
        const existing=accounts.find(item=>item.id===sourceRow.id);
-       if(existing)Object.assign(existing,{checkinSupported:sourceRow.checkinSupported,
-         checkinAvailable:sourceRow.checkinAvailable,checkinState:sourceRow.checkinState,
-         checkinAt:sourceRow.checkinAt,checkinMessage:sourceRow.checkinMessage,
-         autoCheckin:sourceRow.autoCheckin,sourceAccount:true});
+        if(existing)Object.assign(existing,{checkinSupported:sourceRow.checkinSupported,
+          checkinAvailable:sourceRow.checkinAvailable,checkinState:sourceRow.checkinState,
+          checkinAt:sourceRow.checkinAt,checkinMessage:sourceRow.checkinMessage,
+          autoCheckin:sourceRow.autoCheckin,sourceAccount:true,
+          ...(sourceRow.connectionState==='online'?{connectionState:'online'}:{}),
+          ...(sourceRow.nickname?{nickname:sourceRow.nickname}:{}),
+          ...(Number.isFinite(sourceRow.balance)?{balance:sourceRow.balance,
+            balanceUnit:sourceRow.balanceUnit,balanceCheckedAt:sourceRow.balanceCheckedAt}:{}),
+          balanceState:sourceRow.balanceState,
+          ...(sourceRow.maskedPhone?{maskedPhone:sourceRow.maskedPhone}:{})});
        else accounts.push(sourceRow);
      }
      const groups=roster.channels.map(c=>{
@@ -178,5 +184,5 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
     void tick().catch(()=>logger?.warn?.('checkin startup check unavailable'));    return stop;
   }
    function stop(){if(timer){clearInterval(timer);timer=null}sourceCenter?.stop()}
-   return {snapshot,run,tick,start,stop,store,refreshSources:()=>sourceCenter?.refresh()??Promise.resolve([])};
+    return {snapshot,sourceSnapshot:()=>sourceCenter?.snapshot()??[],run,tick,start,stop,store,refreshSources:()=>sourceCenter?.refresh()??Promise.resolve([])};
 }

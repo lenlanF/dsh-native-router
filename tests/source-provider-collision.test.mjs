@@ -9,7 +9,7 @@ assert.ok(begin>=0&&end>begin,'Independent native source registration must exist
 // Only evaluate the pure registration helper, never the source application,
 // credential stores, network, login flows, or extra services.
 const exported=new Function('wrapAdapterWithTokenLedger','withDeadModelPruning',
- 'isDuplicateRegistrationError',bundled.slice(begin,end)+'\nreturn {registerAdapterIdempotent,rollbackNativeRouterSourceAdapters,nativeSourceAdapterStates};')(
+  'isDuplicateRegistrationError',bundled.slice(begin,end)+'\nreturn {registerAdapterIdempotent,rollbackNativeRouterSourceAdapters,nativeSourceAdapterStates,nativeSourceModelEligibility};')(
  (_providers,adapter)=>adapter,(_providers,adapter)=>adapter,error=>error?.code==='DUPLICATE_ADAPTER');
 const register=exported.registerAdapterIdempotent,
   rollback=exported.rollbackNativeRouterSourceAdapters;
@@ -34,7 +34,8 @@ function rig(initial=['native-router','workbuddy']){
  };
  const ctx={llm:host,effect(factory){const dispose=factory();scopedCleanup.push(dispose)}};
  const states=Object.create(null);
- exported.nativeSourceAdapterStates.set(ctx,states);
+  exported.nativeSourceAdapterStates.set(ctx,states);
+  exported.nativeSourceModelEligibility.set(ctx,()=>true);
  return {host,ctx,adapter,writes,registry,calls,states,
   releaseScope(){for(const dispose of scopedCleanup.reverse())dispose?.()}};
 }
@@ -116,6 +117,18 @@ test('DSH prepareCall and resolveModel contracts are present on every native ali
  }
   await assert.rejects(r.registry.get('native-router-source-loomy')
     .resolveModel('codearts','test-model'),/Invalid independent source/); r.releaseScope();
+});
+test('unverified independent source has no DSH model picker entries and cannot resolve or stream',async()=>{
+  const r=rig(['native-router','loomy']);
+  register(r.ctx,['loomy'],r.adapter);
+  const adapter=r.registry.get('native-router-source-loomy');
+  exported.nativeSourceModelEligibility.set(r.ctx,()=>false);
+  assert.deepEqual(await adapter.listModels('native-router-source-loomy'),[]);
+  await assert.rejects(adapter.resolveModel('native-router-source-loomy','test-model'),/not verified/);
+  assert.throws(()=>adapter.stream({provider:'native-router-source-loomy'}),/not verified/);
+  exported.nativeSourceModelEligibility.set(r.ctx,()=>true);
+  assert.equal((await adapter.listModels('native-router-source-loomy')).length,1);
+  r.releaseScope();
 });
 test('repeat DSH plugin loading after Cordis scope cleanup does not leak previously owned aliases',()=>{
  const r=rig();

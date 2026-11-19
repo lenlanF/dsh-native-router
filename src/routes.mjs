@@ -183,9 +183,13 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
        const sourceMap=new Map(sourceRows.map(a=>[a.id,a]));
        const embeddedAccounts={...rawEmbedded,accounts:(rawEmbedded.accounts??[]).map(row=>{
          const source=sourceMap.get(sourceAccountOpaqueId(row.providerId,row.id));
-         return {...row,nickname:source?.nickname||row.nickname||'',
-           ...(Number.isFinite(source?.balance)?{balance:source.balance,
-             balanceUnit:source.balanceUnit,balanceCheckedAt:source.balanceCheckedAt}:{})};
+          return {...row,nickname:source?.nickname||row.nickname||'',
+            connectionState:!row.enabled?'disabled':source?.connectionState==='online'?
+              'online':'not_checked',
+            ...(source?.maskedPhone?{maskedPhone:source.maskedPhone}:{}),
+            ...(Number.isFinite(source?.balance)?{balance:source.balance,
+              balanceUnit:source.balanceUnit,balanceCheckedAt:source.balanceCheckedAt}:{}),
+            balanceState:source?.balanceState??'not_checked'};
        })};
        const roster=accountCenter.list();
        const {channels,accounts}=mergeAccountSources({roster,embeddedAccounts,sourceRows,

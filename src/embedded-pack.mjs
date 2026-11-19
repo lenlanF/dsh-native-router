@@ -32,7 +32,8 @@ function safetyReason(env){
 export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPack=loadPinnedPack,modelTimeoutMs=20000}){
   let state='disabled',reason='',errorStage='',errorKind='',disposed=false,activeScope=null,injectedCallback=null;
    let privateSourcePool=null,privateSourceCheckins=null,loadedPack=null;
-   let sourcePhase='',modelAdapterStates={},privateSourceRpcReady=false;
+    let sourcePhase='',modelAdapterStates={},privateSourceRpcReady=false;
+    let modelEligibility=()=>false;
    let sourceErrorType='',sourceErrorLocation='';
    let skippedProviders=new Set();
    // The bundled derivative owns a dedicated Cordis service and never binds to
@@ -146,7 +147,8 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
        // Keep our own pool strictly scoped to this injected Host scope.
        // Do NOT register arbitrary extra services in the global DSH registry.
        const options={disableOpencode:true};
-       if(nativeOwned){
+        if(nativeOwned){
+          options.nativeRouterModelEligibility=id=>modelEligibility(id);
          options.nativeRouterRpcReady=ready=>{
            privateSourceRpcReady=ready===true;
          };
@@ -257,17 +259,22 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
     const rows=await pool.listAllAccounts();
     if(disposed||state!=='mounted'||activeScope!==scope)return {state:'disposed',accounts:[]};
     if(!Array.isArray(rows))throw Error('Invalid upstream account pool');
-    const accounts=rows.filter(row=>row&&sourceAllowed(row.provider)      &&typeof row.id==='string'&&row.id.length>0&&row.id.length<=100).slice(0,200).map(row=>({
-      id:row.id.replace(/[\u0000-\u001f]/g,'').slice(0,100),
-      providerId:row.provider,
-      nickname:typeof row.nickname==='string'?row.nickname.replace(/[\u0000-\u001f]/g,'').slice(0,80):'',
-      enabled:row.enabled===true,
-      refreshable:row.refreshable===true,
-      // An upstream account-pool row is NOT a verified auth status.
-      connectionState:'not_checked',
-    }));
-    return {state:'ready',accounts};
-   }catch{return {state:'error',accounts:[]}}
+     const accounts=rows.filter(row=>row&&sourceAllowed(row.provider)
+       &&typeof row.id==='string'&&row.id.length>0&&row.id.length<=100).slice(0,200).map(row=>{
+       const rawName=typeof row.nickname==='string'?row.nickname.trim():'';
+       const marker=String(row.credentialRef??'');
+       // Distinguish login provenance. Migrated plugin credentials are not
+       // user-performed autonomous logins merely because they live in our pool.
+       const authorizationSource=marker.startsWith('NATIVE_ROUTER_PRIVATE_PACK_')
+         ||row.id.startsWith('nr_')?'adopted':
+         marker.startsWith('NATIVE_ROUTER_SOURCE_')?'autonomous':'unclassified';
+       const placeholder=!rawName||rawName===row.id||/ · 独立账号$/.test(rawName);
+       return {id:row.id.replace(/[\u0000-\u001f]/g,'').slice(0,100),
+         providerId:row.provider,nickname:placeholder?'':rawName.slice(0,80),
+         enabled:row.enabled===true,refreshable:row.refreshable===true,
+         authorizationSource,connectionState:'not_checked'};
+     });
+     return {state:'ready',accounts};   }catch{return {state:'error',accounts:[]}}
   }
 
    // Standalone source login and check-in use the plugin-owned sourcePool service.
@@ -501,45 +508,70 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
   if(!pool||!credentials)return null;
   return {pool,credentials};
  }
-  // Read-only upstream status. No claim, login, inference or credential export.
-  async function readSourceStatuses(providerId){
-    if(!SOURCE_DAILY_SIGNIN_PROVIDERS.includes(providerId)||!sourceAllowed(providerId))
-      return {state:'unsupported',accounts:[]};
-    const scope=mountedScope();
-    if(!scope)return {state:'unavailable',accounts:[]};
-    const ops=nativeOwned?privateSourceCheckins:scope.get?.('nativeRouterSourceCheckins',false);
-    if(typeof ops?.status!=='function')return {state:'unavailable',accounts:[]};
-    let timer;
-    try{
-      const timeout=Symbol('timeout');
-      const reply=await Promise.race([
-        Promise.resolve().then(()=>ops.status(providerId)),
-        new Promise(resolve=>{timer=setTimeout(()=>resolve(timeout),8000);timer.unref?.()}),
-      ]);
-      if(reply===timeout||scope!==mountedScope()||reply?.ok!==true
-        ||!Array.isArray(reply?.value?.accounts))return {state:'unavailable',accounts:[]};
-      const accounts=reply.value.accounts.slice(0,200).flatMap(row=>{
-        if(typeof row?.accountId!=='string'||row.accountId.length>100||
-          !/^[a-zA-Z0-9_-]+$/.test(row.accountId))return [];
-        const status=row.status&&typeof row.status==='object'&&!Array.isArray(row.status)?row.status:null;
-        const amounts=['balance','availableBalance','totalCredits','remainingCredits','points','credits'];
-        const field=status?amounts.find(key=>Number.isFinite(status[key])&&status[key]>=0):null;
-        return [{accountId:row.accountId,
-          nickname:typeof row.nickname==='string'?row.nickname.slice(0,80):'',
-          todayCheckedIn:typeof status?.todayCheckedIn==='boolean'?status.todayCheckedIn:null,
-           active:typeof status?.active==='boolean'?status.active:null,
-           // Only non-null status from these reviewed endpoints follows an
-           // authenticated read-only upstream request. "active:false" can
-           // mean no credit plan, NOT invalid authorization (CodeArts).
-           ...(status&&['loomy','codearts','zcode'].includes(providerId)
-             &&typeof status.active==='boolean'?{authVerified:true}:{}),
-           ...(field?{balance:status[field],            balanceUnit:field==='points'?'积分':field.toLowerCase().includes('credit')?'额度':'余额'}:{})}];
-      });
-      return {state:'ready',accounts,checkedAt:Date.now()};
-    }catch{return {state:'unavailable',accounts:[]}}
-    finally{clearTimeout(timer)}
-  }
- function dispose(){    if(disposed)return;
+   // Account-scoped read-only identity, check-in and balance bridge.
+   // Reuse the same upstream implementations as the standalone channels;
+   // never confuse "no credit plan" with authentication failure.
+   async function readSourceStatuses(providerId){
+     if(!SOURCE_PACK_PROVIDERS.includes(providerId)||!sourceAllowed(providerId))
+       return {state:'unsupported',accounts:[]};
+     const scope=mountedScope();
+     if(!scope)return {state:'unavailable',accounts:[]};
+     const ops=nativeOwned?privateSourceCheckins:scope.get?.('nativeRouterSourceCheckins',false);
+     if(!ops||typeof ops.status!=='function')return {state:'unavailable',accounts:[]};
+     const invoke=async(method)=>{
+       if(typeof ops[method]!=='function')return null;
+       let timer;
+       try{
+         const timeout=Symbol('timeout');
+         const reply=await Promise.race([
+           Promise.resolve().then(()=>ops[method](providerId)),
+           new Promise(resolve=>{timer=setTimeout(()=>resolve(timeout),8000);timer.unref?.()}),
+         ]);
+         return reply===timeout||scope!==mountedScope()||reply?.ok!==true
+           ||!Array.isArray(reply.value?.accounts)?null:reply.value.accounts.slice(0,200);
+       }catch{return null}
+       finally{clearTimeout(timer)}
+     };
+     const [identities,statuses,balances]=await Promise.all([
+       invoke('identity'),invoke('status'),invoke('balances')]);
+     if(scope!==mountedScope()||(!identities&&!statuses&&!balances))
+       return {state:'unavailable',accounts:[]};
+     const safeId=value=>typeof value==='string'&&value.length>0
+       &&value.length<=100&&/^[a-zA-Z0-9_-]+$/.test(value);
+     const lookup=rows=>new Map((rows??[]).filter(row=>safeId(row?.accountId??row?.id))
+       .map(row=>[row.accountId??row.id,row]));
+     const statusMap=lookup(statuses),balanceMap=lookup(balances),identityMap=lookup(identities);
+     const allIds=new Set([...statusMap.keys(),...balanceMap.keys(),...identityMap.keys()]);
+     const accounts=[];
+     for(const accountId of allIds){
+       const status=statusMap.get(accountId)?.status;
+       const exact=status&&typeof status==='object'&&!Array.isArray(status)?status:null;
+       const balance=balanceMap.get(accountId)?.balance;
+       const amount=Number.isFinite(balance?.total)&&balance.total>=0?balance.total:null;
+       const firstPackage=Array.isArray(balance?.packages)?balance.packages.find(p=>
+         typeof p?.unit==='string'&&p.unit.length<=12):null;
+       const unit=firstPackage?.unit||(
+         providerId==='zcode'?'token':providerId==='loomy'||providerId==='codearts'?'积分':'额度');
+       const identity=identityMap.get(accountId);
+       const rawName=identity?.accountName??identity?.nickname
+         ??statusMap.get(accountId)?.nickname??balanceMap.get(accountId)?.nickname;
+       const label=typeof rawName==='string'&&rawName.trim()!==accountId
+         &&!/ · 独立账号$/.test(rawName.trim())?rawName.trim().slice(0,80):'';
+       const validStatus=exact&&typeof exact.active==='boolean';
+       const authVerified=['loomy','codearts','zcode'].includes(providerId)
+         &&(validStatus===true||amount!==null);
+       const phone=typeof identity?.phone==='string'&&/^\d{11}$/.test(identity.phone)
+         ?identity.phone.replace(/^(\d{3})\d{4}(\d{4})$/,'$1****$2'):null;
+       accounts.push({accountId,nickname:label,
+         ...(phone?{maskedPhone:phone}:{}),
+         todayCheckedIn:typeof exact?.todayCheckedIn==='boolean'?exact.todayCheckedIn:null,
+         active:validStatus?exact.active:null,authVerified,
+         ...(amount!==null?{balance:amount,balanceUnit:unit}:{}),
+         balanceState:amount!==null?'available':
+           balances?'not_returned':'not_supported'});
+     }
+     return {state:'ready',accounts,checkedAt:Date.now()};
+   } function dispose(){    if(disposed)return;
     disposed=true;
     selectionGuard?.restore();selectionGuard=null;
     activeScope=null;privateSourcePool=null;privateSourceCheckins=null;loadedPack=null;
@@ -554,4 +586,5 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
       catch{ctx.logger?.warn?.('native-router: source Cordis child scope cleanup failed')}
     }
   }
-  return {attach,status,listAccounts,listModels,changeAccountEnabled,removeSourceAccount,streamNative,checkinAccount,readSourceStatuses,ownedAdoptionContext,dispose};}
+   return {attach,status,listAccounts,listModels,changeAccountEnabled,removeSourceAccount,streamNative,checkinAccount,readSourceStatuses,ownedAdoptionContext,dispose,
+     setModelEligibility:fn=>{modelEligibility=typeof fn==='function'?fn:()=>false}};}

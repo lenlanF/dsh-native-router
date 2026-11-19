@@ -1,5 +1,12 @@
 # Change Log
 
+## 1.0.0-rc.20 — 2026-11-19 — 真实来源、账户余额与模型授权联动
+
+- 修复把接管账号误标独立扫码，CodeArts 自主 OAuth 一次登录被双重展示，ZCode 自主/接管来源不可辨。
+- 使用来源包原生 account.list、credits.balances、credits.status，取得可核实的用户名、积分、token 配额；CodeArts 从自有 OAuth 凭据中安全解析 user_name。
+- 独立来源模型必须有已核验的有效账号才能在聊天列表出现。鉴权状态变化即时淘汰目录缓存，已不再错误允许已失效账号模型。
+- 保留用户原有账号、积分、复用凭据，账户不同或证据不足不自动合并。增加真实四账号形状与账户/余额/授权接口隔离测试。
+
 ## 1.0.0-rc.19 — 2026-11-19 — Independent source runtime model contract and verified-source arbitration
 
 - 独立 Provider 补充 resolveModel/prepareCall，防止 DSH 模型加载报缺少方法。

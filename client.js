@@ -167,7 +167,7 @@ window.__ModuleLoader__.load({
        const sourceChannels=pack?.channels||[],selectedSource=sourceChannels.includes(modelProvider)
          ?modelProvider:sourceChannels[0]||'';
       const packLabel={disabled:'默认关闭',blocked:'安全门禁阻止',waiting_host_services:'等待宿主',loading:'加载中',mounted:live?'自主登录已就绪':'渠道已挂载，登录接口等待中',failed:'挂载失败',host_disposed:'宿主已释放',disposed:'已释放',unavailable:'不可用'}[pack?.state]||'状态未知';
-      return h(Panel,{title:'自主登录 · 渠道账号与模型'},
+       return h(Panel,{title:'渠道授权池 · 自主登录与原授权接管'},
         h('div',{style:css.line},
           h('strong',null,packLabel),
            h('span',{style:css.mutedTag},'可自主授权 '+(pack?.channelCount??13)+' 个'),
@@ -208,16 +208,22 @@ window.__ModuleLoader__.load({
           pack?.state==='mounted'?'来源包已加载，但尚未确认 DSH Connection 登录接口成功注册；请重新读取状态，未确认前不会发起登录。':
           '启用并保存配置、重启 DSH 后可进行自主登录、刷新与模型查询。'),
         upstream?.state==='ready'?h('div',null,
-          h('p',{style:css.small},'来源账号 '+rows.length+' 个；列表只反映上游设置，登录状态未知。'),
+           h('p',{style:css.small},'来源池共 '+rows.length+' 条记录：自主登录与原授权接管均在此管理，来源不会因此被当作二次登录。'),
           h('div',{style:{maxHeight:320,overflowY:'auto'}},
             rows.map(row=>h('div',{key:row.providerId+':'+row.id,className:'dnr-source-entry'},
               h('div',{style:{flex:'1 1 205px',minWidth:0}},
                 h('div',{style:{...css.line,marginBottom:2}},
-                  h('strong',null,row.providerId),
-                  h('span',{style:{fontSize:12,overflowWrap:'anywhere'}},row.nickname||row.id)),
-                h('div',{style:{...css.line,marginBottom:0}},
-                  h('span',{style:css.small},row.enabled?'来源池已启用':'来源池已停用'),
-                  h('span',{style:css.small},'登录状态未知 · 仅查看'))),
+                   h('strong',null,row.providerId),
+                   h('span',{style:{fontSize:12,overflowWrap:'anywhere'}},
+                     row.nickname||row.maskedPhone||'账号身份尚未取得')),
+                 h('div',{style:{...css.line,marginBottom:0}},
+                   h('span',{style:css.mutedTag},
+                     row.authorizationSource==='autonomous'?'本插件自主登录':
+                     row.authorizationSource==='adopted'?'原渠道授权接管':'来源待确认'),
+                   h('span',{style:css.small},row.enabled?'来源池已启用':'来源池已停用'),
+                   h(StateTag,{value:row.connectionState||'not_checked'}),
+                   Number.isFinite(row.balance)?h('span',{style:css.mutedTag},
+                     row.balance+' '+(row.balanceUnit||'余额')):null)),
               h('div',{className:'dnr-action-list'},
                 h(Button,{disabled:!!busy||!!sourceBusy||!live,onClick:()=>{
                   if(window.confirm('确认'+(row.enabled?'停用':'启用')+'来源渠道 '+row.providerId+' 的账号 '+row.id+' ？修改仅作用于隔离来源池。'))
@@ -409,7 +415,7 @@ window.__ModuleLoader__.load({
               h('strong',null,row.providerId),
               h('span',{style:css.small},row.state||'尚未验证')))):null):null,
         subtab==='source'?h(React.Fragment,null,
-          h(Panel,{title:'自主登录 · 独立账号',actions:h('span',{style:css.mutedTag},
+           h(Panel,{title:'来源授权池 · 自主登录与原授权接管',actions:h('span',{style:css.mutedTag},
             embeddedPack?.state==='mounted'?'已加载':'当前：'+(embeddedPack?.state||'未知'))},
             h(Toggle,{label:'启用内置渠道授权与签到',value:cfg.embeddedPack?.enabled===true,
               onChange:v=>onReuseSettings({embeddedEnabled:v})}),
@@ -500,18 +506,18 @@ window.__ModuleLoader__.load({
     function AccountConsole({data,query,onQuery,run,setTab,busy,discovered,onAddProvider,
       onManageAccounts,onOpenOwnedSource,selectedChannel,onSelectChannel}){      if(!data)return h(Panel,{title:'渠道账号'},'账号中心尚未连接 DSH Host。');
       const accounts=data.accounts||[];
-      const sourceAccounts=data.embeddedAccounts?.state==='ready'?(data.embeddedAccounts.accounts||[]):[];
-      const allChannels=(data.channels||[]);
+       // Unified inventory is authoritative; never render raw pool entries twice.
+       const allChannels=(data.channels||[]);
       const channels=allChannels.filter(c=>!query||[c.name,c.id,c.authMethod].some(x=>
         String(x||'').toLowerCase().includes(query.toLowerCase())));
       const visibleChannels=query||!selectedChannel||selectedChannel==='all'?channels:
         channels.filter(c=>c.id===selectedChannel);
       const active=accounts.filter(a=>a.configuredEnabled).length;
       const online=accounts.filter(a=>a.connectionState==='online').length;
-      const displayBalance=a=>Number.isFinite(a.balance)?
-        '积分/余额：'+a.balance+(a.balanceUnit?' '+a.balanceUnit:''):
-        '积分/余额：暂无可核实数据';
-      return h(React.Fragment,null,
+       const displayBalance=a=>Number.isFinite(a.balance)?
+         '余额：'+a.balance+(a.balanceUnit?' '+a.balanceUnit:''):
+         a.balanceState==='not_supported'?'余额：平台未提供此项数据':'余额：尚未取得有效数据';
+       return h(React.Fragment,null,
         h(Panel,{title:'全部渠道 · 账号状态',
           actions:h(Button,{disabled:!!busy,onClick:()=>run('/channels/accounts/action',
             {action:'refresh-all'},'已刷新支持校验的账号')},'验证全部')},
@@ -530,24 +536,21 @@ window.__ModuleLoader__.load({
                 c.name+' · '+accounts.filter(a=>a.providerId===c.id).length+' 个账号'))))),
         visibleChannels.map(channel=>{
           const members=accounts.filter(a=>a.providerId===channel.id);
-          const independent=sourceAccounts.filter(a=>a.providerId===channel.id
-            &&!accounts.some(x=>x.id===a.id||(x.providerId==='own_'+a.providerId&&x.sourceAccount===true)));          const pool=(data.pools||[]).find(x=>x.providerId===channel.id);
-          return h(Panel,{key:channel.id,title:channel.name,
-            actions:h('span',{style:css.small},members.length+independent.length+' 个账号 · '+
-              (channel.adapterReady?'已接入':'待接入'))},
+           const pool=(data.pools||[]).find(x=>x.providerId===channel.id);          return h(Panel,{key:channel.id,title:channel.name,
+             actions:h('span',{style:css.small},members.length+' 个账号 · '+              (channel.adapterReady?'已接入':'待接入'))},
             h('div',{style:css.line},
               h('span',{style:css.small},'登录方式：'+(channel.authMethod||'由来源管理')),
               pool?h('span',{style:css.small},'自动候选 '+pool.enabled+' · 已验证 '+pool.verified):null),
             members.map((account,accountIndex)=>h('div',{key:account.id,style:{...css.itemRow,display:'block'}},
               h('div',{style:{...css.line,justifyContent:'space-between',marginBottom:5}},
-                h('strong',null,account.nickname||account.username||'账号 '+(accountIndex+1)),
-                h(StateTag,{value:account.connectionState})),
-               h('div',{style:css.line},
+                 h('strong',null,account.nickname||account.maskedPhone||account.username||'账号 '+(accountIndex+1)),
+                 h(StateTag,{value:account.connectionState})),               h('div',{style:css.line},
                  h('span',{style:css.mutedTag},displayBalance(account)),
-                 account.backupSources?.length?h('span',{style:css.mutedTag},
-                   '首选：'+(account.activeSource==='owned'?'自主登录':'原渠道复用')+
-                   ' · 备援 '+account.backupSources.length):null,
-                 account.balanceCheckedAt?h('span',{style:css.small},
+                  h('span',{style:css.mutedTag},account.sourceKind==='adopted'?'本地复用 · 已接管':
+                    account.sourceKind==='autonomous'?'本插件自主登录':
+                    account.sourceKind==='reused'?'本地原插件复用':'来源待确认'),
+                  account.backupSources?.length?h('span',{style:css.mutedTag},
+                    '另有 '+account.backupSources.length+' 个同账号备援'):null,                 account.balanceCheckedAt?h('span',{style:css.small},
                    '余额更新 '+new Date(account.balanceCheckedAt).toLocaleString()):null),              h('details',{style:{marginBottom:8}},
                 h('summary',{style:css.small},'详情 · 账号来源与诊断信息'),
                 h('div',{style:css.small},'内部账号：'+account.id),
@@ -559,13 +562,14 @@ window.__ModuleLoader__.load({
                 h('div',{style:css.small},'权重：'+account.weight),
                  account.checkedAt?h('div',{style:css.small},'最近检查：'+new Date(account.checkedAt).toLocaleString()):null,
                  (account.backupSources||[]).map((s,i)=>h('div',{key:'backup-'+i,style:css.small},
-                   '保留备援 '+(i+1)+'：'+(s.kind==='owned'?'本插件自主登录':'原渠道复用')+
-                   ' · '+(s.available?'可选':'已停用')+' · '+(s.state==='online'?'已验证':'待核验/不可用'))),
-                 h('div',{style:css.small},account.message||'未返回校验详情')),               account.managed===false?
+                   '保留备援 '+(i+1)+'：'+(s.kind==='autonomous'?'自主登录':
+                     s.kind==='adopted'?'原授权接管':'原渠道复用')+
+                   ' · '+(s.available?'可选':'已停用')+' · '+(s.state==='online'?'已验证':'待核验/不可用'))),                 h('div',{style:css.small},account.message||'未返回校验详情')),               account.managed===false?
                h('div',{style:{...css.line,marginBottom:0}},
-                 h('span',{style:css.small},'本插件独立账号池 · 已保存授权引用；是否可用取决于来源鉴权'),
-                 h(Button,{onClick:onOpenOwnedSource},'管理独立登录态')):
-               h('div',{style:{...css.line,marginBottom:0}},
+                 h('span',{style:css.small},account.sourceKind==='adopted'?
+                   '复用原渠道授权，保存于本插件私有池；这不是一次新自主登录':
+                   '本插件自主登录授权；是否可用以来源鉴权为准'),
+                 h(Button,{onClick:onOpenOwnedSource},'管理来源授权池')):               h('div',{style:{...css.line,marginBottom:0}},
                  h(Button,{disabled:!!busy||!account.loginAvailable||!account.configuredEnabled,
                    onClick:()=>run('/channels/accounts/action',{action:'login',accountId:account.id},
                      '已请求账号连接验证')},'校验'),
@@ -581,14 +585,8 @@ window.__ModuleLoader__.load({
                      run('/channels/accounts/action',{action:'logout',accountId:account.id},
                        '账号引用已解除');
                  }},'解绑')))),
-             independent.map((a,i)=>h('div',{key:'source-'+a.id,style:css.itemRow},
-               h('strong',null,a.nickname||'独立来源账号 '+(i+1)),
-               h('span',{style:css.mutedTag},displayBalance(a)),
-               h(StateTag,{value:a.connectionState||'not_checked'}),
-               h(Button,{onClick:onOpenOwnedSource},'管理独立登录态'))),
-            !members.length&&!independent.length?h('p',{style:css.small},
-              '暂未关联账号；宿主插件可独立管理自己的登录态。'):null,
-            h('div',{style:css.line},
+             !members.length?h('p',{style:css.small},
+               '当前没有经账号库存确认的登录记录；不会将模型适配器视为登录成功。'):null,            h('div',{style:css.line},
               !channel.referenceOnly?h(Button,{onClick:()=>onManageAccounts(channel)},'管理账号池'):null,
               channel.referenceOnly&&channel.adapterReady?h(Button,{onClick:()=>onAddProvider(channel)},'配置此渠道'):null,
               channel.discoveryAvailable?h(Button,{disabled:!!busy,
@@ -1410,13 +1408,13 @@ window.__ModuleLoader__.load({
         h('p',{style:css.small},'高级模式会直接替换整份配置。仅保存提供商、账号引用与链条规则；不要填写 Token、密码或明文 API Key。'),
         h('textarea',{style:{...css.input,width:'100%',minHeight:400,fontFamily:'ui-monospace,monospace',fontSize:12},
           value:raw,onChange:e=>setRaw(e.target.value),'aria-label':'完整路由配置 JSON'})));
-       return h('div',{className:'dnr-shell',style:css.root},
+        return h('div',{className:'dnr-shell',style:css.root},
          h('style',{dangerouslySetInnerHTML:{__html:UI_STYLES}}),
          h('header',{className:'dnr-header'},
            h('div',{style:{minWidth:0}},
              h('h2',{style:css.title},'聚合路由'),
              h('div',{className:'dnr-header-note'},'来源复用 · 账号池 · 模型调度 · 每日签到 · 故障续跑')),
-            h('span',{className:'dnr-version'},'1.0.0-rc.19')),           h('div',{className:'dnr-layout'},            h('label',{className:'dnr-mobile-nav'},
+             h('span',{className:'dnr-version'},'1.0.0-rc.20')),           h('div',{className:'dnr-layout'},            h('label',{className:'dnr-mobile-nav'},
               h('span',null,'设置页面'),
               h('select',{'aria-label':'选择设置页面',value:activeNav,
                 onChange:e=>setTab(e.target.value)},

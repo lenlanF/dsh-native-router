@@ -28,7 +28,10 @@ test('the DSH-native bundle is deterministically derived from unchanged pinned M
   const crlf=Buffer.from(original.toString('utf8').replace(/\n/g,'\r\n'),'utf8');
   assert.equal(sha(canonicalText(crlf)),sha(original));
  assert.equal(sha(bundled),native.generatedSha256);
- assert.equal(native.patches.length,32); assert.ok(native.patches.includes('namespace-all-private-auth-services'));
+  assert.equal(native.patches.length,34);
+  assert.ok(native.patches.includes('bound-model-account-verification'));
+  assert.ok(native.patches.includes('codearts-public-username-from-private-credential'));
+  assert.ok(native.patches.includes('namespace-all-private-auth-services'));
  const generated=bundled.toString('utf8');
  assert.equal((generated.match(/super\(ctx, options\.serviceName \?\? `nativeRouterSource\$\{product\.id\}Auth`\);/g)||[]).length,10);
  assert.match(generated,/super\(ctx, "nativeRouterSourceCodeartsAuth"\);/);
@@ -87,7 +90,8 @@ test('release package ships only native in-process bundle with host-provided pee
   assert.equal(pkg.private,false);
   assert.equal(pkg.license,'MIT');
   assert.equal(pkg.engines.node,'>=22.10.0');
-   assert.equal(pkg.version,'1.0.0-rc.19');  assert.ok(pkg.files.includes('vendor/channel-pack/NATIVE_BUILD_RECEIPT.json')); assert.ok(pkg.files.includes('vendor/channel-pack/SOURCE_RECEIPT.json'));
+  assert.equal(pkg.version,'1.0.0-rc.20');
+  assert.ok(pkg.files.includes('vendor/channel-pack/NATIVE_BUILD_RECEIPT.json')); assert.ok(pkg.files.includes('vendor/channel-pack/SOURCE_RECEIPT.json'));
  assert.ok(!pkg.files.includes('vendor/channel-pack'));
  assert.ok(!pkg.files.includes('vendor/channel-pack/pack.js'));
  assert.match(bridge,/import\('\.\.\/vendor\/channel-pack\/pack-runtime\.mjs'\)/);

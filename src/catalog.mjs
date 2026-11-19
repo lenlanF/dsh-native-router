@@ -38,11 +38,17 @@ export function createCatalog({getConfig,fetchImpl=fetch,resolveKey=resolveCrede
     // One bounded, read-only discovery shared with the dynamic AutoFree pool.
     // Host login and independent channel source accounts are NOT copied.
     if(autoFreePool)await autoFreePool.refresh().catch(()=>null);
-    const currentSourceAvailability=sourceState()+'|host:'+
-      (hostProviderInventory?.status?.().hostProviders??[]).map(row=>row.providerId).sort().join(',');
-    if(updatedAt&&sourceAvailability===currentSourceAvailability&&Date.now()-updatedAt<ttlMs)
-      return cached.map(x=>({...x}));
-    const cfg=autoFreePool?autoFreePool.effectiveConfig(getConfig()):getConfig();
+     // A source login can expire between catalog requests. Include the
+     // actual verified-account set in the cache signature rather than trusting
+     // an old "model was listed" cache for its full TTL.
+     const cfg=autoFreePool?autoFreePool.effectiveConfig(getConfig()):getConfig();
+     const accountSignature=cfg.accounts.filter(a=>a.enabled)
+       .map(a=>a.providerId+':'+a.id).sort().join('|');
+     const currentSourceAvailability=sourceState()+'|host:'+
+       (hostProviderInventory?.status?.().hostProviders??[]).map(row=>row.providerId).sort().join(',')
+       +'|verified:'+accountSignature;
+     if(updatedAt&&sourceAvailability===currentSourceAvailability&&Date.now()-updatedAt<ttlMs)
+       return cached.map(x=>({...x}));
     const all=autoFreePool?.snapshot?.().catalog??[];
     const result=autoFreePool?[{provider:'native-router',id:'autofree',
       name:'聚合路由 · AutoFree · x?',inputModalities:['text']}]:[];    result.push(...cfg.routes.filter(r=>r.enabled&&r.tiers.some(tier=>{
@@ -67,7 +73,10 @@ export function createCatalog({getConfig,fetchImpl=fetch,resolveKey=resolveCrede
        if(p.protocol==='native-channel'&&(typeof driver?.generate!=='function'||
          (driver?.isSourceBridge===true&&driver.runtimeReady!==true)))continue;
       const models=new Set([...p.models,...all.filter(row=>row.providerId===p.id).map(row=>row.model)]);
-      const accounts=cfg.accounts.filter(a=>a.providerId===p.id&&a.enabled).slice(0,32);
+       const accounts=cfg.accounts.filter(a=>a.providerId===p.id&&a.enabled).slice(0,32);
+       // A listed model is not a usable login. The runtime account verifier
+       // excludes pending/unverified native credentials from the effective config.
+       if(p.protocol==='native-channel'&&accounts.length===0)continue;
       if(accounts.length && models.size===0){
         // Do not let the first expired account hide working models behind a
         // second account. Discover independently and union the visible IDs.

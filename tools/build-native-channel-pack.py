@@ -136,6 +136,29 @@ def build(*, check=False):
             "remove-duplicate-loop-resume",
         ),
     ]
+    # Source pack already reads ZCode account labels; use its local credential
+    # parser for CodeArts username as well. Expose only the public accountName,
+    # never raw credential JSON or OAuth tokens. The source account record
+    # itself may still be a temporary OAuth placeholder.
+    patches.append((
+        '    if (provider !== ZCODE.id) return [...accounts];',
+        '''    if (provider === "codearts") {
+      const out = [];
+      for (const entry of accounts) {
+        let accountName = "";
+        try {
+          const resolved = await ctx.credentials.resolve(credentialRef13(entry.credentialRef));
+          const credential = resolved ? parseCodeArtsCredential(resolved.value) : null;
+          if (typeof credential?.user_name === "string")
+            accountName = credential.user_name.trim().slice(0,80);
+        } catch {}
+        out.push(accountName ? {...entry,accountName} : entry);
+      }
+      return out;
+    }
+    if (provider !== ZCODE.id) return [...accounts];''',
+        "codearts-public-username-from-private-credential",
+    ))
     # Avoid public Host service injection for data owned by this isolated pack.
     # Some DSH plugin profiles reject the added private service's registration
     # during apply(register_owned_adapter), even though the DSH llm service is
@@ -154,6 +177,12 @@ def build(*, check=False):
             'bind-private-pool-to-injected-scope',
         ),
     ])
+    patches.append((
+        '  config.nativeRouterPoolReady?.(pool);',
+        '  config.nativeRouterPoolReady?.(pool);\n'
+        '  nativeSourceModelEligibility.set(ctx,config.nativeRouterModelEligibility);',
+        'bound-model-account-verification',
+    ))
     # This internal bridge is called by our own embedded-pack facade, and is
     # not registered as an extra service in the user's DSH root registry.
     old_checkins = (
@@ -165,6 +194,8 @@ def build(*, check=False):
     new_checkins = (
         '  config.nativeRouterCheckinsReady?.({\n'
         '    status: (provider, accountId) => handleMethod("credits.status", { provider, accountId }),\n'
+        '    balances: (provider) => handleMethod("credits.balances", { provider }),\n'
+        '    identity: (provider) => handleMethod("account.list", { provider }),\n'
         '    claim: (provider, accountId) => handleMethod("credits.claimAll", { provider, accountId })\n'
         '  });'
     )
@@ -205,7 +236,8 @@ def build(*, check=False):
     # Crucial: original host Provider names are NEVER registered by this pack.
     # Every adapter is optional and its registration is separately owned.
     replacement = """var nativeSourceAliasDisposers = new WeakMap();
-var nativeSourceAdapterStates = new WeakMap();
+ var nativeSourceAdapterStates = new WeakMap();
+var nativeSourceModelEligibility = new WeakMap();
 function rollbackNativeRouterSourceAdapters(ctx) {
   const members = nativeSourceAliasDisposers.get(ctx) ?? [];
   for (const release of [...members].reverse()) {
@@ -251,6 +283,11 @@ function registerAdapterIdempotent(ctx, providers, adapter, warn) {
     if (!providers.includes(provider)) throw new Error("Unowned source provider");
     return provider;
   };
+  const allow = source => {
+    const proof = nativeSourceModelEligibility.get(ctx);
+    try { return typeof proof === "function" && proof(source) === true; }
+    catch { return false; }
+  };
   const aliasAdapter = {
     providerInfo(id) {
       const value = target.providerInfo(actual(id));
@@ -260,7 +297,8 @@ function registerAdapterIdempotent(ctx, providers, adapter, warn) {
     providerRetryPolicy(id) { return target.providerRetryPolicy(actual(id)); },
     async listModels(id, ...rest) {
       const source = actual(id);
-      const rows = await target.listModels(source, ...rest);
+       if (!allow(source)) return [];
+       const rows = await target.listModels(source, ...rest);
       if (!Array.isArray(rows)) return [];
       // Host model catalog validates row.provider against the registered alias.
       // A raw source row uses "loomy"/"zcode"/etc and is rejected as invalid.
@@ -282,6 +320,7 @@ function registerAdapterIdempotent(ctx, providers, adapter, warn) {
     },
     async resolveModel(provider, model, signal) {
       const source = actual(provider);
+      if (!allow(source)) throw new Error("Independent source account not verified");
       if (typeof model !== "string" || !model.trim() || model.length > 160)
         throw new Error("Invalid independent source model");
       let resolved;
@@ -310,7 +349,9 @@ function registerAdapterIdempotent(ctx, providers, adapter, warn) {
       return {model:resolved,
         stream:options=>target.stream({...options,provider:source})};
     },
-    stream(options) { return target.stream({...options, provider: actual(options.provider)}); }
+     stream(options) { const source=actual(options.provider);
+       if (!allow(source)) throw new Error('Independent source account not verified');
+       return target.stream({...options, provider: source}); }
   };
   let cleanup;
   try {
