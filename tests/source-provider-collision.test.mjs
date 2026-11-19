@@ -48,18 +48,46 @@ test('host installed WorkBuddy remains untouched while source WorkBuddy and Loom
  const second=register(r.ctx,['loomy'],r.adapter);
  assert.deepEqual(r.writes.map(x=>x.ids),[
   ['native-router-source-workbuddy'],['native-router-source-loomy']]);
- assert.equal(r.registry.get('workbuddy'),original);
- const owned=r.registry.get('native-router-source-workbuddy');
- assert.deepEqual(owned.providerInfo('native-router-source-workbuddy'),{
-  id:'native-router-source-workbuddy',name:'Original workbuddy · 聚合路由自有'});
- assert.equal((await owned.listModels('native-router-source-workbuddy'))[0].provider,'workbuddy');
- assert.equal(owned.stream({provider:'native-router-source-workbuddy'}).original,'workbuddy');
- assert.deepEqual(r.calls,[['models','workbuddy'],['stream','workbuddy']]);
- assert.throws(()=>owned.stream({provider:'loomy'}),/Invalid independent source/);
+  const owned=r.registry.get('native-router-source-workbuddy');
+  assert.equal(r.registry.get('workbuddy'),original);
+  assert.deepEqual(owned.providerInfo('native-router-source-workbuddy'),{  id:'native-router-source-workbuddy',name:'Original workbuddy'});
+ const models=await owned.listModels('native-router-source-workbuddy');
+ assert.equal(models[0].provider,'native-router-source-workbuddy');
+ assert.equal(models[0].id,'test-model');
+  assert.equal((await owned.listModels('native-router-source-workbuddy'))[0].provider,'native-router-source-workbuddy'); assert.equal(owned.stream({provider:'native-router-source-workbuddy'}).original,'workbuddy');
+  assert.deepEqual(r.calls,[['models','workbuddy'],['models','workbuddy'],['stream','workbuddy']]); assert.throws(()=>owned.stream({provider:'loomy'}),/Invalid independent source/);
  r.releaseScope();
  assert.equal(r.registry.get('workbuddy'),original);
  assert.equal(r.registry.has('native-router-source-loomy'),false);
  assert.equal(r.registry.has('native-router-source-workbuddy'),false);
+});
+test('source metadata returned under original provider aliases is normalized and deduplicated',async()=>{
+ const r=rig(['native-router','loomy','zcode']);
+ const original=r.registry.get('loomy');
+ const source={
+  ...r.adapter,
+  listModels:async()=>[
+    {provider:'loomy',id:'spark-x2.6',name:'Spark x2.6',inputModalities:['text']},
+    {provider:'loomy',id:'spark-x2.6',name:'duplicate'},
+    {provider:'foreign',id:'wrong',name:'foreign'},
+     {provider:'loomy',id:String.fromCharCode(10),name:'control'},    {provider:'loomy',id:'glm5',name:'GLM-5',inputModalities:['text']},
+  ],
+ };
+ assert.equal(typeof register(r.ctx,['loomy'],source),'function');
+ const alias=r.registry.get('native-router-source-loomy');
+ const rows=await alias.listModels('native-router-source-loomy');
+ assert.equal(rows.length,2);
+ assert.deepEqual(rows.map(row=>row.provider),[
+   'native-router-source-loomy','native-router-source-loomy']);
+ assert.deepEqual(rows.map(row=>row.id),['spark-x2.6','glm5']);
+ assert.equal(r.registry.get('loomy'),original);
+ r.registry.delete('loomy'); // original Cordis plugin stopped
+ assert.equal(r.registry.has('native-router-source-loomy'),true,
+   'independent provider must remain after original Loomy unloads');
+ assert.equal((await alias.listModels('native-router-source-loomy')).length,2);
+ assert.equal(alias.stream({provider:'native-router-source-loomy'}).original,'loomy');
+ r.releaseScope();
+ assert.equal(r.registry.has('native-router-source-loomy'),false);
 });
 test('repeat DSH plugin loading after Cordis scope cleanup does not leak previously owned aliases',()=>{
  const r=rig();

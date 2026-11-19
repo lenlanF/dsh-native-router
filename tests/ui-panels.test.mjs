@@ -6,8 +6,7 @@ import {normalizeConfig} from '../src/config.mjs';
 import {createAccountCenter} from '../src/account-center.mjs';
 import {createCheckinCenter} from '../src/checkins.mjs';
 import {sample} from './fixtures.mjs';
-function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={state:'disabled',reason:''},sourceRpcOverrides={},hostProviders=[],hostModelResult,confirmFn=()=>true){
-  let cfg=normalizeConfig(sample),sequence=0,effectFn,tabEffectFn,component;
+function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={state:'disabled',reason:''},sourceRpcOverrides={},hostProviders=[],hostModelResult,confirmFn=()=>true,accountSnapshot){  let cfg=normalizeConfig(sample),sequence=0,effectFn,tabEffectFn,component;
   const hooks=[];
   const react={
     Fragment:'fragment',
@@ -65,9 +64,8 @@ function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={stat
         row.id!==input.accountId||row.providerId!==input.providerId);
       return response({ok:true,result:{state:'removed',removed:true}});
     }
-    if(key==='/channels/accounts')return response({ok:true,...accountCenter.list(),
-      sessionReuse:{hostProviders},...(embeddedPreview?{embeddedAccounts:embeddedPreview}:{})});
-    if(key==='/channels/adopt/preview'){
+    if(key==='/channels/accounts')return response(accountSnapshot??{ok:true,...accountCenter.list(),
+      sessionReuse:{hostProviders},...(embeddedPreview?{embeddedAccounts:embeddedPreview}:{})});    if(key==='/channels/adopt/preview'){
        mutations.push({kind:'adoption-preview'});
        return response({ok:true,result:{state:'ready',ownPackState:'mounted',plugins:[
         {providerId:'workbuddy',name:'WorkBuddy',installed:true,version:'5.24.10'},
@@ -164,10 +162,10 @@ test('dashboard shows original WorkBuddy routes, which enter directly without a 
  ];
  const rig=createUiRig(new Map(),null,{state:'disabled'},{},hosts);await rig.init();
  const overview=rig.flatten(rig.render()).join(' ');
- assert.match(overview,/WorkBuddy 国内原生路由/);
- assert.match(overview,/WorkBuddy 国际原生路由/);
- assert.match(overview,/已注册 · 原插件维护认证/);
- rig.find(rig.render(),'button','复用管理')[0].props.onClick();
+  assert.match(overview,/WorkBuddy 国内/);
+  assert.match(overview,/WorkBuddy 国际/);
+  assert.match(overview,/已接入/);
+  assert.doesNotMatch(overview,/账号来源 · 分别核验/); rig.find(rig.render(),'button','复用管理')[0].props.onClick();
  rig.find(rig.render(),'button','宿主路由与模型')[0].props.onClick();
  const page=rig.render();
  assert.match(rig.flatten(page).join(' '),/宿主原生渠道 · 自动接入/);
@@ -256,23 +254,19 @@ test('real client render: channel account page exposes login, refresh, logout an
   const button=rig.find(page,'button','渠道账号')[0];
   assert.ok(button,'渠道账号 tab should exist');
   button.props.onClick();
-   rig.find(rig.render(),'button','查看待接入渠道')[0].props.onClick();
-   page=rig.render();
+   assert.equal(rig.find(rig.render(),'button','查看待接入渠道').length,0);   page=rig.render();
   const text=rig.flatten(page).join(' ');
   assert.match(text,/华为云 CodeArts/);
   assert.match(text,/腾讯 WorkBuddy/);
   assert.match(text,/账号状态/);
-  assert.ok(rig.find(page,'button','登录/校验').length>=1);
-  assert.ok(rig.find(page,'button','刷新').length>=1);
-  assert.ok(rig.find(page,'button','退出/解绑').length>=1);
-  assert.ok(rig.find(page,'button','停用').length>=1);
+   assert.ok(rig.find(page,'button','校验').length>=1);  assert.ok(rig.find(page,'button','刷新').length>=1);
+   assert.ok(rig.find(page,'button','解绑').length>=1);  assert.ok(rig.find(page,'button','停用').length>=1);
 });
 test('real client render: login button triggers account authentication probe, not a fake success',async()=>{
   const rig=createUiRig();await rig.init();
   rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
   let page=rig.render();
-  const login=rig.find(page,'button','登录/校验')[0];
-  await login.props.onClick();
+   const login=rig.find(page,'button','校验')[0];  await login.props.onClick();
   assert.ok(rig.mutations.some(m=>m.action==='login'));
   page=rig.render();
  assert.match(rig.flatten(page).join(' '),/鉴权通过/);
@@ -339,10 +333,8 @@ test('WorkBuddy onboarding: approved provider activates directly without pretend
  }]]));
  await rig.init();
   rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
-  rig.find(rig.render(),'button','查看待接入渠道')[0].props.onClick();
- let page=rig.render();
- assert.match(rig.flatten(page).join(' '),/原生驱动已就绪/);
- const add=rig.find(page,'button','配置此渠道');
+   assert.equal(rig.find(rig.render(),'button','查看待接入渠道').length,0); let page=rig.render();
+  assert.match(rig.flatten(page).join(' '),/腾讯 WorkBuddy \/ CodeBuddy .*已接入/); const add=rig.find(page,'button','配置此渠道');
  assert.equal(add.length,1);
  add[0].props.onClick();
  page=rig.render();
@@ -367,12 +359,10 @@ test('CodeArts custom account channel is configurable from the common account ov
  }]]));
  await rig.init();
   rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
-  rig.find(rig.render(),'button','查看待接入渠道')[0].props.onClick();
- let page=rig.render();
+   assert.equal(rig.find(rig.render(),'button','查看待接入渠道').length,0); let page=rig.render();
  const text=rig.flatten(page).join(' ');
  assert.match(text,/华为云 CodeArts/);
- assert.match(text,/原生驱动已就绪/);
- assert.ok(rig.find(page,'button','配置此渠道').length>=1);
+  assert.match(text,/华为云 CodeArts .*已接入/); assert.ok(rig.find(page,'button','配置此渠道').length>=1);
  assert.equal(rig.cfg.accounts.length,3,'channel opening cannot create accounts silently');
 });
 test('isolated source account console explicitly runs upstream login, poll, refresh and guarded logout',async()=>{
@@ -415,25 +405,21 @@ test('source checkin reads per-account status; bulk claim requires explicit choi
  assert.equal(rig.mutations.filter(row=>row.kind==='source-rpc').length,0);
  const claimButton=rig.find(page,'button','批量领取（该渠道所有账号）')[0];
  assert.equal(claimButton.props.disabled,true,'bulk claim must require an explicit status check');
- await rig.find(page,'button','查询来源签到状态')[0].props.onClick();
- assert.deepEqual(rig.mutations.filter(row=>row.kind==='source-rpc').map(row=>row.method),['credits.status']);
+  await rig.find(page,'button','重新同步来源状态')[0].props.onClick(); assert.deepEqual(rig.mutations.filter(row=>row.kind==='source-rpc').map(row=>row.method),['credits.status']);
  page=rig.render();
- assert.match(rig.flatten(page).join(' '),/来源报告：今天尚未签到/);
- assert.equal(rig.find(page,'button','批量领取（该渠道所有账号）')[0].props.disabled,false);
+  assert.match(rig.flatten(page).join(' '),/来源报告.*尚未签到/); assert.equal(rig.find(page,'button','批量领取（该渠道所有账号）')[0].props.disabled,false);
  await rig.find(page,'button','批量领取（该渠道所有账号）')[0].props.onClick();
  assert.deepEqual(rig.mutations.filter(row=>row.kind==='source-rpc').map(row=>row.method),
    ['credits.status','credits.claimAll']);
  page=rig.render();
  assert.match(rig.flatten(page).join(' '),/claimed · 尚未复核/);
  assert.equal(rig.find(page,'button','批量领取（该渠道所有账号）')[0].props.disabled,true);
- assert.match(rig.flatten(page).join(' '),/当前未查询这个渠道/);
- const select=rig.find(page,'select','qoderworkbuddy')[0];
+  assert.match(rig.flatten(page).join(' '),/已在下方同步各账号状态/); const select=rig.find(page,'select','qoderworkbuddy')[0];
  assert.ok(select);
  select.props.onChange({target:{value:'workbuddy'}});
  page=rig.render();
  assert.equal(rig.find(page,'button','批量领取（该渠道所有账号）')[0].props.disabled,true);
- assert.match(rig.flatten(page).join(' '),/未提供每日签到领取/);
-});
+  assert.match(rig.flatten(page).join(' '),/不提供可验证的每日签到领取操作/);});
 test('disabled channel pack exposes no source login, source checkin or bulk claim actions',async()=>{
  const rig=createUiRig();await rig.init();
   rig.find(rig.render(),'button','复用管理')[0].props.onClick();
@@ -648,28 +634,26 @@ test('WorkBuddy-style page shell keeps all nine settings destinations, scoped th
  assert.equal(rig.find(page,'button','保存配置').length,1);
  assert.equal(rig.find(page,'button','重新读取').length,1);
 });
-test('channel selection shows one real channel by default but allows every configured provider',async()=>{
+test('channels default to all and can switch to one channel without losing other providers',async()=>{
  const rig=createUiRig();await rig.init();
  rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
  let screen=rig.render(),lines=rig.flatten(screen).join(' ');
  assert.match(lines,/alpha.*a1/);
- assert.doesNotMatch(lines,/local · 1 个账号/);
- const chooser=uiNodes(screen,node=>node.type==='label'&&rig.flatten(node).join(' ').includes('快速切换渠道'))[0];
- assert.ok(chooser,'provider picker must be accessible within the channel overview');
- const select=uiNodes(chooser,node=>node.type==='select')[0];
- assert.ok(select);
+ assert.match(lines,/local.*l1/);
+ const chooser=uiNodes(screen,node=>node.type==='label'&&rig.flatten(node).join(' ').includes('筛选渠道（默认全部）'))[0];
+ assert.ok(chooser,'provider picker must be present');
+ const select=uiNodes(chooser,node=>node.type==='select')[0];assert.ok(select);
+ assert.equal(select.props.value,'all');
  select.props.onChange({target:{value:'local'}});
  screen=rig.render();lines=rig.flatten(screen).join(' ');
- assert.match(lines,/local/);
- assert.match(lines,/l1/);
- assert.doesNotMatch(lines,/alpha.*a1/);
- const after=uiNodes(screen,node=>node.type==='label'&&rig.flatten(node).join(' ').includes('快速切换渠道'))[0];
- uiNodes(after,node=>node.type==='select')[0].props.onChange({target:{value:'all'}});
- screen=rig.render();lines=rig.flatten(screen).join(' ');
- assert.match(lines,/alpha.*a1/);
  assert.match(lines,/local.*l1/);
-});
-test('source account actions are grouped and unsafe operations remain guarded',async()=>{
+ assert.doesNotMatch(lines,/alpha.*内部账号：a1/);
+ uiNodes(screen,node=>node.type==='label'&&rig.flatten(node).join(' ').includes('筛选渠道（默认全部）'))
+  .flatMap(node=>uiNodes(node,item=>item.type==='select'))[0].props.onChange({target:{value:'all'}});
+ screen=rig.render();lines=rig.flatten(screen).join(' ');
+ assert.match(lines,/alpha.*内部账号：a1/);
+ assert.match(lines,/local.*内部账号：l1/);
+});test('source account actions are grouped and unsafe operations remain guarded',async()=>{
  const preview={state:'ready',accounts:[{id:'q-01',providerId:'qoder',nickname:'A long source account label',
    enabled:true,refreshable:true,connectionState:'not_checked'}]};
  const source={state:'mounted',rpcReady:true,channelCount:13,channels:['qoder','workbuddy']};
@@ -727,4 +711,111 @@ test('compact mobile navigation selects every major page while desktop sidebar r
  page=rig.render();
  assert.match(rig.flatten(page).join(' '),/AutoFree · 动态免费模型池/);
  assert.equal(uiNodes(page,node=>node.type==='select'&&node.props?.['aria-label']==='选择设置页面')[0].props.value,'pool');
+});
+test('overview uses complete deduplicated source chips ordered verified connected pending',async()=>{
+ const hosts=[{providerId:'workbuddy',loginVerified:false},{providerId:'workbuddy-global',loginVerified:false}];
+ const rig=createUiRig(new Map(),null,{state:'disabled'},{},hosts);await rig.init();
+ rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
+ await rig.find(rig.render(),'button','校验')[0].props.onClick();
+ rig.find(rig.render(),'button','总览')[0].props.onClick();
+ const page=rig.render();
+ const chips=uiNodes(page,node=>node.props?.className==='dnr-route-chip');
+ assert.ok(chips.length>=13,'show all discovered reference and host sources');
+ const states=chips.map(x=>x.props['data-state']);
+ assert.equal(states[0],'verified');
+ assert.deepEqual(states,[...states].sort((a,b)=>({verified:0,connected:1,pending:2}[a]-{verified:0,connected:1,pending:2}[b])));
+ assert.equal(new Set(chips.map(x=>x.props.title)).size,chips.length);
+ assert.doesNotMatch(rig.flatten(page).join(' '),/账号来源 · 分别核验/);
+});
+test('account names and verified source credits lead; technical ID is folded into account details',async()=>{
+ const preview={state:'ready',accounts:[{id:'q01',providerId:'qoder',nickname:'Readable Qoder User',
+   balance:83,balanceUnit:'积分',enabled:true}]};
+ const rig=createUiRig(new Map(),preview);await rig.init();
+ rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
+ const page=rig.render(),lines=rig.flatten(page).join(' ');
+ assert.match(lines,/Readable Qoder User/);
+ assert.match(lines,/积分\/余额：83 积分/);
+ assert.equal(rig.find(page,'button','查看待接入渠道').length,0);
+ assert.equal(rig.find(page,'button','自主登录与复用').length,0);
+ const disclosures=uiNodes(page,node=>node.type==='details');
+ assert.ok(disclosures.some(node=>rig.flatten(node).join(' ').includes('内部账号：a1')),
+   'technical ID should be in native details rather than main title');
+});
+test('provider search filters by name ID and protocol and defaults every disclosure closed',async()=>{
+ const rig=createUiRig();await rig.init();
+ rig.find(rig.render(),'button','提供商')[0].props.onClick();
+ let page=rig.render();
+ const initial=uiNodes(page,node=>node.props?.className==='dnr-disclosure');
+ assert.equal(initial.length,rig.cfg.providers.length);
+ assert.ok(initial.every(node=>node.props.open===false));
+ const field=uiNodes(page,node=>node.type==='input'&&node.props?.['aria-label']==='筛选提供商')[0];
+ assert.ok(field);
+ field.props.onChange({target:{value:'local'}});
+ page=rig.render();
+ const filtered=uiNodes(page,node=>node.props?.className==='dnr-disclosure');
+ assert.equal(filtered.length,1);
+ assert.match(rig.flatten(filtered[0]).join(' '),/local/);
+});
+test('reuse host supports explicit safe model and pricing refresh, with metadata changes',async()=>{
+ const hosts=[{providerId:'workbuddy',loginVerified:false}];
+ const models={state:'ready',providerId:'workbuddy',models:[
+   {id:'wb-standard',name:'WorkBuddy Standard',pricing:{input:0.01,output:0.03}}]};
+ const rig=createUiRig(new Map(),null,{state:'disabled'},{},hosts,models);await rig.init();
+ rig.find(rig.render(),'button','复用管理')[0].props.onClick();
+ rig.find(rig.render(),'button','宿主路由与模型')[0].props.onClick();
+ const first=rig.find(rig.render(),'button','WorkBuddy 国内已接入')[0];
+ assert.ok(first);await first.props.onClick();
+ let page=rig.render();
+ assert.match(rig.flatten(page).join(' '),/输入 0.01 \/ 输出 0.03/);
+ const refresh=rig.find(page,'button','重新获取模型')[0];
+ assert.ok(refresh&&!refresh.props.disabled);await refresh.props.onClick();
+ assert.equal(rig.mutations.filter(m=>m.kind==='host-model-query').length,2);
+ page=rig.render();
+ assert.match(rig.flatten(page).join(' '),/本渠道变化：新增 0/);
+ assert.ok(rig.find(page,'button','刷新全部模型与资费').length===1);
+});
+test('independent login is visible in channel account and local-session pages without original plugin',async()=>{
+ const ownAccount={id:'sp_1234567890abcdef12345678',providerId:'own_loomy',
+  nickname:'独立 Loomy 账号',managed:false,configuredEnabled:true,enabled:true,
+  weight:1,connectionState:'online',credentialKind:'driver',origin:{label:'本插件独立账号池'}};
+ const preview={state:'ready',accounts:[{id:'independent01',providerId:'loomy',
+   nickname:'独立 Loomy 账号',enabled:true,balance:20,balanceUnit:'积分'}]};
+ const data={accounts:[ownAccount],channels:[{id:'own_loomy',name:'Loomy · 自主登录',
+   authMethod:'独立登录态',adapterReady:true,referenceOnly:true}],
+   embeddedAccounts:preview,sessionReuse:{hostProviders:[],channels:[],results:[]},pools:[]};
+ const rig=createUiRig(new Map(),preview,{state:'mounted',rpcReady:true,
+   channels:['loomy']},{},[],undefined,()=>true,data);
+ await rig.init();
+ rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
+ let page=rig.render(),lines=rig.flatten(page).join(' ');
+ assert.match(lines,/独立 Loomy 账号/);
+ assert.match(lines,/Loomy · 自主登录/);
+ assert.ok(rig.find(page,'button','管理独立登录态').length>0);
+ assert.equal(rig.find(page,'button','校验').length,0,
+   'ephemeral own-account inventory must not expose invalid config mutations');
+ rig.find(page,'button','管理独立登录态')[0].props.onClick();
+ page=rig.render();
+ assert.match(rig.flatten(page).join(' '),/自主登录 · 独立账号/);
+ rig.find(page,'button','本机登录态')[0].props.onClick();
+ page=rig.render();
+ assert.match(rig.flatten(page).join(' '),/本插件独立登录态 · 无需原渠道插件/);
+ assert.match(rig.flatten(page).join(' '),/独立 Loomy 账号/);
+});
+test('notice errors render as dismissible nonblocking five-second toasts',async()=>{
+ const rig=createUiRig();await rig.init();
+ rig.find(rig.render(),'button','高级 JSON')[0].props.onClick();
+ let page=rig.render();
+ const editor=uiNodes(page,node=>node.type==='textarea'&&node.props?.['aria-label']==='完整路由配置 JSON')[0];
+ assert.ok(editor);editor.props.onChange({target:{value:'not a JSON document'}});
+ await rig.find(rig.render(),'button','保存配置')[0].props.onClick();
+ page=rig.render();
+ assert.ok(uiNodes(page,node=>node.props?.role==='alert').length>0);
+ assert.ok(uiNodes(page,node=>node.props?.className==='dnr-toast').length>0);
+ const css=uiNodes(page,node=>node.type==='style')[0].props.dangerouslySetInnerHTML.__html;
+ assert.match(css,/\.dnr-toast-stack\{[^}]*pointer-events:none/s);
+ const code=readFileSync(new URL('../client.js',import.meta.url),'utf8');
+ assert.match(code,/setTimeout\(\(\)=>setError\(''\),5000\)/);
+ assert.match(code,/setTimeout\(\(\)=>setNotice\(''\),5000\)/);
+ rig.find(page,'button','×')[0].props.onClick();
+ assert.equal(uiNodes(rig.render(),node=>node.props?.className==='dnr-toast').length,0);
 });

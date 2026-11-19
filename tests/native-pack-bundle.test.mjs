@@ -87,9 +87,8 @@ test('release package ships only native in-process bundle with host-provided pee
   assert.equal(pkg.private,false);
   assert.equal(pkg.license,'MIT');
   assert.equal(pkg.engines.node,'>=22.10.0');
-   assert.equal(pkg.version,'1.0.0-rc.16');
- assert.ok(pkg.files.includes('vendor/channel-pack/NATIVE_BUILD_RECEIPT.json'));
- assert.ok(pkg.files.includes('vendor/channel-pack/SOURCE_RECEIPT.json'));
+  assert.equal(pkg.version,'1.0.0-rc.18');
+  assert.ok(pkg.files.includes('vendor/channel-pack/NATIVE_BUILD_RECEIPT.json')); assert.ok(pkg.files.includes('vendor/channel-pack/SOURCE_RECEIPT.json'));
  assert.ok(!pkg.files.includes('vendor/channel-pack'));
  assert.ok(!pkg.files.includes('vendor/channel-pack/pack.js'));
  assert.match(bridge,/import\('\.\.\/vendor\/channel-pack\/pack-runtime\.mjs'\)/);

@@ -167,10 +167,15 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
   function start(){
     if(timer)return stop;
     // Timer belongs to the plugin runtime, not Windows Task Scheduler.
-    timer=setInterval(()=>{void tick().catch(e=>logger?.warn?.('checkin task failed: '+short(e.message)))},intervalMs);
+    const refreshReadOnly=()=>void sourceCenter?.refresh().catch(()=>
+      logger?.warn?.('source sign-in status synchronization unavailable'));
+    timer=setInterval(()=>{
+      refreshReadOnly();
+      void tick().catch(()=>logger?.warn?.('checkin task unavailable'));
+    },intervalMs);
     timer.unref?.();
-    void tick().catch(e=>logger?.warn?.('checkin startup check failed: '+short(e.message)));
-    return stop;
+    refreshReadOnly(); // Only a read-only status probe, independent of the auto-sign-in switch.
+    void tick().catch(()=>logger?.warn?.('checkin startup check unavailable'));    return stop;
   }
    function stop(){if(timer){clearInterval(timer);timer=null}sourceCenter?.stop()}
    return {snapshot,run,tick,start,stop,store,refreshSources:()=>sourceCenter?.refresh()??Promise.resolve([])};

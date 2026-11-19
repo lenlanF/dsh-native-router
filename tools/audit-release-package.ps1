@@ -1,8 +1,7 @@
 [CmdletBinding()]
-param([string]$ExpectedVersion='1.0.0-rc.16')
+param([string]$ExpectedVersion='1.0.0-rc.18')
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
-
 $root=([IO.DirectoryInfo](Resolve-Path (Join-Path $PSScriptRoot '..')).Path).FullName
 $work=[IO.Path]::GetFullPath('E:\Temp')
 if(-not [IO.Directory]::Exists($work)){throw 'Release check requires E:\Temp temporary storage'}

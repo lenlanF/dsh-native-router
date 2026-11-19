@@ -501,8 +501,43 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
   if(!pool||!credentials)return null;
   return {pool,credentials};
  }
-function dispose(){
-    if(disposed)return;
+  // Read-only upstream status. No claim, login, inference or credential export.
+  async function readSourceStatuses(providerId){
+    if(!SOURCE_DAILY_SIGNIN_PROVIDERS.includes(providerId)||!sourceAllowed(providerId))
+      return {state:'unsupported',accounts:[]};
+    const scope=mountedScope();
+    if(!scope)return {state:'unavailable',accounts:[]};
+    const ops=nativeOwned?privateSourceCheckins:scope.get?.('nativeRouterSourceCheckins',false);
+    if(typeof ops?.status!=='function')return {state:'unavailable',accounts:[]};
+    let timer;
+    try{
+      const timeout=Symbol('timeout');
+      const reply=await Promise.race([
+        Promise.resolve().then(()=>ops.status(providerId)),
+        new Promise(resolve=>{timer=setTimeout(()=>resolve(timeout),8000);timer.unref?.()}),
+      ]);
+      if(reply===timeout||scope!==mountedScope()||reply?.ok!==true
+        ||!Array.isArray(reply?.value?.accounts))return {state:'unavailable',accounts:[]};
+      const accounts=reply.value.accounts.slice(0,200).flatMap(row=>{
+        if(typeof row?.accountId!=='string'||row.accountId.length>100||
+          !/^[a-zA-Z0-9_-]+$/.test(row.accountId))return [];
+        const status=row.status&&typeof row.status==='object'&&!Array.isArray(row.status)?row.status:null;
+        const amounts=['balance','availableBalance','totalCredits','remainingCredits','points','credits'];
+        const field=status?amounts.find(key=>Number.isFinite(status[key])&&status[key]>=0):null;
+        return [{accountId:row.accountId,
+          nickname:typeof row.nickname==='string'?row.nickname.slice(0,80):'',
+          todayCheckedIn:typeof status?.todayCheckedIn==='boolean'?status.todayCheckedIn:null,
+           active:typeof status?.active==='boolean'?status.active:null,
+           // Loomy status requires a successful authenticated /points/records request.
+           // Other channels may return local activity metadata; do not generalize.
+           ...(providerId==='loomy'&&status?.active===true?{authVerified:true}:{}),          ...(field?{balance:status[field],
+            balanceUnit:field==='points'?'积分':field.toLowerCase().includes('credit')?'额度':'余额'}:{})}];
+      });
+      return {state:'ready',accounts,checkedAt:Date.now()};
+    }catch{return {state:'unavailable',accounts:[]}}
+    finally{clearTimeout(timer)}
+  }
+ function dispose(){    if(disposed)return;
     disposed=true;
     selectionGuard?.restore();selectionGuard=null;
     activeScope=null;privateSourcePool=null;privateSourceCheckins=null;loadedPack=null;
@@ -517,5 +552,4 @@ function dispose(){
       catch{ctx.logger?.warn?.('native-router: source Cordis child scope cleanup failed')}
     }
   }
-  return {attach,status,listAccounts,listModels,changeAccountEnabled,removeSourceAccount,streamNative,checkinAccount,ownedAdoptionContext,dispose};
-}
+  return {attach,status,listAccounts,listModels,changeAccountEnabled,removeSourceAccount,streamNative,checkinAccount,readSourceStatuses,ownedAdoptionContext,dispose};}

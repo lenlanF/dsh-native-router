@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {registerAuthenticatedRouterRoutes,invokeTrustedHandler} from '../src/connection-routes.mjs';
 import {normalizeConfig} from '../src/config.mjs';
+import {sourceAccountOpaqueId} from '../src/source-account-ref.mjs';
 
-function fixture(){
- const routes=new Map(),seen=[];
+function fixture(overrides={}){ const routes=new Map(),seen=[];
  let cfg=normalizeConfig({});
  let invalidations=0,freeRefreshes=0,adoptedId=null;
  const verifiedIds=[];
@@ -42,9 +42,9 @@ function fixture(){
      async listHostModels(providerId){return {state:'ready',providerId,
        models:providerId==='workbuddy'?[{id:'hy4-free',name:'Hy4 · x0.00'}]:
          [{id:'test-native'}],loginVerified:false}},
-   },
- });
-  async function request(path,{method='GET',body,origin='http://127.0.0.1:12237',host='127.0.0.1:12237'}={}){
+    },
+    ...overrides,
+  });  async function request(path,{method='GET',body,origin='http://127.0.0.1:12237',host='127.0.0.1:12237'}={}){
    const route=routes.get('/api/plugins/dsh-native-router'+path);
    assert.ok(route,'expected authenticated path '+path);
    return route.fetch(new Request('http://127.0.0.1:12237/api/plugins/dsh-native-router'+path,{
@@ -71,6 +71,39 @@ test('DSH native admin registers ONLY authenticated Connection exact Fetch paths
  assert.equal((await status.json()).embeddedPack.state,'disabled');
  await f.dispose();
  assert.equal(f.routes.size,0);
+});
+test('source login is visible in channel inventory without original plugin or config duplication',async()=>{
+ const opaque=sourceAccountOpaqueId('loomy','loomy-local-01');
+ let scans=0;
+ const f=fixture({
+   accountCenter:{list:()=>({accounts:[],channels:[],pools:[]})},
+   embeddedPack:{status:()=>({state:'mounted',modelAdapterReady:['loomy']}),
+     listAccounts:async()=>({state:'ready',accounts:[{
+       providerId:'loomy',id:'loomy-local-01',nickname:'自主Loomy账号',
+       enabled:true,balance:108,balanceUnit:'积分',
+     }]})},
+   checkinCenter:{async refreshSources(){scans++},snapshot:()=>({today:'2026-11-19',
+     accounts:[{id:opaque,providerId:'loomy',sourceAccount:true,
+       nickname:'自主Loomy账号',balance:108,balanceUnit:'积分',
+       connectionState:'online',checkinState:'success'}]})},
+   hostProviderInventory:{status:()=>({hostProviders:[]})},
+ });
+ const response=await f.request('/channels/accounts');
+ assert.equal(response.status,200);
+ const data=await response.json();
+ assert.equal(data.accounts.length,1);
+ const item=data.accounts[0];
+ assert.equal(item.id,opaque);
+ assert.equal(item.providerId,'own_loomy');
+ assert.equal(item.nickname,'自主Loomy账号');
+ assert.equal(item.balance,108);
+ assert.equal(item.connectionState,'online');
+ assert.equal(item.managed,false);
+ assert.equal(data.channels.some(c=>c.id==='own_loomy'),true);
+ assert.equal(f.store.get().accounts.length,0);
+ assert.ok(scans>0);
+ assert.doesNotMatch(JSON.stringify(data),/access_token|zcode_jwt|password/i);
+ await f.dispose();
 });
 test('Connection-attached config changes preserve origin check and fail closed for hostile source',async()=>{
  const f=fixture(),payload=f.store.get();

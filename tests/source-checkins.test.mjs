@@ -7,13 +7,12 @@ import {SOURCE_DAILY_SIGNIN_PROVIDERS} from '../src/embedded-pack.mjs';
 
 const NOW=Date.parse('2026-11-17T02:06:00Z');
 function fixture({rows=[],enabled=true,autoSourceAccounts=true,
-  handler=async()=>({confirmed:true,message:'status confirmed'}),normalAccounts=[],runAt='10:05'}={}){
- let at=NOW;
+  handler=async()=>({confirmed:true,message:'status confirmed'}),normalAccounts=[],runAt='10:05',statusQuery}={}){ let at=NOW;
  const calls=[],records=[];
  const src={status:()=>({state:'mounted'}),
    async listAccounts(){return {state:'ready',accounts:rows.map(row=>({...row}))}},
-   async checkinAccount(arg){calls.push(arg);return handler(arg)}};
- const providerIds=[...new Set(normalAccounts.map(row=>row.providerId))];
+    async checkinAccount(arg){calls.push(arg);return handler(arg)},
+    ...(statusQuery?{readSourceStatuses:statusQuery}:{})}; const providerIds=[...new Set(normalAccounts.map(row=>row.providerId))];
  const providers=providerIds.map(id=>({id,protocol:'native-channel',models:[]}));
  const cfg=normalizeConfig({providers,accounts:normalAccounts,checkin:{
    autoEnabled:enabled,autoSourceAccounts,timeZone:'Asia/Shanghai',runAt
@@ -27,6 +26,44 @@ function fixture({rows=[],enabled=true,autoSourceAccounts=true,
  return {center,calls,records,src,setNow:value=>{at=value}};
 }
 const row=(providerId,id='acct-1',enabled=true)=>({id,providerId,nickname:providerId+' account',enabled});
+test('source checkin and reported balance sync when automatic checkin is disabled; no claim is issued',async()=>{
+ let scanned=0;
+ const h=fixture({enabled:false,rows:[row('qoder','acct-1')],
+   statusQuery:async providerId=>{
+     scanned++;
+     assert.equal(providerId,'qoder');
+     return {state:'ready',accounts:[{
+       accountId:'acct-1',nickname:'Qoder Verified User',todayCheckedIn:true,
+       active:true,balance:72,balanceUnit:'积分',
+     }]};
+   }});
+ await h.center.refreshSources();
+ const record=h.center.snapshot().accounts[0];
+ assert.equal(record.nickname,'qoder account','do not replace existing account nickname');
+ assert.equal(record.checkinState,'success');
+ assert.equal(record.balance,72);
+ assert.equal(record.balanceUnit,'积分');
+ assert.ok(record.balanceCheckedAt);
+ assert.equal(h.calls.length,0,'read-only status must never claim even with auto off');
+ await h.center.refreshSources();
+ assert.equal(scanned,1,'fresh results must be cached');
+ h.setNow(NOW+6*60*1000);
+ await h.center.refreshSources();
+ assert.equal(scanned,2,'results must refresh after TTL');
+ h.center.stop();
+});
+test('unknown source credit response never invents a zero balance or successful check-in',async()=>{
+ const h=fixture({enabled:false,rows:[row('buddy','acct-1')],
+   statusQuery:async()=>({state:'ready',accounts:[{
+     accountId:'acct-1',todayCheckedIn:null,active:null,balance:null,
+   }]})});
+ await h.center.refreshSources();
+ const a=h.center.snapshot().accounts[0];
+ assert.equal('balance' in a,false);
+ assert.notEqual(a.checkinState,'success');
+ assert.equal(h.calls.length,0);
+ h.center.stop();
+});
 test('global DSH opt-in signs in every supported source channel; four unsupported channels are shown but never touched',async()=>{
  const supported=SOURCE_DAILY_SIGNIN_PROVIDERS;
  assert.equal(Object.isFrozen(supported),true,'channel support inventory cannot mutate at runtime');

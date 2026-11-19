@@ -173,8 +173,34 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
    await resolve(account);
    const result=await embeddedPack.listModels(providerId);
    if(result.state!=='ready')throw unable('Source provider model list is unavailable');
-   return result.models.map(({id})=>({id}));
-  },
+    return result.models.map(({id})=>({id}));
+   },   // Read-only readiness check for a source owned by THIS plugin. It must
+   // never call the original Loomy/ZCode plugin, login, inference or claims.
+   async refresh({account}={}){
+     try{
+       const selected=await resolve(account);
+       if(!selected.enabled)return {state:'expired',message:'本插件独立账号池已停用'};
+       const info=embeddedPack.status?.()??{state:'unavailable'};
+       if(info.state!=='mounted')
+         return {state:'error',message:'本插件内置渠道包未就绪，无法使用独立模型'};
+       if(info.modelAdapterUnready?.includes(providerId))
+         return {state:'error',message:'独立模型 Provider 尚未正确注册，不能作为可用模型'};
+       if(Array.isArray(info.modelAdapterReady)&&!info.modelAdapterReady.includes(providerId))
+         return {state:'pending',message:'独立账号已保存，等待本插件模型适配器就绪'};
+        // For Loomy, a non-null status is backed by its authenticated
+        // /points/records request using this plugin's own credential copy.
+        if(providerId==='loomy'&&typeof embeddedPack.readSourceStatuses==='function'){
+          const remote=await embeddedPack.readSourceStatuses(providerId);
+          if(remote?.state==='ready'&&remote.accounts?.some(row=>
+            row.accountId===selected.id&&row.authVerified===true))
+            return {state:'online',message:'本插件独立账号已通过 Loomy 远端积分接口鉴权，无需原插件'};
+        }
+        // A registered model adapter alone is not account-level verification.
+        return {state:'pending',message:'独立账号已就绪，但远端账号鉴权尚未确认；不会持续显示核验中'};
+     }catch{
+       return {state:'error',message:'本插件独立账号不可读取或授权引用已失效'};
+     }
+   },
   async generate({account,model,options={},signal}={}){
    const selected=await resolve(account);
    if(!selected.enabled)throw unable('Source account is disabled','CREDENTIAL');

@@ -63,9 +63,9 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
    // and adapters instead of trying to install a duplicate channel pack.
    if(!channelDrivers){
      for(const providerId of SOURCE_PACK_PROVIDERS){
-       if(drivers.has(providerId))continue;
-       builtInCleanup.push(registerNativeChannelDriver(providerId,
-         createSourceChannelDriver({providerId,embeddedPack:sourceFacade})));
+        if(!drivers.has(providerId))
+          builtInCleanup.push(registerNativeChannelDriver(providerId,
+            createSourceChannelDriver({providerId,embeddedPack:sourceFacade})));
         // Separate self-owned channel identity: never overwrite the original
         // DSH Provider and its login while the migration is pending.
         const ownedId='own_'+providerId;

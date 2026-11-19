@@ -1,8 +1,7 @@
 {
   "name": "dsh-native-router",
-  "version": "1.0.0-rc.16",
-  "private": false,
-  "type": "module",
+  "version": "1.0.0-rc.18",
+  "private": false,  "type": "module",
   "license": "MIT",
   "engines": {"node": ">=22.10.0"},
   "keywords": ["deepseek-harness", "dsh", "cordis", "model-routing", "autofree", "model-pool", "failover"],

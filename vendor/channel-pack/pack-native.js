@@ -33398,10 +33398,32 @@ function registerAdapterIdempotent(ctx, providers, adapter, warn) {
   const aliasAdapter = {
     providerInfo(id) {
       const value = target.providerInfo(actual(id));
-      return {...value, id, name: value.name + " · 聚合路由自有"};
+      // The owning alias is its own DSH Provider; the source provider remains unchanged.
+      return {...value, id, name: value.name};
     },
     providerRetryPolicy(id) { return target.providerRetryPolicy(actual(id)); },
-    listModels(id, ...rest) { return target.listModels(actual(id), ...rest); },
+    async listModels(id, ...rest) {
+      const source = actual(id);
+      const rows = await target.listModels(source, ...rest);
+      if (!Array.isArray(rows)) return [];
+      // Host model catalog validates row.provider against the registered alias.
+      // A raw source row uses "loomy"/"zcode"/etc and is rejected as invalid.
+      // Filter duplicate/foreign/invalid rows without changing the original adapter.
+      const ids = new Set(),models = [];
+      for (const item of rows) {
+        const model = typeof item === "string" ? {id:item,name:item} : item;
+        if (!model || typeof model !== "object" || Array.isArray(model)
+          || typeof model.id !== "string" || !model.id.trim() || model.id.length > 160
+          || /[\u0000-\u001f]/.test(model.id)
+          || (model.provider && model.provider !== source && model.provider !== id)
+          || ids.has(model.id)) continue;
+        ids.add(model.id);
+        models.push({...model,provider:id,
+          name:typeof model.name === "string" && model.name.trim() ? model.name : model.id});
+        if (models.length >= 256) break;
+      }
+      return models;
+    },
     stream(options) { return target.stream({...options, provider: actual(options.provider)}); }
   };
   let cleanup;

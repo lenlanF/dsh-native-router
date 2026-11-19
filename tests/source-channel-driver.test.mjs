@@ -39,6 +39,30 @@ test('opt-in source discovery returns stable opaque references; import copies NO
  const other=createSourceChannelDriver({providerId:'loomy',embeddedPack:rig.embeddedPack});
  await assert.rejects(()=>other.importCandidate({candidateId:candidates[0].id,consent:true}),/no longer exists/);
 });
+test('independent Loomy verifier uses only own account pool and authenticated credit status',async()=>{
+ const rig=mockSource([{id:'loomy-own-01',providerId:'loomy',nickname:'Loomy 自有',
+   enabled:true}]);
+ let remoteCalls=0,originalStopped=true;
+ rig.embeddedPack.status=()=>({state:'mounted',modelAdapterReady:['loomy']});
+ rig.embeddedPack.readSourceStatuses=async providerId=>{
+   assert.equal(originalStopped,true);
+   assert.equal(providerId,'loomy');
+   remoteCalls++;
+   return {state:'ready',accounts:[{accountId:'loomy-own-01',authVerified:true}]};
+ };
+ const driver=createSourceChannelDriver({providerId:'loomy',
+   accountProviderId:'own_loomy',embeddedPack:rig.embeddedPack});
+ const account={id:sourceAccountOpaqueId('loomy','loomy-own-01'),providerId:'own_loomy',
+   credentialRef:'driver:own_loomy:'+sourceAccountOpaqueId('loomy','loomy-own-01')};
+ assert.equal((await driver.refresh({account})).state,'online');
+ assert.equal(remoteCalls,1);
+ rig.embeddedPack.readSourceStatuses=async()=>({state:'unavailable',accounts:[]});
+ const uncertain=await driver.refresh({account});
+ assert.equal(uncertain.state,'pending','unknown must not be represented as online');
+ assert.equal(rig.calls.length,0,'metadata verification cannot invoke inference');
+ rig.embeddedPack.status=()=>({state:'mounted',modelAdapterUnready:['loomy']});
+ assert.equal((await driver.refresh({account})).state,'error');
+});
 test('single enabled source account streams through existing DSH LLM with host tool metadata only',async()=>{
  const rig=mockSource([{id:'qoder-a',providerId:'qoder',enabled:true,connectionState:'not_checked'}]);
  const driver=createSourceChannelDriver({providerId:'qoder',embeddedPack:rig.embeddedPack});
