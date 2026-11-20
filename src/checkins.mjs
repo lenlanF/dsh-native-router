@@ -3,6 +3,7 @@ import {dirname,join} from 'node:path';
 import {defaultConfigPath} from './config.mjs';
 import {createSourceCheckinCenter} from './source-checkins.mjs';
 import {checkinDisplayState,expiredCheckinConfirmation} from './account-facts.mjs';
+import {checkinGroups,latestConfirmedDate} from './checkin-summary.mjs';
 
 const MAX_HISTORY=500;
 const STATES=new Set(['success','failed','pending_confirmation','no_task','client_required','unsupported']);
@@ -65,9 +66,11 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
        const recent=latestFor(a.id,today);
        const entry=accountCenter.find(a.id),driver=accountCenter.driverFor(a.providerId);
        const implemented=typeof driver?.checkIn==='function';
-       const upstreamToday=a.upstreamCheckinDate===today;
-       const verified=upstreamToday&&['claimed','already'].includes(a.upstreamCheckinOutcome);
-       const claimable=upstreamToday&&a.upstreamCheckinOutcome==='claimable';
+        const upstreamToday=a.upstreamCheckinDate===today;
+        const historyConfirmed=latestConfirmedDate(store.all(),a.id,today)===today;
+        const verified=historyConfirmed||upstreamToday&&
+          ['claimed','already'].includes(a.upstreamCheckinOutcome);
+        const claimable=upstreamToday&&a.upstreamCheckinOutcome==='claimable';
         const state=checkinDisplayState({recent,now:now(),pending:pending.has(a.id),
           implemented,confirmed:verified,claimable});
        const sourceName=a.upstreamCheckinSource==='live-readonly'?
@@ -75,10 +78,11 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
        return {...a,autoCheckin:entry.account.autoCheckin===true,
          autoCheckinEffective:cfg.checkin.autoEnabled&&entry.account.autoCheckin===true,
          checkinState:state,checkinAt:recent?.at??a.balanceCheckedAt??null,
-          checkinMessage:verified?sourceName+'确认今日已签到':
-            expiredCheckinConfirmation(recent,now())?'上次请求已超过20分钟，服务端仍未确认；等待限次复核':
-            claimable?'上游今日任务仍可领取，尚未确认签到':
-            recent?.message??(implemented?'今日签到状态尚未核实':'未接入本渠道签到执行器'),
+           checkinMessage:verified?(historyConfirmed?
+             '本账号今日已有已确认签到记录':sourceName+'确认今日已签到'):
+             expiredCheckinConfirmation(recent,now())?'上次请求已超过20分钟，服务端仍未确认；等待限次复核':
+             claimable?'上游今日任务仍可领取，尚未确认签到':
+             recent?.message??(implemented?'今日签到状态尚未核实':'未接入本渠道签到执行器'),
          checkinSupported:implemented,
        };
     });
@@ -100,32 +104,24 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
         });
        else accounts.push(sourceRow);
      }
-     const groups=roster.channels.map(c=>{
-      const members=accounts.filter(a=>a.providerId===c.id);
-      return {...c,accountCount:members.length,
-        success:members.filter(a=>a.checkinState==='success').length,
-        failed:members.filter(a=>a.checkinState==='failed').length,
-        pending:members.filter(a=>a.checkinState==='pending_confirmation').length,
-        unsupported:members.filter(a=>a.checkinState==='unsupported').length,
-        notRun:members.filter(a=>a.checkinState==='not_run').length};
-    });
-     const known=new Set(groups.map(c=>c.id));
-     for(const providerId of new Set(accounts.map(a=>a.providerId))){
-       if(known.has(providerId))continue;
-       const members=accounts.filter(a=>a.providerId===providerId);
-       groups.push({id:providerId,name:providerId,accountCount:members.length,
-         success:members.filter(a=>a.checkinState==='success').length,
-         failed:members.filter(a=>a.checkinState==='failed').length,
-         pending:members.filter(a=>a.checkinState==='pending_confirmation').length,
-         unsupported:members.filter(a=>a.checkinState==='unsupported').length,
-         notRun:members.filter(a=>a.checkinState==='not_run').length});
-     }
+      const history=store.all();
+      for(const account of accounts){
+        const confirmedInHistory=latestConfirmedDate(history,account.id,today);
+        const confirmedUpstream=account.checkinState==='success'
+          &&(account.upstreamCheckinDate===today||account.sourceAccount===true)
+          ?today:null;
+        const lastConfirmedDate=confirmedUpstream??confirmedInHistory;
+        if(lastConfirmedDate)account.lastConfirmedDate=lastConfirmedDate;
+        if(account.checkinState!=='success'&&lastConfirmedDate&&lastConfirmedDate<today)
+          account.checkinMessage=(account.checkinMessage||'今日状态待核实')+
+            '；历史最近确认：'+lastConfirmedDate;
+      }
+      const groups=checkinGroups(accounts,roster.channels);
      return {today,timeZone:cfg.checkin.timeZone,autoEnabled:cfg.checkin.autoEnabled,
        autoSourceAccounts:cfg.checkin.autoSourceAccounts,
       historyBlocked:store.blocked===true,historyError:store.error??null,
       runAt:cfg.checkin.runAt,groups,accounts,
-      history:store.all().slice(-80).reverse()};
-  }
+       history:history.slice(-80).reverse()};  }
    async function run(accountId,{source='manual'}={}){
      if(sourceCenter&&!sourceCenter.has(accountId))await sourceCenter.refresh();
      if(sourceCenter?.has(accountId))return sourceCenter.run(accountId,{source});
@@ -135,7 +131,8 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
     if(!account.enabled||!provider.enabled){const e=new Error('账号已停用，不能签到');e.status=409;throw e}
     if(typeof driver?.checkIn!=='function'){const e=new Error('该渠道尚未实现真实签到及结果验证');e.status=501;throw e}
      const date=currentDate(),previous=latestFor(accountId,date);
-     if(previous?.state==='success')return {alreadyConfirmed:true,record:previous};
+      const earlierSuccess=store.all().find(x=>x.accountId===accountId&&x.date===date&&x.state==='success');
+      if(earlierSuccess)return {alreadyConfirmed:true,record:earlierSuccess};
      const publicAccount=accountCenter.list().accounts.find(a=>a.id===accountId);
      if(publicAccount?.upstreamCheckinDate===date&&
        ['claimed','already'].includes(publicAccount?.upstreamCheckinOutcome)){
@@ -185,7 +182,7 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
            ['claimed','already'].includes(publicAccount.upstreamCheckinOutcome))continue;
          const records=store.all().filter(r=>r.accountId===account.id&&r.date===today);
          const recent=records.at(-1);
-         if(recent?.state==='success'||recent?.state==='client_required')continue;
+          if(records.some(x=>x.state==='success')||recent?.state==='client_required')continue;
          // Historic no_task was incorrectly returned for an already-claimed
          // Lingxi task; permit a bounded retry if source still reports unclaimed.
          if(recent?.state==='no_task'&&account.providerId!=='own_lingxi')continue;

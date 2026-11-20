@@ -285,6 +285,23 @@ test('independent source read-only identity and credit APIs provide usernames, Z
    assert.equal(status.accounts[0].nickname,username);
    assert.doesNotMatch(JSON.stringify(status),/NATIVE_ROUTER_PRIVATE_PACK|access_token|credentialRef/);
  }
+ // Identity read-only fallbacks must look beyond the first placeholder nickname.
+ const originalStatus=ops.status;
+ ops.status=async provider=>{
+   const result=await originalStatus(provider);
+   if(provider==='loomy'){
+     const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',
+       year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+     result.value.accounts[0].status={
+       active:true,username:'real-loomy-from-status',
+       todayCheckedIn:false,checkinDates:[today]};
+   }
+   return result;
+ };
+ const loomyLive=await bridge.readSourceStatuses('loomy');
+ assert.equal(loomyLive.accounts[0].nickname,'real-loomy-from-status');
+ assert.equal(loomyLive.accounts[0].todayCheckedIn,true,
+   'confirmed same-day checkin history is stronger than an incomplete today false');
  const masked=await bridge.readSourceStatuses('zcode');
  assert.equal(masked.accounts[0].maskedPhone,'138****5678');
  bridge.dispose();

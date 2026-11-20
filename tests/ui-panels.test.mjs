@@ -271,17 +271,30 @@ test('real client render: login button triggers account authentication probe, no
   page=rig.render();
  assert.match(rig.flatten(page).join(' '),/鉴权通过/);
 });
-test('real client render: daily check-in page displays per-channel statuses and disabled unsupported actions',async()=>{
+test('real client check-in summary uses compact channel tags, and only the selected channel expands',async()=>{
   const rig=createUiRig();await rig.init();
   rig.find(rig.render(),'button','每日签到')[0].props.onClick();
   let page=rig.render();
-  const texts=rig.flatten(page).join(' ');
+  let texts=rig.flatten(page).join(' ');
   assert.match(texts,/今日签到/);
-  assert.match(texts,/华为云 CodeArts/);
-  assert.match(texts,/待适配/);
-  const actions=rig.find(page,'button','立即签到');
-  assert.equal(actions.length,3);
-  assert.ok(actions.every(x=>x.props.disabled===true));
+  assert.match(texts,/各渠道今日签到/);
+  assert.match(texts,/alpha 已签 0\/2/);
+  assert.match(texts,/local 已签 0\/1/);
+  assert.equal(rig.find(page,'button','立即签到').length,0,
+    'channel account actions must not crowd the page before selection');
+  assert.doesNotMatch(texts,/华为云 CodeArts/,
+    'channels without a configured account do not occupy a tag');
+  const tag=rig.find(page,'button','alpha已签 0/2')[0];
+  assert.ok(tag);
+  assert.equal(tag.props['aria-pressed'],false);
+  tag.props.onClick();
+  page=rig.render();
+  texts=rig.flatten(page).join(' ');
+  assert.match(texts,/alpha · 账号签到明细/);
+  assert.equal(rig.find(page,'button','立即签到').length,2);
+  assert.ok(rig.find(page,'button','立即签到').every(x=>x.props.disabled===true));
+  rig.find(page,'button','收起明细')[0].props.onClick();
+  assert.equal(rig.find(rig.render(),'button','立即签到').length,0);
 });
 
 

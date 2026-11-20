@@ -65,6 +65,14 @@ test('unknown server check-in status causes zero claim attempts',async()=>{
  assert.deepEqual(f.calls,['status:qoder:acct-b']);
  f.bridge.dispose();
 });
+test('confirmed status is honored even when the source omits availability metadata',async()=>{
+  const checked=await fixture({initialChecked:true,available:false});
+  const result=await checked.bridge.checkinAccount({
+    providerId:'qoder',sourceAccountId:'acct-b'});
+  assert.equal(result.confirmed,true);
+  assert.deepEqual(checked.calls,['status:qoder:acct-b']);
+  checked.bridge.dispose();
+});
 test('already-checked-in account is not claimed twice; disabled/unsupported accounts rejected',async()=>{
  const checked=await fixture({initialChecked:true});
  const result=await checked.bridge.checkinAccount({providerId:'qoder',sourceAccountId:'acct-b'});

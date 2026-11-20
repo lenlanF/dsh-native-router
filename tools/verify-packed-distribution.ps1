@@ -1,7 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$Version='1.0.0-rc.22',
-  [string]$NodePath='E:\Temp\dsh-native-router-isolated-alpha11-node-runtime\package\bin\node.exe')
+  [string]$Version='1.0.0-rc.23',  [string]$NodePath='E:\Temp\dsh-native-router-isolated-alpha11-node-runtime\package\bin\node.exe')
 $ErrorActionPreference='Stop'
 $project=([IO.DirectoryInfo](Resolve-Path (Join-Path $PSScriptRoot '..')).Path).FullName
 $archive=Join-Path $project ('dsh-native-router-'+$Version+'.tgz')

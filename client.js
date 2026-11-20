@@ -17,6 +17,12 @@ window.__ModuleLoader__.load({
 .dnr-shell .dnr-header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 14px;padding:0 0 11px;border-bottom:1px solid var(--dnr-border)}
 .dnr-shell .dnr-header-note{color:var(--dnr-muted);font-size:12px;line-height:1.5}
 .dnr-shell .dnr-version{border:1px solid var(--dnr-border);border-radius:8px;padding:3px 8px;color:var(--dnr-muted);font-variant-numeric:tabular-nums;font-size:11px;white-space:nowrap}
+.dnr-shell .dnr-checkin-tags{display:flex;flex-wrap:wrap;gap:7px;min-width:0}
+.dnr-shell .dnr-checkin-tag{display:inline-flex;align-items:center;gap:7px;flex-wrap:wrap;min-height:31px;padding:5px 9px;border-radius:8px;border:1px solid var(--dnr-border);background:var(--dnr-elevated);color:var(--dnr-ink);cursor:pointer;font-size:11.5px;line-height:1.35}
+.dnr-shell .dnr-checkin-tag strong{font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.dnr-shell .dnr-checkin-tag[data-confirmed="yes"] strong{color:var(--dsw-alias-positive-primary,#44b790)}
+.dnr-shell .dnr-checkin-tag:hover,.dnr-shell .dnr-checkin-tag[aria-pressed="true"]{border-color:var(--dnr-brand);background:var(--dnr-surface)}
+
 .dnr-shell .dnr-layout{display:grid;grid-template-columns:184px minmax(0,1fr);gap:14px;align-items:start}
 .dnr-shell .dnr-rail{position:sticky;top:12px;min-width:0;max-height:calc(100vh - 24px);overflow-y:auto;padding:8px;background:var(--dnr-surface);border:1px solid var(--dnr-border);border-radius:11px;scrollbar-width:thin}
 .dnr-shell .dnr-nav-group+.dnr-nav-group{border-top:1px solid var(--dnr-border);margin-top:7px;padding-top:7px}
@@ -543,7 +549,7 @@ window.__ModuleLoader__.load({
               pool?h('span',{style:css.small},'自动候选 '+pool.enabled+' · 已验证 '+pool.verified):null),
             members.map((account,accountIndex)=>h('div',{key:account.id,style:{...css.itemRow,display:'block'}},
               h('div',{style:{...css.line,justifyContent:'space-between',marginBottom:5}},
-                 h('strong',null,account.nickname||account.maskedPhone||account.username||'账号 '+(accountIndex+1)),
+                 h('strong',null,account.nickname||account.maskedPhone||account.username||'名称待获取'),
                  h(StateTag,{value:account.connectionState})),               h('div',{style:css.line},
                  h('span',{style:css.mutedTag},displayBalance(account)),
                   h('span',{style:css.mutedTag},account.sourceKind==='adopted'?'本地复用 · 已接管':
@@ -612,22 +618,61 @@ window.__ModuleLoader__.load({
     }
     function CheckinConsole({data,cfg,onSettings,onAccountAuto,run,refresh,busy,embeddedPack,
       sourceProvider,setSourceProvider,sourceCredits,sourceClaims,sourceBusy,onSourceStatus,onSourceClaim}){
+      const [selectedCheckinChannel,setSelectedCheckinChannel]=React.useState('');
       if(!data)return h(Panel,{title:'每日签到中心'},'签到状态服务尚未连接 DSH Host。');
-      const accounts=data.accounts||[],groups=data.groups||[];
+      const accounts=data.accounts||[],groups=(data.groups||[]).filter(x=>x.accountCount>0);
       const supported=accounts.filter(a=>a.checkinSupported).length;
       const success=accounts.filter(a=>a.checkinState==='success').length;
       const pending=accounts.filter(a=>a.checkinState==='pending_confirmation').length;
-      const labelFor=id=>accounts.find(a=>a.id===id)?.nickname||
-        accounts.find(a=>a.id===id)?.username||'账号（名称未提供）';
+      const canonicalChannel=id=>String(id||'').replace(/^own_/,'');
+      const selectedGroup=groups.find(x=>x.id===selectedCheckinChannel);
+      const accountLabel=a=>a?.nickname||a?.username||a?.maskedPhone||'名称待获取';
+      const labelFor=id=>{
+        const account=accounts.find(a=>a.id===id);
+        return account?accountLabel(account):'历史账号（名称尚未关联）';
+      };
       return h(React.Fragment,null,
         data.historyBlocked?h('div',{role:'alert',style:css.error},data.historyError):null,
         h(Panel,{title:'今日签到 · '+data.today+' ('+data.timeZone+')',
           actions:h(Button,{disabled:!!busy,onClick:refresh},'同步签到状态')},
           h('div',{style:css.line},
-            ...['已确认 '+success,'待确认 '+pending,'支持签到 '+supported,'账号 '+accounts.length]
+            ...['已签 '+success,'待确认 '+pending,'支持签到 '+supported,'账号 '+accounts.length]
               .map(x=>h('span',{key:x,style:css.mutedTag},x))),
-          h('p',{style:css.small},
-            '签到状态自动同步，与自动执行开关无关；只有来源确实确认今日签到才会显示成功。')),
+          h('div',{style:{...css.small,marginBottom:7,fontWeight:650}},'各渠道今日签到'),
+          h('div',{className:'dnr-checkin-tags',role:'group','aria-label':'按渠道查看今日签到'},
+            groups.map(channel=>h('button',{key:channel.id,type:'button',
+              className:'dnr-checkin-tag',
+              'aria-pressed':selectedCheckinChannel===channel.id,
+              'data-confirmed':channel.success>0?'yes':'no',
+              title:channel.name+'：今日已签到 '+channel.success+' / '+channel.accountCount+
+                ' 账号；待确认 '+channel.pending+'，点击查看账号明细',
+              onClick:()=>setSelectedCheckinChannel(id=>
+                id===channel.id?'':channel.id)},
+              h('span',null,channel.name),
+              h('strong',null,'已签 '+channel.success+'/'+channel.accountCount)))),
+          h('p',{style:{...css.small,marginTop:8,marginBottom:0}},
+            '仅统计今天确实确认的签到；历史成功日期保留在账号明细。点击渠道标签查看账号。')),
+        selectedGroup?h(Panel,{title:selectedGroup.name+' · 账号签到明细',
+          actions:h(Button,{onClick:()=>setSelectedCheckinChannel('')},'收起明细')},
+          accounts.filter(a=>canonicalChannel(a.providerId)===selectedGroup.id)
+            .map((a,i)=>h('div',{key:a.id,style:css.itemRow},
+              h('div',{style:{flex:'1 1 190px',minWidth:0}},
+                h('strong',null,accountLabel(a)),
+                !a.nickname&&!a.username&&!a.maskedPhone?
+                  h('span',{style:{...css.small,marginLeft:6}},'（上游尚未返回真实名称）'):null,
+                h('p',{style:css.small},a.checkinMessage||'今日状态待核实'),
+                a.lastConfirmedDate?h('span',{style:css.small},
+                  '最近一次确认成功：'+a.lastConfirmedDate):null),
+              h(StateTag,{kind:'checkin',value:a.checkinState}),
+              a.sourceAccount&&!cfg.accounts.some(row=>row.id===a.id)?
+                h('span',{style:css.small},a.autoCheckin?'自动签到已开':'自动签到已关'):
+                h(Toggle,{label:'自动签到',
+                  value:cfg.accounts.find(row=>row.id===a.id)?.autoCheckin===true,
+                  onChange:v=>onAccountAuto(a.id,v)}),
+              h(Button,{disabled:!!busy||!!data.historyBlocked||!a.checkinSupported||!a.enabled,
+                onClick:()=>run('/checkins/action',{action:'run',accountId:a.id},
+                  '已请求签到，请查看服务端确认状态')},'立即签到')))):
+          null,
         h(Panel,{title:'自动签到设置（依托 DSH Host 运行）'},
           h('div',{style:css.line},
             h(Toggle,{label:'启用每日自动签到',value:cfg.checkin?.autoEnabled,
@@ -652,39 +697,19 @@ window.__ModuleLoader__.load({
               '批量领取（该渠道所有账号）')),
           SOURCE_CLAIM_EXCLUDED.has(sourceProvider)?
             h('p',{style:css.small},'此渠道不提供可验证的每日签到领取操作。'):null,
-          sourceCredits?.providerId===sourceProvider?
-            sourceCredits.accounts.map(row=>h('div',{key:row.accountId,style:css.itemRow},
-              h('strong',null,row.nickname||'账号（名称未提供）'),
-              h('span',{style:css.small},
-                row.status?.todayCheckedIn===true?'来源确认：今日已签到':
-                row.status?.active===false?'来源报告：无签到活动':
-                row.status?.todayCheckedIn===false?'来源报告：今日尚未签到':
-                '来源状态未知'))):
+           sourceCredits?.providerId===sourceProvider?
+             sourceCredits.accounts.map(row=>h('div',{key:row.accountId,style:css.itemRow},
+               h('strong',null,accountLabel(row)),
+               h('span',{style:css.small},
+                 row.status?.todayCheckedIn===true?'来源确认：今日已签到':
+                 row.status?.todayCheckedIn===false?'来源报告：今日尚未签到':
+                 '来源状态尚未核实'))):
             h('p',{style:css.small},'已在下方同步各账号状态；这里可按需刷新指定渠道。'),
           sourceClaims?.providerId===sourceProvider?h('div',{style:css.card},
             h('strong',null,'最近领取请求（必须回查确认）'),
             sourceClaims.results.map(row=>h('div',{key:row.accountId,style:css.itemRow},
               h('span',null,labelFor(row.accountId)),
               h('span',{style:css.small},'来源返回：'+row.kind+' · 尚未复核')))):null):null,
-        groups.map(channel=>{
-          const members=accounts.filter(a=>a.providerId===channel.id);
-          return h(DisclosurePanel,{key:channel.id,initiallyOpen:members.length>0,
-            title:channel.name+' · '+members.length+' 账号 · 已签到 '+channel.success,
-            actions:h('span',{style:css.small},'同步实际状态')},
-            members.length?members.map((a,i)=>h('div',{key:a.id,style:css.itemRow},
-              h('div',{style:{flex:'1 1 150px',minWidth:0}},
-                h('strong',null,a.nickname||a.username||'账号 '+(i+1)),
-                h('p',{style:css.small},a.checkinMessage||'今日状态未知')),
-              h(StateTag,{kind:'checkin',value:a.checkinState}),
-              a.sourceAccount&&!cfg.accounts.some(row=>row.id===a.id)?
-                h('span',{style:css.small},a.autoCheckin?'自动签到已开':'自动签到已关'):
-                h(Toggle,{label:'自动签到',value:cfg.accounts.find(row=>row.id===a.id)?.autoCheckin===true,
-                  onChange:v=>onAccountAuto(a.id,v)}),
-              h(Button,{disabled:!!busy||!!data.historyBlocked||!a.checkinSupported||!a.enabled,
-                onClick:()=>run('/checkins/action',{action:'run',accountId:a.id},
-                  '已请求签到，请查看服务端确认状态')},'立即签到'))):
-            h('p',{style:css.small},'当前无账号；尚不能确认签到状态。'));
-        }),
         h(Panel,{title:'最近签到记录'},
           (data.history||[]).length?(data.history||[]).slice(0,25).map((v,i)=>
             h('div',{key:i,style:css.itemRow},
@@ -1423,8 +1448,7 @@ window.__ModuleLoader__.load({
            h('div',{style:{minWidth:0}},
              h('h2',{style:css.title},'聚合路由'),
              h('div',{className:'dnr-header-note'},'来源复用 · 账号池 · 模型调度 · 每日签到 · 故障续跑')),
-               h('span',{className:'dnr-version'},'1.0.0-rc.22')),           h('div',{className:'dnr-layout'},            h('label',{className:'dnr-mobile-nav'},              h('span',null,'设置页面'),              h('select',{'aria-label':'选择设置页面',value:activeNav,
-                onChange:e=>setTab(e.target.value)},
+               h('span',{className:'dnr-version'},'1.0.0-rc.23')),           h('div',{className:'dnr-layout'},            h('label',{className:'dnr-mobile-nav'},              h('span',null,'设置页面'),              h('select',{'aria-label':'选择设置页面',value:activeNav,                onChange:e=>setTab(e.target.value)},
                 navGroups.map(group=>h('optgroup',{key:group.name,label:group.name},
                   group.ids.map(id=>h('option',{key:id,value:id},tabs.find(x=>x[0]===id)?.[1]||id)))))),            h('nav',{className:'dnr-rail','aria-label':'聚合路由设置导航'},
               navGroups.map(group=>h('div',{key:group.name,className:'dnr-nav-group'},

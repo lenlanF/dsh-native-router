@@ -26,6 +26,42 @@ function fixture({rows=[],enabled=true,autoSourceAccounts=true,
  return {center,calls,records,src,setNow:value=>{at=value}};
 }
 const row=(providerId,id='acct-1',enabled=true)=>({id,providerId,nickname:providerId+' account',enabled});
+test('a confirmed same-day source check-in survives a later pending record and prevents duplicate claims',async()=>{
+  const h=fixture({rows:[row('codearts','valid-source')],
+    statusQuery:async()=>({state:'ready',accounts:[{
+      accountId:'valid-source',nickname:'Real CodeArts Account',
+      todayCheckedIn:false,active:true,authVerified:true}]})});
+  const opaque=sourceAccountOpaqueId('codearts','valid-source');
+  h.records.push({date:'2026-11-17',accountId:opaque,providerId:'codearts',
+    state:'success',at:NOW-10000,source:'auto'});
+  h.records.push({date:'2026-11-17',accountId:opaque,providerId:'codearts',
+    state:'pending_confirmation',at:NOW-5000,source:'manual'});
+  await h.center.refreshSources();
+  const account=h.center.snapshot().accounts[0];
+  assert.equal(account.checkinState,'success');
+  assert.equal(account.nickname,'Real CodeArts Account');
+  assert.match(account.checkinMessage,/确认成功记录/);
+  assert.equal((await h.center.run(opaque)).alreadyConfirmed,true);  assert.equal((await h.center.tick()).attempted,0);
+  assert.equal(h.calls.length,0);
+  h.center.stop();
+});
+
+test('source upstream confirmed sign-in returns a success receipt even if latest history is pending',async()=>{
+ const h=fixture({rows:[row('loomy','upstream')],
+   statusQuery:async()=>({state:'ready',accounts:[{accountId:'upstream',
+     todayCheckedIn:true,active:true,authVerified:true}]})});
+ const opaque=sourceAccountOpaqueId('loomy','upstream');
+ h.records.push({date:'2026-11-17',accountId:opaque,providerId:'loomy',
+   state:'pending_confirmation',at:NOW-3000,source:'manual'});
+ await h.center.refreshSources();
+ const result=await h.center.run(opaque);
+ assert.equal(result.alreadyConfirmed,true);
+ assert.equal(result.record.state,'success');
+ assert.equal(result.record.date,'2026-11-17');
+ assert.equal(h.calls.length,0,'verified upstream status must not cause a second claim');
+ assert.equal(h.records.length,1,'read-only verification must not fabricate persisted history');
+ h.center.stop();
+});
 test('source checkin and reported balance sync when automatic checkin is disabled; no claim is issued',async()=>{
  let scanned=0;
  const h=fixture({enabled:false,rows:[row('qoder','acct-1')],

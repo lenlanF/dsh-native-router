@@ -41,8 +41,7 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
       const id=sourceAccountOpaqueId(item.providerId,item.id);
       if(seen.has(id))continue;
       seen.add(id);
-      const label=typeof item.nickname==='string'&&item.nickname?
-        item.nickname:statusCache.get(id)?.nickname||'';
+       const label=publicAccountName(item,statusCache.get(id));
       next.set(id,{id,sourceAccountId:item.id,providerId:item.providerId,
         nickname:label.slice(0,80),enabled:item.enabled===true});
     }
@@ -72,7 +71,7 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
           if(matches.length!==1)continue;
           const row=matches[0];
            const prior=statusCache.get(row.id);
-           const nickname=publicAccountName(entry,row,prior);
+           const nickname=publicAccountName(entry,prior,row);
            // A same-day authenticated claimed result remains final even if a
            // later partial response omits the task field.
            const confirmed=entry.todayCheckedIn===true||
@@ -98,12 +97,14 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
    const verified=statusCache.get(row.id);
    const fresh=verified?.day===today()&&now()-verified.checkedAt<STATUS_TTL_MS*3;
    const report=fresh?verified:null;
-     const confirmed=verified?.day===today()&&verified.todayCheckedIn===true;
-     const oldPending=expiredCheckinConfirmation(recent,now());
-     // "active" in provider credits.status often means a paid credit plan,
-     // NOT whether a daily sign-in task exists. Never infer no_task from it.
-     const accountState=checkinDisplayState({recent,now:now(),pending:pending.has(row.id),
-       implemented,confirmed,claimable:report?.todayCheckedIn===false});
+      const confirmedFromHistory=history(row.id).some(x=>x.state==='success');
+      const confirmedUpstream=verified?.day===today()&&verified.todayCheckedIn===true;
+      const confirmed=confirmedFromHistory||confirmedUpstream;
+      const oldPending=expiredCheckinConfirmation(recent,now());
+      // "active" in provider credits.status often means a credit plan, not
+      // whether a daily sign-in task exists.
+      const accountState=checkinDisplayState({recent,now:now(),pending:pending.has(row.id),
+        implemented,confirmed,claimable:report?.todayCheckedIn===false});
     return {id:row.id,providerId:row.providerId,providerName:row.providerId,
       nickname:row.nickname,enabled:state.enabled&&state.providerEnabled,
       configuredEnabled:row.enabled,credentialKind:'driver',
@@ -115,7 +116,8 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
       checkinState:accountState,checkinAt:report?.checkedAt??recent?.at??null,
       ...publicBalance(report),
       ...(report?.maskedPhone?{maskedPhone:report.maskedPhone}:{}),
-      checkinMessage:confirmed?'来源服务已核实今日签到完成':
+      checkinMessage:confirmedUpstream?'来源服务已核实今日签到完成':
+        confirmedFromHistory?'本账号今日已有确认成功记录；来源状态尚未同步':
         oldPending?'上次请求已超过20分钟，尚无服务端签到确认；后续将限次复核':
         report?.todayCheckedIn===false?'来源服务确认今日尚未签到':
         recent?.message??(implemented?'今日签到状态暂未核实':
@@ -131,10 +133,11 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
   if(!cfg.enabled||!cfg.providerEnabled){const e=Error('账号已停用');e.status=409;throw e}
   if(!supported.has(row.providerId)){const e=Error('此渠道没有每日签到');e.status=501;throw e}
   if(pending.has(id)){const e=Error('该账号的签到正在执行');e.status=409;throw e}
-   const previous=latest(id);
-   if(previous?.state==='success'||statusCache.get(id)?.day===today()&&
-     statusCache.get(id)?.todayCheckedIn===true)
-     return {alreadyConfirmed:true,record:previous??{
+    const previous=latest(id);
+    const successfulHistory=history(id).find(x=>x.state==='success');
+    if(successfulHistory||statusCache.get(id)?.day===today()&&
+      statusCache.get(id)?.todayCheckedIn===true)
+     return {alreadyConfirmed:true,record:successfulHistory??{
        date:today(),accountId:id,providerId:row.providerId,state:'success',
        message:'来源服务已确认今日签到',at:now(),source:'status'}};
   pending.add(id);
@@ -174,7 +177,7 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
    const cfg=configFor(row);
    if(!cfg.enabled||!cfg.providerEnabled||!cfg.autoCheckin||!supported.has(row.providerId))continue;
    const records=history(row.id),recent=records.at(-1);
-    if(['success','no_task','client_required'].includes(recent?.state))continue;
+    if(records.some(x=>x.state==='success')||['no_task','client_required'].includes(recent?.state))continue;
     if(statusCache.get(row.id)?.day===today()&&statusCache.get(row.id)?.todayCheckedIn===true)continue;
    if(records.filter(x=>x.source==='auto').length>=MAX_AUTO_ATTEMPTS)continue;
    if(recent&&now()-recent.at<RETRY_DELAY_MS)continue;

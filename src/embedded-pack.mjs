@@ -1,6 +1,6 @@
 import {channelPackIsolationReason,channelPackNodeRuntimeReason} from './channel-pack-isolation.mjs';
 import {sourceAccountOpaqueId} from './source-account-ref.mjs';
-import {installSourceAccountSelection} from './source-account-selection.mjs';
+import {publicAccountName,upstreamCheckedInToday,credentialPublicIdentity} from './account-facts.mjs';import {installSourceAccountSelection} from './source-account-selection.mjs';
 // The bundled MIT derivative runs INSIDE the DSH Cordis host. No external
 // OpenAI gateway, agent-resume daemon or independent check-in scheduler.
 export const SOURCE_PACK_PROVIDERS=Object.freeze([
@@ -474,12 +474,15 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
     };
     const before=exactStatus(await ops.status(providerId,sourceAccountId));
     if(scope!==mountedScope())return {state:'unavailable'};
-     if(before?.available===true&&before.todayCheckedIn===true)
+     const today=new Intl.DateTimeFormat('en-CA',{
+       timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'})
+       .format(new Date());
+     if(upstreamCheckedInToday(before,today)===true)
        return {confirmed:true,message:'来源服务已确认今日签到'};
      if(before?.available===true&&before.active===false)
-       return {state:'no_task',message:'该渠道今日没有可执行的签到活动'};
+       return {state:'failed',message:'上游尚无明确的今日签到执行资格；未据套餐状态推断为无任务'};
      if(before?.available!==true)
-        return {state:'failed',message:'来源今日签到状态暂不可核实，未发送领取请求'};
+       return {state:'failed',message:'来源今日签到状态暂不可核实，未发送领取请求'};
     const claim=await ops.claim(providerId,sourceAccountId);
     if(scope!==mountedScope())return {state:'unavailable'};
     const outcomes=claim?.ok===true&&Array.isArray(claim.value?.results)
@@ -493,7 +496,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
     // request without actually checking in. A fresh same-day status is required.
     const after=exactStatus(await ops.status(providerId,sourceAccountId));
     if(scope!==mountedScope())return {state:'unavailable'};
-     if(after?.available===true&&after.todayCheckedIn===true)
+     if(upstreamCheckedInToday(after,today)===true)
        return {confirmed:true,message:'上游状态回查确认今日签到'};
     return {state:'pending_confirmation',accepted:true,
       message:'签到操作已执行，但上游今日签到状态仍未确认'};
@@ -542,7 +545,32 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
        .map(row=>[row.accountId??row.id,row]));
      const statusMap=lookup(statuses),balanceMap=lookup(balances),identityMap=lookup(identities);
      const allIds=new Set([...statusMap.keys(),...balanceMap.keys(),...identityMap.keys()]);
-     const accounts=[];
+      const credentialMetadata=new Map();
+      // Match only the mounted private pool's exact account IDs. Return public
+      // name/phone metadata only; never return or log resolved DSH credentials.
+      if(nativeOwned&&allIds.size){
+        try{
+          const ownPool=sourcePool(scope);
+          const credentialSvc=scope.credentials??scope.get?.('credentials',false);
+          if(typeof ownPool?.listAllAccounts==='function'&&
+            typeof credentialSvc?.resolve==='function'){
+            const ownRows=await ownPool.listAllAccounts();
+            for(const row of (Array.isArray(ownRows)?ownRows:[]).slice(0,100)){
+              if(row?.provider!==providerId||!allIds.has(row.id)||
+                !/^NATIVE_ROUTER_(?:SOURCE|PRIVATE_PACK)_[A-Z0-9_]+$/.test(
+                  String(row.credentialRef??'')))continue;
+              try{
+                const result=await credentialSvc.resolve(row.credentialRef);
+                if(typeof result?.value!=='string'||result.value.length>65536)continue;
+                const meta=credentialPublicIdentity(JSON.parse(result.value));
+                if(meta.accountName||meta.maskedPhone)credentialMetadata.set(row.id,meta);
+              }catch{}
+            }
+          }
+        }catch{}
+      }
+      if(scope!==mountedScope())return {state:'unavailable',accounts:[]};
+      const accounts=[];
      for(const accountId of allIds){
        const status=statusMap.get(accountId)?.status;
        const exact=status&&typeof status==='object'&&!Array.isArray(status)?status:null;
@@ -552,20 +580,23 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
          typeof p?.unit==='string'&&p.unit.length<=12):null;
        const unit=firstPackage?.unit||(
          providerId==='zcode'?'token':providerId==='loomy'||providerId==='codearts'?'积分':'额度');
-       const identity=identityMap.get(accountId);
-       const rawName=identity?.accountName??identity?.nickname
-         ??statusMap.get(accountId)?.nickname??balanceMap.get(accountId)?.nickname;
-       const label=typeof rawName==='string'&&rawName.trim()!==accountId
-         &&!/ · 独立账号$/.test(rawName.trim())?rawName.trim().slice(0,80):'';
-       const validStatus=exact&&typeof exact.active==='boolean';
-       const authVerified=['loomy','codearts','zcode'].includes(providerId)
-         &&(validStatus===true||amount!==null);
-       const phone=typeof identity?.phone==='string'&&/^\d{11}$/.test(identity.phone)
-         ?identity.phone.replace(/^(\d{3})\d{4}(\d{4})$/,'$1****$2'):null;
-       accounts.push({accountId,nickname:label,
-         ...(phone?{maskedPhone:phone}:{}),
-         todayCheckedIn:typeof exact?.todayCheckedIn==='boolean'?exact.todayCheckedIn:null,
-         active:validStatus?exact.active:null,authVerified,
+        const identity=identityMap.get(accountId);
+        const statusRow=statusMap.get(accountId);
+        const balanceRow=balanceMap.get(accountId);
+         const publicCredential=credentialMetadata.get(accountId);
+         const label=publicAccountName(identity,statusRow,balanceRow,exact,publicCredential);        const validStatus=exact&&typeof exact.active==='boolean';
+        const authVerified=['loomy','codearts','zcode'].includes(providerId)
+          &&(validStatus===true||amount!==null);
+         const rawPhone=identity?.phone??exact?.phone;
+         const phone=typeof rawPhone==='string'&&/^\d{11}$/.test(rawPhone)
+           ?rawPhone.replace(/^(\d{3})\d{4}(\d{4})$/,'$1****$2'):
+           publicCredential?.maskedPhone??null;        const today=new Intl.DateTimeFormat('en-CA',{
+          timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'})
+          .format(new Date());
+        accounts.push({accountId,nickname:label,
+          ...(phone?{maskedPhone:phone}:{}),
+          todayCheckedIn:upstreamCheckedInToday(exact,today),
+          active:validStatus?exact.active:null,authVerified,
          ...(amount!==null?{balance:amount,balanceUnit:unit}:{}),
          balanceState:amount!==null?'available':
            balances?'not_returned':'not_supported'});
