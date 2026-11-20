@@ -619,6 +619,9 @@ export async function chat(cookieHeader, options = {}) {
   if (prompt === '') throw new DoubaoError('EMPTY_PROMPT', '空的提问')
   const controller = new AbortController()
   const timeoutMs = Number(options.timeoutMs ?? 120_000)
+  const cancel = () => controller.abort(options.signal?.reason)
+  if(options.signal?.aborted)cancel()
+  else options.signal?.addEventListener('abort',cancel,{once:true})
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   const startedAt = Date.now()
   const msToken = msTokenOf(cookieHeader)
@@ -626,6 +629,7 @@ export async function chat(cookieHeader, options = {}) {
   const headers = { ...buildHeaders(cookieHeader), Accept: 'text/event-stream' }
   const body = JSON.stringify(buildChatBody(prompt, options))
   try {
+    if(controller.signal.aborted)throw new DoubaoError('ABORTED','豆包模型请求已取消')
     const pieces = []
     const state = { thinkingIds: new Set() }
     let firstMs = 0
@@ -669,8 +673,12 @@ export async function chat(cookieHeader, options = {}) {
       // 一个事件的尾巴可能没有最后那个空行，补两个换行再切一次
       const parsed = parseFrames(buffer === '' ? '' : `${buffer}\n\n`)
       for (const frame of parsed.frames) handle(frame)
+      if(controller.signal.aborted)throw new DoubaoError('ABORTED','豆包模型请求已取消')
       const text = pieces.join('').trim()
-      if (!ended && text === '') throw new DoubaoError('EMPTY_REPLY', '没有收到任何回复内容')
+      // A text delta is NOT proof of model completion; failover cannot release
+      // truncated content or replay a partially completed upstream turn.
+      if (!ended) throw new DoubaoError('TRUNCATED', '豆包流尚未确认完成')
+      if (text === '') throw new DoubaoError('EMPTY_REPLY', '没有收到任何回复内容')
       return { text, firstMs, totalMs: Date.now() - startedAt, conversationId, modelId: options.modelId ?? '' }
     }
     if (typeof globalThis.fetch !== 'function') {
@@ -705,5 +713,6 @@ export async function chat(cookieHeader, options = {}) {
     return finish()
   } finally {
     clearTimeout(timer)
+    options.signal?.removeEventListener('abort',cancel)
   }
 }

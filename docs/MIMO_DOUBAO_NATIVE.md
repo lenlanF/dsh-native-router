@@ -1,27 +1,34 @@
-# RC.26：MiMo 与豆包工作独立来源
+# RC.28：MiMo Desktop / 豆包工作会员授权自有来源（开发候选）
 
-## 交付原则（2026-11-20 的明确要求）
+## 方向与边界
 
-目标是**可工作的、原生、自有凭据的渠道**，不能因为某个参考仓库的一条路线有限制便认定技术上所有路线不可行。持续搜寻 GitHub/Gitee 的替代实现、同步有用的 upstream 更新；没有成熟实现时在安全与兼容范围内自行实现、测试，再做实际账号验收。研究结论不是交付，真实推理、授权续期、原插件停用后的独立运行才是交付标准。
+**不接受官方商业 API Key 作为 MiMo 或豆包工作会员接入路径。** 本插件仅通过一次性所有者授权，接管本机已登录会话，或启动自己的隔离浏览器完成账号登录；接管后从本插件 DSH Credentials 独立访问会员服务，旧 DSH 插件删除/停用不得成为持续依赖。自主登录不意味着规避正常账号验证或风控。
 
-## MiMo：多路并行、不能只认定一种
+## 小米 MiMo Desktop：`own_mimo_desktop`
 
-1. 官方开放平台 API Key / Token Plan：`own_mimo` 独立凭据、显式密钥接入、`MIMO_API_KEY`/`MIMO_BASE_URL` 环境变量（需用户确认后复制到私有凭据库）、本机 `auth.json` 授权复制、模型枚举、OpenAI 兼容流式推理；桌面端关闭后仍能使用（前提是官方密钥有效）。2. 桌面 SSO 引擎：独立发现官方 `Xiaomi MiMo.exe` 及随机端口，为聚合路由创建隔离标签的短期本机令牌；只触发于显式候选接管，依赖官方桌面客户端运行，不依赖原 DSH MiMo 插件。
-3. 自主 SSO/Passport、桌面会话安全转移/续期：**开放路线，尚待基于新开源或官方协议继续自研和真实验证**，不能以某个插件的“关闭客户端后失效”当作其它方案都无效的证明。
+- 主动扫描本机 Desktop Chromium Cookie 数据库中可读取的 `passToken/userId/cUserId`，扫描不修改客户端文件、不生成账号；加密而不可读取时报告「无候选」，不声称解密成功。
+- 自主登录入口允许明确选择 `cn/sgp/ams/ru/in` 账号区域，启动一次性隔离 Chromium，经小米账号页面完成授权后捕获本次会话 Cookie，保存进本插件凭据库。共用登录组件 `src/channels/browser-login.mjs` 不启动常驻网关。
+- 会员原生调用：`src/channels/mimo-desktop-session.mjs` 处理 `passToken → serviceToken` SSO、带服务域名允许清单的跳转、短期缓存及 401 单次重新认证，直接访问会员 `/api/route/chat/completions`；必须完整解码 SSE 与工具回调校验。
+- 用户账号记录、Provider 仅在确认导入或浏览器登录回执成功后写入配置；私密凭据写入失败、配置写入失败和重复接管均需按精确账号回滚/幂等处理。不自动创建模型链，也不自动生成推理成功记录。
+- 不依赖 `MIMO_API_KEY`、MiMo Open Platform API Key、`own_mimo` 旧接口或 MiMo Desktop 本地引擎常驻。
 
-来源：`guiling875/dsh-mimo-connect`（MIT），独立派生实现保留在 `src/channels/mimo-engine.mjs`、`src/channels/mimo.mjs`，`LICENSES/dsh-mimo-connect-MIT.txt`。
+## 豆包工作：`own_doubao`
 
-## 豆包工作：从原插件分离
+- `src/channels/doubao-login.mjs` 启动一次性隔离 Chromium，经豆包自己的网页版登录，将 `sessionid` 等合法 Cookie 保存在本插件 DSH Credentials。也支持所有者显式提供 Cookie。
+- `src/channels/doubao-upstream.mjs` 访问豆包网页版原生接口，获取用户名称、动态普通聊天模型和会员 `window_type=4` 套餐额度。其 SSE 格式不能按 OpenAI 通用格式解析；必须收到 `SSE_REPLY_END` 且有完整文本才记为推理成功。
+- Cookie 只接受确切 `doubao.com` 或子域，CDP WebSocket 只能连接本机临时浏览器。多账号密钥按各自绑定引用隔离；配置失败回滚首次保存的私密会话；重复导入不应覆盖旧会话。
+- 工作任务本地工具执行器与真正自动领取每日签到目前未通过在线验收：任务模型暂不暴露为可运行，未确认的签到只能显示待确认或需要客户端，不得伪造已成功状态。
 
-`own_doubao`：独立 Chromium 扫码登录（一次性临时 profile / CDP）或显式粘贴 Cookie，各账号独立保存在 DSH Credentials；不读取原插件数据。账号官方身份、动态普通聊天模型、会员套餐/活动窗口余额、SSE 流、会话连续性与本插件账号退出由自有驱动处理；`window_type=4` 代表新版套餐额度。原插件卸载不应影响已接管的 Cookie。
+## 证据等级
 
-源代码使用 `hulibuld/dsh-get-it-for-free` 3.5.0 MIT 来源 `src/doubao/client.js` 与 `src/doubao/login.js`（衍生实现见 `src/channels/doubao-upstream.mjs`、`src/channels/doubao-login.mjs`，许可证见 `LICENSES/dsh-get-it-for-free-MIT.txt`）。交叉参考 `Wahwayhale/dsh-connect-doubao` 的多轮、动态目录、额度修复，以及 `ProvidersPlugin/Agent2Providers`，不会直接引入他们的运行依赖。
+- **代码完成 / 离线模拟**：浏览器登录、凭据独立保存、模型协议、SSO 续期、异常回滚与多账号保护均有模拟测试。可用 `npm test` 重现。
+- **真实账号在线验收**：当前项目绑定电脑检查到 Chrome 可用、MiMo/DoubaoWork 客户端进程数为零；没有读取或导出任何真实账号密钥，因此尚未完成两渠道真实登录、推理、续期和客户端卸载后验证。
+- **正式发行门禁**：至少一个真实账号成功完整模型回合、会话独立续期、客户端/旧插件停止后复测；其余账号及签到/额度按实际服务能力分别标记，不能以目录或模拟结果冒充可用。
 
-**未通过真实执行验收：** 豆包工作任务所需的本地执行器和真正的 Tool Calls 不能用“伪成功”模拟，故当前只暴露普通聊天模型。官方活动网页会话可能无法领取签到任务；当前驱动能回查已完成状态，未领取的桌面客户端限制返回 `client_required`，不得称成功。下一阶段继续找可用官方客户端上下文或安全自研方案，达到真实领奖后才开启自动化。
+## 已核对的开源来源与许可
 
-## 实际验收记录与后续检查
+- [decolua/9router](https://github.com/decolua/9router)（MIT）：小米桌面会员 SSO 账号服务、区域和请求协议；参考 `src/lib/mimoLoginSession.js`、`open-sse/shared/mimoAccount.js`，不引入它的 Next.js 代理。
+- [hulibuld/dsh-get-it-for-free](https://github.com/hulibuld/dsh-get-it-for-free)（MIT）：豆包登录、原生模型与额度协议；衍生浏览器/CDP 及上游请求保留 `LICENSES/dsh-get-it-for-free-MIT.txt`。
+- [Wahwayhale/dsh-connect-doubao](https://github.com/Wahwayhale/dsh-connect-doubao)（MIT）：豆包工作会话、模型/会员任务能力对照；保留待真实测试的任务执行器验收边界。
 
-- 2026-11-20 本机 Windows `mimoDesktopProcessCount=0`；缺少能在当前隔离环境中使用的真实用户授权，**尚未执行真实 MiMo 或豆包在线推理/扫码全链路**。这不是放弃；必须保留替代实现方向并继续实测。
-- 可复现模拟：`node --test tests/mimo-native.test.mjs tests/doubao-native.test.mjs`；项目完整 `npm test`。模拟通过不等于官方服务验收。
-- 发行前逐项验证：实号登录、真实模型请求、SSE/Tool Calls、双账号隔离、客户端关闭/重启、刷新和撤销、套餐额度、签到回执、旧 DSH 原插件停用/卸载后的独立运行，隐私/许可证审计。每项均标代码通过 / 离线模拟 / 真实在线通过三个层次。
-- 不启动额外网关、常驻 Node 子进程或独立定时服务；只能在用户显式授权时启动一次性的独立登录浏览器。
+项目只在显式授权时启动一次性隔离浏览器；没有额外 API-Key 计费入口、Gateway 服务或独立常驻进程。

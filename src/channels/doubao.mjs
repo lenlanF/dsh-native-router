@@ -48,7 +48,7 @@ function promptFor(options){
  return text.slice(-80000);
 }
 export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),logger}={}){
- const publicStatus=new Map(),cache=new Map(),conversations=new Map();
+ const publicStatus=new Map(),cache=new Map(),conversations=new Map(),writes=new Set();
  async function secret(account){
   const match=REF.exec(String(account?.credentialRef??''));
   if(!match||account?.providerId!==ID||account.id!==match[1])
@@ -64,12 +64,20 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),log
  }
  async function addCookie({cookie,name}={}){
   const parsed=cookieHeader(cookie);
-  if(typeof vault?.set!=='function')throw new UpstreamError('DSH Credentials cannot store Doubao',{code:'CREDENTIAL'});
-  const id=hashId(parsed);
-  await vault.set(keyFor(id),JSON.stringify({cookie:parsed}));
-  if(typeof name==='string'&&name.length&&name.length<100)
-   publicStatus.set(id,{nickname:name,balanceState:'not_checked'});
-  return {id,providerId:ID,credentialRef:'driver:'+ID+':'+id};
+  if(typeof vault?.set!=='function'||typeof vault?.resolve!=='function')
+   throw new UpstreamError('DSH Credentials cannot store Doubao',{code:'CREDENTIAL'});
+  const id=hashId(parsed),key=keyFor(id);
+  if(writes.has(key))throw new UpstreamError('Doubao credential import already running',{code:'CREDENTIAL'});
+  writes.add(key);
+  try{
+   let previous;
+   try{previous=await vault.resolve(key)}catch{}
+   if(!previous)await vault.set(key,JSON.stringify({cookie:parsed}));
+   if(typeof name==='string'&&name.length&&name.length<100)
+    publicStatus.set(id,{nickname:name,balanceState:'not_checked'});
+   return {id,providerId:ID,credentialRef:'driver:'+ID+':'+id,
+    ...(previous?{alreadyOwned:true}:{})};
+  }finally{writes.delete(key)}
  }
  function withFetch(extra={}){return {...extra,fetchImpl}}
  async function probe(account){
@@ -118,7 +126,7 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),log
   try{
    const result=await chat(cookie,{prompt,modelId:model,
       conversationId:previous?.conversationId??'',timeoutMs:Math.min(180000,Number(options.timeoutMs)||120000),
-      fetchImpl});
+      signal,fetchImpl});
    if(result?.conversationId){
     conversations.delete(sessionKey);
     conversations.set(sessionKey,{conversationId:result.conversationId,at:now()});
@@ -173,6 +181,12 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),log
    return {state:'client_required',message:'豆包每日签到需官方桌面端执行，Web 会话不能确认领取成功'};
   }catch{return {state:'pending_confirmation',message:'豆包签到状态无法核验，不视为签到成功'}}
  }
+ async function rollbackCandidate({account}={}){
+  const match=REF.exec(String(account?.credentialRef??''));
+  if(!match||match[1]!==account?.id||account?.providerId!==ID)return;
+  try{await vault?.unset?.(keyFor(match[1]))}catch{}
+  publicStatus.delete(match[1]);cache.delete(match[1]);
+ }
  async function logout({account}={}){
   const match=REF.exec(String(account?.credentialRef??''));
   if(match&&match[1]===account?.id)await vault?.unset?.(keyFor(match[1]));
@@ -184,10 +198,12 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),log
   addAccount:async({cookie,name})=>({account:await addCookie({cookie,name})})});
  function loginStatus(){
   const status=browser.status();
-  return {...status,account:status.account?{id:status.account.id,providerId:ID,credentialRef:status.account.credentialRef}:null};
+  return {...status,account:status.account?{
+   id:status.account.id,providerId:ID,credentialRef:status.account.credentialRef,
+   alreadyOwned:status.account.alreadyOwned===true}:null};
  }
  function accountSnapshot(account){return publicStatus.get(account?.id)??{}}
  return {authMethod:'独立浏览器扫码登录 / Cookie',
-   addCookie,loginStatus,startLogin:()=>browser.start(),cancelLogin:()=>browser.cancel(),
+   addCookie,rollbackCandidate,loginStatus,startLogin:()=>browser.start(),cancelLogin:()=>browser.cancel(),
    listModels,generate,refresh,login:refresh,logout,checkIn,accountSnapshot};
 }

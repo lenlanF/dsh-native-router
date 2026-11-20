@@ -8,7 +8,7 @@ import {createSessionReuse} from './session-reuse.mjs';
 import {createAccountAdoption} from './account-adoption.mjs';
 import {createInstalledPluginInventory} from './installed-plugin-inventory.mjs';
 import {createPrivateOwnedDriver,PRIVATE_PROVIDERS} from './channels/private-owned.mjs';
-import {createMimoDriver} from './channels/mimo.mjs';
+import {createMimoDesktopDriver,MIMO_DESKTOP_ID} from './channels/mimo-desktop.mjs';
 import {createDoubaoDriver} from './channels/doubao.mjs';
 import {createPrivateOwnedAdoption} from './private-owned-adoption.mjs';
 import {createPrivatePackAdoption} from './private-pack-adoption.mjs';
@@ -39,9 +39,11 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
      if(!drivers.has(ownId))builtInCleanup.push(registerNativeChannelDriver(ownId,
        createPrivateOwnedDriver({providerId,vault:ownedVault,fetchImpl})));
    }
-   if(!channelDrivers&&!drivers.has('own_mimo'))
-     builtInCleanup.push(registerNativeChannelDriver('own_mimo',
-       createMimoDriver({vault:ownedVault,fetchImpl,env:env??process.env})));
+   // One-time consent imports a Desktop membership session into our own vault.
+   // No commercial MiMo API-Key or dependency on an upstream DSH plugin.
+   if(!channelDrivers&&!drivers.has(MIMO_DESKTOP_ID))
+     builtInCleanup.push(registerNativeChannelDriver(MIMO_DESKTOP_ID,
+       createMimoDesktopDriver({vault:ownedVault})));
    if(!channelDrivers&&!drivers.has('own_doubao'))
      builtInCleanup.push(registerNativeChannelDriver('own_doubao',
        createDoubaoDriver({vault:ownedVault,fetchImpl,logger:ctx.logger})));

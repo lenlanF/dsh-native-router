@@ -203,8 +203,12 @@ export function createAccountCenter({
  async function discover(providerId){
    const cfg=configStore.get(),provider=cfg.providers.find(p=>p.id===providerId);
    const driver=driverFor(providerId);
-   if(!provider||!driver?.discover){const e=new Error('此渠道未提供经过验证的本机账号发现适配器');e.status=501;throw e}
-   const candidates=await driver.discover({provider});
+   // A self-owned Desktop session can be discovered before provider creation.
+   const bootstrap=!provider&&providerId==='own_mimo_desktop'
+     &&driver?.independentProvider===providerId;
+   if((!provider&&!bootstrap)||provider?.protocol==='dsh-host'||!driver?.discover){const e=new Error('此渠道未提供经过验证的本机账号发现适配器');e.status=501;throw e}
+   const candidates=await driver.discover({provider:provider??{
+     id:providerId,name:driver.providerName,protocol:'native-channel'}});
    if(!Array.isArray(candidates))throw Error('Discovery adapter returned invalid candidates');
    // No secrets or filesystem details are handed to the browser.
    const publicCandidates=candidates.slice(0,50).map(row=>({
@@ -223,7 +227,10 @@ export function createAccountCenter({
    }
    const cfg=configStore.get(),provider=cfg.providers.find(p=>p.id===providerId);
    const driver=driverFor(providerId);
-   if(!provider||typeof driver?.importCandidate!=='function'){
+   const bootstrap=!provider&&providerId==='own_mimo_desktop'
+     &&driver?.independentProvider===providerId;
+   if((!provider&&!bootstrap)||(provider&&provider.protocol!=='native-channel'&&bootstrap)
+     ||typeof driver?.importCandidate!=='function'){
      const e=new Error('渠道未提供安全的账号导入驱动');e.status=501;throw e;
    }
     // A reference to another DSH plugin's account pool is NOT an independent
@@ -243,7 +250,11 @@ export function createAccountCenter({
    }
    const newAccount={id:result.id,providerId,credentialRef:result.credentialRef,
      enabled:true,autoCheckin:false,weight:1};
-   configStore.replace({...cfg,accounts:[...cfg.accounts,newAccount]});
+   const providers=bootstrap?[...cfg.providers,{id:providerId,
+     name:driver.providerName,protocol:'native-channel',enabled:true,
+     models:[...(driver.candidateModels??[])],supportsTools:true}]:cfg.providers;
+   try{configStore.replace({...cfg,providers,accounts:[...cfg.accounts,newAccount]})}
+   catch(error){await driver?.rollbackCandidate?.({account:newAccount});throw error}
    adapter?.invalidateCatalog?.();
    // Preserve the remaining independently approved discovery candidates:
    // importing one account must not force rescanning the entire channel pool.
@@ -316,48 +327,52 @@ export function createAccountCenter({
         Math.max(1,readOnlyConcurrency),12,targets.length)},()=>worker()));
      return results.filter(Boolean);
    }
-    // Explicitly provision a first-party MiMo account. No key ever enters config.json.
-    function ensureMimoProvider(){
-      const cfg=configStore.get();
-      const existing=cfg.providers.find(p=>p.id==='own_mimo');
-      if(existing){
-        if(existing.protocol!=='native-channel')throw Error('MiMo owned provider ID conflicts with a non-native provider');
-        return {state:'existing',providerId:'own_mimo'};
+    // A completed browser membership login is NOT yet configured until its
+    // independently owned vault receipt has been atomically bound to config.
+    async function commitMimoDesktopAccount(receipt){
+      const id=String(receipt?.id??'');
+      if(receipt?.providerId!=='own_mimo_desktop'||!/^sp_[a-f0-9]{24}$/.test(id)
+        ||receipt.credentialRef!=='driver:own_mimo_desktop:'+id)
+        throw Error('Invalid MiMo membership account receipt');
+      const cfg=configStore.get(),previous=cfg.accounts.find(x=>x.id===id);
+      if(previous){
+        if(previous.providerId!=='own_mimo_desktop'||previous.credentialRef!==receipt.credentialRef)
+          throw Error('MiMo membership binding conflict');
+        return {id,providerId:'own_mimo_desktop',alreadyOwned:true};
       }
-      if(typeof driverFor('own_mimo')?.generate!=='function'){
-        const e=new Error('MiMo native adapter not installed');e.status=503;throw e;
-      }
-      configStore.replace({...cfg,providers:[...cfg.providers,
-        {id:'own_mimo',name:'小米 MiMo · 独立来源',
-         protocol:'native-channel',baseUrl:'',models:[],enabled:true,supportsTools:true}]});
+      if(cfg.providers.some(x=>x.id==='own_mimo_desktop'&&x.protocol!=='native-channel'))
+        throw Error('MiMo membership provider ID conflict');
+      const driver=driverFor('own_mimo_desktop');
+      if(driver?.independentProvider!=='own_mimo_desktop')throw Error('MiMo owner driver unavailable');
+      const providers=cfg.providers.some(x=>x.id==='own_mimo_desktop')?cfg.providers:
+        [...cfg.providers,{id:'own_mimo_desktop',name:driver.providerName,
+          protocol:'native-channel',models:[...(driver.candidateModels??[])],
+          enabled:true,supportsTools:true}];
+      const account={id,providerId:'own_mimo_desktop',credentialRef:receipt.credentialRef,
+        enabled:true,autoCheckin:false,weight:1};
+      try{configStore.replace({...cfg,providers,accounts:[...cfg.accounts,account]})}
+      catch(error){if(receipt.alreadyOwned!==true)
+         await driver.rollbackCandidate?.({account});throw error}
       adapter?.invalidateCatalog?.();
-      return {state:'created',providerId:'own_mimo'};
+      return {id,providerId:'own_mimo_desktop',stored:true};
     }
-    async function addMimoCredential({apiKey,baseUrl}={}){
-      if(typeof driverFor('own_mimo')?.addCredential!=='function'){
-        const e=new Error('MiMo native adapter unavailable');e.status=503;throw e;
+    async function startMimoLogin({region='cn'}={}){
+      const driver=driverFor('own_mimo_desktop');
+      if(driver?.independentProvider!=='own_mimo_desktop'||typeof driver.startLogin!=='function')
+        throw Error('MiMo membership browser login unavailable');
+      return driver.startLogin({region});
+    }
+    async function pollMimoLogin(){
+      const driver=driverFor('own_mimo_desktop'),status=driver?.loginStatus?.();
+      if(!status)throw Error('MiMo browser login status unavailable');
+      if(status.status==='done'&&status.account){
+        const account=await commitMimoDesktopAccount(status.account);
+        return {...status,account};
       }
-      const before=configStore.get();
-      if(before.providers.some(p=>p.id==='own_mimo'&&p.protocol!=='native-channel'))
-        throw Error('MiMo provider identity conflicts with existing configuration');
-      // Validate the credential before writing a provider or account record.
-      if(typeof apiKey!=='string'||apiKey.trim().length<8)throw Error('MiMo API Key is required');
-      const result=await driverFor('own_mimo').addCredential({apiKey,baseUrl});
-      const cfg=configStore.get();
-      const existing=cfg.accounts.find(a=>a.id===result.id);
-      if(existing){
-        if(existing.providerId!=='own_mimo'||existing.credentialRef!==result.credentialRef)
-          throw Error('MiMo account ID collision');
-        return {id:existing.id,alreadyOwned:true};
-      }
-      const providers=cfg.providers.some(p=>p.id==='own_mimo')?cfg.providers:
-        [...cfg.providers,{id:'own_mimo',name:'小米 MiMo · 独立来源',
-          protocol:'native-channel',baseUrl:'',models:[],enabled:true,supportsTools:true}];
-      const accounts=[...cfg.accounts,{id:result.id,providerId:'own_mimo',
-        credentialRef:result.credentialRef,enabled:true,autoCheckin:false,weight:1}];
-      configStore.replace({...cfg,providers,accounts});
-      adapter?.invalidateCatalog?.();
-      return {id:result.id,providerId:'own_mimo',stored:true};
+      return status;
+    }
+    function cancelMimoLogin(){
+      return driverFor('own_mimo_desktop')?.cancelLogin?.()??{status:'idle'};
     }
     function ensureDoubaoProvider(){
       const cfg=configStore.get(),provider=cfg.providers.find(p=>p.id==='own_doubao');
@@ -372,7 +387,7 @@ export function createAccountCenter({
       adapter?.invalidateCatalog?.();
       return {state:'created',providerId:'own_doubao'};
     }
-    function commitDoubaoAccount(result){
+    async function commitDoubaoAccount(result){
       if(result?.providerId!=='own_doubao'||typeof result.id!=='string'
         ||!/^db_[a-f0-9]{28}$/.test(result.id)||
           result.credentialRef!=='driver:own_doubao:'+result.id)
@@ -389,27 +404,29 @@ export function createAccountCenter({
       const providers=cfg.providers.some(p=>p.id==='own_doubao')?cfg.providers:
         [...cfg.providers,{id:'own_doubao',name:'豆包工作 · 独立来源',
           protocol:'native-channel',baseUrl:'',models:[],enabled:true,supportsTools:false}];
-      configStore.replace({...cfg,providers,accounts:[...cfg.accounts,{
-        id:result.id,providerId:'own_doubao',credentialRef:result.credentialRef,
-        enabled:true,autoCheckin:false,weight:1}]});
+      const account={id:result.id,providerId:'own_doubao',credentialRef:result.credentialRef,
+        enabled:true,autoCheckin:false,weight:1};
+      try{configStore.replace({...cfg,providers,accounts:[...cfg.accounts,account]})}
+      catch(error){if(result.alreadyOwned!==true)
+        await driverFor('own_doubao')?.rollbackCandidate?.({account});throw error}
       adapter?.invalidateCatalog?.();
       return {id:result.id,providerId:'own_doubao',stored:true};
     }
     async function addDoubaoCookie({cookie}={}){
       const driver=driverFor('own_doubao');
       if(typeof driver?.addCookie!=='function')throw Error('Doubao native adapter unavailable');
-      return commitDoubaoAccount(await driver.addCookie({cookie}));
+      return await commitDoubaoAccount(await driver.addCookie({cookie}));
     }
     async function startDoubaoLogin(){
       if(typeof driverFor('own_doubao')?.startLogin!=='function')throw Error('Doubao browser login unavailable');
-      ensureDoubaoProvider();
+      // Do not create a configured account/provider merely because a login window opened.
       return driverFor('own_doubao').startLogin();
     }
-    function pollDoubaoLogin(){
+    async function pollDoubaoLogin(){
       const status=driverFor('own_doubao')?.loginStatus?.();
       if(!status)throw Error('Doubao login service unavailable');
       if(status.status==='done'&&status.account){
-        const receipt=commitDoubaoAccount(status.account);
+        const receipt=await commitDoubaoAccount(status.account);
         return {...status,account:receipt};
       }
       return status;
@@ -434,5 +451,5 @@ export function createAccountCenter({
   if(initialTimer)clearTimeout(initialTimer);
   automaticTimer=null;initialTimer=null;
  }
-  return {list,verify,setEnabled,logout,discover,importCandidate,refreshAll,refreshReadOnly,autoCheckDue,start,stop,drivers,driverFor,find,ensureMimoProvider,addMimoCredential,ensureDoubaoProvider,addDoubaoCookie,startDoubaoLogin,pollDoubaoLogin,cancelDoubaoLogin};
+  return {list,verify,setEnabled,logout,discover,importCandidate,refreshAll,refreshReadOnly,autoCheckDue,start,stop,drivers,driverFor,find,commitMimoDesktopAccount,startMimoLogin,pollMimoLogin,cancelMimoLogin,ensureDoubaoProvider,addDoubaoCookie,startDoubaoLogin,pollDoubaoLogin,cancelDoubaoLogin};
 }

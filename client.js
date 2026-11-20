@@ -848,8 +848,9 @@ window.__ModuleLoader__.load({
           [manualFreeModel,setManualFreeModel]=useState(''),
           [savedConfig,setSavedConfig]=useState(null),
           [selectedAccountChannel,setSelectedAccountChannel]=useState('all'),
-          [mimoKey,setMimoKey]=useState(''),[mimoBase,setMimoBase]=useState('https://api.xiaomimimo.com/v1'),
           [mimoBusy,setMimoBusy]=useState(false),
+          [mimoRegion,setMimoRegion]=useState('cn'),
+          [mimoLogin,setMimoLogin]=useState(null),
           [doubaoCookie,setDoubaoCookie]=useState(''),[doubaoBusy,setDoubaoBusy]=useState(false),
           [doubaoLogin,setDoubaoLogin]=useState(null),
           [providerQuery,setProviderQuery]=useState('');
@@ -891,6 +892,26 @@ window.__ModuleLoader__.load({
         },[refresh]);
         useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>setNotice(''),5000);return ()=>clearTimeout(timer)},[notice]);
         useEffect(()=>{if(!error)return;const timer=setTimeout(()=>setError(''),5000);return ()=>clearTimeout(timer)},[error]);
+        useEffect(()=>{
+          if(mimoLogin?.status!=='waiting')return;
+          let disposed=false;
+          const timer=setInterval(async()=>{
+            try{
+              const response=await fetch(URL+'/channels/mimo/login',{method:'POST',
+                headers:{'content-type':'application/json'},body:JSON.stringify({action:'poll'})});
+              const data=await response.json();
+              if(disposed||!response.ok||!data.ok)return;
+              const next=data.result;
+              if(next.status==='done'){
+                setMimoLogin(next);setNotice('MiMo Desktop 会员会话已独立保存；请再核验真实模型调用。');
+                await refresh();
+              }else if(next.status==='error'||next.status==='canceled'){
+                setMimoLogin(next);setError('MiMo 会员授权未完成，请重新选择登录或扫描本机会话。');
+              }
+            }catch{/* Temporary polling error: retry without losing draft. */}
+          },1800);
+          return ()=>{disposed=true;clearInterval(timer)};
+        },[mimoLogin?.status,refresh]);
         useEffect(()=>{
           if(doubaoLogin?.status!=='waiting')return;
           let disposed=false;
@@ -1224,42 +1245,44 @@ window.__ModuleLoader__.load({
           {id:channel.id,name:channel.name,protocol:'native-channel',baseUrl:'',models:[],enabled:true,supportsTools:true}]});
         setTab('providers');setNotice('已为此原生渠道启用提供商配置；账号授权仍由原渠道或本插件自主登录完成，不会复制原有登录秘密。');
       };
-             async function connectMimoKey(){
-         if(mimoBusy)return;
-         if(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig)){
-           setError('存在未保存的配置草稿。请先保存，再接入 MiMo 账号。');return;
-         }
-         setMimoBusy(true);setError('');setNotice('');
-         try{
-           const response=await fetch(URL+'/channels/mimo/credential',{method:'POST',
-             headers:{'content-type':'application/json'},body:JSON.stringify({apiKey:mimoKey,baseUrl:mimoBase})});
-           const data=await response.json();
-           if(!response.ok||!data.ok)throw Error(data.error||'MiMo 登录凭据未保存');
-           setMimoKey('');await refresh();
-           setNotice('MiMo API Key 已保存到独立凭据库，实际模型推理尚需验证。');
-         }catch(error){setError(String(error?.message??error))}
-         finally{setMimoBusy(false)}
-       }
-       async function scanMimo(){
+             async function scanMimo(){
          if(mimoBusy)return;
          if(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig)){
            setError('存在未保存的配置草稿。请先保存后扫描 MiMo。');return;
          }
          setMimoBusy(true);setError('');setNotice('');
          try{
-           const res=await fetch(URL+'/channels/mimo/prepare',{method:'POST'});
-           const data=await res.json();
-           if(!res.ok||!data.ok)throw Error(data.error||'MiMo 渠道未准备好');
-           await refresh();
            const scan=await fetch(URL+'/channels/discover',{method:'POST',
-             headers:{'content-type':'application/json'},body:JSON.stringify({providerId:'own_mimo'})});
+             headers:{'content-type':'application/json'},body:JSON.stringify({providerId:'own_mimo_desktop'})});
            const found=await scan.json();
            if(!scan.ok||!found.ok)throw Error(found.error||'MiMo 本机授权扫描失败');
-           setDiscovered(old=>({...old,own_mimo:found.candidates??[]}));
+           setDiscovered(old=>({...old,own_mimo_desktop:found.candidates??[]}));
            await refreshRuntime();
            setNotice('发现 '+(found.candidates?.length||0)+' 个 MiMo 候选，请在下方渠道卡确认后导入。');
          }catch(error){setError(String(error?.message??error))}
          finally{setMimoBusy(false)}
+       }
+       async function startMimoBrowser(){
+         if(mimoBusy)return;
+         if(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig)){
+           setError('存在尚未保存的配置草稿，请先保存。');return;
+         }
+         setMimoBusy(true);setError('');
+         try{
+           const res=await fetch(URL+'/channels/mimo/login',{method:'POST',
+             headers:{'content-type':'application/json'},
+             body:JSON.stringify({action:'start',region:mimoRegion})});
+           const data=await res.json();
+           if(!res.ok||!data.ok)throw Error(data.error||'MiMo 会员登录未能启动');
+           setMimoLogin(data.result);
+           setNotice('独立浏览器已启动，请完成小米会员账号登录。');
+         }catch(error){setError(String(error?.message??error))}
+         finally{setMimoBusy(false)}
+       }
+       async function cancelMimoBrowser(){
+         await fetch(URL+'/channels/mimo/login',{method:'POST',
+           headers:{'content-type':'application/json'},body:JSON.stringify({action:'cancel'})}).catch(()=>{});
+         setMimoLogin(null);
        }
        async function addDoubaoCookie(){
          if(doubaoBusy)return;
@@ -1348,17 +1371,17 @@ async function save(){
            ...('enabled' in change?{enabled:change.enabled}:{}),
            ...('resetIgnored' in change?{ignoredIds:[]}:{})}}));
        if(tab==='channels')content=h('div',null,
-         h(Panel,{title:'小米 MiMo · 独立来源'},
-           h('p',{style:css.small},'官方 API Key 可脱离桌面端使用；已登录桌面端可扫描本机引擎。授权成功不等于推理已验收。'),
+         h(Panel,{title:'小米 MiMo Desktop · 会员会话接管'},
+           h('p',{style:css.small},'仅接管已有桌面客户端的会员登录态；确认导入后使用本插件自有授权续期和模型调用，不使用官方 API Key。若会话加密无法读取，将明确提示未发现，不虚报已接入。'),
            h('div',{style:css.line},
-             h('input',{type:'password',autoComplete:'off','aria-label':'MiMo API Key',
-               placeholder:'MiMo 官方 API Key（不保存到配置 JSON）',
-               style:css.input,value:mimoKey,onChange:e=>setMimoKey(e.target.value)}),
-             h('input',{type:'url','aria-label':'MiMo API URL',placeholder:'MiMo API Base URL',
-               style:css.input,value:mimoBase,onChange:e=>setMimoBase(e.target.value)}),
-             h(Button,{kind:'primary',disabled:mimoBusy||mimoKey.trim().length<8,
-               onClick:connectMimoKey},mimoBusy?'处理中…':'接入独立 API Key'),
-             h(Button,{disabled:mimoBusy,onClick:scanMimo},'扫描本机 MiMo 登录态'))),
+             h(Button,{disabled:mimoBusy,onClick:scanMimo},mimoBusy?'扫描中…':'复用本机已登录会话'),
+             h('select',{'aria-label':'MiMo 会员账号区域',style:css.input,value:mimoRegion,
+               onChange:e=>setMimoRegion(e.target.value)},
+               ...[['cn','中国大陆'],['sgp','新加坡'],['ams','欧洲'],['ru','俄罗斯'],['in','印度']]
+                .map(([value,label])=>h('option',{key:value,value},label))),
+             h(Button,{kind:'primary',disabled:mimoBusy||mimoLogin?.status==='waiting',
+               onClick:startMimoBrowser},mimoLogin?.status==='waiting'?'等待会员授权…':'自主浏览器登录'),
+             mimoLogin?.status==='waiting'?h(Button,{onClick:cancelMimoBrowser},'取消授权'):null)),
                    h(Panel,{title:'豆包工作 · 独立来源'},
             h('p',{style:css.small},'扫码登录由本插件单独启动浏览器并捕获登录态；各账号 Cookie 独立保存。仅开放已验证的普通对话模型，工作任务与每日领取不虚报成功。'),
             h('div',{style:css.line},
