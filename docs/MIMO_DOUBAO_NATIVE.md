@@ -6,8 +6,7 @@
 
 ## MiMo：多路并行、不能只认定一种
 
-1. 官方开放平台 API Key / Token Plan：`own_mimo` 独立凭据、显式密钥接入/本机 `auth.json` 授权复制、模型枚举、OpenAI 兼容流式推理；桌面端关闭后仍能使用（前提是官方密钥有效）。
-2. 桌面 SSO 引擎：独立发现官方 `Xiaomi MiMo.exe` 及随机端口，为聚合路由创建隔离标签的短期本机令牌；只触发于显式候选接管，依赖官方桌面客户端运行，不依赖原 DSH MiMo 插件。
+1. 官方开放平台 API Key / Token Plan：`own_mimo` 独立凭据、显式密钥接入、`MIMO_API_KEY`/`MIMO_BASE_URL` 环境变量（需用户确认后复制到私有凭据库）、本机 `auth.json` 授权复制、模型枚举、OpenAI 兼容流式推理；桌面端关闭后仍能使用（前提是官方密钥有效）。2. 桌面 SSO 引擎：独立发现官方 `Xiaomi MiMo.exe` 及随机端口，为聚合路由创建隔离标签的短期本机令牌；只触发于显式候选接管，依赖官方桌面客户端运行，不依赖原 DSH MiMo 插件。
 3. 自主 SSO/Passport、桌面会话安全转移/续期：**开放路线，尚待基于新开源或官方协议继续自研和真实验证**，不能以某个插件的“关闭客户端后失效”当作其它方案都无效的证明。
 
 来源：`guiling875/dsh-mimo-connect`（MIT），独立派生实现保留在 `src/channels/mimo-engine.mjs`、`src/channels/mimo.mjs`，`LICENSES/dsh-mimo-connect-MIT.txt`。

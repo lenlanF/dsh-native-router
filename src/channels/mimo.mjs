@@ -25,6 +25,12 @@ function normalizedBase(input=DEFAULT_BASE){
  return url.href.replace(/\/+$/,'');
 }
 function scanLocalKey(env){
+ // Independently configured Open Platform keys take precedence over desktop data.
+ // Discovery is read-only: importing still requires the user's explicit approval.
+ if(typeof env.MIMO_API_KEY==='string'&&env.MIMO_API_KEY.trim().length>=8){
+  try{return {kind:'api',key:env.MIMO_API_KEY.trim(),
+   baseUrl:normalizedBase(env.MIMO_BASE_URL||DEFAULT_BASE),source:'environment'}}catch{}
+ }
  const home=homedir();
  const dirs=[
   env.MIMOCODE_HOME,
@@ -165,12 +171,13 @@ export function createMimoDriver({vault,env=process.env,fetchImpl=fetch,
  async function discover(){
   pending.clear();const list=[];
   const credential=localKeyReader(env);
-  if(credential?.kind==='api'){
-   const candidateId=fingerprint('api',credential.key+'\0'+credential.baseUrl);
-   pending.set(candidateId,{...credential});
-   list.push({id:candidateId,label:'MiMo 桌面端 API Key（可独立运行）',source:'mimo-local-key'});
-  }
-  const processes=await findDesktop();
+   if(credential?.kind==='api'){
+    const candidateId=fingerprint('api',credential.key+'\0'+credential.baseUrl);
+    pending.set(candidateId,{...credential});
+    const fromEnv=credential.source==='environment';
+    list.push({id:candidateId,label:fromEnv?'MiMo 环境变量 API Key（独立运行）':'MiMo 桌面端 API Key（独立运行）',
+     source:fromEnv?'mimo-environment-key':'mimo-local-key'});
+   }  const processes=await findDesktop();
   if(processes.length){
    const candidateId=fingerprint('engine','local-desktop');
    pending.set(candidateId,{kind:'engine'});

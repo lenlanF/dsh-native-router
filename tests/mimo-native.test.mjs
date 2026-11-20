@@ -91,6 +91,20 @@ test('MiMo independently entered key never appears in config or public account s
   center.stop();
  }finally{rmSync(dir,{recursive:true,force:true})}
 });
+test('MiMo environment key works without a desktop client or local auth file',async()=>{
+ const keys=new Map();
+ const vault={set:async(k,v)=>keys.set(k,v),resolve:async k=>({value:keys.get(k)})};
+ const driver=createMimoDriver({vault,env:{MIMO_API_KEY:'sk-environment-mi-mo',MIMO_BASE_URL:'https://api.xiaomimimo.com/v1'},
+  findDesktop:async()=>[],fetchImpl:async()=>new Response(JSON.stringify({data:[{id:'mimo-v2-flash'}]}),{status:200})});
+ const candidates=await driver.discover();
+ assert.equal(candidates.length,1);
+ assert.equal(candidates[0].source,'mimo-environment-key');
+ assert.equal(keys.size,0,'discovery must remain read-only');
+ await assert.rejects(driver.importCandidate({candidateId:candidates[0].id,consent:false}),/approval/i);
+ const owned=await driver.importCandidate({candidateId:candidates[0].id,consent:true});
+ assert.equal((await driver.listModels({account:account(owned)}))[0].id,'mimo-v2-flash');
+ assert.equal(keys.size,1);
+});
 test('MiMo manual API Key rejects non-HTTPS and malformed credentials',async()=>{
  const {driver}=fixtures();
  await assert.rejects(driver.addCredential({apiKey:'short'}),/invalid/i);
