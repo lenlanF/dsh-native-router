@@ -347,7 +347,7 @@ test('WorkBuddy onboarding: approved provider activates directly without pretend
  await rig.init();
   rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
    assert.equal(rig.find(rig.render(),'button','查看待接入渠道').length,0); let page=rig.render();
-  assert.match(rig.flatten(page).join(' '),/腾讯 WorkBuddy \/ CodeBuddy .*已接入/); const add=rig.find(page,'button','配置此渠道');
+   assert.match(rig.flatten(page).join(' '),/腾讯 WorkBuddy \/ CodeBuddy .*适配器就绪 · 账号待验证/); const add=rig.find(page,'button','配置此渠道');
  assert.equal(add.length,1);
  add[0].props.onClick();
  page=rig.render();
@@ -375,7 +375,7 @@ test('CodeArts custom account channel is configurable from the common account ov
    assert.equal(rig.find(rig.render(),'button','查看待接入渠道').length,0); let page=rig.render();
  const text=rig.flatten(page).join(' ');
  assert.match(text,/华为云 CodeArts/);
-  assert.match(text,/华为云 CodeArts .*已接入/); assert.ok(rig.find(page,'button','配置此渠道').length>=1);
+   assert.match(text,/华为云 CodeArts .*适配器就绪 · 账号待验证/); assert.ok(rig.find(page,'button','配置此渠道').length>=1);
  assert.equal(rig.cfg.accounts.length,3,'channel opening cannot create accounts silently');
 });
 test('isolated source account console explicitly runs upstream login, poll, refresh and guarded logout',async()=>{

@@ -9,6 +9,8 @@ import {ownedPrivateId} from './channels/private-owned.mjs';
 import {workbuddyOwnedId} from './workbuddy-vault-adoption.mjs';
 import {privatePackOwnedId} from './private-pack-adoption.mjs';
 import {ownCredentialRef} from './credential-ref.mjs';
+import {publicAccountName} from './account-facts.mjs';
+
 
 export function createAccountAdoption({configStore,originalSource,ownedPack,adapter,
  makeCredentialRef,installedInventory,privateOwnedAdoption,privatePackAdoption,workbuddyVaultAdoption}={}){
@@ -107,7 +109,9 @@ export function createAccountAdoption({configStore,originalSource,ownedPack,adap
    const accounts=account?now.accounts:[...now.accounts,{
     id:ownId,providerId:ownedProviderId,credentialRef:'driver:'+ownedProviderId+':'+ownId,
     enabled:true,weight:1,
-    autoCheckin:SOURCE_DAILY_SIGNIN_PROVIDERS.includes(providerId)}];
+     autoCheckin:SOURCE_DAILY_SIGNIN_PROVIDERS.includes(providerId),
+     ...(publicAccountName({nickname:copy.nickname})?
+       {displayName:publicAccountName({nickname:copy.nickname})}:{})}];
    const routes=now.routes;
    const next={...now,providers,accounts,routes,
     sessionReuse:{...now.sessionReuse,

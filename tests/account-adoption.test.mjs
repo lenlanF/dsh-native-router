@@ -61,7 +61,8 @@ test('owner-consented account adoption stores a distinct private encrypted-vault
  assert.equal(r.cfg.routes.length,1,'Owner-approved migration must not create a chain');
  assert.equal(r.cfg.routes[0].tiers.length,1,'Existing user chain must not be mutated');
  assert.equal(r.cfg.accounts.length,1);
- assert.equal(r.cfg.accounts[0].providerId,'own_qoder');
+  assert.equal(r.cfg.accounts[0].providerId,'own_qoder');
+  assert.equal(r.cfg.accounts[0].displayName,'Original Qoder');
  assert.equal(r.cfg.accounts[0].credentialRef,'driver:own_qoder:'+sourceAccountOpaqueId('qoder',r.entries[0].id));
  const dest=ownedAdoptionIdentity('qoder','qoder-original-01').credentialName;
  assert.equal(r.credentials.get(dest),'TOP_SECRET_ACCOUNT_TOKEN');

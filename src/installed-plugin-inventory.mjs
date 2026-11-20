@@ -37,7 +37,7 @@ function loomyCredential(session,record={}){
 }
 const discovered=(providerId,name,origin,key,index)=>({
  providerId,providerName:name,source:origin,accountId:privateId(providerId,key),
- label:name+' · 本机账号 '+index,
+  label:name+' · 名称待获取',
  credentialDetected:true,loginVerified:false,portable:false,
  state:'private_authorization_unverified',
  reason:'原插件私有授权，当前不支持安全地直接转为内置渠道账号',

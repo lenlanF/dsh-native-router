@@ -4,6 +4,8 @@
 // the original plugin's account or credential.
 import {createHash} from 'node:crypto';
 import {SOURCE_PACK_PROVIDERS} from './embedded-pack.mjs';
+import {publicAccountName} from './account-facts.mjs';
+
 
 const SUPPORTED=new Set(SOURCE_PACK_PROVIDERS);
 const safeId=x=>typeof x==='string'&&/^[A-Za-z][A-Za-z0-9_-]{0,99}$/.test(x);
@@ -38,7 +40,8 @@ export async function adoptPortableAccount({providerId,sourceAccountId,source,ow
     return {state:'conflict'};
    const existing=await credentials.resolve(privateRef);
    return typeof existing?.value==='string'&&existing.value.length>0
-     ?{state:'already_owned',accountId:identity.accountId,providerId}
+      ?{state:'already_owned',accountId:identity.accountId,providerId,
+         nickname:publicAccountName(collisions[0])}
      :{state:'unavailable'};
   }
   const first=await source.portableCredentialSource(providerId,sourceAccountId);
@@ -66,7 +69,7 @@ export async function adoptPortableAccount({providerId,sourceAccountId,source,ow
     throw Error('Private account identity changed');
    await ownPool.addAccount({id:identity.accountId,provider:providerId,
     credentialRef:identity.credentialName,
-    nickname:typeof first.nickname==='string'?first.nickname.slice(0,64):providerId,
+     nickname:publicAccountName({nickname:first.nickname}),
     enabled:true,createdAt:Date.now(),refreshable:first.refreshable===true});
    added=true;
   }finally{
@@ -78,7 +81,8 @@ export async function adoptPortableAccount({providerId,sourceAccountId,source,ow
   const saved=await credentials.resolve(privateRef);
   if(own.length!==1||typeof saved?.value!=='string'||!saved.value)
    return {state:'unconfirmed'};
-  return {state:'adopted',accountId:identity.accountId,providerId};
+   return {state:'adopted',accountId:identity.accountId,providerId,
+     nickname:publicAccountName(own[0])};
  }catch{return {state:'unavailable'}}
  finally{inProgress.delete(key)}
 }

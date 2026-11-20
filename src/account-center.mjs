@@ -81,7 +81,8 @@ export function createAccountCenter({
           const balance=publicBalance(live);
           return {id:account.id,providerId:account.providerId,providerName:provider.name,
             ...(name?{nickname:name}:{}),
-            ...balance,
+             ...balance,
+             modelInferenceVerifiedAt:Number.isFinite(live.modelInferenceVerifiedAt)&&live.modelInferenceVerifiedAt>0?live.modelInferenceVerifiedAt:null,
             upstreamCheckinDate:live.checkinDate??null,
             upstreamCheckinOutcome:live.checkinOutcome??null,
             upstreamCheckinSource:live.checkinDate?'own-driver-live':'unknown',
@@ -207,7 +208,8 @@ export function createAccountCenter({
    if(!Array.isArray(candidates))throw Error('Discovery adapter returned invalid candidates');
    // No secrets or filesystem details are handed to the browser.
    const publicCandidates=candidates.slice(0,50).map(row=>({
-     id:String(row.id??'').slice(0,80),label:String(row.label??'').slice(0,100),
+      id:String(row.id??'').slice(0,80),
+      label:publicAccountName({label:row.label})||'名称待获取',
      source:String(row.source??'').slice(0,80),requiresConsent:true,
    }));
    discoverCache.set(providerId,{at:now(),ids:new Set(publicCandidates.map(x=>x.id))});
@@ -224,7 +226,14 @@ export function createAccountCenter({
    if(!provider||typeof driver?.importCandidate!=='function'){
      const e=new Error('渠道未提供安全的账号导入驱动');e.status=501;throw e;
    }
-   const result=await driver.importCandidate({provider,candidateId,consent:true});
+    // A reference to another DSH plugin's account pool is NOT an independent
+    // takeover. Keep discovery read-only; users must explicitly migrate the
+    // credential into own_* via account-adoption or log in here directly.
+    if(candidateId.startsWith('sp_')&&!providerId.startsWith('own_')){
+      const e=new Error('仅发现来源账号，不能以旧插件引用冒充独立接管；请使用账号接管或在本插件自主登录');
+      e.status=409;throw e;
+    }
+    const result=await driver.importCandidate({provider,candidateId,consent:true});
    if(!result||typeof result!=='object'||typeof result.id!=='string'||
      typeof result.credentialRef!=='string'||!result.credentialRef.startsWith('driver:'+providerId+':')){
      throw new Error('渠道导入返回无效的凭据引用，已拒绝写入');

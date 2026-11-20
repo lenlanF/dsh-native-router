@@ -160,34 +160,35 @@ test('source channel through native-router chain delivers DSH stream with no sep
  assert.equal(output.at(-1).reason.kind,'stop');
  assert.equal(rig.calls.length,1);
 });
-test('account console discovery / consent import stays disabled, then routes through approved source reference',async()=>{
- const rig=mockSource([{id:'qoder-primary',providerId:'qoder',nickname:'Primary',enabled:true}]);
- const driver=createSourceChannelDriver({providerId:'qoder',embeddedPack:rig.embeddedPack});
- let state=normalizeConfig({embeddedPack:{enabled:true},providers:[{id:'qoder',
-  name:'Qoder',protocol:'native-channel',enabled:true,models:['qoder-chat']}]});
+test('account console only imports independently owned channel-pool accounts',async()=>{
+  const rig=mockSource([{id:'qoder-primary',providerId:'qoder',nickname:'Primary',enabled:true}]);
+  const driver=createSourceChannelDriver({providerId:'qoder',
+    accountProviderId:'own_qoder',embeddedPack:rig.embeddedPack});
+  let state=normalizeConfig({embeddedPack:{enabled:true},providers:[{id:'own_qoder',
+   name:'Qoder',protocol:'native-channel',enabled:true,models:['qoder-chat']}]});
  let invalidations=0;
  const store={get:()=>structuredClone(state),replace:input=>{
   state=normalizeConfig(input);return structuredClone(state);
  }};
- const center=createAccountCenter({configStore:store,drivers:new Map([['qoder',driver]]),
-  adapter:{invalidateCatalog(){invalidations++}}});
- const discovered=await center.discover('qoder');
+  const center=createAccountCenter({configStore:store,drivers:new Map([['own_qoder',driver]]),
+   adapter:{invalidateCatalog(){invalidations++}}});
+  const discovered=await center.discover('own_qoder');
  assert.equal(discovered.candidates.length,1);
  assert.equal(discovered.imported,0);
  assert.equal(store.get().accounts.length,0);
- const imported=await center.importCandidate('qoder',discovered.candidates[0].id);
+  const imported=await center.importCandidate('own_qoder',discovered.candidates[0].id);
  assert.equal(imported.enabled,true);
  assert.equal(store.get().accounts[0].enabled,true);
  assert.equal(store.get().accounts[0].autoCheckin,false);
- assert.match(store.get().accounts[0].credentialRef,/^driver:qoder:sp_[a-f0-9]{24}$/);
+  assert.match(store.get().accounts[0].credentialRef,/^driver:own_qoder:sp_[a-f0-9]{24}$/);
  assert.doesNotMatch(JSON.stringify(store.get()),/qoder-primary|SECRET/);
- await assert.rejects(()=>center.importCandidate('qoder',discovered.candidates[0].id));
+  await assert.rejects(()=>center.importCandidate('own_qoder',discovered.candidates[0].id));
  assert.equal(store.get().accounts[0].enabled,true);
  assert.ok(invalidations>=1);
  const configured=store.get();
  state=normalizeConfig({...configured,routes:[{id:'sourceRoute',name:'Source',
-  mode:'priority',enabled:true,tiers:[{providerId:'qoder',model:'qoder-chat'}]}]});
- const adapter=createNativeRouterAdapter({configStore:store,channelDrivers:new Map([['qoder',driver]])});
+   mode:'priority',enabled:true,tiers:[{providerId:'own_qoder',model:'qoder-chat'}]}]});
+  const adapter=createNativeRouterAdapter({configStore:store,channelDrivers:new Map([['own_qoder',driver]])});
  const events=[];
  for await(const event of adapter.stream({model:'chain:sourceRoute',
   messages:[{role:'user',content:[{type:'text',text:'Hello'}]}]}))events.push(event);

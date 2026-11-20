@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$Version='1.0.0-rc.24',
+  [string]$Version='1.0.0-rc.25',
   [string]$NodePath='E:\Temp\dsh-native-router-isolated-alpha11-node-runtime\package\bin\node.exe')
 $ErrorActionPreference='Stop'; $project=([IO.DirectoryInfo](Resolve-Path (Join-Path $PSScriptRoot '..')).Path).FullName;$archive=Join-Path $project ('dsh-native-router-'+$Version+'.tgz')
 if(!(Test-Path -LiteralPath $archive -PathType Leaf)){throw 'Audited local .tgz is required first'}

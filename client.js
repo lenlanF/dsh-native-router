@@ -542,8 +542,15 @@ window.__ModuleLoader__.load({
                 c.name+' · '+accounts.filter(a=>a.providerId===c.id).length+' 个账号'))))),
         visibleChannels.map(channel=>{
           const members=accounts.filter(a=>a.providerId===channel.id);
-           const pool=(data.pools||[]).find(x=>x.providerId===channel.id);          return h(Panel,{key:channel.id,title:channel.name,
-             actions:h('span',{style:css.small},members.length+' 个账号 · '+              (channel.adapterReady?'已接入':'待接入'))},
+           const pool=(data.pools||[]).find(x=>x.providerId===channel.id);
+           const inferred=members.some(a=>Number.isFinite(a.modelInferenceVerifiedAt)
+             &&a.modelInferenceVerifiedAt>0);
+           const authenticated=members.some(a=>a.connectionState==='online');
+           const readiness=!channel.adapterReady?'适配器未就绪':
+             inferred?'模型推理已实测':
+             authenticated?'账号鉴权通过 · 推理待实测':'适配器就绪 · 账号待验证';
+           return h(Panel,{key:channel.id,title:channel.name,
+             actions:h('span',{style:css.small},members.length+' 个账号 · '+readiness)},
             h('div',{style:css.line},
               h('span',{style:css.small},'登录方式：'+(channel.authMethod||'由来源管理')),
               pool?h('span',{style:css.small},'自动候选 '+pool.enabled+' · 已验证 '+pool.verified):null),
@@ -560,7 +567,11 @@ window.__ModuleLoader__.load({
                        '原来源引用 · 尚未独立接管':'来源待确认'),                  account.backupSources?.length?h('span',{style:css.mutedTag},
                    '另有 '+account.backupSources.length+' 个同账号备援'):null,
                  account.balanceCheckedAt?h('span',{style:css.small},
-                   '余额更新 '+new Date(account.balanceCheckedAt).toLocaleString()):null),
+                    '余额更新 '+new Date(account.balanceCheckedAt).toLocaleString()):null,
+                  account.modelInferenceVerifiedAt?h('span',{style:css.mutedTag},
+                    '模型实测成功 · '+new Date(account.modelInferenceVerifiedAt).toLocaleString()):
+                    account.connectionState==='online'?h('span',{style:css.small},
+                      '只读鉴权通过，模型推理尚未实测'):null),
                h('div',{style:css.line},
                  account.checkinState?h('span',{style:css.mutedTag},
                    '今日签到：'+(checkinLabels[account.checkinState]||account.checkinState)):null,
@@ -1452,7 +1463,7 @@ window.__ModuleLoader__.load({
            h('div',{style:{minWidth:0}},
              h('h2',{style:css.title},'聚合路由'),
              h('div',{className:'dnr-header-note'},'来源复用 · 账号池 · 模型调度 · 每日签到 · 故障续跑')),
-               h('span',{className:'dnr-version'},'1.0.0-rc.24')),           h('div',{className:'dnr-layout'},            h('label',{className:'dnr-mobile-nav'},              h('span',null,'设置页面'),              h('select',{'aria-label':'选择设置页面',value:activeNav,                onChange:e=>setTab(e.target.value)},                navGroups.map(group=>h('optgroup',{key:group.name,label:group.name},
+               h('span',{className:'dnr-version'},'1.0.0-rc.25')),           h('div',{className:'dnr-layout'},            h('label',{className:'dnr-mobile-nav'},              h('span',null,'设置页面'),              h('select',{'aria-label':'选择设置页面',value:activeNav,                onChange:e=>setTab(e.target.value)},                navGroups.map(group=>h('optgroup',{key:group.name,label:group.name},
                   group.ids.map(id=>h('option',{key:id,value:id},tabs.find(x=>x[0]===id)?.[1]||id)))))),            h('nav',{className:'dnr-rail','aria-label':'聚合路由设置导航'},
               navGroups.map(group=>h('div',{key:group.name,className:'dnr-nav-group'},
                 h('div',{className:'dnr-group-title'},group.name),

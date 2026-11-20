@@ -150,32 +150,61 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
   const matched=rows.filter(row=>ref(providerId,row.id)===accountRef);
   if(matched.length!==1)throw unable('Upstream account reference is stale or ambiguous','CREDENTIAL');
   return matched[0];
- }
- return {
-  isSourceBridge:true,
+  }
+  const liveFacts=new Map(),inferenceProof=new Map();
+  async function readLiveFacts(account){
+    const selected=await resolve(account);
+    if(!selected.enabled)return {state:'disabled',authVerified:false};
+    if(typeof embeddedPack.readSourceStatuses!=='function')
+      return {state:'unavailable',authVerified:false};
+    // Every request is served by THIS plugin's isolated account pool and
+    // official-channel APIs. Original plugin metadata is never consulted.
+    const remote=await embeddedPack.readSourceStatuses(providerId);
+    const matched=(remote?.state==='ready'&&Array.isArray(remote.accounts)
+      ?remote.accounts:[]).filter(row=>row?.accountId===selected.id);
+    if(matched.length!==1)return {state:'unavailable',authVerified:false};
+    const {accountId,...facts}=matched[0];
+    const result={...facts,state:'ready',
+      checkedAt:remote.checkedAt??Date.now()};
+    liveFacts.set(account.id,result);
+    return result;
+  }
+  return {
+   isSourceBridge:true,
    get runtimeReady(){const status=embeddedPack.status?.();return status?.state==='mounted'
      &&(!Array.isArray(status.channels)||status.channels.includes(providerId))},
-  authMethod:'隔离渠道包来源账号引用（不复制凭据）',
-  async discover(){
-   const rows=await snapshot();
-   return rows.filter(row=>typeof row.id==='string')
-    .map(row=>({id:ref(providerId,row.id),label:row.nickname||providerId+' 来源账号',
-     source:'isolated-channel-pack'}));
-  },
-  async importCandidate({candidateId,consent}={}){
-   if(consent!==true)throw unable('Explicit account import consent is required','CREDENTIAL');
-   const rows=await snapshot();
-   const matched=rows.filter(row=>ref(providerId,row.id)===candidateId);
-   if(matched.length!==1)throw unable('Source account no longer exists','CREDENTIAL');
-   return {id:candidateId,credentialRef:'driver:'+accountProviderId+':'+candidateId};
-  },
-  async listModels({account}={}){
-   await resolve(account);
-   const result=await embeddedPack.listModels(providerId);
-   if(result.state!=='ready')throw unable('Source provider model list is unavailable');
-    return result.models.map(({id})=>({id}));
-   },   // Read-only readiness check for a source owned by THIS plugin. It must
-   // never call the original Loomy/ZCode plugin, login, inference or claims.
+   authMethod:accountProviderId.startsWith('own_')?
+     '本插件自有凭据 · 直接查询渠道官方服务':'渠道账号引用 · 尚未独立接管',
+   accountSnapshot(account){
+     return {...(liveFacts.get(account?.id)??{}),
+       modelInferenceVerifiedAt:inferenceProof.get(account?.id)?.at??null};
+   },
+   async refreshAccountStatus({account}={}){
+     try{return await readLiveFacts(account)}
+     catch{return {state:'unavailable',authVerified:false}}
+   },
+   async discover(){
+     const rows=await snapshot();
+     return rows.filter(row=>typeof row.id==='string')
+       .map(row=>({id:ref(providerId,row.id),
+         label:row.nickname||providerId+' · 名称待获取',
+         source:'isolated-channel-pack'}));
+   },
+   async importCandidate({candidateId,consent}={}){
+     if(consent!==true)throw unable('Explicit account import consent is required','CREDENTIAL');
+     const rows=await snapshot();
+     const matched=rows.filter(row=>ref(providerId,row.id)===candidateId);
+     if(matched.length!==1)throw unable('Source account no longer exists','CREDENTIAL');
+     return {id:candidateId,credentialRef:'driver:'+accountProviderId+':'+candidateId};
+   },
+   async listModels({account}={}){
+     await resolve(account);
+     const result=await embeddedPack.listModels(providerId);
+     if(result.state!=='ready')throw unable('Source provider model list is unavailable');
+     return result.models.map(({id})=>({id}));
+   },
+   // Model directory merely indicates advertised candidates. Account-level
+   // proof requires official provider API, or an actual successful inference.
    async refresh({account}={}){
      try{
        const selected=await resolve(account);
@@ -187,21 +216,18 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
          return {state:'error',message:'独立模型 Provider 尚未正确注册，不能作为可用模型'};
        if(Array.isArray(info.modelAdapterReady)&&!info.modelAdapterReady.includes(providerId))
          return {state:'pending',message:'独立账号已保存，等待本插件模型适配器就绪'};
-        // The reviewed Loomy, CodeArts and ZCode source status methods
-        // require successful authenticated upstream reads. No login mutation.
-        if(['loomy','codearts','zcode'].includes(providerId)
-          &&typeof embeddedPack.readSourceStatuses==='function'){
-          const remote=await embeddedPack.readSourceStatuses(providerId);
-          const matched=(remote?.state==='ready'?remote.accounts:[]).filter(row=>
-            row.accountId===selected.id);
-          if(matched.length===1&&matched[0].authVerified===true)
-            return {state:'online',message:'本插件自有凭据已通过来源只读授权核查；原渠道插件不参与'};
-        }        // A registered model adapter alone is not account-level verification.
-        return {state:'pending',message:'独立账号已就绪，但远端账号鉴权尚未确认；不会持续显示核验中'};
+       const remote=await readLiveFacts(account);
+       if(remote.authVerified===true||inferenceProof.has(account.id))
+         return {state:'online',message:inferenceProof.has(account.id)?
+           '本插件使用自有账号已完成真实模型推理':
+           '本插件凭据通过渠道官方接口鉴权；模型推理尚待单独验证'};
+       return {state:'pending',
+         message:'已建立独立账号，但渠道官方尚未返回可信鉴权结果；不能显示可用'};
      }catch{
        return {state:'error',message:'本插件独立账号不可读取或授权引用已失效'};
      }
    },
+
   async generate({account,model,options={},signal}={}){
    const selected=await resolve(account);
    if(!selected.enabled)throw unable('Source account is disabled','CREDENTIAL');
@@ -218,7 +244,8 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
     const native=await embeddedPack.streamNative(request);
     const output=await collectSourceDshStream(native,{tools:options.tools,signal});
     if(embeddedPack.status?.().state!=='mounted')throw unable('Isolated DSH source was disposed before completion');
-    return output;
+     inferenceProof.set(account.id,{at:Date.now(),model});
+     return output;
    }catch(error){
     // Preserve bounded HTTP status for account/route failover, NEVER raw
     // source error messages (which may contain token paths or credentials).

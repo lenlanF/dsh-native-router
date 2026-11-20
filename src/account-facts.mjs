@@ -2,7 +2,7 @@
 // credentials, or infers an account identity from a nickname.
 const nameSensitive=/\b(?:bearer|wps_sid|access_token|refresh_token|password|client_secret)\b/i;
 const opaqueName=/^(?:sp|pr|wb|ca)_[a-f0-9]{20,}$/i;
-const generatedName=/^(?:账号\s*\d+|account\s*#?\d+|id:.+|.+\s*·\s*独立账号)$/iu;
+const generatedName=/^(?:账号\s*#?\s*\d+|account\s*#?\s*\d+|id:.+|.+\s*[·•-]\s*(?:独立账号|本机账号\s*#?\d+|来源账号)|.+\s*本机账号\s*#?\d+|.+\s*账号\s*#?\d+|.+\s+来源账号)$/iu;
 export function publicAccountName(...sources){
   for(const source of sources){
     if(!source||typeof source!=='object')continue;    for(const key of ['displayName','accountName','username','userName','nickname','label']){

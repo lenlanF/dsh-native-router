@@ -1,7 +1,8 @@
 import {channelPackIsolationReason,channelPackNodeRuntimeReason} from './channel-pack-isolation.mjs';
 import {sourceAccountOpaqueId} from './source-account-ref.mjs';
-import {publicAccountName,upstreamCheckedInToday,credentialPublicIdentity} from './account-facts.mjs';import {installSourceAccountSelection} from './source-account-selection.mjs';
-// The bundled MIT derivative runs INSIDE the DSH Cordis host. No external
+import {publicAccountName,upstreamCheckedInToday} from './account-facts.mjs';
+import {sourceAccountFacts} from './source-account-facts.mjs';
+import {installSourceAccountSelection} from './source-account-selection.mjs';// The bundled MIT derivative runs INSIDE the DSH Cordis host. No external
 // OpenAI gateway, agent-resume daemon or independent check-in scheduler.
 export const SOURCE_PACK_PROVIDERS=Object.freeze([
   'codearts','buddy','workbuddy','lobsterai','qoder','qodercn','trae',
@@ -261,16 +262,15 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
     if(!Array.isArray(rows))throw Error('Invalid upstream account pool');
      const accounts=rows.filter(row=>row&&sourceAllowed(row.provider)
        &&typeof row.id==='string'&&row.id.length>0&&row.id.length<=100).slice(0,200).map(row=>{
-       const rawName=typeof row.nickname==='string'?row.nickname.trim():'';
+        const rawName=publicAccountName({nickname:row.nickname});
        const marker=String(row.credentialRef??'');
        // Distinguish login provenance. Migrated plugin credentials are not
        // user-performed autonomous logins merely because they live in our pool.
        const authorizationSource=marker.startsWith('NATIVE_ROUTER_PRIVATE_PACK_')
          ||row.id.startsWith('nr_')?'adopted':
          marker.startsWith('NATIVE_ROUTER_SOURCE_')?'autonomous':'unclassified';
-       const placeholder=!rawName||rawName===row.id||/ · 独立账号$/.test(rawName);
-       return {id:row.id.replace(/[\u0000-\u001f]/g,'').slice(0,100),
-         providerId:row.provider,nickname:placeholder?'':rawName.slice(0,80),
+        return {id:row.id.replace(/[\u0000-\u001f]/g,'').slice(0,100),
+          providerId:row.provider,nickname:rawName.slice(0,80),
          enabled:row.enabled===true,refreshable:row.refreshable===true,
          authorizationSource,connectionState:'not_checked'};
      });
@@ -545,62 +545,27 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
        .map(row=>[row.accountId??row.id,row]));
      const statusMap=lookup(statuses),balanceMap=lookup(balances),identityMap=lookup(identities);
      const allIds=new Set([...statusMap.keys(),...balanceMap.keys(),...identityMap.keys()]);
-      const credentialMetadata=new Map();
-      // Match only the mounted private pool's exact account IDs. Return public
-      // name/phone metadata only; never return or log resolved DSH credentials.
-      if(nativeOwned&&allIds.size){
-        try{
-          const ownPool=sourcePool(scope);
-          const credentialSvc=scope.credentials??scope.get?.('credentials',false);
-          if(typeof ownPool?.listAllAccounts==='function'&&
-            typeof credentialSvc?.resolve==='function'){
-            const ownRows=await ownPool.listAllAccounts();
-            for(const row of (Array.isArray(ownRows)?ownRows:[]).slice(0,100)){
-              if(row?.provider!==providerId||!allIds.has(row.id)||
-                !/^NATIVE_ROUTER_(?:SOURCE|PRIVATE_PACK)_[A-Z0-9_]+$/.test(
-                  String(row.credentialRef??'')))continue;
-              try{
-                const result=await credentialSvc.resolve(row.credentialRef);
-                if(typeof result?.value!=='string'||result.value.length>65536)continue;
-                const meta=credentialPublicIdentity(JSON.parse(result.value));
-                if(meta.accountName||meta.maskedPhone)credentialMetadata.set(row.id,meta);
-              }catch{}
-            }
-          }
-        }catch{}
-      }
-      if(scope!==mountedScope())return {state:'unavailable',accounts:[]};
+      // The first migration may copy public identity to the owned account
+      // record. Normal operation MUST query OUR channel pack against the
+      // provider API; it must not scrape either the original plugin's saved
+      // profile or infer a login from the credential payload.
+      if(scope!==mountedScope())return {state:'unavailable',accounts:[]};      if(scope!==mountedScope())return {state:'unavailable',accounts:[]};
       const accounts=[];
      for(const accountId of allIds){
-       const status=statusMap.get(accountId)?.status;
-       const exact=status&&typeof status==='object'&&!Array.isArray(status)?status:null;
-       const balance=balanceMap.get(accountId)?.balance;
-       const amount=Number.isFinite(balance?.total)&&balance.total>=0?balance.total:null;
-       const firstPackage=Array.isArray(balance?.packages)?balance.packages.find(p=>
-         typeof p?.unit==='string'&&p.unit.length<=12):null;
-       const unit=firstPackage?.unit||(
-         providerId==='zcode'?'token':providerId==='loomy'||providerId==='codearts'?'积分':'额度');
-        const identity=identityMap.get(accountId);
-        const statusRow=statusMap.get(accountId);
-        const balanceRow=balanceMap.get(accountId);
-         const publicCredential=credentialMetadata.get(accountId);
-         const label=publicAccountName(identity,statusRow,balanceRow,exact,publicCredential);        const validStatus=exact&&typeof exact.active==='boolean';
-        const authVerified=['loomy','codearts','zcode'].includes(providerId)
-          &&(validStatus===true||amount!==null);
-         const rawPhone=identity?.phone??exact?.phone;
-         const phone=typeof rawPhone==='string'&&/^\d{11}$/.test(rawPhone)
-           ?rawPhone.replace(/^(\d{3})\d{4}(\d{4})$/,'$1****$2'):
-           publicCredential?.maskedPhone??null;        const today=new Intl.DateTimeFormat('en-CA',{
+        const statusRow=statusMap.get(accountId),balanceRow=balanceMap.get(accountId);
+        const exact=statusRow?.status&&typeof statusRow.status==='object'
+          &&!Array.isArray(statusRow.status)?statusRow.status:null;
+        const facts=sourceAccountFacts({providerId,identity:identityMap.get(accountId),
+          statusRow,balanceRow,observedAt:Date.now()});
+        const rawPhone=identityMap.get(accountId)?.phone??exact?.phone;
+        const phone=typeof rawPhone==='string'&&/^\d{11}$/.test(rawPhone)
+          ?rawPhone.replace(/^(\d{3})\d{4}(\d{4})$/,'$1****$2'):null;
+        const today=new Intl.DateTimeFormat('en-CA',{
           timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'})
           .format(new Date());
-        accounts.push({accountId,nickname:label,
-          ...(phone?{maskedPhone:phone}:{}),
+        accounts.push({accountId,...facts,nickname:facts.nickname??'',          ...(phone?{maskedPhone:phone}:{}),
           todayCheckedIn:upstreamCheckedInToday(exact,today),
-          active:validStatus?exact.active:null,authVerified,
-         ...(amount!==null?{balance:amount,balanceUnit:unit}:{}),
-         balanceState:amount!==null?'available':
-           balances?'not_returned':'not_supported'});
-     }
+          active:typeof exact?.active==='boolean'?exact.active:null});     }
      return {state:'ready',accounts,checkedAt:Date.now()};
    } function dispose(){    if(disposed)return;
     disposed=true;
@@ -611,11 +576,11 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
     // Cordis inject() allocates a child Fiber. Explicitly remove our callback
     // so its registered adapters, accountPool, timers and effects are disposed
     // when this plugin stops (even if the parent Cordis Context remains alive).
-    const callback=injectedCallback;injectedCallback=null;
-    if(callback&&typeof ctx?.registry?.delete==='function'){
-      try{ctx.registry.delete(callback)}
-      catch{ctx.logger?.warn?.('native-router: source Cordis child scope cleanup failed')}
-    }
-  }
+     const callback=injectedCallback;injectedCallback=null;
+     if(callback&&typeof ctx?.registry?.delete==='function'){
+       try{ctx.registry.delete(callback)}
+       catch{ctx.logger?.warn?.('native-router: source Cordis child scope cleanup failed')}
+     }
+   }
    return {attach,status,listAccounts,listModels,changeAccountEnabled,removeSourceAccount,streamNative,checkinAccount,readSourceStatuses,ownedAdoptionContext,dispose,
      setModelEligibility:fn=>{modelEligibility=typeof fn==='function'?fn:()=>false}};}
