@@ -1,5 +1,6 @@
 [CmdletBinding()]
-param([string]$ExpectedVersion='1.0.0-rc.21')$ErrorActionPreference='Stop'
+param([string]$ExpectedVersion='1.0.0-rc.22')
+$ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 $root=([IO.DirectoryInfo](Resolve-Path (Join-Path $PSScriptRoot '..')).Path).FullName
 $work=[IO.Path]::GetFullPath('E:\Temp')

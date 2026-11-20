@@ -1,5 +1,6 @@
 import {resolveCredential} from './accounts.mjs';
 import {describeChannels,automaticPools} from './channels.mjs';
+import {publicAccountName,publicBalance} from './account-facts.mjs';
 
 const MAX_PROBE_MS=15000, AUTO_VERIFY_MS=15*60*1000, FRESH_MS=30*60*1000;
 function concise(message){return String(message??'').replace(/(?:Bearer\s+|sk-)[\w.~+-]{12,}/gi,'[REDACTED]').slice(0,160)}
@@ -7,7 +8,7 @@ function accountNotFound(id){const e=new Error('Account not configured: '+String
 export function createAccountCenter({
  configStore,adapter,drivers=new Map(),fetchImpl=fetch,env=process.env,vault,now=()=>Date.now(),
   getSourceStatus=()=>({state:'unavailable'}),verificationStore,autoVerifyMs=AUTO_VERIFY_MS,
-  publicMetadataFor=()=>null,
+  publicMetadataFor=()=>null,readOnlyTimeoutMs=8000,readOnlyConcurrency=4,
 }={}){
   if(!configStore?.get||!configStore?.replace)throw Error('ConfigStore must support get and replace');
   const checks=new Map(),pending=new Set(),discoverCache=new Map();
@@ -68,21 +69,20 @@ export function createAccountCenter({
        const provider=cfg.providers.find(p=>p.id===account.providerId);
        const driver=driverFor(provider.id);
          const check=statusMap.get(account.id);
-         const original=publicMetadataFor(account)??{};
-         const live=typeof driver?.accountSnapshot==='function'
-           ?driver.accountSnapshot(account)??{}:{};
-         const balance=Number.isFinite(live.balance)&&live.balance>=0?live.balance:
-           Number.isFinite(original.balance)&&original.balance>=0?original.balance:null;
-         return {id:account.id,providerId:account.providerId,providerName:provider.name,
-           ...(account.displayName||original.displayName||live.displayName?
-             {nickname:account.displayName||original.displayName||live.displayName}:{}),
-           ...(balance!==null?{balance,balanceUnit:'积分',
-             balanceCheckedAt:live.balanceCheckedAt??original.balanceCheckedAt??null}:{}),
-           balanceState:balance!==null?'available':'not_checked',
-           upstreamCheckinDate:live.checkinDate??original.checkinDate??null,
-           upstreamCheckinOutcome:live.checkinOutcome??original.checkinOutcome??null,
-           upstreamCheckinSource:live.checkinDate?'live-readonly':
-             original.checkinDate?'original-plugin-cache':'unknown',
+          // One failing source adapter must never make the entire account page fail.
+          let original={},live={};
+          try{original=publicMetadataFor(account)??{}}catch{}
+          try{live=typeof driver?.accountSnapshot==='function'?
+            driver.accountSnapshot(account)??{}:{}}catch{}
+          const name=publicAccountName(live,original,account);
+          const balance=publicBalance(live,original);
+          return {id:account.id,providerId:account.providerId,providerName:provider.name,
+            ...(name?{nickname:name}:{}),
+            ...balance,
+            upstreamCheckinDate:live.checkinDate??original.checkinDate??null,
+            upstreamCheckinOutcome:live.checkinOutcome??original.checkinOutcome??null,
+            upstreamCheckinSource:live.checkinDate?'live-readonly':
+              original.checkinDate?'original-plugin-cache':'unknown',
            enabled:account.enabled&&provider.enabled,configuredEnabled:account.enabled,weight:account.weight,
           reusedExistingSession:cfg.sessionReuse?.linkedIds?.includes(account.id)===true,
           origin:originOf(account,cfg),
@@ -273,26 +273,47 @@ export function createAccountCenter({
   }finally{autoBusy=false}
   return {attempted};
  }
-  async function refreshReadOnly({force=false}={}){
-    const cfg=configStore.get(),results=[];
-    for(const account of cfg.accounts){
-      const provider=cfg.providers.find(p=>p.id===account.providerId);
-      const driver=driverFor(account.providerId);
-      if(!account.enabled||!provider?.enabled||typeof driver?.refreshAccountStatus!=='function')
-        continue;
-      try{results.push(await driver.refreshAccountStatus({account,force}))}
-      catch{results.push({state:'unavailable'})}
-    }
-    return results;
-  }
+   async function refreshReadOnly({force=false}={}){
+     const cfg=configStore.get();
+     const targets=cfg.accounts.filter(account=>{
+       const p=cfg.providers.find(row=>row.id===account.providerId);
+       return account.enabled&&p?.enabled===true
+         &&typeof driverFor(account.providerId)?.refreshAccountStatus==='function';
+     }).slice(0,120);
+     const results=new Array(targets.length);
+     let cursor=0;
+     // Bounded parallelism avoids N * timeout UI stalls and a burst of
+     // upstream checks. Errors are isolated to the affected account.
+     async function worker(){
+       while(cursor<targets.length&&!disposed){
+         const at=cursor++,account=targets[at];
+         const controller=new AbortController();
+         let timeout;
+         try{
+           results[at]=await Promise.race([
+             Promise.resolve().then(()=>driverFor(account.providerId)
+               .refreshAccountStatus({account,force,signal:controller.signal})),
+             new Promise(resolve=>{timeout=setTimeout(()=>{
+               controller.abort();resolve({state:'unavailable'});
+              },Math.min(30000,Math.max(10,readOnlyTimeoutMs)));}),
+           ]);
+         }catch{results[at]={state:'unavailable'}}
+         finally{clearTimeout(timeout)}
+       }
+     }
+      await Promise.all(Array.from({length:Math.min(
+        Math.max(1,readOnlyConcurrency),12,targets.length)},()=>worker()));
+     return results.filter(Boolean);
+   }
    function start(){
      // One-time preservation of nonsecret original account labels after a
      // verified same-ID adoption. Never write original cookie or credentials.
      const initial=configStore.get();
      const accounts=initial.accounts.map(a=>{
-       if(a.displayName||a.providerId!=='own_lingxi')return a;
-       const meta=publicMetadataFor(a);
-       return meta?.displayName?{...a,displayName:meta.displayName}:a;
+        if(a.displayName||a.providerId!=='own_lingxi')return a;
+        let meta=null;
+        try{meta=publicMetadataFor(a)}catch{}
+        return meta?.displayName?{...a,displayName:meta.displayName}:a;
      });
      if(accounts.some((row,i)=>row!==initial.accounts[i])){
        try{configStore.replace({...initial,accounts})}catch{}

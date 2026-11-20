@@ -2,6 +2,7 @@ import {readFileSync,existsSync,mkdirSync,writeFileSync,renameSync,unlinkSync} f
 import {dirname,join} from 'node:path';
 import {defaultConfigPath} from './config.mjs';
 import {createSourceCheckinCenter} from './source-checkins.mjs';
+import {checkinDisplayState,expiredCheckinConfirmation} from './account-facts.mjs';
 
 const MAX_HISTORY=500;
 const STATES=new Set(['success','failed','pending_confirmation','no_task','client_required','unsupported']);
@@ -67,32 +68,36 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
        const upstreamToday=a.upstreamCheckinDate===today;
        const verified=upstreamToday&&['claimed','already'].includes(a.upstreamCheckinOutcome);
        const claimable=upstreamToday&&a.upstreamCheckinOutcome==='claimable';
-       const state=pending.has(a.id)?'running':
-         !implemented?'unsupported':verified?'success':
-         claimable?'not_run':recent?.state??'not_run';
+        const state=checkinDisplayState({recent,now:now(),pending:pending.has(a.id),
+          implemented,confirmed:verified,claimable});
        const sourceName=a.upstreamCheckinSource==='live-readonly'?
          '灵犀上游任务中心':'原灵犀插件同账号签到记录';
        return {...a,autoCheckin:entry.account.autoCheckin===true,
          autoCheckinEffective:cfg.checkin.autoEnabled&&entry.account.autoCheckin===true,
          checkinState:state,checkinAt:recent?.at??a.balanceCheckedAt??null,
-         checkinMessage:verified?sourceName+'确认今日已签到':
-           claimable?'上游今日任务仍可领取，尚未确认签到':
-           recent?.message??(implemented?'今日签到状态尚未核实':'未接入本渠道签到执行器'),
+          checkinMessage:verified?sourceName+'确认今日已签到':
+            expiredCheckinConfirmation(recent,now())?'上次请求已超过20分钟，服务端仍未确认；等待限次复核':
+            claimable?'上游今日任务仍可领取，尚未确认签到':
+            recent?.message??(implemented?'今日签到状态尚未核实':'未接入本渠道签到执行器'),
          checkinSupported:implemented,
        };
     });
      for(const sourceRow of sourceCenter?.snapshot()??[]){
        const existing=accounts.find(item=>item.id===sourceRow.id);
-        if(existing)Object.assign(existing,{checkinSupported:sourceRow.checkinSupported,
+        if(existing)Object.assign(existing,{
+          checkinSupported:sourceRow.checkinSupported,
           checkinAvailable:sourceRow.checkinAvailable,checkinState:sourceRow.checkinState,
           checkinAt:sourceRow.checkinAt,checkinMessage:sourceRow.checkinMessage,
-          autoCheckin:sourceRow.autoCheckin,sourceAccount:true,
+          autoCheckin:sourceRow.autoCheckin,
+          autoCheckinEffective:sourceRow.autoCheckinEffective===true,sourceAccount:true,
           ...(sourceRow.connectionState==='online'?{connectionState:'online'}:{}),
           ...(sourceRow.nickname?{nickname:sourceRow.nickname}:{}),
           ...(Number.isFinite(sourceRow.balance)?{balance:sourceRow.balance,
-            balanceUnit:sourceRow.balanceUnit,balanceCheckedAt:sourceRow.balanceCheckedAt}:{}),
+            ...(sourceRow.balanceUnit?{balanceUnit:sourceRow.balanceUnit}:{}),
+            balanceCheckedAt:sourceRow.balanceCheckedAt}:{}),
           balanceState:sourceRow.balanceState,
-          ...(sourceRow.maskedPhone?{maskedPhone:sourceRow.maskedPhone}:{})});
+          ...(sourceRow.maskedPhone?{maskedPhone:sourceRow.maskedPhone}:{}),
+        });
        else accounts.push(sourceRow);
      }
      const groups=roster.channels.map(c=>{

@@ -1,0 +1,138 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {publicAccountName,publicBalance,checkinDisplayState,
+  expiredCheckinConfirmation,CHECKIN_CONFIRMATION_TIMEOUT_MS} from '../src/account-facts.mjs';
+import {REFERENCE_CHANNELS} from '../src/channels.mjs';
+import {SOURCE_PACK_PROVIDERS} from '../src/embedded-pack.mjs';
+import {createAccountCenter} from '../src/account-center.mjs';
+import {normalizeConfig} from '../src/config.mjs';
+import {mergeAccountSources} from '../src/account-source-view.mjs';
+import {sourceAccountOpaqueId} from '../src/source-account-ref.mjs';
+
+test('every enumerated source uses one read-only identity and balance contract without fabricated credits',()=>{
+  const channels=new Set([...REFERENCE_CHANNELS.map(x=>x.id),...SOURCE_PACK_PROVIDERS,
+    'lingxi','codebuddy','workbuddy-global']);
+  assert.ok(channels.size>=13);
+  for(const providerId of channels){
+    const actualUnit=providerId==='zcode'?'token':
+      providerId==='loomy'?'积分':providerId==='lingxi'?'积分':'upstream-unit';
+    const returned={id:'source-id',username:'Real-'+providerId,
+      balance:42.75,balanceUnit:actualUnit,balanceCheckedAt:1000};
+    assert.equal(publicAccountName(returned,{nickname:'账号 1'}),'Real-'+providerId);
+    const fact=publicBalance(returned);
+    assert.equal(fact.balance,42.75,providerId);
+    assert.equal(fact.balanceUnit,actualUnit,'never rewrite upstream units');
+    assert.equal(fact.balanceCheckedAt,1000);
+    assert.equal(publicBalance({balance:null,balanceUnit:actualUnit}).balanceState,'not_checked');
+    assert.equal('balance' in publicBalance({balance:-1}),false);
+    assert.equal('balance' in publicBalance({balance:NaN}),false);
+    assert.deepEqual(publicBalance({balance:0,balanceUnit:actualUnit}).balance,0);
+  }
+  assert.equal(publicAccountName({nickname:'账号 1'},{nickname:'ZCode · 独立账号'}),'');
+  assert.equal(publicAccountName({nickname:'sp_'+'a'.repeat(24)}),'');
+  assert.equal(publicAccountName({nickname:'My Real Name'}),'My Real Name');
+  assert.equal(publicAccountName({username:'abc',nickname:'obsolete'}),'abc');
+  assert.equal(publicBalance({balanceState:'not_supported'}).balanceState,'not_supported');
+});
+
+test('read-only account driver snapshot is isolated per channel and keeps original units',()=>{
+ const providers=['own_lingxi','own_zcode','own_codearts','own_loomy'];
+ const cfg=normalizeConfig({providers:providers.map(id=>({id,
+   name:id,protocol:'native-channel',models:['test-model']})),
+   accounts:providers.map((providerId,i)=>({id:'mock-'+i,providerId,
+     credentialRef:'driver:'+providerId+':mock-'+i,enabled:true}))});
+ const snapshots=new Map(providers.map((id,i)=>[id,{
+   accountSnapshot(){if(id==='own_loomy')throw Error('unavailable original cache');
+     return {username:'User '+i,balance:i===0?0:125.5,
+       balanceUnit:id==='own_zcode'?'token':id==='own_codearts'?'quota':'积分',
+       balanceCheckedAt:9900,checkinDate:'2026-11-20',
+       checkinOutcome:i===0?'claimed':'unknown'};},
+ }]));
+ const center=createAccountCenter({configStore:{get:()=>structuredClone(cfg),replace(){}},
+   drivers:snapshots,publicMetadataFor:row=>row.providerId==='own_loomy'?
+     {displayName:'Cached Loomy account',balance:5,balanceUnit:'积分'}:{}});
+ const view=center.list();
+ assert.equal(view.accounts.length,4);
+ assert.equal(view.accounts[0].nickname,'User 0');
+ assert.equal(view.accounts[0].balance,0);
+ assert.equal(view.accounts[1].balanceUnit,'token');
+ assert.equal(view.accounts[2].balanceUnit,'quota');
+ assert.equal(view.accounts[3].nickname,'Cached Loomy account');
+ assert.equal(view.accounts[3].balance,5);
+ assert.ok(view.accounts.every(x=>!JSON.stringify(x).includes('secret')));
+});
+
+test('same account/source rank never selects a disabled or unverified backup as available',()=>{
+ const id=sourceAccountOpaqueId('loomy','same');
+ const view=mergeAccountSources({roster:{
+   channels:[{id:'loomy',name:'Loomy'}],
+   accounts:[{id,providerId:'loomy',nickname:'Original session',
+     enabled:true,connectionState:'online',reusedExistingSession:true}]},
+   embeddedAccounts:{accounts:[{providerId:'loomy',id:'same',
+     nickname:'Standalone',authorizationSource:'autonomous',enabled:false}]},
+   sourceRows:[{id,providerId:'loomy',sourceAccount:true,connectionState:'online'}],
+ });
+ assert.equal(view.accounts.length,1);
+ assert.equal(view.accounts[0].activeSource,'reused');
+ assert.equal(view.accounts[0].backupSources.length,1);
+ assert.equal(view.accounts[0].backupSources[0].available,false);
+ assert.equal(view.accounts[0].backupSources[0].configured,false);
+});
+
+test('private pool disable overrides stale verified config and never revives a disabled login',()=>{
+  const providerId='loomy',sourceId='source-1',id=sourceAccountOpaqueId(providerId,sourceId);
+  const view=mergeAccountSources({
+    roster:{channels:[{id:'own_loomy',name:'Loomy'}],accounts:[{
+      id,providerId:'own_loomy',enabled:true,connectionState:'online',
+      origin:{kind:'embedded-account-pool'}}]},
+    embeddedAccounts:{accounts:[{id:sourceId,providerId,
+      authorizationSource:'adopted',enabled:false}]},
+    sourceRows:[{id,sourceAccount:true,providerId,connectionState:'online'}],
+  });
+  assert.equal(view.accounts.length,1);
+  assert.equal(view.accounts[0].enabled,false);
+  assert.equal(view.accounts[0].connectionState,'disabled');
+  assert.equal(view.accounts[0].activeSource,'adopted');
+});
+test('every checkin state has one bounded confirmation rule independent of provider',()=>{
+ const recent={state:'pending_confirmation',at:1000};
+ for(const providerId of ['lingxi','codearts','loomy','zcode','qoder','raccoon']){
+   assert.equal(checkinDisplayState({recent,now:1000+CHECKIN_CONFIRMATION_TIMEOUT_MS-1}),
+     'pending_confirmation',providerId);
+   assert.equal(checkinDisplayState({recent,now:1000+CHECKIN_CONFIRMATION_TIMEOUT_MS+1}),
+     'failed',providerId);
+   assert.equal(checkinDisplayState({recent,confirmed:true,now:1000+99999999}),
+     'success',providerId);
+   assert.equal(checkinDisplayState({recent:{state:'success',at:1000},
+     implemented:false,now:1000+99999999}),'success',providerId);
+   assert.equal(checkinDisplayState({recent,now:1000+99999999,pending:true}),
+     'running',providerId);
+   assert.equal(expiredCheckinConfirmation(recent,1000+99999999),true);
+   assert.equal(checkinDisplayState({recent:{state:'no_task',at:1000}}),'no_task');
+ }
+});
+
+test('slow account read-only probes do not block independent channels or leak errors',async()=>{
+ const providers=['own_lingxi','own_codearts','own_loomy'];
+ const cfg=normalizeConfig({providers:providers.map(id=>({id,name:id,protocol:'native-channel'})),
+   accounts:providers.map((providerId,i)=>({id:'src-'+i,providerId,
+     credentialRef:'driver:'+providerId+':src-'+i,enabled:true}))});
+ let aborted=false,completed=false;
+ const drivers=new Map([
+   ['own_lingxi',{refreshAccountStatus:async({signal})=>{
+     signal.addEventListener('abort',()=>{aborted=true},{once:true});
+     return new Promise(()=>{});
+   }}],
+   ['own_codearts',{refreshAccountStatus:async()=>{throw Error('private connection failure')}}],
+   ['own_loomy',{refreshAccountStatus:async()=>{completed=true;return {state:'ready'}}}],
+ ]);
+ const center=createAccountCenter({configStore:{get:()=>structuredClone(cfg),replace(){}},
+   drivers,readOnlyTimeoutMs:20,readOnlyConcurrency:2});
+ const result=await center.refreshReadOnly({force:true});
+ assert.equal(result.length,3);
+ assert.equal(result.filter(x=>x?.state==='unavailable').length,2);
+ assert.equal(result.filter(x=>x?.state==='ready').length,1);
+ assert.equal(aborted,true);
+ assert.equal(completed,true);
+ assert.doesNotMatch(JSON.stringify(result),/private connection failure/);
+});

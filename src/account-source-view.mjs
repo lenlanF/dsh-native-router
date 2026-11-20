@@ -1,4 +1,5 @@
 import {sourceAccountOpaqueId} from './source-account-ref.mjs';
+import {publicAccountName,publicBalance} from './account-facts.mjs';
 
 // Physical location is not login provenance. A migrated credential stored in the
 // private pool is still an adopted/reused login, NOT a new autonomous OAuth.
@@ -10,7 +11,8 @@ const safeSource=source=>source==='adopted'?'adopted':
 const sourceName=kind=>kind==='adopted'?'原渠道授权接管':
   kind==='autonomous'?'本插件自主登录':kind==='reused'?'本地插件复用':'来源待确认';
 const isIndependent=kind=>kind==='autonomous';
-const sourceScore=row=>(rank[row.connectionState]??0)*10+
+const sourceScore=row=>(row.enabled===true&&row.connectionState==='online'?100:
+  row.enabled===true?(rank[row.connectionState]??0)*10:0)+
   (isIndependent(row.sourceKind)?2:row.sourceKind==='adopted'?1:0);
 export function mergeAccountSources({roster,embeddedAccounts,sourceRows=[],embeddedStatus={}}={}){
  const channelMap=new Map();
@@ -48,16 +50,17 @@ export function mergeAccountSources({roster,embeddedAccounts,sourceRows=[],embed
      localAdopted?'adopted':
      item.origin?.kind==='dsh-account-pool'?'reused':
      item.reusedExistingSession?'reused':'unknown';
-   const status=boundToPack?ownedPool.status:null;
-   const label=status?.nickname||ownedPool?.nickname||item.nickname||item.username||'';
-   add({...item,id:item.id,providerId:id,routeProviderId:item.providerId,
-     sourceKind:kind,
-     nickname:label,maskedPhone:status?.maskedPhone,
+    const status=boundToPack?ownedPool.status:null;
+    const label=publicAccountName(status,ownedPool,item);
+    const reported=publicBalance(status,item);
+    const enabled=item.enabled===true&&(!boundToPack||ownedPool.enabled===true);
+    add({...item,id:item.id,providerId:id,routeProviderId:item.providerId,
+      sourceKind:kind,nickname:label,enabled,
+      ...(status?.maskedPhone?{maskedPhone:status.maskedPhone}:{}),
       origin:boundToPack||localAdopted?{kind,label:sourceName(kind)}:item.origin,
-     connectionState:boundToPack&&status?.connectionState==='online'?'online':item.connectionState,
-     ...(Number.isFinite(status?.balance)?{balance:status.balance,
-       balanceUnit:status.balanceUnit,balanceCheckedAt:status.balanceCheckedAt}:{}),
-     balanceState:status?.balanceState??item.balanceState??'not_checked',
+      connectionState:!enabled?'disabled':
+        boundToPack&&status?.connectionState==='online'?'online':item.connectionState,
+      ...reported,
    },boundToPack?'private:'+id+':'+item.id:'configured:'+item.providerId+':'+item.id);
    if(boundToPack)physicalSeen.add(key({providerId:id,id:item.id}));
  }
@@ -65,15 +68,14 @@ export function mergeAccountSources({roster,embeddedAccounts,sourceRows=[],embed
    if(physicalSeen.has(id))continue;
    const row=source.status,kind=safeSource(source.authorizationSource);
    add({id:source.opaqueId,providerId:source.providerId,routeProviderId:'own_'+source.providerId,
-     providerName:source.providerId,sourceKind:kind,managed:false,
-     nickname:row?.nickname||source.nickname||'',maskedPhone:row?.maskedPhone,
-     enabled:source.enabled===true,configuredEnabled:source.enabled===true,weight:1,
-     connectionState:source.enabled!==true?'disabled':
-       row?.connectionState==='online'?'online':'not_checked',
-     origin:{kind,label:sourceName(kind)},credentialKind:'driver',
-     balanceState:row?.balanceState??'not_checked',
-     ...(Number.isFinite(row?.balance)?{balance:row.balance,
-       balanceUnit:row.balanceUnit,balanceCheckedAt:row.balanceCheckedAt}:{}),
+      providerName:source.providerId,sourceKind:kind,managed:false,
+      nickname:publicAccountName(row,source),
+      ...(row?.maskedPhone?{maskedPhone:row.maskedPhone}:{}),
+      enabled:source.enabled===true,configuredEnabled:source.enabled===true,weight:1,
+      connectionState:source.enabled!==true?'disabled':
+        row?.connectionState==='online'?'online':'not_checked',
+      origin:{kind,label:sourceName(kind)},credentialKind:'driver',
+      ...publicBalance(row,source),
      checkinState:row?.checkinState??'not_run',
    },'private:'+source.providerId+':'+source.opaqueId);
  }
@@ -82,8 +84,9 @@ export function mergeAccountSources({roster,embeddedAccounts,sourceRows=[],embed
    members.sort((a,b)=>sourceScore(b)-sourceScore(a));
    const primary=members[0];
    accounts.push({...primary,activeSource:primary.sourceKind,
-     backupSources:members.slice(1).map(s=>({kind:s.sourceKind,routeProviderId:s.routeProviderId,
-       available:s.enabled===true,state:s.connectionState}))});
+      backupSources:members.slice(1).map(s=>({kind:s.sourceKind,routeProviderId:s.routeProviderId,
+        available:s.enabled===true&&s.connectionState==='online',
+        configured:s.enabled===true,state:s.connectionState}))});
  }
  return {channels:[...channelMap.values()],accounts};
 }

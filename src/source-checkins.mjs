@@ -1,6 +1,7 @@
 import {sourceAccountOpaqueId} from './source-account-ref.mjs';
 import {SOURCE_DAILY_SIGNIN_PROVIDERS,SOURCE_PACK_PROVIDERS} from './embedded-pack.mjs';
 import {todayKey,clockAt} from './checkins.mjs';
+import {publicAccountName,publicBalance,checkinDisplayState,expiredCheckinConfirmation} from './account-facts.mjs';
 
 const supported=new Set(SOURCE_DAILY_SIGNIN_PROVIDERS);const RETRY_DELAY_MS=60*60*1000;
 const MAX_AUTO_ATTEMPTS=3;
@@ -70,20 +71,19 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
           const matches=members.filter(row=>row.sourceAccountId===entry.accountId);
           if(matches.length!==1)continue;
           const row=matches[0];
-           const nickname=(entry.nickname||row.nickname||'').slice(0,80);
            const prior=statusCache.get(row.id);
-           // A same-day authenticated "claimed" result cannot be undone by a
-           // subsequent partial credit-status payload with no check-in field.
+           const nickname=publicAccountName(entry,row,prior);
+           // A same-day authenticated claimed result remains final even if a
+           // later partial response omits the task field.
            const confirmed=entry.todayCheckedIn===true||
              prior?.day===today()&&prior.todayCheckedIn===true;
+           const facts=publicBalance(entry);
            statusCache.set(row.id,{day:today(),checkedAt:now(),nickname,
              todayCheckedIn:confirmed?true:entry.todayCheckedIn===false?false:null,
              active:entry.active===true?true:entry.active===false?false:null,
              authVerified:entry.authVerified===true,
-             balanceState:entry.balanceState==='available'?'available':'not_available',
-             maskedPhone:typeof entry.maskedPhone==='string'?entry.maskedPhone.slice(0,32):null,
-             ...(Number.isFinite(entry.balance)&&entry.balance>=0?{balance:entry.balance,
-               balanceUnit:typeof entry.balanceUnit==='string'?entry.balanceUnit.slice(0,12):'余额'}:{})});
+             ...facts,
+             maskedPhone:typeof entry.maskedPhone==='string'?entry.maskedPhone.slice(0,32):null});
            if(nickname)row.nickname=nickname;
          }      }));
     }
@@ -98,31 +98,29 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
    const verified=statusCache.get(row.id);
    const fresh=verified?.day===today()&&now()-verified.checkedAt<STATUS_TTL_MS*3;
    const report=fresh?verified:null;
-    const oldPending=recent?.state==='pending_confirmation'&&
-      now()-recent.at>20*60*1000;
-    const accountState=pending.has(row.id)?'running':
-      !implemented?'unsupported':
-      verified?.day===today()&&verified.todayCheckedIn===true?'success':
-      recent?.state==='success'?'success':report?.active===false?'no_task':
-      report?.todayCheckedIn===false?'not_run':
-      oldPending?'failed':recent?.state??'not_run';
-   return {id:row.id,providerId:row.providerId,providerName:row.providerId,
-    nickname:row.nickname,enabled:state.enabled&&state.providerEnabled,
-    configuredEnabled:row.enabled,credentialKind:'driver',
-     connectionState:!row.enabled?'disabled':report?.authVerified===true?'online':'not_checked',
-     sourceAccount:true,autoCheckin:state.autoCheckin,    checkinSupported:implemented,checkinAvailable:implemented,
-    checkinState:accountState,checkinAt:report?.checkedAt??recent?.at??null,
-     ...(Number.isFinite(report?.balance)?{balance:report.balance,
-       balanceUnit:report.balanceUnit,balanceCheckedAt:report.checkedAt}:{}),
-     ...(report?.maskedPhone?{maskedPhone:report.maskedPhone}:{}),
-     balanceState:report?.balanceState??'not_checked',
-     checkinMessage:verified?.day===today()&&verified.todayCheckedIn===true?
-       '来源服务已核实今日签到完成':
-       report?.active===false?'来源服务确认今日无签到活动':
-       report?.todayCheckedIn===false?'来源服务确认今日尚未签到':
-       oldPending?'上次请求已超过20分钟，尚无服务端签到确认；后续将限次复核':
-       recent?.message??(implemented?'今日签到状态暂未核实':
-         row.providerId==='raccoon'?'该平台每日积分由服务端自动发放':'该渠道不提供每日签到操作')};
+     const confirmed=verified?.day===today()&&verified.todayCheckedIn===true;
+     const oldPending=expiredCheckinConfirmation(recent,now());
+     // "active" in provider credits.status often means a paid credit plan,
+     // NOT whether a daily sign-in task exists. Never infer no_task from it.
+     const accountState=checkinDisplayState({recent,now:now(),pending:pending.has(row.id),
+       implemented,confirmed,claimable:report?.todayCheckedIn===false});
+    return {id:row.id,providerId:row.providerId,providerName:row.providerId,
+      nickname:row.nickname,enabled:state.enabled&&state.providerEnabled,
+      configuredEnabled:row.enabled,credentialKind:'driver',
+      connectionState:!state.enabled||!state.providerEnabled?'disabled':
+        report?.authVerified===true?'online':'not_checked',
+      sourceAccount:true,autoCheckin:state.autoCheckin,
+      autoCheckinEffective:state.autoCheckin&&configStore.get().checkin.autoEnabled===true,
+      checkinSupported:implemented,checkinAvailable:implemented,
+      checkinState:accountState,checkinAt:report?.checkedAt??recent?.at??null,
+      ...publicBalance(report),
+      ...(report?.maskedPhone?{maskedPhone:report.maskedPhone}:{}),
+      checkinMessage:confirmed?'来源服务已核实今日签到完成':
+        oldPending?'上次请求已超过20分钟，尚无服务端签到确认；后续将限次复核':
+        report?.todayCheckedIn===false?'来源服务确认今日尚未签到':
+        recent?.message??(implemented?'今日签到状态暂未核实':
+          row.providerId==='raccoon'?'该平台每日积分由服务端自动发放':'该渠道不提供每日签到操作'),
+    };
   }); }
  async function run(id,{source='manual'}={}){
   if(stopped){const e=Error('插件已经停止');e.status=503;throw e}
