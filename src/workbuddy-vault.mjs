@@ -5,6 +5,7 @@ import {createHash} from 'node:crypto';
 import {homedir} from 'node:os';
 import {lstatSync,readFileSync,readdirSync} from 'node:fs';
 import {join} from 'node:path';
+import {publicAccountName} from './account-facts.mjs';
 
 const FILENAME=/^[a-f0-9]{24}\.json$/;
 const PUBLIC=/^local_[a-f0-9]{20}$/;
@@ -52,8 +53,7 @@ function readDocument(file,region,expectedName){
    ...('uid' in acct?{uid:String(acct.uid)}:{}),
    ...('uin' in acct?{uin:String(acct.uin)}:{}),
    ...('enterpriseId' in acct?{enterpriseId:String(acct.enterpriseId)}:{})};
-  return {id,region,token};
- }catch{return null}
+   return {id,region,token,label:publicAccountName(acct)}; }catch{return null}
 }
 export function createWorkbuddyVaultInventory({home=homedir()}={}){
  const root=join(home,'.dsh','workbuddy-vault');
@@ -84,7 +84,7 @@ export function createWorkbuddyVaultInventory({home=homedir()}={}){
   if(!region||!PUBLIC.test(String(accountId)))return null;
   const match=rows(region).filter(item=>workbuddyPublicId(region,item.id)===accountId);
   if(match.length!==1)return null;
-  return {providerId,accountId,secret:JSON.stringify(match[0].token)};
- }
+   return {providerId,accountId,secret:JSON.stringify(match[0].token),
+     ...(match[0].label?{label:match[0].label}:{})}; }
  return {discover,readCredential};
 }

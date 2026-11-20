@@ -54,10 +54,9 @@ export function createSessionReuse({configStore,drivers,embeddedPack,adapter,
                ||driverFor(providerId)?.sourceReady===true}))],
    results:lastResult.map(x=>({...x}))};
  }
- async function scan(){
-  if(disposed||!approved())return {...snapshot(),skipped:'disabled'};
-  if(pending)return pending;
-  pending=(async()=>{
+  async function scan({importReferences=false}={}){
+    if(disposed||!approved())return {...snapshot(),skipped:'disabled'};
+    if(pending)return pending;  pending=(async()=>{
     const discovered=[],unverified=[];
    // WorkBuddy's proven desktop auth format is validated inside the existing
    // driver, which re-reads the original file for every authenticated request.
@@ -101,8 +100,17 @@ export function createSessionReuse({configStore,drivers,embeddedPack,adapter,
       providerId:row.providerId,id:row.accountId,method:row.source,
       state:'private_authorization_unverified',
     }))];
-   for(const candidate of discovered.slice(0,MAX_SCAN_RESULTS)){
-    if(disposed||!approved())break;
+    if(!importReferences){
+      // Discovery is not an independent takeover: never auto-register a
+      // host-dependent proxy account via the settings-page scan.
+      lastScanAt=Date.now();
+      lastResult=[...results,...discovered.slice(0,MAX_SCAN_RESULTS).map(row=>({
+        ...row,state:'requires_independent_adoption'
+      }))].slice(-MAX_SCAN_RESULTS);
+      return {...snapshot(),attempted:discovered.length,linked:0,
+        needsOneTimeMigration:discovered.length};
+    }
+    for(const candidate of discovered.slice(0,MAX_SCAN_RESULTS)){    if(disposed||!approved())break;
     const {providerId,id,method}=candidate;
     let cfg=configStore.get();
     if(cfg.sessionReuse.ignoredIds.includes(id)){
@@ -163,23 +171,12 @@ export function createSessionReuse({configStore,drivers,embeddedPack,adapter,
   })().finally(()=>{pending=null});
   return pending;
  }
- function start(){
-  if(timer||disposed||!approved())return stop;
-  timer=setInterval(()=>{void scan().catch(()=>logger?.warn?.(
-   'native-router existing-session scan failed; original desktop credentials unchanged'))},intervalMs);
-  timer.unref?.();
-   void scan().catch(()=>logger?.warn?.('native-router initial reuse scan failed'));
-   // Source pack mounts asynchronously after this Cordis extension starts.
-   // Run one short same-process follow-up so existing signed-in accounts
-   // usually appear immediately, not only on the next periodic scan.
-   startupRetry=setTimeout(()=>{
-     startupRetry=null;
-     if(!disposed)void scan().catch(()=>logger?.warn?.(
-       'native-router post-mount source account reuse scan failed'));
-   },2000);
-   startupRetry.unref?.();
-  return stop;
- }
- function stop(){disposed=true;if(timer){clearInterval(timer);timer=null}if(startupRetry){clearTimeout(startupRetry);startupRetry=null}}
+  function start(){
+    // Deliberately no automatic scan. Existing-plugin discovery is ONLY an
+    // explicitly requested, transitional action; adopted accounts run solely
+    // from this plugin's private credentials. A periodic scan would keep the
+    // previous plugin a hidden runtime dependency, and may revive stale links.
+    return stop;
+   } function stop(){disposed=true;if(timer){clearInterval(timer);timer=null}if(startupRetry){clearTimeout(startupRetry);startupRetry=null}}
  return {scan,snapshot,start,stop};
 }

@@ -1,15 +1,15 @@
 import {resolveCredential} from './accounts.mjs';
 import {describeChannels,automaticPools} from './channels.mjs';
 import {publicAccountName,publicBalance} from './account-facts.mjs';
+import {runtimeOwnership} from './account-runtime-ownership.mjs';
 
 const MAX_PROBE_MS=15000, AUTO_VERIFY_MS=15*60*1000, FRESH_MS=30*60*1000;
 function concise(message){return String(message??'').replace(/(?:Bearer\s+|sk-)[\w.~+-]{12,}/gi,'[REDACTED]').slice(0,160)}
 function accountNotFound(id){const e=new Error('Account not configured: '+String(id).slice(0,80));e.status=404;return e}
 export function createAccountCenter({
  configStore,adapter,drivers=new Map(),fetchImpl=fetch,env=process.env,vault,now=()=>Date.now(),
-  getSourceStatus=()=>({state:'unavailable'}),verificationStore,autoVerifyMs=AUTO_VERIFY_MS,
-  publicMetadataFor=()=>null,readOnlyTimeoutMs=8000,readOnlyConcurrency=4,
-}={}){
+   getSourceStatus=()=>({state:'unavailable'}),verificationStore,autoVerifyMs=AUTO_VERIFY_MS,
+   readOnlyTimeoutMs=8000,readOnlyConcurrency=4,}={}){
   if(!configStore?.get||!configStore?.replace)throw Error('ConfigStore must support get and replace');
   const checks=new Map(),pending=new Set(),discoverCache=new Map();
   let automaticTimer=null,initialTimer=null,autoBusy=false,disposed=false;
@@ -35,8 +35,11 @@ export function createAccountCenter({
    }
  const driverFor=providerId=>drivers instanceof Map?drivers.get(providerId):drivers?.[providerId];
  function originOf(account,cfg){
-  const ref=account.credentialRef,linked=cfg.sessionReuse?.linkedIds?.includes(account.id)===true;
-  if(ref==='driver:workbuddy:'+account.id&&account.id.startsWith('wb_'))
+   const ref=account.credentialRef,linked=cfg.sessionReuse?.linkedIds?.includes(account.id)===true;
+   // Once migrated, original-plugin information is provenance only.
+   if(runtimeOwnership(account)==='owned')
+     return {kind:'independent-owned',label:'聚合路由自有账号 · 授权已独立接管',
+       sourceAvailable:true,loginVerified:false};  if(ref==='driver:workbuddy:'+account.id&&account.id.startsWith('wb_'))
    return {kind:'desktop-session',label:'WorkBuddy / CodeBuddy 桌面客户端 · 只读会话',loginVerified:false};
   if(ref==='driver:codearts:'+account.id&&account.id.startsWith('ca_'))
    return {kind:'desktop-session',label:'CodeArts 本地授权引用',loginVerified:false};
@@ -69,24 +72,23 @@ export function createAccountCenter({
        const provider=cfg.providers.find(p=>p.id===account.providerId);
        const driver=driverFor(provider.id);
          const check=statusMap.get(account.id);
-          // One failing source adapter must never make the entire account page fail.
-          let original={},live={};
-          try{original=publicMetadataFor(account)??{}}catch{}
+          // The account inventory is purely self-owned after migration.
+          // NEVER inspect the installed original plugin while rendering state.
+          let live={};
           try{live=typeof driver?.accountSnapshot==='function'?
             driver.accountSnapshot(account)??{}:{}}catch{}
-          const name=publicAccountName(live,original,account);
-          const balance=publicBalance(live,original);
+          const name=publicAccountName(live,account);
+          const balance=publicBalance(live);
           return {id:account.id,providerId:account.providerId,providerName:provider.name,
             ...(name?{nickname:name}:{}),
             ...balance,
-            upstreamCheckinDate:live.checkinDate??original.checkinDate??null,
-            upstreamCheckinOutcome:live.checkinOutcome??original.checkinOutcome??null,
-            upstreamCheckinSource:live.checkinDate?'live-readonly':
-              original.checkinDate?'original-plugin-cache':'unknown',
-           enabled:account.enabled&&provider.enabled,configuredEnabled:account.enabled,weight:account.weight,
-          reusedExistingSession:cfg.sessionReuse?.linkedIds?.includes(account.id)===true,
-          origin:originOf(account,cfg),
-          credentialKind:account.credentialRef.startsWith('env:')?'env':account.credentialRef.startsWith('driver:')?'driver':'host',
+            upstreamCheckinDate:live.checkinDate??null,
+            upstreamCheckinOutcome:live.checkinOutcome??null,
+            upstreamCheckinSource:live.checkinDate?'own-driver-live':'unknown',
+            enabled:account.enabled&&provider.enabled,configuredEnabled:account.enabled,
+            weight:account.weight,runtimeMode:runtimeOwnership(account),
+             reusedExistingSession:cfg.sessionReuse?.linkedIds?.includes(account.id)===true,
+             origin:originOf(account,cfg),          credentialKind:account.credentialRef.startsWith('env:')?'env':account.credentialRef.startsWith('driver:')?'driver':'host',
          checkedAt:check.at,lastVerifiedAt:check.verifiedAt,
          connectionState:!account.enabled?'disabled':!provider.enabled?'provider_disabled':check.state,
          message:!account.enabled?'此账号已停用':!provider.enabled?'所属渠道已停用':check.message,
@@ -305,19 +307,9 @@ export function createAccountCenter({
         Math.max(1,readOnlyConcurrency),12,targets.length)},()=>worker()));
      return results.filter(Boolean);
    }
-   function start(){
-     // One-time preservation of nonsecret original account labels after a
-     // verified same-ID adoption. Never write original cookie or credentials.
-     const initial=configStore.get();
-     const accounts=initial.accounts.map(a=>{
-        if(a.displayName||a.providerId!=='own_lingxi')return a;
-        let meta=null;
-        try{meta=publicMetadataFor(a)}catch{}
-        return meta?.displayName?{...a,displayName:meta.displayName}:a;
-     });
-     if(accounts.some((row,i)=>row!==initial.accounts[i])){
-       try{configStore.replace({...initial,accounts})}catch{}
-     }
+    function start(){
+      // Runtime startup must NEVER consult original-plugin files, metadata or
+      // account pools. One-time migration belongs to explicit adoption only.
   if(disposed||automaticTimer)return stop;
   automaticTimer=setInterval(()=>void autoCheckDue().catch(()=>{}),Math.max(60000,autoVerifyMs));
   automaticTimer.unref?.();

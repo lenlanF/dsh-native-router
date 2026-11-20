@@ -5,6 +5,7 @@
 import {createHash} from 'node:crypto';
 import {sourceAccountOpaqueId} from './source-account-ref.mjs';
 import {ownCredentialRef} from './credential-ref.mjs';
+import {publicAccountName,credentialPublicIdentity} from './account-facts.mjs';
 
 const SOURCE=Object.freeze({
  loomy:Object.freeze({provider:'loomy',owned:'own_loomy',
@@ -53,20 +54,24 @@ export function createPrivatePackAdoption({inventory,configStore,ownedPack,adapt
    const ref=(await getRef())(credentialName);
    const previous=await pool.listAllAccounts();
    if(!Array.isArray(previous))return {state:'unavailable'};
-   const duplicate=previous.find(row=>row.id===poolId);
-   if(duplicate){
-    if(duplicate.provider!==source.provider||duplicate.credentialRef!==credentialName)
-     return {state:'conflict'};
-    const resolved=await credentials.resolve(ref);
-    if(typeof resolved?.value!=='string'||!resolved.value)return {state:'credentials_missing'};
-   }else{
-    const original=await inventory?.readCredential?.(providerId,accountId);
+    const duplicate=previous.find(row=>row.id===poolId);
+    let migratedName=publicAccountName(duplicate);
+    if(duplicate){
+      if(duplicate.provider!==source.provider||duplicate.credentialRef!==credentialName)
+       return {state:'conflict'};
+      const resolved=await credentials.resolve(ref);
+      if(typeof resolved?.value!=='string'||!resolved.value)return {state:'credentials_missing'};
+      try{migratedName=publicAccountName(
+        credentialPublicIdentity(JSON.parse(resolved.value)),duplicate)}catch{}
+    }else{    const original=await inventory?.readCredential?.(providerId,accountId);
     if(original?.providerId!==providerId||original.accountId!==accountId
      ||typeof original.secret!=='string'||!original.secret)
      return {state:'source_missing_or_changed'};
     let parsed;
-    try{parsed=JSON.parse(original.secret)}catch{return {state:'invalid_source_credential'}}
-    if(source.provider==='loomy'){
+     try{parsed=JSON.parse(original.secret)}catch{return {state:'invalid_source_credential'}}
+     // Read public identity ONCE at migration. The owned runtime never reads
+     // the original plugin again after credentials are saved.
+     migratedName=publicAccountName(original,credentialPublicIdentity(parsed));    if(source.provider==='loomy'){
       if(typeof parsed?.access_token!=='string'||!parsed.access_token)
        return {state:'invalid_source_credential'};
     }else if(typeof parsed?.zcode_jwt!=='string'||!parsed.zcode_jwt
@@ -79,10 +84,9 @@ export function createPrivatePackAdoption({inventory,configStore,ownedPack,adapt
      const current=await pool.listAllAccounts();
      if(!Array.isArray(current)||current.some(row=>row.id===poolId))
       throw Error('Private source account collision');
-     await pool.addAccount({id:poolId,provider:source.provider,
-      credentialRef:credentialName,nickname:source.provider+' · 独立账号',
-      enabled:true,createdAt:Date.now(),refreshable:false});
-     created=true;
+      await pool.addAccount({id:poolId,provider:source.provider,
+       credentialRef:credentialName,nickname:migratedName,
+       enabled:true,createdAt:Date.now(),refreshable:false});     created=true;
     }finally{if(!created)await credentials.unset(ref).catch(()=>{})}
    }
    const cfg=configStore.get();
@@ -97,10 +101,10 @@ export function createPrivatePackAdoption({inventory,configStore,ownedPack,adapt
       ?{...x,models,enabled:true}:x):
      [...cfg.providers,{id:source.owned,name:source.provider+' · 聚合路由自有',
       protocol:'native-channel',enabled:true,models,supportsTools:true}];
-   const accounts=previousAccount?cfg.accounts:[...cfg.accounts,{
+    const accounts=previousAccount?cfg.accounts:[...cfg.accounts,{
       id:opaque,providerId:source.owned,credentialRef:'driver:'+source.owned+':'+opaque,
-      enabled:true,weight:1,autoCheckin:source.checkin}];
-   // No automatic chain synthesis or mutation on account import.
+      enabled:true,weight:1,autoCheckin:source.checkin,
+      ...(migratedName?{displayName:migratedName}:{})}];   // No automatic chain synthesis or mutation on account import.
    const routes=cfg.routes;
    configStore.replace({...cfg,providers,accounts,routes,
     sessionReuse:{...cfg.sessionReuse,

@@ -9,10 +9,11 @@ import {createNativeRouterAdapter} from '../src/adapter.mjs';
 function fixture(original){
  const provider=original==='loomy'?'loomy':'zcode',own='own_'+provider;
  const accountId='local_'+createHash('sha256').update(original).digest('hex').slice(0,20);
- const session=original==='loomy'
-  ?JSON.stringify({access_token:'FAKE_LOOMY_SECRET',userid:'mock-user'})
-  :JSON.stringify({zcode_jwt:'FAKE_ZCODE_JWT',device_mid:'FAKE_UUID'});
- let cfg=normalizeConfig({embeddedPack:{enabled:true},providers:[
+  const session=original==='loomy'
+    ?JSON.stringify({access_token:'FAKE_LOOMY_SECRET',userid:'mock-user',
+      user_name:'Owned Loomy Tester'})
+    :JSON.stringify({zcode_jwt:'FAKE_ZCODE_JWT',device_mid:'FAKE_UUID',
+      account_name:'Owned ZCode Tester'}); let cfg=normalizeConfig({embeddedPack:{enabled:true},providers:[
   {id:original,name:original,protocol:'dsh-host',models:[provider==='loomy'?'spark-x2.6':'GLM-5.3-Flash']}],
   routes:[{id:'existing',name:'Existing',mode:'priority',
    tiers:[{providerId:original,model:provider==='loomy'?'spark-x2.6':'GLM-5.3-Flash'}]}]});
@@ -68,8 +69,10 @@ for(const original of ['loomy','zcode-start-plan']){
   assert.equal(f.writes.length,2);
   assert.equal(f.rows.length,1);
   assert.equal(f.rows[0].provider,f.provider);
-  assert.equal(f.cfg.accounts[0].providerId,f.own);
-  assert.doesNotMatch(JSON.stringify(f.cfg),/FAKE_LOOMY_SECRET|FAKE_ZCODE_JWT|FAKE_UUID/);
+   assert.equal(f.cfg.accounts[0].providerId,f.own);
+   assert.equal(f.cfg.accounts[0].displayName,
+     original==='loomy'?'Owned Loomy Tester':'Owned ZCode Tester');
+   assert.equal(f.rows[0].nickname,f.cfg.accounts[0].displayName);  assert.doesNotMatch(JSON.stringify(f.cfg),/FAKE_LOOMY_SECRET|FAKE_ZCODE_JWT|FAKE_UUID/);
   assert.deepEqual(f.cfg.providers.map(x=>x.id),[original,f.own]);
   assert.equal(f.cfg.routes.find(x=>x.id==='existing').tiers.length,1);
   assert.equal(f.cfg.routes.length,1,'Original user chain must remain unchanged');

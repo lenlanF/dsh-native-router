@@ -55,9 +55,8 @@ export function mergeAccountSources({roster,embeddedAccounts,sourceRows=[],embed
     const reported=publicBalance(status,item);
     const enabled=item.enabled===true&&(!boundToPack||ownedPool.enabled===true);
     add({...item,id:item.id,providerId:id,routeProviderId:item.providerId,
-      sourceKind:kind,nickname:label,enabled,
-      ...(status?.maskedPhone?{maskedPhone:status.maskedPhone}:{}),
-      origin:boundToPack||localAdopted?{kind,label:sourceName(kind)}:item.origin,
+       sourceKind:kind,nickname:label,enabled,
+       runtimeMode:boundToPack?'owned':item.runtimeMode??'linked',      origin:boundToPack||localAdopted?{kind,label:sourceName(kind)}:item.origin,
       connectionState:!enabled?'disabled':
         boundToPack&&status?.connectionState==='online'?'online':item.connectionState,
       ...reported,
@@ -69,9 +68,8 @@ export function mergeAccountSources({roster,embeddedAccounts,sourceRows=[],embed
    const row=source.status,kind=safeSource(source.authorizationSource);
    add({id:source.opaqueId,providerId:source.providerId,routeProviderId:'own_'+source.providerId,
       providerName:source.providerId,sourceKind:kind,managed:false,
-      nickname:publicAccountName(row,source),
-      ...(row?.maskedPhone?{maskedPhone:row.maskedPhone}:{}),
-      enabled:source.enabled===true,configuredEnabled:source.enabled===true,weight:1,
+       nickname:publicAccountName(row,source),runtimeMode:'owned',
+       ...(row?.maskedPhone?{maskedPhone:row.maskedPhone}:{}),      enabled:source.enabled===true,configuredEnabled:source.enabled===true,weight:1,
       connectionState:source.enabled!==true?'disabled':
         row?.connectionState==='online'?'online':'not_checked',
       origin:{kind,label:sourceName(kind)},credentialKind:'driver',

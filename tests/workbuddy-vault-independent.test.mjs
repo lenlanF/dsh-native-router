@@ -95,8 +95,8 @@ for(const region of ['cn','global']){
    assert.equal(r.cfg.routes.length,0,'Independent login may not auto-create chains');
    assert.equal(imported.accountId,workbuddyOwnedId(r.source,rows[0].accountId));
    assert.equal(r.cfg.accounts.length,1);
-   assert.equal(r.cfg.accounts[0].providerId,r.own);
-   assert.doesNotMatch(JSON.stringify(r.cfg),/FAKE_WORKBUDDY/);
+    assert.equal(r.cfg.accounts[0].providerId,r.own);
+    assert.equal(r.cfg.accounts[0].displayName,'Synthetic');   assert.doesNotMatch(JSON.stringify(r.cfg),/FAKE_WORKBUDDY/);
    assert.equal(r.store.size,1);
    r.destroyOriginal();
    assert.equal((await r.inventory.scan()).accounts.filter(x=>x.providerId===r.source).length,0);

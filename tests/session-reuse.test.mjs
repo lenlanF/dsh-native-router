@@ -68,8 +68,7 @@ test('reuse is opt-in: disabled plugin does not even look at existing desktop lo
 });
 test('WorkBuddy desktop session is auto linked and usable with no new login, no auth-file writes, no token persistence',async t=>{
  const f=fixture(t);
- const result=await f.reuse.scan();
- assert.equal(result.linked,1);
+  const result=await f.reuse.scan({importReferences:true}); assert.equal(result.linked,1);
  assert.equal(f.cfg.providers[0].id,'workbuddy');
  assert.equal(f.cfg.accounts.length,1);
  assert.equal(f.cfg.accounts[0].enabled,true);
@@ -88,31 +87,26 @@ test('WorkBuddy desktop session is auto linked and usable with no new login, no 
  assert.deepEqual(models.map(x=>x.id),['already-logged-model']);
  assert.ok(f.calls.some(x=>x.endsWith('/v3/config')));
  assert.equal(sha(readFileSync(f.file,'utf8')),f.fileHash);
- assert.equal((await f.reuse.scan()).linked,0,'repeat scan is idempotent');
- f.center.setEnabled(f.cfg.accounts[0].id,false);
- assert.equal((await f.reuse.scan()).linked,0,'manual disabled state cannot be overridden');
- assert.equal(f.cfg.accounts[0].enabled,false);
+  assert.equal((await f.reuse.scan({importReferences:true})).linked,0,'repeat scan is idempotent'); f.center.setEnabled(f.cfg.accounts[0].id,false);
+  assert.equal((await f.reuse.scan({importReferences:true})).linked,0,'manual disabled state cannot be overridden'); assert.equal(f.cfg.accounts[0].enabled,false);
  f.reuse.stop();
 });
 test('unlink of an auto-reused WorkBuddy account suppresses auto reimport and never logs out the official client',async t=>{
  const f=fixture(t);
- await f.reuse.scan();
- const id=f.cfg.accounts[0].id;
+  await f.reuse.scan({importReferences:true}); const id=f.cfg.accounts[0].id;
  const result=await f.center.logout(id);
  assert.equal(result.detached,true);
  assert.equal(result.revokedUpstream,false);
  assert.deepEqual(f.cfg.accounts,[]);
  assert.ok(f.cfg.sessionReuse.ignoredIds.includes(id));
- const scan=await f.reuse.scan();
- assert.equal(scan.linked,0);
+  const scan=await f.reuse.scan({importReferences:true}); assert.equal(scan.linked,0);
  assert.ok(scan.results.some(r=>r.id===id&&r.state==='ignored'));
  assert.equal(sha(readFileSync(f.file,'utf8')),f.fileHash);
  f.reuse.stop();
 });
 test('expired desktop access+no refresh token is not treated as reusable signed-in client',async t=>{
  const f=fixture(t,{expiresAt:Date.parse('2020-01-01T00:00:00Z'),refreshToken:''});
- const result=await f.reuse.scan();
- assert.equal(result.linked,0);
+  const result=await f.reuse.scan({importReferences:true}); assert.equal(result.linked,0);
  assert.deepEqual(f.cfg.accounts,[]);
  assert.equal(existsSync(f.manifestPath),false);
  f.reuse.stop();
@@ -124,8 +118,7 @@ test('already logged-in DSH source accounts auto join native model pool without 
   {id:'src-disabled',providerId:'minimax',enabled:false},
  ];
  const f=fixture(t,{sourceRows:rows});
- const result=await f.reuse.scan();
- assert.equal(result.linked,3,'one native desktop plus two already-source signed-in references');
+  const result=await f.reuse.scan({importReferences:true}); assert.equal(result.linked,3,'one native desktop plus two already-source signed-in references');
  assert.deepEqual(f.cfg.providers.map(p=>p.id).sort(),['qoder','trae','workbuddy']);
  assert.deepEqual(f.cfg.accounts.map(x=>x.providerId).sort(),['qoder','trae','workbuddy']);
  assert.ok(f.cfg.accounts.every(a=>a.enabled));
@@ -143,8 +136,7 @@ test('unreviewed two-active-account source adapter is not silently routed throug
   {id:'src-one',providerId:'qoder',enabled:true},
   {id:'src-two',providerId:'qoder',enabled:true},
  ]});
- const result=await f.reuse.scan();
- assert.equal(result.linked,1,'only WorkBuddy local session is safe to add automatically');
+  const result=await f.reuse.scan({importReferences:true}); assert.equal(result.linked,1,'only WorkBuddy local session is safe to add automatically');
  assert.ok(!f.cfg.accounts.some(x=>x.providerId==='qoder'));
  f.reuse.stop();
 });
@@ -152,8 +144,7 @@ test('existing user-disabled provider is never re-enabled, even if original prog
  const f=fixture(t,{initial:{providers:[{
   id:'workbuddy',name:'Manual disabled',protocol:'native-channel',enabled:false,models:[],
  }]}});
- const result=await f.reuse.scan();
- assert.equal(result.linked,0);
+  const result=await f.reuse.scan({importReferences:true}); assert.equal(result.linked,0);
  assert.equal(f.cfg.providers[0].enabled,false);
  assert.equal(f.cfg.accounts.length,0);
  f.reuse.stop();
@@ -163,8 +154,7 @@ test('stop during an async source scan prevents late config imports after plugin
  let release;
  f.drivers.set('workbuddy',{async discover(){return await new Promise(resolve=>{release=resolve})},
   async importCandidate(){throw Error('should never import after stop')}});
- const scanning=f.reuse.scan();
- for(let i=0;i<10&&!release;i++)await new Promise(resolve=>setImmediate(resolve));
+  const scanning=f.reuse.scan({importReferences:true}); for(let i=0;i<10&&!release;i++)await new Promise(resolve=>setImmediate(resolve));
  assert.equal(typeof release,'function');
  f.reuse.stop();
  release([{id:'wb_'+('a'.repeat(20)),label:'fake',reusable:true}]);
@@ -178,8 +168,7 @@ test('Qoder machine-token file alone is not mistaken for an already authorized u
  mkdirSync(machineTokenPath,{recursive:true});
  writeFileSync(join(machineTokenPath,'machine_token.json'),
   JSON.stringify({token:'synthetic-machine-identity-only',type:'device'}),'utf8');
- const result=await f.reuse.scan();
- assert.equal(result.linked,1,'WorkBuddy desktop login may link, Qoder machine identity must NOT');
+  const result=await f.reuse.scan({importReferences:true}); assert.equal(result.linked,1,'WorkBuddy desktop login may link, Qoder machine identity must NOT');
  assert.ok(!f.cfg.providers.some(x=>x.id==='qoder'));
  assert.ok(!f.cfg.accounts.some(x=>x.providerId==='qoder'));
  f.reuse.stop();
@@ -189,8 +178,7 @@ test('source provider with multiple enabled existing accounts is reported for re
   {id:'qa1',providerId:'qoder',enabled:true},
   {id:'qa2',providerId:'qoder',enabled:true},
  ]});
- const result=await f.reuse.scan();
- assert.ok(result.results.some(x=>x.providerId==='qoder'
+  const result=await f.reuse.scan({importReferences:true}); assert.ok(result.results.some(x=>x.providerId==='qoder'
    &&x.state==='multiple_accounts_unverified'));
  assert.equal(result.linked,1,'native WorkBuddy is the only safe automatic session in this fixture');
  f.reuse.stop();
@@ -199,8 +187,7 @@ test('source accounts are not fabricated when bundled DSH source service is not 
  const f=fixture(t,{sourceReady:false,sourceRows:[
   {id:'fake-unavailable',providerId:'qoder',enabled:true},
  ]});
- const result=await f.reuse.scan();
- assert.equal(result.linked,1);
+  const result=await f.reuse.scan({importReferences:true}); assert.equal(result.linked,1);
  assert.equal(f.cfg.accounts.filter(a=>a.providerId==='qoder').length,0);
  assert.equal(f.reuse.snapshot().channels.find(x=>x.providerId==='qoder').available,false);
  f.reuse.stop();

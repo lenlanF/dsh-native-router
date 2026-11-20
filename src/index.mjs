@@ -81,11 +81,9 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
    const verificationStore=createAccountVerificationStore({
      path:ownStore.path?join(dirname(ownStore.path),'account-verification.json'):undefined});
    const installedInventory=createInstalledPluginInventory();
-   const accountCenter=createAccountCenter({configStore:ownStore,adapter:ownAdapter,
-     drivers,fetchImpl,env,vault:ownedVault,getSourceStatus:()=>sourceFacade.status(),
-     verificationStore,publicMetadataFor:account=>installedInventory.ownedPublicMetadata(
-       account.providerId,account.id)});
-  const sessionReuse=createSessionReuse({configStore:ownStore,drivers,
+    const accountCenter=createAccountCenter({configStore:ownStore,adapter:ownAdapter,
+      drivers,fetchImpl,env,vault:ownedVault,getSourceStatus:()=>sourceFacade.status(),
+      verificationStore});  const sessionReuse=createSessionReuse({configStore:ownStore,drivers,
      embeddedPack:sourceFacade,adapter:ownAdapter,logger:ctx.logger,installedInventory});
   const workbuddyVaultAdoption=createWorkbuddyVaultAdoption({
       inventory:installedInventory,configStore:ownStore,vault:ownedVault,

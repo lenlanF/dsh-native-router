@@ -212,8 +212,7 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
       if(req.method!=='POST')return json(res,405,{ok:false,error:'Method not allowed'});
       if(!sessionReuse?.snapshot?.().enabled)return json(res,409,{
         ok:false,error:'请先在本插件内开启复用本机登录态并保存配置'});
-      try{return json(res,200,{ok:true,...await sessionReuse.scan()})}
-      catch{return json(res,503,{ok:false,error:'已有登录态扫描暂不可用，不会清除原程序账号'})}
+       try{return json(res,200,{ok:true,...await sessionReuse.scan({importReferences:false})})}      catch{return json(res,503,{ok:false,error:'已有登录态扫描暂不可用，不会清除原程序账号'})}
     });
     // Account takeover is an explicit per-account owner action. The public
     // inventory exposes no credential references or tokens.

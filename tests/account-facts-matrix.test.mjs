@@ -39,27 +39,25 @@ test('read-only account driver snapshot is isolated per channel and keeps origin
  const providers=['own_lingxi','own_zcode','own_codearts','own_loomy'];
  const cfg=normalizeConfig({providers:providers.map(id=>({id,
    name:id,protocol:'native-channel',models:['test-model']})),
-   accounts:providers.map((providerId,i)=>({id:'mock-'+i,providerId,
-     credentialRef:'driver:'+providerId+':mock-'+i,enabled:true}))});
- const snapshots=new Map(providers.map((id,i)=>[id,{
+    accounts:providers.map((providerId,i)=>({id:'mock-'+i,providerId,
+      credentialRef:'driver:'+providerId+':mock-'+i,enabled:true,
+      ...(providerId==='own_loomy'?{displayName:'Persisted Loomy account'}:{})}))}); const snapshots=new Map(providers.map((id,i)=>[id,{
    accountSnapshot(){if(id==='own_loomy')throw Error('unavailable original cache');
      return {username:'User '+i,balance:i===0?0:125.5,
        balanceUnit:id==='own_zcode'?'token':id==='own_codearts'?'quota':'积分',
        balanceCheckedAt:9900,checkinDate:'2026-11-20',
        checkinOutcome:i===0?'claimed':'unknown'};},
  }]));
- const center=createAccountCenter({configStore:{get:()=>structuredClone(cfg),replace(){}},
-   drivers:snapshots,publicMetadataFor:row=>row.providerId==='own_loomy'?
-     {displayName:'Cached Loomy account',balance:5,balanceUnit:'积分'}:{}});
- const view=center.list();
+  const center=createAccountCenter({configStore:{get:()=>structuredClone(cfg),replace(){}},
+    drivers:snapshots}); const view=center.list();
  assert.equal(view.accounts.length,4);
  assert.equal(view.accounts[0].nickname,'User 0');
  assert.equal(view.accounts[0].balance,0);
  assert.equal(view.accounts[1].balanceUnit,'token');
  assert.equal(view.accounts[2].balanceUnit,'quota');
- assert.equal(view.accounts[3].nickname,'Cached Loomy account');
- assert.equal(view.accounts[3].balance,5);
- assert.ok(view.accounts.every(x=>!JSON.stringify(x).includes('secret')));
+  assert.equal(view.accounts[3].nickname,'Persisted Loomy account');
+  assert.equal(view.accounts[3].balanceState,'not_checked',
+    'offline owned account must not copy stale original plugin balances'); assert.ok(view.accounts.every(x=>!JSON.stringify(x).includes('secret')));
 });
 
 test('same account/source rank never selects a disabled or unverified backup as available',()=>{

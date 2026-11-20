@@ -212,16 +212,14 @@ test('hybrid WorkBuddy preserves old desktop login and can also reuse another in
  const logout=await driver.logout({account:{...imported,providerId:'workbuddy'}});
  assert.equal(logout.revokedUpstream,false);
 });
-test('automatic reuse finds preinstalled DSH channel login in no-copy mode with built-in source-pack disabled',async()=>{
- const h=rig({rows:[{id:'host-only-qoder',provider:'qoder',enabled:true,credentialRef:'KEEP_IN_OTHER_PLUGIN'}]});
+test('explicit legacy no-copy reference is possible but never represents an independent takeover',async()=>{ const h=rig({rows:[{id:'host-only-qoder',provider:'qoder',enabled:true,credentialRef:'KEEP_IN_OTHER_PLUGIN'}]});
  const driver=createSourceChannelDriver({providerId:'qoder',embeddedPack:h.preferred});
  let cfg=normalizeConfig({sessionReuse:{enabled:true},embeddedPack:{enabled:false}});
  const store={get:()=>structuredClone(cfg),replace:next=>cfg=normalizeConfig(next)};
  const bridge=createSessionReuse({configStore:store,drivers:new Map([['qoder',driver]]),
   embeddedPack:h.preferred,intervalMs:1000});
  try{
-  const result=await bridge.scan();
-  assert.equal(result.linked,1);
+   const result=await bridge.scan({importReferences:true});  assert.equal(result.linked,1);
   assert.equal(cfg.providers[0].id,'qoder');
   assert.equal(cfg.accounts[0].enabled,true);
   assert.equal(cfg.accounts[0].autoCheckin,true);

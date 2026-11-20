@@ -14,8 +14,7 @@ const NOW=Date.parse('2026-11-20T05:40:00Z');
 const day='2026-11-20';
 const makeResponse=x=>new Response(JSON.stringify(x),{status:200});
 
-test('the exact adopted Lingxi id recovers original label, credit balance and confirmed same-day sign-in without leaking WPS SID',t=>{
- const home=mkdtempSync(join(process.platform==='win32'?'E:\\Temp':tmpdir(),'lingxi-public-meta-'));
+test('Lingxi one-time migration preserves name; runtime identity, balance and signing work after original is gone',t=>{ const home=mkdtempSync(join(process.platform==='win32'?'E:\\Temp':tmpdir(),'lingxi-public-meta-'));
  t.after(()=>rmSync(home,{recursive:true,force:true}));
  const profileDir=join(home,'.dsh','profiles','desktop');
  const directory=join(profileDir,'data','dsh-connect-lingxi');
@@ -38,15 +37,17 @@ test('the exact adopted Lingxi id recovers original label, credit balance and co
  assert.equal(inventory.ownedPublicMetadata('own_lingxi','pr_'+'a'.repeat(28)),null);
  assert.doesNotMatch(JSON.stringify(actual),/SENSITIVE_LINGXI_SESSION|wpsSid/);
  let cfg=normalizeConfig({providers:[{id:'own_lingxi',name:'lingxi · 聚合路由自有',protocol:'native-channel'}],
-   accounts:[{id:ownedId,providerId:'own_lingxi',credentialRef:'driver:own_lingxi:'+ownedId,
-     enabled:true,autoCheckin:true}],
-   checkin:{autoEnabled:false,timeZone:'Asia/Shanghai'}});
+    accounts:[{id:ownedId,providerId:'own_lingxi',
+      credentialRef:'driver:own_lingxi:'+ownedId,
+      enabled:true,autoCheckin:true,displayName:actual.displayName}],   checkin:{autoEnabled:false,timeZone:'Asia/Shanghai'}});
  const store={get:()=>structuredClone(cfg),replace:next=>(cfg=normalizeConfig(next))};
- const accountCenter=createAccountCenter({configStore:store,
-   drivers:new Map([['own_lingxi',{checkIn:async()=>{throw Error('do not claim again')}}]]),
-   publicMetadataFor:a=>inventory.ownedPublicMetadata(a.providerId,a.id),
-   now:()=>NOW});
- const row=accountCenter.list().accounts[0];
+  // The original is deleted BEFORE constructing/starting the owned center.
+  unlinkSync(source);
+  const ownDriver={checkIn:async()=>{throw Error('do not claim again')},
+    accountSnapshot:()=>({state:'ready',balance:312,balanceUnit:'积分',
+      balanceCheckedAt:NOW,checkinDate:day,checkinOutcome:'claimed'})};
+  const accountCenter=createAccountCenter({configStore:store,
+    drivers:new Map([['own_lingxi',ownDriver]]),now:()=>NOW}); const row=accountCenter.list().accounts[0];
  assert.equal(row.nickname,'Lingxi True Display Label');
  assert.equal(row.balance,312);
  const checkins=createCheckinCenter({configStore:store,accountCenter,
@@ -62,10 +63,9 @@ test('the exact adopted Lingxi id recovers original label, credit balance and co
  assert.equal(merged.accounts[0].providerId,'lingxi');
  const stop=accountCenter.start();stop();
  assert.equal(cfg.accounts[0].displayName,'Lingxi True Display Label',
-   'nonsecret label survives original plugin removal');
- unlinkSync(source);
- assert.equal(accountCenter.list().accounts[0].nickname,'Lingxi True Display Label');
-});
+    'migrated displayName remains in independent router config');
+  assert.equal(accountCenter.list().accounts[0].nickname,'Lingxi True Display Label');
+  assert.equal(accountCenter.list().accounts[0].upstreamCheckinSource,'own-driver-live');});
 
 import {createHash} from 'node:crypto';
 function awaitHash(key){

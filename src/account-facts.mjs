@@ -4,8 +4,8 @@ const nameSensitive=/\b(?:bearer|wps_sid|access_token|refresh_token|password|cli
 const opaqueName=/^(?:sp|pr|wb|ca)_[a-f0-9]{20,}$/i;
 const generatedName=/^(?:账号\s*\d+|account\s*#?\d+|id:.+|.+\s*·\s*独立账号)$/iu;
 export function publicAccountName(...sources){
-  for(const source of sources){    if(!source||typeof source!=='object')continue;
-    for(const key of ['displayName','accountName','username','userName','nickname','label']){
+  for(const source of sources){
+    if(!source||typeof source!=='object')continue;    for(const key of ['displayName','accountName','username','userName','nickname','label']){
       const value=source[key];
       if(typeof value!=='string')continue;
       const name=value.trim();
@@ -13,8 +13,8 @@ export function publicAccountName(...sources){
         nameSensitive.test(name)||opaqueName.test(name)||generatedName.test(name)||
         /^[A-Za-z0-9_.~+-]{48,}$/.test(name))continue;
       if(/^\d{11}$/.test(name))return name.replace(/^(\d{3})\d{4}(\d{4})$/,'$1****$2');
-      return name;    }
-  }
+      return name;
+    }  }
   return '';
 }
 // Only read allowlisted public fields from an exact-account credential.
@@ -25,8 +25,7 @@ export function credentialPublicIdentity(payload){
     accountName:payload.account_name??payload.user_name??payload.accountName,
     username:payload.username,displayName:payload.display_name,
     nickname:payload.nickname,
-  });
-  const phone=typeof payload.phone==='string'&&/^\d{11}$/.test(payload.phone)?
+  },payload.account,payload.profile);  const phone=typeof payload.phone==='string'&&/^\d{11}$/.test(payload.phone)?
     payload.phone.replace(/^(\d{3})\d{4}(\d{4})$/,'$1****$2'):'';
   return {...(label?{accountName:label}:{}),
     ...(phone?{maskedPhone:phone}:{})};

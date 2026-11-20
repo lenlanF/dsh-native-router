@@ -3,6 +3,7 @@
 // The original CN/global account vaults are never mutated.
 import {createHash} from 'node:crypto';
 import {ownCredentialRef} from './credential-ref.mjs';
+import {publicAccountName,credentialPublicIdentity} from './account-facts.mjs';
 
 const REGION=Object.freeze({
  'workbuddy-cn':{owner:'own_workbuddy-cn',original:'workbuddy',model:'auto'},
@@ -91,10 +92,11 @@ export function createWorkbuddyVaultAdoption({inventory,configStore,vault,
       :[...fresh.providers,{id:provider.owner,
          name:(providerId==='workbuddy-cn'?'WorkBuddy 国内':'WorkBuddy 国际')+' · 自有授权',
          protocol:'native-channel',enabled:true,models,supportsTools:true}];
-    const accounts=[...fresh.accounts,{id,providerId:provider.owner,
-      credentialRef:'driver:'+provider.owner+':'+id,
-      enabled:true,weight:1,autoCheckin:true}];
-    const routes=fresh.routes;
+     const migratedName=publicAccountName(source,credentialPublicIdentity(payload));
+     const accounts=[...fresh.accounts,{id,providerId:provider.owner,
+       credentialRef:'driver:'+provider.owner+':'+id,
+       enabled:true,weight:1,autoCheckin:true,
+       ...(migratedName?{displayName:migratedName}:{})}];    const routes=fresh.routes;
     stage='persist_owned_account';
     configStore.replace({...fresh,providers,accounts,routes,
       sessionReuse:{...fresh.sessionReuse,
