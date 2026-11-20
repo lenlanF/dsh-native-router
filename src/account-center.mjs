@@ -316,6 +316,107 @@ export function createAccountCenter({
         Math.max(1,readOnlyConcurrency),12,targets.length)},()=>worker()));
      return results.filter(Boolean);
    }
+    // Explicitly provision a first-party MiMo account. No key ever enters config.json.
+    function ensureMimoProvider(){
+      const cfg=configStore.get();
+      const existing=cfg.providers.find(p=>p.id==='own_mimo');
+      if(existing){
+        if(existing.protocol!=='native-channel')throw Error('MiMo owned provider ID conflicts with a non-native provider');
+        return {state:'existing',providerId:'own_mimo'};
+      }
+      if(typeof driverFor('own_mimo')?.generate!=='function'){
+        const e=new Error('MiMo native adapter not installed');e.status=503;throw e;
+      }
+      configStore.replace({...cfg,providers:[...cfg.providers,
+        {id:'own_mimo',name:'小米 MiMo · 独立来源',
+         protocol:'native-channel',baseUrl:'',models:[],enabled:true,supportsTools:true}]});
+      adapter?.invalidateCatalog?.();
+      return {state:'created',providerId:'own_mimo'};
+    }
+    async function addMimoCredential({apiKey,baseUrl}={}){
+      if(typeof driverFor('own_mimo')?.addCredential!=='function'){
+        const e=new Error('MiMo native adapter unavailable');e.status=503;throw e;
+      }
+      const before=configStore.get();
+      if(before.providers.some(p=>p.id==='own_mimo'&&p.protocol!=='native-channel'))
+        throw Error('MiMo provider identity conflicts with existing configuration');
+      // Validate the credential before writing a provider or account record.
+      if(typeof apiKey!=='string'||apiKey.trim().length<8)throw Error('MiMo API Key is required');
+      const result=await driverFor('own_mimo').addCredential({apiKey,baseUrl});
+      const cfg=configStore.get();
+      const existing=cfg.accounts.find(a=>a.id===result.id);
+      if(existing){
+        if(existing.providerId!=='own_mimo'||existing.credentialRef!==result.credentialRef)
+          throw Error('MiMo account ID collision');
+        return {id:existing.id,alreadyOwned:true};
+      }
+      const providers=cfg.providers.some(p=>p.id==='own_mimo')?cfg.providers:
+        [...cfg.providers,{id:'own_mimo',name:'小米 MiMo · 独立来源',
+          protocol:'native-channel',baseUrl:'',models:[],enabled:true,supportsTools:true}];
+      const accounts=[...cfg.accounts,{id:result.id,providerId:'own_mimo',
+        credentialRef:result.credentialRef,enabled:true,autoCheckin:false,weight:1}];
+      configStore.replace({...cfg,providers,accounts});
+      adapter?.invalidateCatalog?.();
+      return {id:result.id,providerId:'own_mimo',stored:true};
+    }
+    function ensureDoubaoProvider(){
+      const cfg=configStore.get(),provider=cfg.providers.find(p=>p.id==='own_doubao');
+      if(provider){
+        if(provider.protocol!=='native-channel')throw Error('Doubao provider ID collides with non-native provider');
+        return {state:'existing',providerId:'own_doubao'};
+      }
+      if(typeof driverFor('own_doubao')?.generate!=='function')throw Error('Doubao native adapter unavailable');
+      configStore.replace({...cfg,providers:[...cfg.providers,{
+        id:'own_doubao',name:'豆包工作 · 独立来源',
+        protocol:'native-channel',baseUrl:'',models:[],enabled:true,supportsTools:false}]});
+      adapter?.invalidateCatalog?.();
+      return {state:'created',providerId:'own_doubao'};
+    }
+    function commitDoubaoAccount(result){
+      if(result?.providerId!=='own_doubao'||typeof result.id!=='string'
+        ||!/^db_[a-f0-9]{28}$/.test(result.id)||
+          result.credentialRef!=='driver:own_doubao:'+result.id)
+        throw Error('Invalid self-owned Doubao account receipt');
+      const cfg=configStore.get();
+      const prev=cfg.accounts.find(x=>x.id===result.id);
+      if(prev){
+        if(prev.providerId!=='own_doubao'||prev.credentialRef!==result.credentialRef)
+          throw Error('Doubao account identifier conflict');
+        return {id:prev.id,alreadyOwned:true};
+      }
+      if(cfg.providers.some(p=>p.id==='own_doubao'&&p.protocol!=='native-channel'))
+        throw Error('Doubao provider ID conflict');
+      const providers=cfg.providers.some(p=>p.id==='own_doubao')?cfg.providers:
+        [...cfg.providers,{id:'own_doubao',name:'豆包工作 · 独立来源',
+          protocol:'native-channel',baseUrl:'',models:[],enabled:true,supportsTools:false}];
+      configStore.replace({...cfg,providers,accounts:[...cfg.accounts,{
+        id:result.id,providerId:'own_doubao',credentialRef:result.credentialRef,
+        enabled:true,autoCheckin:false,weight:1}]});
+      adapter?.invalidateCatalog?.();
+      return {id:result.id,providerId:'own_doubao',stored:true};
+    }
+    async function addDoubaoCookie({cookie}={}){
+      const driver=driverFor('own_doubao');
+      if(typeof driver?.addCookie!=='function')throw Error('Doubao native adapter unavailable');
+      return commitDoubaoAccount(await driver.addCookie({cookie}));
+    }
+    async function startDoubaoLogin(){
+      if(typeof driverFor('own_doubao')?.startLogin!=='function')throw Error('Doubao browser login unavailable');
+      ensureDoubaoProvider();
+      return driverFor('own_doubao').startLogin();
+    }
+    function pollDoubaoLogin(){
+      const status=driverFor('own_doubao')?.loginStatus?.();
+      if(!status)throw Error('Doubao login service unavailable');
+      if(status.status==='done'&&status.account){
+        const receipt=commitDoubaoAccount(status.account);
+        return {...status,account:receipt};
+      }
+      return status;
+    }
+    function cancelDoubaoLogin(){
+      return driverFor('own_doubao')?.cancelLogin?.()??{status:'idle'};
+    }
     function start(){
       // Runtime startup must NEVER consult original-plugin files, metadata or
       // account pools. One-time migration belongs to explicit adoption only.
@@ -333,4 +434,5 @@ export function createAccountCenter({
   if(initialTimer)clearTimeout(initialTimer);
   automaticTimer=null;initialTimer=null;
  }
-  return {list,verify,setEnabled,logout,discover,importCandidate,refreshAll,refreshReadOnly,autoCheckDue,start,stop,drivers,driverFor,find};}
+  return {list,verify,setEnabled,logout,discover,importCandidate,refreshAll,refreshReadOnly,autoCheckDue,start,stop,drivers,driverFor,find,ensureMimoProvider,addMimoCredential,ensureDoubaoProvider,addDoubaoCookie,startDoubaoLogin,pollDoubaoLogin,cancelDoubaoLogin};
+}

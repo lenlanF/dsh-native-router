@@ -8,6 +8,8 @@ import {createSessionReuse} from './session-reuse.mjs';
 import {createAccountAdoption} from './account-adoption.mjs';
 import {createInstalledPluginInventory} from './installed-plugin-inventory.mjs';
 import {createPrivateOwnedDriver,PRIVATE_PROVIDERS} from './channels/private-owned.mjs';
+import {createMimoDriver} from './channels/mimo.mjs';
+import {createDoubaoDriver} from './channels/doubao.mjs';
 import {createPrivateOwnedAdoption} from './private-owned-adoption.mjs';
 import {createPrivatePackAdoption} from './private-pack-adoption.mjs';
 import {createWorkbuddyVaultAdoption} from './workbuddy-vault-adoption.mjs';
@@ -37,6 +39,12 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
      if(!drivers.has(ownId))builtInCleanup.push(registerNativeChannelDriver(ownId,
        createPrivateOwnedDriver({providerId,vault:ownedVault,fetchImpl})));
    }
+   if(!channelDrivers&&!drivers.has('own_mimo'))
+     builtInCleanup.push(registerNativeChannelDriver('own_mimo',
+       createMimoDriver({vault:ownedVault,fetchImpl,env:env??process.env})));
+   if(!channelDrivers&&!drivers.has('own_doubao'))
+     builtInCleanup.push(registerNativeChannelDriver('own_doubao',
+       createDoubaoDriver({vault:ownedVault,fetchImpl,logger:ctx.logger})));
    if(!channelDrivers)for(const region of ['cn','global']){
      const owner='own_workbuddy-'+region;
      if(!drivers.has(owner))builtInCleanup.push(registerNativeChannelDriver(owner,

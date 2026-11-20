@@ -848,6 +848,10 @@ window.__ModuleLoader__.load({
           [manualFreeModel,setManualFreeModel]=useState(''),
           [savedConfig,setSavedConfig]=useState(null),
           [selectedAccountChannel,setSelectedAccountChannel]=useState('all'),
+          [mimoKey,setMimoKey]=useState(''),[mimoBase,setMimoBase]=useState('https://api.xiaomimimo.com/v1'),
+          [mimoBusy,setMimoBusy]=useState(false),
+          [doubaoCookie,setDoubaoCookie]=useState(''),[doubaoBusy,setDoubaoBusy]=useState(false),
+          [doubaoLogin,setDoubaoLogin]=useState(null),
           [providerQuery,setProviderQuery]=useState('');
        const refreshRuntime=useCallback(async()=>{
          const response=await fetch(URL+'/status',{cache:'no-store'});
@@ -887,6 +891,26 @@ window.__ModuleLoader__.load({
         },[refresh]);
         useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>setNotice(''),5000);return ()=>clearTimeout(timer)},[notice]);
         useEffect(()=>{if(!error)return;const timer=setTimeout(()=>setError(''),5000);return ()=>clearTimeout(timer)},[error]);
+        useEffect(()=>{
+          if(doubaoLogin?.status!=='waiting')return;
+          let disposed=false;
+          const timer=setInterval(async()=>{
+            try{
+              const response=await fetch(URL+'/channels/doubao/login',{method:'POST',
+                headers:{'content-type':'application/json'},body:JSON.stringify({action:'poll'})});
+              const data=await response.json();
+              if(disposed||!response.ok||!data.ok)return;
+              const next=data.result;
+              if(next.status==='done'){
+                setDoubaoLogin(next);setNotice('豆包浏览器登录已完成，凭据已归本插件独立持有。');
+                await refresh();
+              }else if(next.status==='error'||next.status==='canceled'){
+                setDoubaoLogin(next);setError('豆包授权未完成，请重试或使用 Cookie 导入。');
+              }
+            }catch{/* Transient polling error: retry next interval. */}
+          },1800);
+          return ()=>{disposed=true;clearInterval(timer)};
+        },[doubaoLogin?.status,refresh]);
         useEffect(()=>{
           if(tab!=='reuse'||reuseSubtab!=='host')return;
           const first=hostModels?.providerId||
@@ -1200,7 +1224,81 @@ window.__ModuleLoader__.load({
           {id:channel.id,name:channel.name,protocol:'native-channel',baseUrl:'',models:[],enabled:true,supportsTools:true}]});
         setTab('providers');setNotice('已为此原生渠道启用提供商配置；账号授权仍由原渠道或本插件自主登录完成，不会复制原有登录秘密。');
       };
-      async function save(){
+             async function connectMimoKey(){
+         if(mimoBusy)return;
+         if(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig)){
+           setError('存在未保存的配置草稿。请先保存，再接入 MiMo 账号。');return;
+         }
+         setMimoBusy(true);setError('');setNotice('');
+         try{
+           const response=await fetch(URL+'/channels/mimo/credential',{method:'POST',
+             headers:{'content-type':'application/json'},body:JSON.stringify({apiKey:mimoKey,baseUrl:mimoBase})});
+           const data=await response.json();
+           if(!response.ok||!data.ok)throw Error(data.error||'MiMo 登录凭据未保存');
+           setMimoKey('');await refresh();
+           setNotice('MiMo API Key 已保存到独立凭据库，实际模型推理尚需验证。');
+         }catch(error){setError(String(error?.message??error))}
+         finally{setMimoBusy(false)}
+       }
+       async function scanMimo(){
+         if(mimoBusy)return;
+         if(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig)){
+           setError('存在未保存的配置草稿。请先保存后扫描 MiMo。');return;
+         }
+         setMimoBusy(true);setError('');setNotice('');
+         try{
+           const res=await fetch(URL+'/channels/mimo/prepare',{method:'POST'});
+           const data=await res.json();
+           if(!res.ok||!data.ok)throw Error(data.error||'MiMo 渠道未准备好');
+           await refresh();
+           const scan=await fetch(URL+'/channels/discover',{method:'POST',
+             headers:{'content-type':'application/json'},body:JSON.stringify({providerId:'own_mimo'})});
+           const found=await scan.json();
+           if(!scan.ok||!found.ok)throw Error(found.error||'MiMo 本机授权扫描失败');
+           setDiscovered(old=>({...old,own_mimo:found.candidates??[]}));
+           await refreshRuntime();
+           setNotice('发现 '+(found.candidates?.length||0)+' 个 MiMo 候选，请在下方渠道卡确认后导入。');
+         }catch(error){setError(String(error?.message??error))}
+         finally{setMimoBusy(false)}
+       }
+       async function addDoubaoCookie(){
+         if(doubaoBusy)return;
+         if(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig)){
+           setError('存在未保存的配置草稿。请先保存再接入豆包账号。');return;
+         }
+         setDoubaoBusy(true);setError('');setNotice('');
+         try{
+           const response=await fetch(URL+'/channels/doubao/cookie',{method:'POST',
+             headers:{'content-type':'application/json'},body:JSON.stringify({cookie:doubaoCookie})});
+           const data=await response.json();
+           if(!response.ok||!data.ok)throw Error(data.error||'豆包授权未保存');
+           setDoubaoCookie('');await refresh();
+           setNotice('豆包账号已存入独立凭据库；尚需验证官方身份、模型推理及额度。');
+         }catch(error){setError(String(error?.message??error))}
+         finally{setDoubaoBusy(false)}
+       }
+       async function startDoubaoBrowser(){
+         if(doubaoBusy)return;
+         if(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig)){
+           setError('存在未保存的配置草稿。请先保存再开始豆包扫码授权。');return;
+         }
+         setDoubaoBusy(true);setError('');setNotice('');
+         try{
+           const response=await fetch(URL+'/channels/doubao/login',{method:'POST',
+             headers:{'content-type':'application/json'},body:JSON.stringify({action:'start'})});
+           const data=await response.json();
+           if(!response.ok||!data.ok)throw Error(data.error||'豆包登录无法启动');
+           setDoubaoLogin(data.result);
+           setNotice('已启动专属浏览器授权流程；登录完成后会自动检测并加入本插件账号池。');
+         }catch(error){setError(String(error?.message??error))}
+         finally{setDoubaoBusy(false)}
+       }
+       async function cancelDoubaoBrowser(){
+         await fetch(URL+'/channels/doubao/login',{method:'POST',
+           headers:{'content-type':'application/json'},body:JSON.stringify({action:'cancel'})}).catch(()=>{});
+         setDoubaoLogin(null);
+       }
+async function save(){
         setBusy(true);setError('');setNotice('');
         try{
           const value=tab==='advanced'?JSON.parse(raw):cfg;
@@ -1249,14 +1347,38 @@ window.__ModuleLoader__.load({
          sessionReuse:{...old.sessionReuse,
            ...('enabled' in change?{enabled:change.enabled}:{}),
            ...('resetIgnored' in change?{ignoredIds:[]}:{})}}));
-       if(tab==='channels')content=h(AccountConsole,{data:channelsView,
-         query:channelQuery,onQuery:setChannelQuery,run:runAction,setTab,
-         busy:actionBusy,discovered,onAddProvider:addNativeProvider,
-          showReferences:showReferenceChannels,onToggleReferences:setShowReferenceChannels,
-          selectedChannel:selectedAccountChannel,onSelectChannel:setSelectedAccountChannel,
-           onManageAccounts:channel=>{setManagedAccountProvider(channel.id);setTab('account-debug')},
-           onOpenOwnedSource:()=>{setReuseSubtab('source');setTab('reuse')}});       if(tab==='reuse')content=h(ReuseConsole,{data:channelsView,cfg,
-         onReuseSettings:changeReuseSettings,run:runAction,busy:actionBusy,
+       if(tab==='channels')content=h('div',null,
+         h(Panel,{title:'小米 MiMo · 独立来源'},
+           h('p',{style:css.small},'官方 API Key 可脱离桌面端使用；已登录桌面端可扫描本机引擎。授权成功不等于推理已验收。'),
+           h('div',{style:css.line},
+             h('input',{type:'password',autoComplete:'off','aria-label':'MiMo API Key',
+               placeholder:'MiMo 官方 API Key（不保存到配置 JSON）',
+               style:css.input,value:mimoKey,onChange:e=>setMimoKey(e.target.value)}),
+             h('input',{type:'url','aria-label':'MiMo API URL',placeholder:'MiMo API Base URL',
+               style:css.input,value:mimoBase,onChange:e=>setMimoBase(e.target.value)}),
+             h(Button,{kind:'primary',disabled:mimoBusy||mimoKey.trim().length<8,
+               onClick:connectMimoKey},mimoBusy?'处理中…':'接入独立 API Key'),
+             h(Button,{disabled:mimoBusy,onClick:scanMimo},'扫描本机 MiMo 登录态'))),
+                   h(Panel,{title:'豆包工作 · 独立来源'},
+            h('p',{style:css.small},'扫码登录由本插件单独启动浏览器并捕获登录态；各账号 Cookie 独立保存。仅开放已验证的普通对话模型，工作任务与每日领取不虚报成功。'),
+            h('div',{style:css.line},
+              h(Button,{kind:'primary',disabled:doubaoBusy||doubaoLogin?.status==='waiting',
+                onClick:startDoubaoBrowser},doubaoLogin?.status==='waiting'?'等待浏览器授权…':'浏览器扫码登录'),
+              doubaoLogin?.status==='waiting'
+                ?h(Button,{onClick:cancelDoubaoBrowser},'取消授权'):null,
+              h('input',{type:'password',autoComplete:'off','aria-label':'豆包独立 Cookie',
+                placeholder:'或粘贴豆包 Cookie（不会写入公开配置）',
+                style:css.input,value:doubaoCookie,onChange:e=>setDoubaoCookie(e.target.value)}),
+              h(Button,{disabled:doubaoBusy||doubaoCookie.length<12,
+                onClick:addDoubaoCookie},doubaoBusy?'处理中…':'导入 Cookie'))),
+h(AccountConsole,{data:channelsView,
+          query:channelQuery,onQuery:setChannelQuery,run:runAction,setTab,
+          busy:actionBusy,discovered,onAddProvider:addNativeProvider,
+           showReferences:showReferenceChannels,onToggleReferences:setShowReferenceChannels,
+           selectedChannel:selectedAccountChannel,onSelectChannel:setSelectedAccountChannel,
+            onManageAccounts:channel=>{setManagedAccountProvider(channel.id);setTab('account-debug')},
+            onOpenOwnedSource:()=>{setReuseSubtab('source');setTab('reuse')}}));
+       if(tab==='reuse')content=h(ReuseConsole,{data:channelsView,cfg,         onReuseSettings:changeReuseSettings,run:runAction,busy:actionBusy,
           onRefresh:refreshRuntime,subtab:reuseSubtab,onSubtab:setReuseSubtab,
          embeddedPack:status?.embeddedPack,credentialService:status?.credentialService,modelProvider,
          setModelProvider:value=>{setModelProvider(value);setEmbeddedModels(null)},

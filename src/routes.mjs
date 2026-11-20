@@ -334,6 +334,51 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
         return json(res,200,{ok:true,result});
       }catch(error){return json(res,error.status??400,{ok:false,error:String(error?.message??error).slice(0,200)})}
     });
+    // MiMo native provisioning requires authenticated same-origin owner approval.
+    mount('/channels/mimo/credential',async(req,res)=>{
+      if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
+      if(req.method!=='POST')return json(res,405,{ok:false,error:'Method not allowed'});
+      try{
+        const body=await readJson(req);
+        if(typeof body?.apiKey!=='string'||body.apiKey.length>4096||
+          (body.baseUrl!==undefined&&(typeof body.baseUrl!=='string'||body.baseUrl.length>1024)))
+          return json(res,400,{ok:false,error:'Invalid MiMo credential'});
+        const result=await accountCenter.addMimoCredential({apiKey:body.apiKey,baseUrl:body.baseUrl});
+        return json(res,200,{ok:true,result});
+      }catch{
+        return json(res,400,{ok:false,error:'MiMo 自有账号创建失败；检查凭据或保管库状态'});
+      }
+    });
+    mount('/channels/mimo/prepare',async(req,res)=>{
+      if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
+      if(req.method!=='POST')return json(res,405,{ok:false,error:'Method not allowed'});
+      try{return json(res,200,{ok:true,result:accountCenter.ensureMimoProvider()})}
+      catch{return json(res,409,{ok:false,error:'MiMo 自有渠道配置冲突或驱动未安装'})}
+    });
+    mount('/channels/doubao/cookie',async(req,res)=>{
+      if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
+      if(req.method!=='POST')return json(res,405,{ok:false,error:'Method not allowed'});
+      try{
+        const body=await readJson(req);
+        if(typeof body?.cookie!=='string'||body.cookie.length>32768)
+          return json(res,400,{ok:false,error:'Invalid Doubao cookie'});
+        return json(res,200,{ok:true,result:await accountCenter.addDoubaoCookie({cookie:body.cookie})});
+      }catch{return json(res,400,{ok:false,error:'豆包 Cookie 未通过校验，未写入公开配置'})}
+    });
+    mount('/channels/doubao/login',async(req,res)=>{
+      if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
+      if(req.method!=='POST')return json(res,405,{ok:false,error:'Method not allowed'});
+      try{
+        const body=await readJson(req);
+        if(!['start','poll','cancel'].includes(body?.action))return json(res,400,{ok:false,error:'Invalid login action'});
+        const status=body.action==='start'?await accountCenter.startDoubaoLogin():
+          body.action==='poll'?accountCenter.pollDoubaoLogin():accountCenter.cancelDoubaoLogin();
+        const publicStatus={status:status?.status??'error',at:status?.at??0,
+          account:status?.account?.id?{id:status.account.id,providerId:'own_doubao'}:null,
+          error:status?.status==='error'?'登录未完成，请重新尝试':null};
+        return json(res,200,{ok:true,result:publicStatus});
+      }catch{return json(res,409,{ok:false,error:'豆包独立扫码登录暂不可用'})}
+    });
     mount('/channels/import',async(req,res)=>{
       if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{error:'Access rejected'});
       if(req.method!=='POST')return json(res,405,{error:'Method not allowed'});

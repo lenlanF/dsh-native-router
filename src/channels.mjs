@@ -9,8 +9,8 @@ export const REFERENCE_CHANNELS=Object.freeze([
   {id:'minimax',name:'MiniMax',auth:'浏览器授权',referenceCheckin:false},
   {id:'zcode',name:'ZCode',auth:'浏览器授权',referenceCheckin:false},
   {id:'loomy',name:'讯飞 Loomy',auth:'微信扫码',referenceCheckin:false},
-  {id:'mimo',name:'小米 MiMo',auth:'桌面端登录态',referenceCheckin:false},
-  {id:'doubao',name:'豆包工作',auth:'浏览器授权 / Cookie',referenceCheckin:true},
+  {id:'own_mimo',name:'小米 MiMo · 独立来源',auth:'官方 API Key / 桌面 SSO 引擎',referenceCheckin:false},
+  {id:'own_doubao',name:'豆包工作 · 独立来源',auth:'专属浏览器扫码 / Cookie',referenceCheckin:true},
 ]);
 export const referenceChannel=(id)=>REFERENCE_CHANNELS.find(c=>c.id===id)??null;
 export function publicChannelMeta(provider,driver){
