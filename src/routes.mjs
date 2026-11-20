@@ -176,22 +176,31 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
     mount('/channels/accounts',async(req,res)=>{
       if(!isLoopback(req))return json(res,403,{error:'Loopback only'});
       if(req.method!=='GET')return json(res,405,{error:'Method not allowed'});
-      await checkinCenter?.refreshSources?.().catch(()=>{});
+       await accountCenter?.refreshReadOnly?.().catch(()=>{});
+       await checkinCenter?.refreshSources?.().catch(()=>{});
       const rawEmbedded=embeddedPack?.listAccounts?await embeddedPack.listAccounts().catch(()=>
         ({state:'unavailable',accounts:[]})):{state:'unavailable',accounts:[]};
        const sourceRows=(checkinCenter?.snapshot?.().accounts??[]).filter(a=>a.sourceAccount);
        const sourceMap=new Map(sourceRows.map(a=>[a.id,a]));
        const embeddedAccounts={...rawEmbedded,accounts:(rawEmbedded.accounts??[]).map(row=>{
          const source=sourceMap.get(sourceAccountOpaqueId(row.providerId,row.id));
-          return {...row,nickname:source?.nickname||row.nickname||'',
-            connectionState:!row.enabled?'disabled':source?.connectionState==='online'?
-              'online':'not_checked',
-            ...(source?.maskedPhone?{maskedPhone:source.maskedPhone}:{}),
-            ...(Number.isFinite(source?.balance)?{balance:source.balance,
-              balanceUnit:source.balanceUnit,balanceCheckedAt:source.balanceCheckedAt}:{}),
-            balanceState:source?.balanceState??'not_checked'};
+         return {...row,nickname:source?.nickname||row.nickname||'',
+           connectionState:!row.enabled?'disabled':source?.connectionState==='online'?
+             'online':'not_checked',
+           ...(source?.maskedPhone?{maskedPhone:source.maskedPhone}:{}),
+           ...(Number.isFinite(source?.balance)?{balance:source.balance,
+             balanceUnit:source.balanceUnit,balanceCheckedAt:source.balanceCheckedAt}:{}),
+           balanceState:source?.balanceState??'not_checked'};
        })};
        const roster=accountCenter.list();
+       const checkins=new Map((checkinCenter?.snapshot?.().accounts??[])
+         .map(row=>[row.id,row]));
+       roster.accounts=roster.accounts.map(row=>{
+         const current=checkins.get(row.id);
+         return current?{...row,checkinState:current.checkinState,
+           checkinMessage:current.checkinMessage,autoCheckin:current.autoCheckin,
+           autoCheckinEffective:current.autoCheckinEffective===true}:row;
+       });
        const {channels,accounts}=mergeAccountSources({roster,embeddedAccounts,sourceRows,
          embeddedStatus:embeddedPack?.status?.()??{}});
        return json(res,200,{ok:true,...roster,channels,accounts,embeddedAccounts,
@@ -347,6 +356,7 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
     mount('/checkins',async(req,res)=>{
       if(!isLoopback(req))return json(res,403,{error:'Loopback only'});
       if(req.method!=='GET')return json(res,405,{error:'Method not allowed'});
+       await accountCenter?.refreshReadOnly?.().catch(()=>{});
        await checkinCenter.refreshSources?.();
        return json(res,200,{ok:true,...checkinCenter.snapshot()});
     });

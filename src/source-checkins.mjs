@@ -28,7 +28,7 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
    providerEnabled:!imported||cfg.providers.find(p=>p.id===imported.providerId)?.enabled===true,
   };
  }
- async function refresh(){
+  async function refresh({force=false}={}){
   if(stopped||!sourcePack?.listAccounts)return [];
   if(refreshing)return refreshing;
   refreshing=(async()=>{
@@ -56,11 +56,11 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
       await Promise.all(providers.map(async providerId=>{
         const members=[...roster.values()].filter(row=>row.providerId===providerId);
         const last=statusAttempts.get(providerId);
-        if(last&&now()-last.at<(last.ok?STATUS_TTL_MS:60000))return;
-        if(members.every(row=>{
-          const cached=statusCache.get(row.id);
-          return cached&&cached.day===today()&&now()-cached.checkedAt<STATUS_TTL_MS;
-        }))return;
+         if(!force&&last&&now()-last.at<(last.ok?STATUS_TTL_MS:60000))return;
+         if(!force&&members.every(row=>{
+           const cached=statusCache.get(row.id);
+           return cached&&cached.day===today()&&now()-cached.checkedAt<STATUS_TTL_MS;
+         }))return;
         statusAttempts.set(providerId,{at:now(),ok:false});
         const result=await sourcePack.readSourceStatuses(providerId)
           .catch(()=>({state:'unavailable'}));
@@ -71,9 +71,13 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
           if(matches.length!==1)continue;
           const row=matches[0];
            const nickname=(entry.nickname||row.nickname||'').slice(0,80);
+           const prior=statusCache.get(row.id);
+           // A same-day authenticated "claimed" result cannot be undone by a
+           // subsequent partial credit-status payload with no check-in field.
+           const confirmed=entry.todayCheckedIn===true||
+             prior?.day===today()&&prior.todayCheckedIn===true;
            statusCache.set(row.id,{day:today(),checkedAt:now(),nickname,
-             todayCheckedIn:entry.todayCheckedIn===true?true:
-               entry.todayCheckedIn===false?false:null,
+             todayCheckedIn:confirmed?true:entry.todayCheckedIn===false?false:null,
              active:entry.active===true?true:entry.active===false?false:null,
              authVerified:entry.authVerified===true,
              balanceState:entry.balanceState==='available'?'available':'not_available',
@@ -94,10 +98,14 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
    const verified=statusCache.get(row.id);
    const fresh=verified?.day===today()&&now()-verified.checkedAt<STATUS_TTL_MS*3;
    const report=fresh?verified:null;
-   const accountState=pending.has(row.id)?'running':
-     !implemented?'unsupported':report?.todayCheckedIn===true?'success':
-     recent?.state==='success'?'success':report?.active===false?'no_task':
-     report?.todayCheckedIn===false?'not_run':recent?.state??'not_run';
+    const oldPending=recent?.state==='pending_confirmation'&&
+      now()-recent.at>20*60*1000;
+    const accountState=pending.has(row.id)?'running':
+      !implemented?'unsupported':
+      verified?.day===today()&&verified.todayCheckedIn===true?'success':
+      recent?.state==='success'?'success':report?.active===false?'no_task':
+      report?.todayCheckedIn===false?'not_run':
+      oldPending?'failed':recent?.state??'not_run';
    return {id:row.id,providerId:row.providerId,providerName:row.providerId,
     nickname:row.nickname,enabled:state.enabled&&state.providerEnabled,
     configuredEnabled:row.enabled,credentialKind:'driver',
@@ -107,11 +115,14 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
      ...(Number.isFinite(report?.balance)?{balance:report.balance,
        balanceUnit:report.balanceUnit,balanceCheckedAt:report.checkedAt}:{}),
      ...(report?.maskedPhone?{maskedPhone:report.maskedPhone}:{}),
-     balanceState:report?.balanceState??'not_checked',    checkinMessage:report?.todayCheckedIn===true?'来源服务确认今日已签到':
-      report?.active===false?'来源服务确认今日无签到活动':
-      report?.todayCheckedIn===false?'来源服务确认今日尚未签到':
-      recent?.message??(implemented?'今日签到状态暂未核实':
-        row.providerId==='raccoon'?'该平台每日积分由服务端自动发放':'该渠道不提供每日签到操作')};
+     balanceState:report?.balanceState??'not_checked',
+     checkinMessage:verified?.day===today()&&verified.todayCheckedIn===true?
+       '来源服务已核实今日签到完成':
+       report?.active===false?'来源服务确认今日无签到活动':
+       report?.todayCheckedIn===false?'来源服务确认今日尚未签到':
+       oldPending?'上次请求已超过20分钟，尚无服务端签到确认；后续将限次复核':
+       recent?.message??(implemented?'今日签到状态暂未核实':
+         row.providerId==='raccoon'?'该平台每日积分由服务端自动发放':'该渠道不提供每日签到操作')};
   }); }
  async function run(id,{source='manual'}={}){
   if(stopped){const e=Error('插件已经停止');e.status=503;throw e}
@@ -122,8 +133,12 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
   if(!cfg.enabled||!cfg.providerEnabled){const e=Error('账号已停用');e.status=409;throw e}
   if(!supported.has(row.providerId)){const e=Error('此渠道没有每日签到');e.status=501;throw e}
   if(pending.has(id)){const e=Error('该账号的签到正在执行');e.status=409;throw e}
-  const previous=latest(id);
-  if(previous?.state==='success')return {alreadyConfirmed:true,record:previous};
+   const previous=latest(id);
+   if(previous?.state==='success'||statusCache.get(id)?.day===today()&&
+     statusCache.get(id)?.todayCheckedIn===true)
+     return {alreadyConfirmed:true,record:previous??{
+       date:today(),accountId:id,providerId:row.providerId,state:'success',
+       message:'来源服务已确认今日签到',at:now(),source:'status'}};
   pending.add(id);
   let reply,state='failed',message='未确认';
   try{
@@ -131,11 +146,15 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
     catch{reply={state:'failed',message:'来源签到请求异常，等待下次自动重试'}}
     if(reply?.state==='unavailable'){const e=Error('来源服务尚未就绪');e.status=503;throw e}
     if(stopped){const e=Error('插件已卸载，禁止写回签到历史');e.status=503;throw e}
-    if(reply?.confirmed===true){state='success';message=safeText(reply.message??'今日签到已确认')}
-   else if(reply?.state==='no_task'){state='no_task';message=safeText(reply.message??'今日无签到活动')}
-   else if(reply?.state==='pending_confirmation'||reply?.accepted===true){
-    state='pending_confirmation';message=safeText(reply.message??'签到回查待确认');
-   }else{message=safeText(reply?.message??'签到未确认')}
+     if(reply?.confirmed===true){state='success';message=safeText(reply.message??'今日签到已确认')}
+     else if(reply?.state==='no_task'){state='no_task';message=safeText(reply.message??'今日无签到活动')}
+     else if(reply?.state==='pending_confirmation'&&reply?.accepted===true){
+       // Read-only confirmation must follow a confirmed acceptance response.
+       await refresh({force:true});
+       if(statusCache.get(id)?.day===today()&&statusCache.get(id)?.todayCheckedIn===true){
+         state='success';message='上游签到状态已回查确认';
+       }else{state='pending_confirmation';message='请求已受理，服务端仍未确认；自动回查和限次重试';}
+     }else{message=safeText(reply?.message??'签到未确认或未发送')}
    const record=store.append({date:today(),accountId:id,providerId:row.providerId,
     state,message,at:now(),source});
    logger?.info?.('native-router source sign-in '+row.providerId+'/'+id+': '+state);
@@ -157,7 +176,8 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
    const cfg=configFor(row);
    if(!cfg.enabled||!cfg.providerEnabled||!cfg.autoCheckin||!supported.has(row.providerId))continue;
    const records=history(row.id),recent=records.at(-1);
-   if(['success','no_task','client_required'].includes(recent?.state))continue;
+    if(['success','no_task','client_required'].includes(recent?.state))continue;
+    if(statusCache.get(row.id)?.day===today()&&statusCache.get(row.id)?.todayCheckedIn===true)continue;
    if(records.filter(x=>x.source==='auto').length>=MAX_AUTO_ATTEMPTS)continue;
    if(recent&&now()-recent.at<RETRY_DELAY_MS)continue;
    try{results.push(await run(row.id,{source:'auto'}));attempted++}

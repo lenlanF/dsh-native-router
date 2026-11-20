@@ -40,10 +40,12 @@ export function mergeAccountSources({roster,embeddedAccounts,sourceRows=[],embed
  };
  for(const item of roster?.accounts??[]){
    const id=canonical(item.providerId),ownedPool=pool.get(key({id:item.id,providerId:id}));
+   const localAdopted=item.providerId==='own_lingxi'&&/^pr_[a-f0-9]{28}$/.test(item.id);
    const boundToPack=ownedPool&&(
      item.origin?.kind==='embedded-account-pool'||
      item.providerId==='own_'+id);
    const kind=boundToPack?safeSource(ownedPool.authorizationSource):
+     localAdopted?'adopted':
      item.origin?.kind==='dsh-account-pool'?'reused':
      item.reusedExistingSession?'reused':'unknown';
    const status=boundToPack?ownedPool.status:null;
@@ -51,7 +53,7 @@ export function mergeAccountSources({roster,embeddedAccounts,sourceRows=[],embed
    add({...item,id:item.id,providerId:id,routeProviderId:item.providerId,
      sourceKind:kind,
      nickname:label,maskedPhone:status?.maskedPhone,
-     origin:boundToPack?{kind,label:sourceName(kind)}:item.origin,
+      origin:boundToPack||localAdopted?{kind,label:sourceName(kind)}:item.origin,
      connectionState:boundToPack&&status?.connectionState==='online'?'online':item.connectionState,
      ...(Number.isFinite(status?.balance)?{balance:status.balance,
        balanceUnit:status.balanceUnit,balanceCheckedAt:status.balanceCheckedAt}:{}),

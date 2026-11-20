@@ -76,8 +76,11 @@ export function createInstalledPluginInventory({home=homedir(),
    const state=readLimited(join(data,'dsh-connect-lingxi','state.json'));
    for(const [index,row] of (state?.accounts??[]).slice(0,100).entries()){
     const key=compact(row?.id)||'account:'+(index+1);
-    if(row?.enabled===true&&validSession(row.wpsSid)&&privateId('lingxi',key)===accountId)
-     return {providerId,accountId,secret:row.wpsSid};
+     if(row?.enabled===true&&validSession(row.wpsSid)&&privateId('lingxi',key)===accountId){
+       const label=compact(row.label);
+       return {providerId,accountId,secret:row.wpsSid,
+         ...label&&!/\b(?:bearer|wps_sid|access_token|password)\b/i.test(label)
+           &&!/^[A-Za-z0-9_-]{48,}$/.test(label)?{label}:{}};}
    }
   }
   if(providerId==='loomy'&&installed('dsh-connect-loomy')){
@@ -129,8 +132,36 @@ export function createInstalledPluginInventory({home=homedir(),
   }
   return null;
  }
- async function scan(){
-  const plugins=SOURCES.map(row=>({...row,installed:!!installed(row.packageName),
+  // Exact ID chain links only metadata from the already adopted original account.
+  // Neither original SID nor its secret-bearing JSON is exposed to the UI.
+  function ownedPublicMetadata(providerId,ownedId){
+    if(providerId!=='own_lingxi'||typeof ownedId!=='string')return null;
+    const state=readLimited(join(data,'dsh-connect-lingxi','state.json'));
+    if(!Array.isArray(state?.accounts))return null;
+    for(const [index,row] of state.accounts.slice(0,100).entries()){
+      const sourceKey=compact(row?.id)||'account:'+(index+1);
+      const sourceId=privateId('lingxi',sourceKey);
+      const expected='pr_'+createHash('sha256')
+        .update('dsh-native-router-private\0lingxi\0'+sourceId).digest('hex').slice(0,28);
+      if(expected!==ownedId)continue;
+      const label=compact(row.label);
+      const safeLabel=label&&!/\b(?:bearer|wps_sid|access_token|password)\b/i.test(label)
+        &&!/^[A-Za-z0-9_-]{48,}$/.test(label)?label:'';
+      const scalar=Number.isFinite(row.credits)&&row.credits>=0?row.credits:
+        Number.isFinite(row.balance?.total)&&row.balance.total>=0?row.balance.total:null;
+      const day=typeof row.lastCheckinDate==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(row.lastCheckinDate)
+        ?row.lastCheckinDate:null;
+      const outcome=['claimed','already','failed'].includes(row.lastCheckinOutcome)
+        ?row.lastCheckinOutcome:null;
+      return {displayName:safeLabel,source:'lingxi-original-profile',
+        ...(scalar!==null?{balance:scalar,balanceUnit:'积分'}:{}),
+        ...(Number.isFinite(row.lastCheckedAt)&&row.lastCheckedAt>0?
+          {balanceCheckedAt:row.lastCheckedAt}:{}),
+        checkinDate:day,checkinOutcome:outcome};
+    }
+    return null;
+  }
+  async function scan(){  const plugins=SOURCES.map(row=>({...row,installed:!!installed(row.packageName),
    version:installed(row.packageName)?.version??null}));
   const accounts=[],issues=[];
   const add=(row)=>{if(accounts.length<100)accounts.push(row)};
@@ -190,5 +221,4 @@ export function createInstalledPluginInventory({home=homedir(),
   return {state:'ready',plugins,accounts,issues,
    detected:accounts.length,verified:0,portable:accounts.filter(x=>x.portable).length};
  }
- return {scan,readCredential};
-}
+  return {scan,readCredential,ownedPublicMetadata};}

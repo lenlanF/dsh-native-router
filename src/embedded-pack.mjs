@@ -479,7 +479,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
      if(before?.available===true&&before.active===false)
        return {state:'no_task',message:'该渠道今日没有可执行的签到活动'};
      if(before?.available!==true)
-       return {state:'pending_confirmation',message:'当前无法核实来源签到状态，未发起领取'};
+        return {state:'failed',message:'来源今日签到状态暂不可核实，未发送领取请求'};
     const claim=await ops.claim(providerId,sourceAccountId);
     if(scope!==mountedScope())return {state:'unavailable'};
     const outcomes=claim?.ok===true&&Array.isArray(claim.value?.results)

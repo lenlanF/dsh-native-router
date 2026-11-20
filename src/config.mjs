@@ -53,8 +53,11 @@ export function normalizeConfig(source = {}) {
     if (value.credentialRef.startsWith('driver:') && !value.credentialRef.startsWith('driver:'+value.providerId+':')) throw new Error('Driver credential reference must match its provider');
     if (value.credentialRef.startsWith('driver:') && providers.find(p=>p.id===value.providerId)?.protocol!=='native-channel') throw new Error('Driver credential references require native-channel protocol');
     if (providers.find(p=>p.id===value.providerId)?.protocol==='native-channel' && !value.credentialRef.startsWith('driver:')) throw new Error('Native channels require driver-owned credential references');
-    return { id: id(value.id, 'account id'), providerId: value.providerId, credentialRef: value.credentialRef,
-      enabled: value.enabled !== false, weight: int(value.weight, 1, 1, 100), autoCheckin: value.autoCheckin === true };
+     return { id: id(value.id, 'account id'), providerId: value.providerId, credentialRef: value.credentialRef,
+       enabled: value.enabled !== false, weight: int(value.weight, 1, 1, 100), autoCheckin: value.autoCheckin === true,
+       ...(typeof value.displayName==='string'&&NAME.test(value.displayName)&&
+         !/\b(?:bearer|wps_sid|access_token|password)\b/i.test(value.displayName)
+         ?{displayName:value.displayName.slice(0,120)}:{}) };
   });
   unique(accounts, 'id', 'account');
   const accountsIds = new Set(accounts.map(a => a.id));

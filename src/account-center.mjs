@@ -6,7 +6,8 @@ function concise(message){return String(message??'').replace(/(?:Bearer\s+|sk-)[
 function accountNotFound(id){const e=new Error('Account not configured: '+String(id).slice(0,80));e.status=404;return e}
 export function createAccountCenter({
  configStore,adapter,drivers=new Map(),fetchImpl=fetch,env=process.env,vault,now=()=>Date.now(),
- getSourceStatus=()=>({state:'unavailable'}),verificationStore,autoVerifyMs=AUTO_VERIFY_MS,
+  getSourceStatus=()=>({state:'unavailable'}),verificationStore,autoVerifyMs=AUTO_VERIFY_MS,
+  publicMetadataFor=()=>null,
 }={}){
   if(!configStore?.get||!configStore?.replace)throw Error('ConfigStore must support get and replace');
   const checks=new Map(),pending=new Set(),discoverCache=new Map();
@@ -66,9 +67,23 @@ export function createAccountCenter({
      accounts:cfg.accounts.map(account=>{
        const provider=cfg.providers.find(p=>p.id===account.providerId);
        const driver=driverFor(provider.id);
-        const check=statusMap.get(account.id);
-        return {id:account.id,providerId:account.providerId,providerName:provider.name,
-         enabled:account.enabled&&provider.enabled,configuredEnabled:account.enabled,weight:account.weight,
+         const check=statusMap.get(account.id);
+         const original=publicMetadataFor(account)??{};
+         const live=typeof driver?.accountSnapshot==='function'
+           ?driver.accountSnapshot(account)??{}:{};
+         const balance=Number.isFinite(live.balance)&&live.balance>=0?live.balance:
+           Number.isFinite(original.balance)&&original.balance>=0?original.balance:null;
+         return {id:account.id,providerId:account.providerId,providerName:provider.name,
+           ...(account.displayName||original.displayName||live.displayName?
+             {nickname:account.displayName||original.displayName||live.displayName}:{}),
+           ...(balance!==null?{balance,balanceUnit:'积分',
+             balanceCheckedAt:live.balanceCheckedAt??original.balanceCheckedAt??null}:{}),
+           balanceState:balance!==null?'available':'not_checked',
+           upstreamCheckinDate:live.checkinDate??original.checkinDate??null,
+           upstreamCheckinOutcome:live.checkinOutcome??original.checkinOutcome??null,
+           upstreamCheckinSource:live.checkinDate?'live-readonly':
+             original.checkinDate?'original-plugin-cache':'unknown',
+           enabled:account.enabled&&provider.enabled,configuredEnabled:account.enabled,weight:account.weight,
           reusedExistingSession:cfg.sessionReuse?.linkedIds?.includes(account.id)===true,
           origin:originOf(account,cfg),
           credentialKind:account.credentialRef.startsWith('env:')?'env':account.credentialRef.startsWith('driver:')?'driver':'host',
@@ -258,11 +273,35 @@ export function createAccountCenter({
   }finally{autoBusy=false}
   return {attempted};
  }
- function start(){
+  async function refreshReadOnly({force=false}={}){
+    const cfg=configStore.get(),results=[];
+    for(const account of cfg.accounts){
+      const provider=cfg.providers.find(p=>p.id===account.providerId);
+      const driver=driverFor(account.providerId);
+      if(!account.enabled||!provider?.enabled||typeof driver?.refreshAccountStatus!=='function')
+        continue;
+      try{results.push(await driver.refreshAccountStatus({account,force}))}
+      catch{results.push({state:'unavailable'})}
+    }
+    return results;
+  }
+   function start(){
+     // One-time preservation of nonsecret original account labels after a
+     // verified same-ID adoption. Never write original cookie or credentials.
+     const initial=configStore.get();
+     const accounts=initial.accounts.map(a=>{
+       if(a.displayName||a.providerId!=='own_lingxi')return a;
+       const meta=publicMetadataFor(a);
+       return meta?.displayName?{...a,displayName:meta.displayName}:a;
+     });
+     if(accounts.some((row,i)=>row!==initial.accounts[i])){
+       try{configStore.replace({...initial,accounts})}catch{}
+     }
   if(disposed||automaticTimer)return stop;
   automaticTimer=setInterval(()=>void autoCheckDue().catch(()=>{}),Math.max(60000,autoVerifyMs));
   automaticTimer.unref?.();
-   initialTimer=setTimeout(()=>{initialTimer=null;void autoCheckDue().catch(()=>{})},5000);
+   initialTimer=setTimeout(()=>{initialTimer=null;void autoCheckDue().catch(()=>{});
+     void refreshReadOnly().catch(()=>{});},5000);
   initialTimer.unref?.();
   return stop;
  }
@@ -272,5 +311,4 @@ export function createAccountCenter({
   if(initialTimer)clearTimeout(initialTimer);
   automaticTimer=null;initialTimer=null;
  }
- return {list,verify,setEnabled,logout,discover,importCandidate,refreshAll,autoCheckDue,start,stop,drivers,driverFor,find};
-}
+  return {list,verify,setEnabled,logout,discover,importCandidate,refreshAll,refreshReadOnly,autoCheckDue,start,stop,drivers,driverFor,find};}

@@ -61,16 +61,25 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
   function snapshot(){
     const cfg=configStore.get(),today=currentDate(),roster=accountCenter.list();
     const accounts=roster.accounts.map(a=>{
-      const recent=latestFor(a.id,today);
-      const entry=accountCenter.find(a.id),driver=accountCenter.driverFor(a.providerId);
-      const implemented=typeof driver?.checkIn==='function';
-      const state=pending.has(a.id)?'running':
-        !implemented?'unsupported':recent?.state??'not_run';
-      return {...a,autoCheckin:entry.account.autoCheckin===true,
-        checkinState:state,checkinAt:recent?.at??null,
-        checkinMessage:recent?.message??(implemented?'今日尚未执行签到':'未接入本渠道签到执行器'),
-        checkinSupported:implemented,
-      };
+       const recent=latestFor(a.id,today);
+       const entry=accountCenter.find(a.id),driver=accountCenter.driverFor(a.providerId);
+       const implemented=typeof driver?.checkIn==='function';
+       const upstreamToday=a.upstreamCheckinDate===today;
+       const verified=upstreamToday&&['claimed','already'].includes(a.upstreamCheckinOutcome);
+       const claimable=upstreamToday&&a.upstreamCheckinOutcome==='claimable';
+       const state=pending.has(a.id)?'running':
+         !implemented?'unsupported':verified?'success':
+         claimable?'not_run':recent?.state??'not_run';
+       const sourceName=a.upstreamCheckinSource==='live-readonly'?
+         '灵犀上游任务中心':'原灵犀插件同账号签到记录';
+       return {...a,autoCheckin:entry.account.autoCheckin===true,
+         autoCheckinEffective:cfg.checkin.autoEnabled&&entry.account.autoCheckin===true,
+         checkinState:state,checkinAt:recent?.at??a.balanceCheckedAt??null,
+         checkinMessage:verified?sourceName+'确认今日已签到':
+           claimable?'上游今日任务仍可领取，尚未确认签到':
+           recent?.message??(implemented?'今日签到状态尚未核实':'未接入本渠道签到执行器'),
+         checkinSupported:implemented,
+       };
     });
      for(const sourceRow of sourceCenter?.snapshot()??[]){
        const existing=accounts.find(item=>item.id===sourceRow.id);
@@ -120,9 +129,16 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
     const {account,provider,driver}=accountCenter.find(accountId);
     if(!account.enabled||!provider.enabled){const e=new Error('账号已停用，不能签到');e.status=409;throw e}
     if(typeof driver?.checkIn!=='function'){const e=new Error('该渠道尚未实现真实签到及结果验证');e.status=501;throw e}
-    const date=currentDate(),previous=latestFor(accountId,date);
-    if(previous?.state==='success')return {alreadyConfirmed:true,record:previous};
-    pending.add(accountId);
+     const date=currentDate(),previous=latestFor(accountId,date);
+     if(previous?.state==='success')return {alreadyConfirmed:true,record:previous};
+     const publicAccount=accountCenter.list().accounts.find(a=>a.id===accountId);
+     if(publicAccount?.upstreamCheckinDate===date&&
+       ['claimed','already'].includes(publicAccount?.upstreamCheckinOutcome)){
+       const record=store.append({date,accountId,providerId:provider.id,
+         state:'success',message:'上游/原插件确认今日已签到',at:now(),source:'status'});
+       return {alreadyConfirmed:true,record};
+     }
+     pending.add(accountId);
     let state='failed',message='签到未确认';
     try{
       const reply=await driver.checkIn({account,provider,date,source});
@@ -151,13 +167,25 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
     if(!cfg.checkin.autoEnabled)return {skipped:'disabled'};
     if(clockAt(now(),cfg.checkin.timeZone)<cfg.checkin.runAt)return {skipped:'not_due'};
     if(running)return running;
-    running=(async()=>{
-      const results=[];
-      for(const account of cfg.accounts){
-        if(!account.autoCheckin||!account.enabled)continue;
-        const provider=cfg.providers.find(p=>p.id===account.providerId);
-        if(!provider?.enabled||typeof accountCenter.driverFor(account.providerId)?.checkIn!=='function')continue;
-        if(latestFor(account.id))continue; // One automatic attempt per local day. Manual retry remains possible.
+     running=(async()=>{
+       const results=[];
+       await accountCenter.refreshReadOnly?.().catch(()=>{});
+       const today=currentDate(),known=accountCenter.list().accounts;
+       for(const account of cfg.accounts){
+         if(!account.autoCheckin||!account.enabled)continue;
+         const provider=cfg.providers.find(p=>p.id===account.providerId);
+         if(!provider?.enabled||typeof accountCenter.driverFor(account.providerId)?.checkIn!=='function')continue;
+         const publicAccount=known.find(row=>row.id===account.id);
+         if(publicAccount?.upstreamCheckinDate===today&&
+           ['claimed','already'].includes(publicAccount.upstreamCheckinOutcome))continue;
+         const records=store.all().filter(r=>r.accountId===account.id&&r.date===today);
+         const recent=records.at(-1);
+         if(recent?.state==='success'||recent?.state==='client_required')continue;
+         // Historic no_task was incorrectly returned for an already-claimed
+         // Lingxi task; permit a bounded retry if source still reports unclaimed.
+         if(recent?.state==='no_task'&&account.providerId!=='own_lingxi')continue;
+         if(records.filter(x=>x.source==='auto').length>=3)continue;
+         if(recent&&now()-recent.at<60*60*1000)continue;
         try{results.push(await run(account.id,{source:'auto'}))}catch(error){
           logger?.warn?.('native-router checkin skip '+account.id+': '+short(error?.message));
         }
@@ -173,8 +201,10 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
   function start(){
     if(timer)return stop;
     // Timer belongs to the plugin runtime, not Windows Task Scheduler.
-    const refreshReadOnly=()=>void sourceCenter?.refresh().catch(()=>
-      logger?.warn?.('source sign-in status synchronization unavailable'));
+     const refreshReadOnly=()=>void Promise.all([
+       sourceCenter?.refresh().catch(()=>null),
+       accountCenter.refreshReadOnly?.().catch(()=>null),
+     ]).catch(()=>logger?.warn?.('source check-in metadata refresh unavailable'));
     timer=setInterval(()=>{
       refreshReadOnly();
       void tick().catch(()=>logger?.warn?.('checkin task unavailable'));

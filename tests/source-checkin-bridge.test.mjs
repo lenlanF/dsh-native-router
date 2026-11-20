@@ -61,7 +61,7 @@ test('claimed receipt with no verified server status remains pending, never succ
 test('unknown server check-in status causes zero claim attempts',async()=>{
  const f=await fixture({available:false});
  const result=await f.bridge.checkinAccount({providerId:'qoder',sourceAccountId:'acct-b'});
- assert.equal(result.state,'pending_confirmation');
+  assert.equal(result.state,'failed','unknown read-only status does not mean a claim was submitted');
  assert.deepEqual(f.calls,['status:qoder:acct-b']);
  f.bridge.dispose();
 });

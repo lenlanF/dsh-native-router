@@ -90,7 +90,7 @@ function lingxiDecode(body){
  return {text,reasoning,toolCalls,finishReason:toolCalls.length?'tool_calls':'stop',usage};
 }
 export function createPrivateOwnedDriver({providerId,vault,makeCredentialRef,
- fetchImpl=fetch,endpointOverride={},timeoutMs=90000}={}){
+  fetchImpl=fetch,endpointOverride={},timeoutMs=90000,now=()=>Date.now()}={}){
  const metadata=PRIVATE_PROVIDERS[providerId];
  if(!metadata)throw Error('Unsupported independently managed provider');
  const keyRef=name=>typeof makeCredentialRef==='function'?makeCredentialRef(name):name;
@@ -191,40 +191,132 @@ export function createPrivateOwnedDriver({providerId,vault,makeCredentialRef,
     message:'自有渠道鉴权检查未通过'};
   }
  }
- async function checkIn({account,date:requestedDate}={}){
-  if(providerId!=='lingxi')return {state:'unsupported'};
-  const sid=await secretFor(account);
-  const base=endpointOverride.lingxi??'https://lingxi.kdocs.cn';
-  const headers=buildLingxiHeaders(sid,base);
-  const taskRes=await send(base+'/api/public/v1/tasks',{headers},undefined);
-  if(!taskRes.ok)throw httpFailure(taskRes,'Lingxi');
-  const task=JSON.parse(await readCapped(taskRes));
-  // Explicit upstream task record needed. Don't infer success from HTTP 200.
-  const entries=task?.data?.tasks;
-  const record=Array.isArray(entries)?entries.find(x=>x?.task_key==='daily_check_in'):null;
-  if(!record)return {state:'unsupported',message:'上游未提供每日签到任务'};
-  if(record.status==='claimed'||record.status==='completed')return {state:'no_task',message:'上游显示已领取，无需重复执行'};
-  const extra=record.extra&&typeof record.extra==='object'?record.extra:{};
-  const days=Array.isArray(extra.check_in_days)?extra.check_in_days:[];
-  const candidate=days.find(x=>['available','claimable'].includes(x?.status));
-  if(record.status!=='claimable'&&!candidate)
-   return {state:'unsupported',message:'上游签到任务不可领取'};
-  const rawDate=candidate?.date??extra.today_date??extra.claimable_date??record.date??task?.data?.today;
-  const claimDate=typeof rawDate==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(rawDate)?rawDate:null;
-  if(!claimDate||claimDate!==requestedDate)return {state:'no_task',message:'今日签到日期无法与上游匹配'};
-  const url=base+'/api/public/v1/tasks/daily_check_in/claim?date='+encodeURIComponent(claimDate);
-  const claimed=await send(url,{method:'POST',headers,body:'{}'},undefined);
-  let payload;try{payload=JSON.parse(await readCapped(claimed))}catch{}
-  if(!claimed.ok){
-   return {state:'failed',message:'签到未获上游确认（HTTP '+claimed.status+'）'};
+  const statusCache=new Map(),statusPending=new Map();
+  const statusTTL=3*60*1000;
+  const beijingDate=()=>{
+    const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',
+      year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now());
+    const part=k=>parts.find(x=>x.type===k)?.value;
+    return part('year')+'-'+part('month')+'-'+part('day');
+  };
+  function balanceFrom(payload){
+    const value=payload?.data;
+    if(!value||typeof value!=='object'||Array.isArray(value))return null;
+    const numeric=v=>typeof v==='number'&&Number.isFinite(v)?v:
+      typeof v==='string'&&v.trim()&&Number.isFinite(Number(v))?Number(v):null;
+    const grants=['bonus_credits','purchased_credits']
+      .flatMap(k=>Array.isArray(value[k])?value[k]:[])
+      .map(x=>numeric(x?.balance)).filter(x=>x!==null);
+    const total=numeric(value.total_balance)??numeric(value.balance)??
+      (grants.length?grants.reduce((a,b)=>a+b,0):null);
+    return total!==null&&total>=0?Math.round(total):null;
   }
-  const result=String(payload?.result??'');
-  if(result.toLowerCase()==='success')return {confirmed:true,date:requestedDate,
-    state:'success',message:'上游已确认签到成功'};
-  return {state:'failed',message:'签到接口没有明确成功结果，不推断已签到'};
- }
- return {authMethod:'本插件独立安全凭据 · 原 DSH 插件卸载后仍可验证',
-  listModels,generate,refresh,login:refresh,
-  ...(metadata.autoCheckin?{checkIn}:{}),
-  nativeReady:true};
-}
+  function taskFrom(payload,requestedDate){
+    const daily=Array.isArray(payload?.data?.tasks)
+      ?payload.data.tasks.find(x=>x?.task_key==='daily_check_in'):null;
+    if(!daily)return {checkinOutcome:'unknown',checkinDate:null,taskStatus:'unknown'};
+    const extra=daily.extra&&typeof daily.extra==='object'?daily.extra:{};
+    const days=Array.isArray(extra.check_in_days)?extra.check_in_days:[];
+    const day=days.find(x=>x?.date===requestedDate);
+    const upstreamDate=[extra.today_date,extra.claimable_date,extra.date,
+      daily.date,payload?.data?.today,payload?.data?.date].find(x=>
+        typeof x==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(x));
+    const isToday=day||upstreamDate===requestedDate;
+    const claimed=day?.status==='claimed'||day?.status==='completed'||
+      (isToday&&['claimed','completed'].includes(daily.status));
+    const claimable=day?.status==='claimable'||day?.status==='available'||
+      daily.status==='claimable'&&(!upstreamDate||upstreamDate===requestedDate);
+    return claimed?{checkinOutcome:'claimed',checkinDate:requestedDate,
+        taskStatus:'claimed'}:
+      claimable?{checkinOutcome:'claimable',checkinDate:requestedDate,
+        taskStatus:'claimable',claimDate:day?.date??upstreamDate??null}:
+      {checkinOutcome:'unknown',checkinDate:null,taskStatus:'unavailable'};
+  }
+  async function readAccountStatus(account,signal){
+    const sid=await secretFor(account);
+    const base=endpointOverride.lingxi??'https://lingxi.kdocs.cn';
+    const headers=buildLingxiHeaders(sid,base);
+    const timeout=new AbortController();
+    const clock=setTimeout(()=>timeout.abort(),9000);
+    clock.unref?.();
+    const abort=()=>timeout.abort();
+    if(signal?.aborted)abort();else signal?.addEventListener?.('abort',abort,{once:true});
+    const read=async(path)=>{
+      try{
+        const res=await send(base+path,{headers},timeout.signal);
+        if(!res.ok)return null;
+        const json=JSON.parse(await readCapped(res,timeout.signal));
+        return json?.result==='UserUnauthorized'?null:json;
+      }catch{return null}
+    };
+    try{
+      const [credits,task]=await Promise.all([
+        read('/api/public/v1/credits/balance?credit_type=total'),
+        read('/api/public/v1/tasks')]);
+      if(!credits&&!task)return {state:'unavailable'};
+      const date=beijingDate(),balance=balanceFrom(credits);
+      return {state:'ready',checkedAt:Date.now(),
+        ...(balance!==null?{balance,balanceUnit:'积分',balanceCheckedAt:Date.now()}:{}),
+        ...(task?taskFrom(task,date):
+          {checkinOutcome:'unknown',checkinDate:null,taskStatus:'unknown'})};
+    }finally{
+      clearTimeout(clock);
+      signal?.removeEventListener?.('abort',abort);
+    }
+  }
+  function accountSnapshot(account){
+    return statusCache.get(account?.id)?.data??null;
+  }
+  async function refreshAccountStatus({account,force=false,signal}={}){
+    if(providerId!=='lingxi'||!account)return {state:'unsupported'};
+    const id=account.id,cached=statusCache.get(id);
+    if(!force&&cached&&now()-cached.at<statusTTL)return cached.data;
+    if(statusPending.has(id))return statusPending.get(id);
+    const job=readAccountStatus(account,signal).then(result=>{
+      if(result.state==='ready')statusCache.set(id,{at:Date.now(),data:result});
+      else statusCache.set(id,{at:Date.now(),data:{state:'unavailable'}});
+      return result;
+    }).finally(()=>statusPending.delete(id));
+    statusPending.set(id,job);
+    return job;
+  }
+  async function checkIn({account,date:requestedDate}={}){
+    if(providerId!=='lingxi')return {state:'unsupported'};
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(String(requestedDate))||
+      requestedDate!==beijingDate())
+      return {state:'failed',message:'签到日期与北京时间不匹配，未提交'};
+    const before=await refreshAccountStatus({account,force:true});
+    if(before.state!=='ready'||before.taskStatus==='unknown')
+      return {state:'failed',message:'读取上游今日签到任务失败，未提交签到'};
+    if(before.checkinOutcome==='claimed')
+      return {confirmed:true,date:requestedDate,state:'success',
+        message:'上游已确认今日签到完成'};
+    if(before.checkinOutcome!=='claimable')
+      return {state:'failed',message:'上游今日任务未明确开放领取，未提交'};
+    const sid=await secretFor(account);
+    const base=endpointOverride.lingxi??'https://lingxi.kdocs.cn';
+    const headers=buildLingxiHeaders(sid,base);
+    const claimDate=before.claimDate;
+    const path='/api/public/v1/tasks/daily_check_in/claim'+
+      (claimDate===requestedDate?'?date='+encodeURIComponent(claimDate):'');
+    const response=await send(base+path,
+      {method:'POST',headers,body:'{}'},undefined);
+    let payload=null;
+    try{payload=JSON.parse(await readCapped(response))}catch{}
+    const result=String(payload?.result??'').toLowerCase();
+    const after=await refreshAccountStatus({account,force:true});
+    if(after.checkinOutcome==='claimed'&&after.checkinDate===requestedDate)
+      return {confirmed:true,date:requestedDate,state:'success',
+        message:'签到请求后，上游任务中心已确认今天签到完成'};
+    if(!response.ok||payload?.result==='UserUnauthorized')
+      return {state:'failed',message:'上游拒绝签到（HTTP '+Number(response.status||0)+'）'};
+    if(result==='ok'||result==='success')
+      return {state:'pending_confirmation',accepted:true,
+        message:'上游已受理，任务中心仍未确认签到；定时重新查询'};
+    return {state:'failed',message:'签到接口没有有效受理凭据，未确认成功'};
+  }
+  return {authMethod:'本插件独立安全凭据 · 原 DSH 插件卸载后仍可验证',
+    listModels,generate,refresh,login:refresh,
+    accountSnapshot,refreshAccountStatus,
+    ...(metadata.autoCheckin?{checkIn}:{}),
+    nativeReady:true};}

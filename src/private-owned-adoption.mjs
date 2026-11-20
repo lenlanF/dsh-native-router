@@ -70,9 +70,12 @@ export function createPrivateOwnedAdoption({inventory,configStore,vault,makeCred
        ?{...x,enabled:true,models}:x):
       [...fresh.providers,{id:ownerId,name:providerId+' · 聚合路由自有',
         protocol:'native-channel',baseUrl:'',enabled:true,models,supportsTools:true}];
-    const accounts=[...fresh.accounts,{
-      id,providerId:ownerId,credentialRef:'driver:'+ownerId+':'+id,
-      enabled:true,weight:1,autoCheckin:PRIVATE_PROVIDERS[providerId].autoCheckin}];
+     const accountLabel=typeof original.label==='string'&&original.label.trim()
+       ?original.label.trim().slice(0,120):'';
+     const accounts=[...fresh.accounts,{
+       id,providerId:ownerId,credentialRef:'driver:'+ownerId+':'+id,
+       enabled:true,weight:1,autoCheckin:PRIVATE_PROVIDERS[providerId].autoCheckin,
+       ...(accountLabel?{displayName:accountLabel}:{})}];
     // Independent account registration must never create a model chain.
     const routes=fresh.routes;
     stage='persist_owned_account';

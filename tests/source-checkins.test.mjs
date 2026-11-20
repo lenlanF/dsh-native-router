@@ -63,6 +63,41 @@ test('unknown source credit response never invents a zero balance or successful 
  assert.equal(h.calls.length,0);
  h.center.stop();
 });
+test('accepted source claim is immediately followed by a fresh authenticated status read',async()=>{
+  let claimed=false,checks=0;
+  const h=fixture({enabled:false,rows:[row('loomy','acct-1')],
+    handler:async()=>{claimed=true;return {state:'pending_confirmation',accepted:true}},
+    statusQuery:async()=>{checks++;return {state:'ready',accounts:[{
+      accountId:'acct-1',todayCheckedIn:claimed,active:true,
+      authVerified:true,nickname:'Loomy verified'}]}}});
+  await h.center.refreshSources();
+  const id=sourceAccountOpaqueId('loomy','acct-1');
+  const result=await h.center.run(id);
+  assert.equal(result.record.state,'success','confirmed status must override acceptance-only receipt');
+  assert.equal(h.calls.length,1,'claim must be account-scoped and issued once');
+  assert.ok(checks>=2,'the status after claim must bypass the TTL cache');
+  assert.equal(h.center.snapshot().accounts[0].checkinState,'success');
+  assert.equal((await h.center.run(id)).alreadyConfirmed,true);
+  assert.equal(h.calls.length,1,'confirmed source must never claim again');
+  h.center.stop();
+});
+test('unconfirmed source acceptance does not remain pending forever',async()=>{
+  const h=fixture({enabled:false,rows:[row('zcode','acct-2')],
+    handler:async()=>({state:'pending_confirmation',accepted:true,
+      message:'请求已发送等待服务端确认'}),
+    statusQuery:async()=>({state:'ready',accounts:[{
+      accountId:'acct-2',todayCheckedIn:null,active:true,authVerified:true}]})});
+  await h.center.refreshSources();
+  const id=sourceAccountOpaqueId('zcode','acct-2');
+  const result=await h.center.run(id);
+  assert.equal(result.record.state,'pending_confirmation');
+  h.setNow(NOW+21*60*1000);
+  const snapshot=h.center.snapshot().accounts[0];
+  assert.equal(snapshot.checkinState,'failed','expired pending must have an explicit terminal display state');
+  assert.match(snapshot.checkinMessage,/超过20分钟/);
+  assert.equal(h.calls.length,1);
+  h.center.stop();
+});
 test('global DSH opt-in signs in every supported source channel; four unsupported channels are shown but never touched',async()=>{
  const supported=SOURCE_DAILY_SIGNIN_PROVIDERS;
  assert.equal(Object.isFrozen(supported),true,'channel support inventory cannot mutate at runtime');
