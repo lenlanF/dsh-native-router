@@ -21,22 +21,20 @@ import path from 'node:path'
 const POLL_MS = 1_500
 const START_TIMEOUT_MS = 20_000
 const DEFAULT_TIMEOUT_MS = 5 * 60_000
-// 这些 cookie 只跟飞书套件有关，又长又没用，不塞进请求头
+// Only generic browsers may be started: never launch an original source client.
 
-function browserCandidates() {
-  if (process.platform === 'darwin') {
+export function browserCandidates(platform = process.platform, environment = process.env) {
+  if (platform === 'darwin') {
     return [
       '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
       '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
       '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
       '/Applications/Chromium.app/Contents/MacOS/Chromium',
-      '/Applications/DoubaoWork.app/Contents/MacOS/DoubaoWork',
-      '/Applications/豆包工作.app/Contents/MacOS/DoubaoWork',
     ]
   }
-  if (process.platform === 'win32') {
-    const roots = [process.env.PROGRAMFILES,process.env['PROGRAMFILES(X86)'],
-      process.env.LOCALAPPDATA,'D:\\Program\\Program Files','D:\\Program\\Program Files (x86)']
+  if (platform === 'win32') {
+    const roots = [environment.PROGRAMFILES,environment['PROGRAMFILES(X86)'],
+      environment.LOCALAPPDATA,'D:\\Program\\Program Files','D:\\Program\\Program Files (x86)']
     return roots
       .filter(Boolean)
       .flatMap(root => [
@@ -74,15 +72,20 @@ async function readJson(url, timeoutMs = 2_000) {
 }
 
 // 一个极小的 CDP 客户端：只发请求、等同 id 的回复，事件一律丢弃。
-function connect(url, timeoutMs = 10_000) {
-  // Browser debugger targets are untrusted; CDP must stay on loopback.
+export function assertIsolatedCdpEndpoint(url, expectedPort) {
   let target
   try { target = new URL(url) } catch { throw new Error('CDP URL 无效') }
   if (target.protocol !== 'ws:' || !['127.0.0.1','localhost','[::1]'].includes(target.hostname)
     || !/^\/devtools\/page\/[\w-]+$/.test(target.pathname)
-    || !Number.isInteger(Number(target.port)) || Number(target.port) < 1)
-    throw new Error('禁止访问非本机 CDP 调试目标')
-
+    || target.search || target.hash || target.username || target.password
+    || !Number.isInteger(expectedPort) || expectedPort < 1 || expectedPort > 65535
+    || Number(target.port) !== expectedPort)
+    throw new Error('禁止访问非隔离浏览器的 CDP 调试目标')
+  return true
+}
+function connect(url, expectedPort, timeoutMs = 10_000) {
+  // A debugger URL is untrusted, even when it claims to point to localhost.
+  assertIsolatedCdpEndpoint(url, expectedPort)
   return new Promise((resolve, reject) => {
     if (typeof WebSocket !== 'function') {
       reject(new Error('这个 Node 版本没有内置 WebSocket（需要 22 以上）'))
@@ -137,6 +140,14 @@ function connect(url, timeoutMs = 10_000) {
       clearTimeout(timer)
       reject(new Error('调试端口拒绝连接'))
     })
+    socket.addEventListener('close', () => {
+      clearTimeout(timer)
+      for (const [id, row] of pending) {
+        pending.delete(id)
+        clearTimeout(row.failTimer)
+        row.fail(new Error('隔离浏览器调试连接已关闭'))
+      }
+    })
   })
 }
 
@@ -154,7 +165,7 @@ export function createBrowserLoginFlow({ logger, addAccount, loginUrl, extractCo
   async function waitForPage(port, child) {
     const deadline = Date.now() + START_TIMEOUT_MS
     while (Date.now() < deadline) {
-      if (child.exitCode !== null) throw new Error('浏览器启动后立刻退出了')
+      if (child.exitCode !== null || child.signalCode !== null) throw new Error('浏览器启动后立刻退出了')
       const targets = await readJson(`http://127.0.0.1:${port}/json/list`)
       if (Array.isArray(targets)) {
         const page = targets.find(row => row.type === 'page' && String(row.url??'').startsWith(new URL(loginUrl).origin)) ??
@@ -179,20 +190,20 @@ export function createBrowserLoginFlow({ logger, addAccount, loginUrl, extractCo
           break
         }
       } catch {}
-      if (child.exitCode !== null) throw new Error('浏览器启动失败（可能是 profile 目录被占用）')
+      if (child.exitCode !== null || child.signalCode !== null) throw new Error('浏览器启动失败（可能是 profile 目录被占用）')
       await sleep(200)
     }
     if (port === 0) throw new Error('浏览器没有开放调试端口')
     state.steps.push({ step: 'browser', port })
 
     const wsUrl = await waitForPage(port, child)
-    const client = await connect(wsUrl)
+    const client = await connect(wsUrl, port)
     state.steps.push({ step: 'cdp', url: loginUrl })
     try {
       const deadline2 = Date.now() + timeoutMs
       while (Date.now() < deadline2) {
         if (state.status === 'canceled') return null
-        if (child.exitCode !== null) throw new Error('浏览器被关掉了')
+        if (child.exitCode !== null || child.signalCode !== null) throw new Error('浏览器被关掉了')
         let result
         try { result = await client.send('Storage.getCookies', {}) }
         catch { result = await client.send('Network.getAllCookies', {}) }
@@ -217,7 +228,7 @@ export function createBrowserLoginFlow({ logger, addAccount, loginUrl, extractCo
       let profileDir = ''
       try {
         const browser = findBrowser()
-        if (browser === '') throw new Error('没找到 Chrome / Edge / Brave / 豆包工作，改成手动粘贴')
+        if (browser === '') throw new Error('未找到 Chrome / Edge / Brave / Chromium；无需安装 MiMo 或豆包客户端，但自主网页登录需要独立浏览器')
         state.browser = browser
         const tempRoot = process.platform === 'win32' ? 'E:\\Temp' : os.tmpdir()
         if (!existsSync(tempRoot)) throw new Error('E:\\Temp 不可用，拒绝改用系统盘')

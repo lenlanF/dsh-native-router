@@ -37,12 +37,13 @@
 - **own_workbuddy-cn / own_workbuddy-global**：独立 WorkBuddy 驱动与令牌续期，已有原插件移除后的隔离测试；正式在线模型实测仍要核对实际授权。
 - **own_lingxi**：独立官方 API 余额与签到，已有原插件移除后的隔离测试；正式在线身份和推理仍需验证。
 - **CodeArts 存量旧账号**：当前生产环境有一条非 `own_*` 的旧 `codearts` 引用。它不能因为在模型列表出现就算迁移完成；要按精确账号映射重新接管，并在不删除原账号前进行自有凭据实测。
-- **own_mimo_desktop / own_doubao（RC.28）**：仅会员客户端会话授权（现有本地会话或隔离浏览器自主登录），无 MiMo 官方 API Key 接入；自有凭据、独立续期及原生模型请求已由模拟测试覆盖。实际账号登录、推理、原客户端停止后的续期、豆包实际每日领取与工作任务执行器均待真实验收；目录可见不表示可用。
+- **own_mimo_desktop / own_doubao（RC.29）**：不要求任何 MiMo/DoubaoWork 客户端进程，支持本插件自有隔离浏览器登录或已有会话一次性接管；无 MiMo 商业 API Key。模拟测试覆盖自有凭据、独立续期、原生模型请求和豆包网页版签到回查；真实账号登录、推理、续期、实际签到与工作任务执行器仍待在线验收。
 - **自定义 OpenAI / Anthropic API 提供商**：由用户授权的自有 API Key 与相应协议直连，不依赖其它 DSH 插件。需独立按实际模型、配额与协议验收。
 
 ## 本轮可复现验证
 
 - `node --test tests/source-owned-all-channels.test.mjs`：13 个渠道自有精确账号绑定，模拟官方信息读取、账户名/零余额、模型枚举与真实推理事件流、成功证据单独记录；不使用原插件数据。
+- `node --test tests/hostless-all-channel-models.test.mjs tests/hostless-browser-auth.test.mjs tests/doubao-hostless-checkin.test.mjs`：13 渠道真正通过 DSH 路由输出模拟完整回合，MiMo/豆包自主登录不启动原客户端，豆包签到走原生网页领取和确认回查。
 - `node --test tests/embedded-pack.test.mjs tests/source-channel-driver.test.mjs`：官方账号证据、已签状态、模型事件协议、精确账号选择及异常回退。
 - `node --test tests/*.test.mjs`：完整项目回归。
 - `python tools/build-native-channel-pack.py --check` 及 `python tools/build-standalone-channel-pack.py --check`：上游来源包/单文件运行时锁定版本与审计核对。

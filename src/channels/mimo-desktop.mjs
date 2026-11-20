@@ -109,9 +109,9 @@ export function createMimoDesktopDriver({
  const browser=loginFactory({onSession:session=>persistOwnedSession(session,{allowExisting:true})});
  return {
   independentProvider:MIMO_DESKTOP_ID,
-  providerName:'小米 MiMo Desktop · 聚合路由自有',
+  providerName:'小米 MiMo 会员 · 聚合路由自有',
   candidateModels:supportedModels,
-  authMethod:'本机 MiMo Desktop 已登录会话 · 一次性独立接管',
+  authMethod:'本插件独立浏览器登录 / 可选原 MiMo Desktop 会话接管；无需客户端进程',
   startLogin:options=>browser.start(options),
   loginStatus:()=>browser.status(),
   cancelLogin:()=>browser.cancel(),

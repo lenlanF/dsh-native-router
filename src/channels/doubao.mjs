@@ -47,7 +47,8 @@ function promptFor(options){
  }).join('\n\n');
  return text.slice(-80000);
 }
-export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),logger}={}){
+export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
+ sleepMs=ms=>new Promise(resolve=>setTimeout(resolve,ms)),logger}={}){
  const publicStatus=new Map(),cache=new Map(),conversations=new Map(),writes=new Set();
  async function secret(account){
   const match=REF.exec(String(account?.credentialRef??''));
@@ -176,9 +177,19 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),log
    if(!task)return {state:'no_task',message:'官方活动未列出今日签到任务'};
    if(task.checkedInToday===true)return {confirmed:true,date,
      message:'官方任务列表已确认今日签到'};
-   // Upstream observed web sessions cannot claim the desktop-only 710010702
-   // daily reward. No speculative claim; never report an unverified success.
-   return {state:'client_required',message:'豆包每日签到需官方桌面端执行，Web 会话不能确认领取成功'};
+   // Reuse the web campaign API directly. No DoubaoWork process or desktop
+   // workspace is involved. An accepted claim is NOT proof of a reward.
+   try{await claimCheckin(cookie,group,withFetch({timeoutMs:12000}))}
+   catch{return {state:'pending_confirmation',message:'豆包网页版领取请求未通过，未确认签到成功'}}
+   for(const delayMs of [0,2000,4000]){
+    if(delayMs)await sleepMs(delayMs);
+    try{
+     const latest=await fetchCampaignDetail(cookie,group,withFetch({timeoutMs:12000}));
+     if(findDailyCheckin(latest.tasks||[])?.checkedInToday===true)
+      return {confirmed:true,date,message:'豆包网页版活动已回查确认今日签到'};
+    }catch{/* An inaccessible status endpoint cannot prove a reward. */}
+   }
+   return {state:'pending_confirmation',message:'豆包网页版已提交领取，官方活动详情尚未确认'};
   }catch{return {state:'pending_confirmation',message:'豆包签到状态无法核验，不视为签到成功'}}
  }
  async function rollbackCandidate({account}={}){
