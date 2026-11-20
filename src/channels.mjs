@@ -10,6 +10,7 @@ export const REFERENCE_CHANNELS=Object.freeze([
   {id:'zcode',name:'ZCode',auth:'浏览器授权',referenceCheckin:false},
   {id:'loomy',name:'讯飞 Loomy',auth:'微信扫码',referenceCheckin:false},
   {id:'mimo',name:'小米 MiMo',auth:'桌面端登录态',referenceCheckin:false},
+  {id:'own_mimo_desktop',name:'小米 MiMo Desktop · 自有授权',auth:'只读桌面会话发现 → 独立接管',referenceCheckin:false},
   {id:'doubao',name:'豆包工作',auth:'浏览器授权 / Cookie',referenceCheckin:true},
 ]);
 export const referenceChannel=(id)=>REFERENCE_CHANNELS.find(c=>c.id===id)??null;

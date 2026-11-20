@@ -16,6 +16,7 @@ import {createCheckinCenter,createCheckinStore} from './checkins.mjs';
 import {getNativeChannelDrivers,onNativeChannelDriverChange,registerNativeChannelDriver} from './driver-registry.mjs';
 import {createWorkBuddyDriver} from './channels/workbuddy.mjs';
 import {createCodeArtsDriver} from './channels/codearts.mjs';
+import {createMimoDesktopDriver,MIMO_DESKTOP_ID} from './channels/mimo-desktop.mjs';
 import {createLocalAndSourceDriver} from './channels/local-source.mjs';
 import {createEmbeddedChannelPack,SOURCE_PACK_PROVIDERS} from './embedded-pack.mjs';
 import {createSourceChannelDriver} from './source-channel-driver.mjs';
@@ -42,6 +43,11 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
      if(!drivers.has(owner))builtInCleanup.push(registerNativeChannelDriver(owner,
        createWorkBuddyDriver({env,fetchImpl,ownedRegion:region,ownedVault})));
    }
+   // Account transfer is explicitly owner-approved. Once adopted, runtime SSO
+   // and model calls come solely from this plugin's own DSH Credentials.
+   if(!channelDrivers&&!drivers.has(MIMO_DESKTOP_ID))
+     builtInCleanup.push(registerNativeChannelDriver(MIMO_DESKTOP_ID,
+       createMimoDesktopDriver({vault:ownedVault})));
    const embeddedPack=createEmbeddedChannelPack({ctx,getConfig:()=>ownStore.get(),env:env??process.env});
    const existingHostSource=createExistingDshChannelFacade({ctx,excludedHost:embeddedPack});
    const sourceFacade=createPreferredSourceFacade({own:embeddedPack,existing:existingHostSource});

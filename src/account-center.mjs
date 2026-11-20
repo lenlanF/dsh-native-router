@@ -203,8 +203,13 @@ export function createAccountCenter({
  async function discover(providerId){
    const cfg=configStore.get(),provider=cfg.providers.find(p=>p.id===providerId);
    const driver=driverFor(providerId);
-   if(!provider||!driver?.discover){const e=new Error('此渠道未提供经过验证的本机账号发现适配器');e.status=501;throw e}
-   const candidates=await driver.discover({provider});
+   // A reviewed self-owned desktop driver may be discovered before any
+   // provider/account is configured. Discovery alone never creates a route.
+   const bootstrap=!provider&&driver?.independentProvider===providerId
+     &&providerId==='own_mimo_desktop';
+   if((!provider&&!bootstrap)||!driver?.discover){const e=new Error('此渠道未提供经过验证的本机账号发现适配器');e.status=501;throw e}
+   const candidates=await driver.discover({provider:provider??{
+     id:providerId,name:driver.providerName,protocol:'native-channel'}});
    if(!Array.isArray(candidates))throw Error('Discovery adapter returned invalid candidates');
    // No secrets or filesystem details are handed to the browser.
    const publicCandidates=candidates.slice(0,50).map(row=>({
@@ -223,7 +228,9 @@ export function createAccountCenter({
    }
    const cfg=configStore.get(),provider=cfg.providers.find(p=>p.id===providerId);
    const driver=driverFor(providerId);
-   if(!provider||typeof driver?.importCandidate!=='function'){
+   const bootstrap=!provider&&driver?.independentProvider===providerId
+      &&providerId==='own_mimo_desktop';
+   if((!provider&&!bootstrap)||typeof driver?.importCandidate!=='function'){
      const e=new Error('渠道未提供安全的账号导入驱动');e.status=501;throw e;
    }
     // A reference to another DSH plugin's account pool is NOT an independent
@@ -243,7 +250,13 @@ export function createAccountCenter({
    }
    const newAccount={id:result.id,providerId,credentialRef:result.credentialRef,
      enabled:true,autoCheckin:false,weight:1};
-   configStore.replace({...cfg,accounts:[...cfg.accounts,newAccount]});
+   // Only this explicitly recognized self-owned driver may create its
+   // provider on import. No synthetic chain, fallback or paid API key.
+   const providers=bootstrap?[...cfg.providers,{id:providerId,
+     name:driver.providerName,protocol:'native-channel',enabled:true,
+     models:[...(driver.candidateModels??[])],supportsTools:true}]:cfg.providers;
+   try{configStore.replace({...cfg,providers,accounts:[...cfg.accounts,newAccount]})}
+   catch(error){await driver?.rollbackCandidate?.({account:newAccount});throw error}
    adapter?.invalidateCatalog?.();
    // Preserve the remaining independently approved discovery candidates:
    // importing one account must not force rescanning the entire channel pool.
