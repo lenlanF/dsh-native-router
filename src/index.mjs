@@ -21,6 +21,7 @@ import {createCodeArtsDriver} from './channels/codearts.mjs';
 import {createLocalAndSourceDriver} from './channels/local-source.mjs';
 import {createEmbeddedChannelPack,SOURCE_PACK_PROVIDERS} from './embedded-pack.mjs';
 import {createSourceChannelDriver} from './source-channel-driver.mjs';
+import {sourceModelEligible} from './source-model-eligibility.mjs';
 import {createHostCredentialBridge} from './credentials-bridge.mjs';
 import {join,dirname} from 'node:path';
 export {registerNativeChannelDriver,getNativeChannelDrivers} from './driver-registry.mjs';
@@ -115,8 +116,10 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
    const sourceHealth=()=>checkinCenter.sourceSnapshot?.()??[];
    const sourceVerified=(providerId,id)=>sourceHealth().some(a=>
      a.id===id&&a.providerId===providerId&&a.connectionState==='online'&&a.enabled);
-   embeddedPack.setModelEligibility?.(providerId=>sourceHealth().some(a=>
-     a.providerId===providerId&&a.connectionState==='online'&&a.enabled));
+   // A verified private QR account is eligible even while the separate
+   // daily-sign-in status cache has not refreshed after a DSH restart.
+   embeddedPack.setModelEligibility?.(providerId=>sourceModelEligible(providerId,{
+     accounts:accountCenter.list().accounts,sourceRows:sourceHealth()}));
    ownAdapter.setAccountVerificationResolver?.(account=>{
      if(typeof account?.id!=='string'||typeof account.providerId!=='string')return false;
      const local=accountCenter.list().accounts.find(row=>row.id===account.id
