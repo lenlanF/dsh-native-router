@@ -4,7 +4,7 @@ import {createAccountCenter} from '../src/account-center.mjs';
 import {normalizeConfig} from '../src/config.mjs';
 
 function rig({owner='own_doubao',receipt={text:'OK',finishReason:'stop',toolCalls:[]},
- accountRef,models=[{id:'chat-free'}],onGenerate}={}){
+ accountRef,models=[{id:'chat-free',isFree:true}],onGenerate}={}){
  const id=owner==='own_doubao'?'db_'+'a'.repeat(28):
   owner==='own_workbuddy-cn'?'wbp_'+'b'.repeat(24):
   'sp_'+'c'.repeat(24);
@@ -79,7 +79,7 @@ test('empty or tool-call-only upstream response cannot pass the model chat gate'
 test('unlisted model is rejected and never invoked',async()=>{
  const h=rig();
  const result=await h.center.verifyModel(h.id,{modelId:'unknown'});
- assert.equal(result.state,'failed');
+ assert.equal(result.state,'skipped');
  assert.equal(h.calls,0);
  h.center.stop();
 });

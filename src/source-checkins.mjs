@@ -76,9 +76,16 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
     }
     return cached;
   }
-  async function refresh({force=false}={}){
+  async function refresh({force=false,onlyProviderId=null}={}){
   if(stopped||!sourcePack?.listAccounts)return [];
-  if(refreshing)return refreshing;
+  if(refreshing){
+    if(!force)return refreshing;
+    // A claim needs a NEW observation from after its acceptance. Joining
+    // a status request started before that claim can falsely report pending
+    // even after the server has confirmed today's reward.
+    await refreshing;
+    return stopped?[]:refresh({force:true,onlyProviderId});
+  }
   refreshing=(async()=>{
    const reply=await sourcePack.listAccounts();
    if(stopped||reply?.state!=='ready'||!Array.isArray(reply.accounts))return snapshot();
@@ -113,7 +120,10 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
       if(!providers.includes(key))statusAttempts.delete(key);
     }
     if(typeof sourcePack.readSourceStatuses==='function'){
-      await Promise.all(providers.map(async providerId=>{
+      // Post-claim verification must query only the claimed Provider, not
+      // force-refresh the entire set of other authenticated channels.
+      const statusProviders=onlyProviderId?providers.filter(id=>id===onlyProviderId):providers;
+      await Promise.all(statusProviders.map(async providerId=>{
         const members=[...roster.values()].filter(row=>row.providerId===providerId&&active(row));
         const bindings=new Map(members.map(row=>[row.id,bindingFor(row)]));
         const last=statusAttempts.get(providerId);
@@ -239,6 +249,22 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
      return {alreadyConfirmed:true,record:successfulHistory??{
        date:today(),accountId:id,providerId:row.providerId,state:'success',
        message:'来源服务已确认今日签到',at:now(),source:'status'}};
+  // A sign-in can outlive its original owner authorization. Capture the
+  // exact source identity and credential binding before calling upstream;
+  // late completion cannot authenticate a disabled/replaced account.
+  const originalBinding=bindingFor(row);
+  const stillAuthorized=()=>{
+    const live=roster.get(id),status=configFor(row);
+    return !stopped&&!!live&&live.providerId===row.providerId
+      &&live.sourceAccountId===row.sourceAccountId&&status.enabled
+      &&status.providerEnabled&&bindingFor(row)===originalBinding;
+  };
+  const assertAuthorized=()=>{
+    if(!stillAuthorized()){
+      const error=Error('来源账号授权在签到请求期间已改变，旧结果不得写入新账号');
+      error.status=409;error.code='ERR_ACCOUNT_CHANGED';throw error;
+    }
+  };
   pending.add(id);
   let reply,state='failed',message='未确认';
   try{
@@ -246,15 +272,17 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
     catch{reply={state:'failed',message:'来源签到请求异常，等待下次自动重试'}}
     if(reply?.state==='unavailable'){const e=Error('来源服务尚未就绪');e.status=503;throw e}
     if(stopped){const e=Error('插件已卸载，禁止写回签到历史');e.status=503;throw e}
+    assertAuthorized();
      if(reply?.confirmed===true){state='success';message=safeText(reply.message??'今日签到已确认')}
      else if(reply?.state==='no_task'){state='no_task';message=safeText(reply.message??'今日无签到活动')}
      else if(reply?.state==='pending_confirmation'&&reply?.accepted===true){
        // Read-only confirmation must follow a confirmed acceptance response.
-       await refresh({force:true});
+       await refresh({force:true,onlyProviderId:row.providerId});
        if(statusCache.get(id)?.day===today()&&statusCache.get(id)?.todayCheckedIn===true){
          state='success';message='上游签到状态已回查确认';
        }else{state='pending_confirmation';message='请求已受理，服务端仍未确认；自动回查和限次重试';}
      }else{message=safeText(reply?.message??'签到未确认或未发送')}
+   assertAuthorized();
    const record=store.append({date:today(),accountId:id,providerId:row.providerId,
     state,message,at:now(),source});
    logger?.info?.('native-router source sign-in '+row.providerId+'/'+id+': '+state);

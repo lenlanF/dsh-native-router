@@ -14,7 +14,12 @@ const goodTime=value=>Number.isSafeInteger(value)&&value>0&&value<Date.now()+300
 const safeRow=row=>row&&typeof row==='object'&&!Array.isArray(row)
   &&ACCOUNT_ID.test(row.id)&&/^[a-f0-9]{64}$/.test(row.binding)
   &&STATES.has(row.state)&&goodTime(row.checkedAt)
-  &&(row.verifiedAt===null||goodTime(row.verifiedAt));
+  &&(row.verifiedAt===null||goodTime(row.verifiedAt))
+  &&(row.modelProofAt===undefined||goodTime(row.modelProofAt))
+  &&(row.modelFailedAt===undefined||goodTime(row.modelFailedAt))
+  &&(row.modelProofId===undefined||typeof row.modelProofId==='string'
+    &&row.modelProofId.length<=120&&row.modelProofId.trim()
+    &&!/[\u0000-\u001f]/.test(row.modelProofId));
 // Verification periods are wall-clock timestamps persisted outside the DSH
 // process. Restarting the host NEVER resets the next-due timestamp. This
 // is deliberately separate from any model-catalog or inference cache.
@@ -65,7 +70,10 @@ export function createAccountVerificationStore({path}={}){
       ||!Number.isSafeInteger(at)||at<=0)return false;
    const existing=this.get(account);
    rows[account.id]={id:account.id,binding:digest(account),state,
-     checkedAt:at,verifiedAt:state==='online'?at:existing?.verifiedAt??null};
+     checkedAt:at,verifiedAt:state==='online'?at:existing?.verifiedAt??null,
+     ...(existing?.modelProofAt?{modelProofAt:existing.modelProofAt,
+       modelProofId:existing.modelProofId}:{}),
+     ...(existing?.modelFailedAt?{modelFailedAt:existing.modelFailedAt}:{})};
    const entries=Object.values(rows);
    if(entries.length>MAX_ROWS){
     entries.sort((a,b)=>a.checkedAt-b.checkedAt);
@@ -73,6 +81,29 @@ export function createAccountVerificationStore({path}={}){
    }
    persist();
    return true;
+  },
+  getModelTest(account){
+   const row=this.get(account);
+   return row?.modelProofAt||row?.modelFailedAt?{
+     state:(row.modelFailedAt??0)>=(row.modelProofAt??0)?'failed':'verified',
+     at:row.modelProofAt??null,modelId:row.modelProofId??null,
+     failedAt:row.modelFailedAt??null,
+   }:null;
+  },
+  setModelTest(account,{at,modelId}={}){
+   const existing=this.get(account);
+   if(!existing||!Number.isSafeInteger(at)||at<=0||
+     typeof modelId!=='string'||!modelId.trim()||modelId.length>120
+     ||/[\u0000-\u001f]/.test(modelId))return false;
+   rows[account.id]={...existing,modelProofAt:at,modelProofId:modelId};
+   delete rows[account.id].modelFailedAt;
+   persist();return true;
+  },
+  setModelTestFailure(account,{at}={}){
+   const existing=this.get(account);
+   if(!existing||!Number.isSafeInteger(at)||at<=0)return false;
+   rows[account.id]={...existing,modelFailedAt:at};
+   persist();return true;
   },
   forget(id){
    if(Object.prototype.hasOwnProperty.call(rows,id)){

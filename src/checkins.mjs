@@ -95,7 +95,12 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
           checkinAt:sourceRow.checkinAt,checkinMessage:sourceRow.checkinMessage,
           autoCheckin:sourceRow.autoCheckin,
           autoCheckinEffective:sourceRow.autoCheckinEffective===true,sourceAccount:true,
-          ...(sourceRow.connectionState==='online'?{connectionState:'online'}:{}),
+          // The standalone source pool owns the actual login state. The
+          // imported static card must not show online/enabled when its real
+          // source member was disabled, expired or became rate limited.
+          ...(sourceRow.enabled===false?{enabled:false,connectionState:'disabled'}:
+            ['online','expired','limited'].includes(sourceRow.connectionState)
+              ?{connectionState:sourceRow.connectionState}:{}),
           ...(sourceRow.nickname?{nickname:sourceRow.nickname}:{}),
           ...(Number.isFinite(sourceRow.balance)?{balance:sourceRow.balance,
             ...(sourceRow.balanceUnit?{balanceUnit:sourceRow.balanceUnit}:{}),
@@ -159,6 +164,17 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
     }catch(error){
       state='failed';message=short(error?.message??'渠道签到失败');
     }finally{pending.delete(accountId)}
+    // A claim may have completed upstream while its owner disabled the
+    // Provider, replaced the login or removed the account. Never attach that
+    // old response to a new identity or publish it as a successful sign-in.
+    const current=configStore.get();
+    const live=current.accounts.find(row=>row.id===accountId
+      &&row.providerId===account.providerId&&row.credentialRef===account.credentialRef
+      &&row.enabled===true);
+    if(!live||!current.providers.some(row=>row.id===provider.id&&row.enabled===true)){
+      const error=new Error('账号授权在签到执行期间已改变，旧签到结果不予写入');
+      error.status=409;error.code='ERR_ACCOUNT_CHANGED';throw error;
+    }
     const record=store.append({date,accountId,providerId:provider.id,state,message,
       at:now(),source});
     logger?.info?.('native-router checkin '+provider.id+'/'+accountId+': '+state);

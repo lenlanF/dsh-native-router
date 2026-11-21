@@ -110,11 +110,20 @@ if(key==='/host/catalog'){
       return response({ok:true,result:{state:'updated',changed:true,enabled:input.enabled}});
     }
     if(key==='/checkins')return response({ok:true,...checkinCenter.snapshot()});
+    if(key==='/channels/accounts/models'){
+      const input=JSON.parse(options.body);mutations.push({action:'model-catalog',accountId:input.accountId});
+      return response({ok:true,result:{state:'ready',freeCount:1,models:[{
+        id:'free-model',name:'Hy4 flash x0.00',free:true,evidence:'WorkBuddy 目录标记 x0.00',
+      }]}});
+    }
     if(key==='/channels/accounts/action'){
       const input=JSON.parse(options.body);mutations.push(input);
       if(input.action==='refresh-all')return response({ok:true,...await accountCenter.refreshAll()});
       if(input.action==='login')return response({ok:true,result:await accountCenter.verify(input.accountId,{login:true})});
       if(input.action==='refresh')return response({ok:true,result:await accountCenter.verify(input.accountId)});
+      if(input.action==='model-test')return response({ok:true,result:{
+        state:'verified',modelId:input.modelId??'free-model',responsePreview:'OK',
+      }});
       if(input.action==='enable')return response({ok:true,result:accountCenter.setEnabled(input.accountId,input.enabled)});
       return response({ok:false,error:'unsupported in UI test'});
     }
@@ -155,6 +164,45 @@ if(key==='/host/catalog'){
    async flushTabEffect(){render();tabEffectFn?.();for(let i=0;i<20;i++)await new Promise(resolve=>setTimeout(resolve,1))},
    find,flatten,mutations,get cfg(){return cfg}};
 }
+test('built-in account panel can inspect explicit free evidence and run a real-model adapter test without a browser',async()=>{
+ const id='wbp_'+'b'.repeat(24);
+ const snapshot={ok:true,channels:[{id:'own_workbuddy-cn',name:'WorkBuddy CN',
+  adapterReady:true,referenceOnly:false,protocol:'native-channel'}],pools:[],
+  accounts:[{id,providerId:'own_workbuddy-cn',configuredEnabled:true,enabled:true,
+   connectionState:'online',nickname:'Test owned account',
+   runtimeMode:'owned',modelTestAvailable:true,credentialKind:'driver'}]};
+ const rig=createUiRig(new Map(),null,{state:'disabled'},{},[],undefined,()=>true,snapshot);
+ await rig.init();
+ rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
+ const page=rig.render();
+ assert.ok(rig.find(page,'button','读取本账号模型及费率').length);
+ await rig.find(page,'button','读取本账号模型及费率')[0].props.onClick();
+ assert.ok(rig.mutations.some(r=>r.action==='model-catalog'&&r.accountId===id));
+ const selected=rig.find(rig.render(),'button','发送真实免费测试')[0];
+ assert.ok(selected&&!selected.props.disabled);
+ await selected.props.onClick();
+ assert.ok(rig.mutations.some(r=>r.action==='model-test'&&r.modelId==='free-model'
+  &&r.accountId===id),'UI sends the specific zero-price model to own plugin backend');
+});
+
+test('one-click safe live-model batch uses only enabled verified accounts and shows result counts',async()=>{
+ const id='wbp_'+'d'.repeat(24);
+ const snapshot={ok:true,channels:[{id:'own_workbuddy-cn',name:'WorkBuddy CN',
+  adapterReady:true,protocol:'native-channel'}],pools:[],accounts:[{
+  id,providerId:'own_workbuddy-cn',configuredEnabled:true,enabled:true,
+  connectionState:'online',runtimeMode:'owned',modelTestAvailable:true,
+ }]};
+ const rig=createUiRig(new Map(),null,{state:'disabled'},{},[],undefined,()=>true,snapshot);
+ await rig.init();
+ rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
+ const button=rig.find(rig.render(),'button','一键实测全部账号的免费模型')[0];
+ assert.ok(button&&!button.props.disabled);
+ await button.props.onClick();
+ const called=rig.mutations.filter(r=>r.action==='model-test'&&r.accountId===id);
+ assert.equal(called.length,1,'each account sends at most one bounded actual free test');
+ assert.match(rig.flatten(rig.render()).join(' '),/真实模型实测 1\/1 · 成功 1/);
+});
+
 test('dashboard shows original WorkBuddy routes, which enter directly without a second import step',async()=>{
  const hosts=[
   {providerId:'workbuddy',family:'workbuddy-native-plugin-route',loginVerified:false},

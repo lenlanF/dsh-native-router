@@ -326,6 +326,20 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
         });
       }catch{return json(res,400,{ok:false,error:'来源账号删除请求无效'})}
     });
+    // Explicit per-account model catalog for the built-in REAL inference
+    // tester. Read-only, owner-authenticated and never invokes generation.
+    mount('/channels/accounts/models',async(req,res)=>{
+      if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
+      if(req.method!=='POST')return json(res,405,{ok:false,error:'Method not allowed'});
+      try{
+        const body=await readJson(req);
+        if(typeof body?.accountId!=='string'||body.accountId.length>80)
+          return json(res,400,{ok:false,error:'Invalid account ID'});
+        const result=await accountCenter.listTestModels(body.accountId);
+        return json(res,200,{ok:true,result});
+      }catch(error){return json(res,error?.status??503,{ok:false,
+        error:'无法获取本账号可测试的真实模型目录；未发送推理请求'});}
+    });
     mount('/channels/accounts/action',async(req,res)=>{
       if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{error:'Access rejected'});
       if(req.method!=='POST')return json(res,405,{error:'Method not allowed'});

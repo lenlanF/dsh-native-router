@@ -509,9 +509,94 @@ window.__ModuleLoader__.load({
               whiteSpace:'normal',maxWidth:155}},row.evidence))):
             h('p',{style:css.small},'没有具有明确免费证据或人工免费标记、且来源可用的模型。AutoFree 会拒绝路由，不会默认改用收费模型。')));
     }
+    function ModelTestConsole({account,busy,run,hasDraft}){
+      const [candidates,setCandidates]=useState(null);
+      const [modelId,setModelId]=useState('');
+      const [loading,setLoading]=useState(false);
+      const [failure,setFailure]=useState('');
+      async function inspect(){
+        setLoading(true);setFailure('');
+        try{
+          const reply=await fetch(URL+'/channels/accounts/models',{
+            method:'POST',headers:{'content-type':'application/json'},
+            body:JSON.stringify({accountId:account.id})});
+          const payload=await reply.json();
+          if(!reply.ok||!payload.ok)throw Error(payload.error||'独立模型目录读取失败');
+          const list=payload.result?.models||[];
+          setCandidates(list);
+          setModelId(list.find(x=>x.free===true)?.id||'');
+        }catch(error){setFailure(String(error?.message??error));setCandidates(null)}
+        finally{setLoading(false)}
+      }
+      const safe=(candidates||[]).filter(x=>x.free===true);
+      return h('details',{style:{flex:'1 1 100%',width:'100%',minWidth:0,
+        border:'1px solid var(--dnr-border)',borderRadius:8,marginBottom:7,padding:'4px 7px'}},
+        h('summary',{style:{...css.small,cursor:'pointer',padding:'6px 3px'}},
+          '真实模型调用 · 免费安全测试'),
+        h('div',{style:{padding:'5px 7px 9px'}},
+          h('p',{style:css.small},
+            '由聚合路由自有账号直接调用，发送一次极短的「请只回复 OK」，限制32个输出Token。仅测试来源零费率、WorkBuddy x0.00 或你明确标记免费的模型；不默认选择未知价格的模型。'),
+          h('div',{style:css.line},
+            h(Button,{onClick:inspect,
+              disabled:!!busy||loading||hasDraft||!account.configuredEnabled},
+              loading?'查询中…':'读取本账号模型及费率')),
+          candidates?h('div',{style:css.line},
+            h('span',{style:css.small},
+              '已发现 '+candidates.length+' · 可免费实测 '+safe.length),
+            safe.length?h('select',{style:{...css.input,maxWidth:360},
+              'aria-label':'选择真实测试模型',value:modelId,
+              onChange:e=>setModelId(e.target.value)},
+              safe.map(row=>h('option',{key:row.id,value:row.id},
+                (row.name||row.id)+' · '+row.id))):null,
+            h(Button,{disabled:!!busy||loading||hasDraft||!modelId||!account.configuredEnabled,
+              onClick:()=>run('/channels/accounts/action',{
+                action:'model-test',accountId:account.id,modelId,
+              },'已完成本账号最小真实模型测试')},'发送真实免费测试')):null,
+          candidates&&safe.length?h('p',{style:css.small},
+            '选中模型免费依据：'+(safe.find(row=>row.id===modelId)?.evidence||'未确认')):null,
+          candidates&&!safe.length?h('p',{style:css.small},
+            '本账号尚无明确免费依据的模型，已禁止自动发送。可在 AutoFree 设置中核对官方费率并手工标记。'):null,
+          failure?h('p',{style:{...css.small,color:'var(--dsw-alias-danger-primary,#de6271)'}},
+            failure):null));
+    }
     function AccountConsole({data,query,onQuery,run,setTab,busy,discovered,onAddProvider,
-      onManageAccounts,onOpenOwnedSource,selectedChannel,onSelectChannel}){      if(!data)return h(Panel,{title:'渠道账号'},'账号中心尚未连接 DSH Host。');
+      onManageAccounts,onOpenOwnedSource,selectedChannel,onSelectChannel,onRefresh,hasDraft}){
+      const [batch,setBatch]=useState(null);
+      if(!data)return h(Panel,{title:'渠道账号'},'账号中心尚未连接 DSH Host。');
       const accounts=data.accounts||[];
+      async function runFreeBatch(){
+        if(busy||batch?.running)return;
+        if(hasDraft){setBatch({running:false,done:0,total:0,verified:0,skipped:0,
+          failed:0,message:'请先保存费率规则再进行真实调用'});return}
+        const targets=accounts.filter(row=>row.modelTestAvailable&&row.configuredEnabled
+          &&row.enabled!==false&&row.connectionState==='online').slice(0,16);
+        if(!targets.length){setBatch({running:false,done:0,total:0,
+          verified:0,skipped:0,failed:0,message:'目前没有已启用且官方鉴权在线的独立账号'});return}
+        if(!window.confirm('将逐个通过本插件自有凭据，对 '+targets.length+
+          ' 个账号分别尝试一次极短真实模型调用。没有明确免费证据的账号会跳过，'+
+          '不会自动使用收费/未知费率模型；免费模型仍可能计入平台会员调用次数。确认开始？'))return;
+        const summary={running:true,done:0,total:targets.length,
+          verified:0,skipped:0,failed:0};
+        setBatch({...summary});
+        try{
+          for(const account of targets){
+            let state='failed';
+            try{
+              const response=await fetch(URL+'/channels/accounts/action',{
+                method:'POST',headers:{'content-type':'application/json'},
+                body:JSON.stringify({action:'model-test',accountId:account.id})});
+              const answer=await response.json();
+              state=answer.ok?answer.result?.state:'failed';
+            }catch{state='failed'}
+            summary.done++;
+            if(state==='verified')summary.verified++;
+            else if(state==='skipped')summary.skipped++;
+            else summary.failed++;
+            setBatch({...summary});
+          }
+          await onRefresh?.();
+        }finally{setBatch({...summary,running:false})}
+      }
        // Unified inventory is authoritative; never render raw pool entries twice.
        const allChannels=(data.channels||[]);
       const channels=allChannels.filter(c=>!query||[c.name,c.id,c.authMethod].some(x=>
@@ -525,8 +610,17 @@ window.__ModuleLoader__.load({
          a.balanceState==='not_supported'?'余额：平台未提供此项数据':'余额：尚未取得有效数据';
        return h(React.Fragment,null,
         h(Panel,{title:'全部渠道 · 账号状态',
-          actions:h(Button,{disabled:!!busy,onClick:()=>run('/channels/accounts/action',
-            {action:'refresh-all'},'已刷新支持校验的账号')},'验证全部')},
+          actions:h('div',{style:css.line},
+            h(Button,{disabled:!!busy||batch?.running,onClick:()=>run('/channels/accounts/action',
+              {action:'refresh-all'},'已刷新支持校验的账号')},'验证全部'),
+            h(Button,{kind:'primary',disabled:!!busy||batch?.running||hasDraft,
+              onClick:runFreeBatch},batch?.running?'逐账号实测 '+batch.done+'/'+batch.total:
+              '一键实测全部账号的免费模型'))},
+          batch?h('p',{style:css.small},
+            '真实模型实测 '+batch.done+'/'+batch.total+' · 成功 '+batch.verified+
+            ' · 无免费证据跳过 '+batch.skipped+' · 失败 '+batch.failed+
+            (batch.running?' · 正在测试下一账号':' · 已完成；详情见各账号状态')+
+            (batch.message?' · '+batch.message:'')):null,
           h('div',{style:{...css.line,justifyContent:'space-between'}},
              h('span',{style:css.small},'渠道 '+allChannels.length+' · 可见账号 '+accounts.length+              ' · 启用 '+active+' · 最近验证通过 '+online),
             h('input',{'aria-label':'搜索渠道名称或登录方式',
@@ -608,13 +702,7 @@ window.__ModuleLoader__.load({
                  h(Button,{disabled:!!busy||!account.refreshAvailable||!account.configuredEnabled,
                    onClick:()=>run('/channels/accounts/action',{action:'refresh',accountId:account.id},
                      '账号状态已刷新')},'刷新'),
-                 account.modelTestAvailable?h(Button,{
-                  disabled:!!busy||!account.configuredEnabled,
-                  onClick:()=>{
-                   if(window.confirm('将使用此独立账号发送一次最小测试消息，可能消耗会员额度。确认执行真实模型回复验收？'))
-                    run('/channels/accounts/action',{action:'model-test',accountId:account.id},
-                     '模型实测结果已返回，请查看账号状态');
-                  }},'实测对话'):null,
+                 account.modelTestAvailable?h(ModelTestConsole,{account,busy,run,hasDraft}):null,
                  h(Button,{disabled:!!busy,onClick:()=>run('/channels/accounts/action',
                    {action:'enable',accountId:account.id,enabled:!account.configuredEnabled},
                    '账号启停状态已更新')},account.configuredEnabled?'停用':'启用'),
@@ -1061,8 +1149,11 @@ window.__ModuleLoader__.load({
           }
           else if(path==='/channels/accounts/action'&&body.action==='refresh-all')setNotice('已检查 '+data.attempted+' 个可验证账号，各账号的真实结果见上方。');
           else if(path==='/channels/accounts/action'&&body.action==='model-test'){
-            if(data.result?.state==='verified')setNotice('真实模型回复通过：'+data.result.modelId+'。已记录到对应账号。');
-            else setError(data.result?.message||'模型尚未完成真实回复验收；没有标记为可用。');
+            if(data.result?.state==='verified')setNotice('真实回复成功：'+data.result.modelId+
+              ' · '+(data.result.responsePreview||'完成')+'；已记录到对应账号。');
+            else if(data.result?.state==='skipped')setNotice(data.result?.message||'模型价格或资格未确认，未发送请求。');
+            else setError((data.result?.code?data.result.code+' · ':'')+
+              (data.result?.message||'模型尚未完成真实回复验收；没有标记为可用。'));
           }
           else setNotice(success||'操作完成，详细状态已刷新。');
         }catch(error){setError(String(error?.message??error));}
@@ -1413,7 +1504,9 @@ h(AccountConsole,{data:channelsView,
            showReferences:showReferenceChannels,onToggleReferences:setShowReferenceChannels,
            selectedChannel:selectedAccountChannel,onSelectChannel:setSelectedAccountChannel,
             onManageAccounts:channel=>{setManagedAccountProvider(channel.id);setTab('account-debug')},
-            onOpenOwnedSource:()=>{setReuseSubtab('source');setTab('reuse')}}));
+            onOpenOwnedSource:()=>{setReuseSubtab('source');setTab('reuse')},
+            onRefresh:refreshRuntime,
+            hasDraft:Boolean(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig))}));
        if(tab==='reuse')content=h(ReuseConsole,{data:channelsView,cfg,         onReuseSettings:changeReuseSettings,run:runAction,busy:actionBusy,
           onRefresh:refreshRuntime,subtab:reuseSubtab,onSubtab:setReuseSubtab,
          embeddedPack:status?.embeddedPack,credentialService:status?.credentialService,modelProvider,

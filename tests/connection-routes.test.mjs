@@ -72,6 +72,31 @@ test('DSH native admin registers ONLY authenticated Connection exact Fetch paths
  await f.dispose();
  assert.equal(f.routes.size,0);
 });
+test('plugin-owned real-model test catalog and call are exposed ONLY through authenticated DSH Connection',async()=>{
+ let modelCalls=0,generations=0;
+ const f=fixture({accountCenter:{list:()=>({accounts:[],channels:[],pools:[]}),
+  listTestModels:async id=>{modelCalls++;assert.equal(id,'owned-one');
+   return {state:'ready',models:[{id:'zero',name:'Zero',free:true,evidence:'来源明确标记免费'}],freeCount:1}},
+  verifyModel:async(id,{modelId})=>{generations++;assert.equal(id,'owned-one');
+   assert.equal(modelId,'zero');return {state:'verified',modelId:'zero',responsePreview:'OK'}},
+ }});
+ let response=await f.request('/channels/accounts/models',{method:'POST',body:{accountId:'owned-one'}});
+ assert.equal(response.status,200);
+ const data=await response.json();
+ assert.equal(data.result.freeCount,1);
+ assert.equal(modelCalls,1);
+ assert.equal(generations,0,'catalog endpoint never generates tokens');
+ response=await f.request('/channels/accounts/models',{method:'POST',
+  origin:'http://evil.invalid',body:{accountId:'owned-one'}});
+ assert.equal(response.status,403);
+ assert.equal(modelCalls,1);
+ response=await f.request('/channels/accounts/action',{method:'POST',body:{
+  action:'model-test',accountId:'owned-one',modelId:'zero'}});
+ assert.equal(response.status,200);
+ assert.equal((await response.json()).result.responsePreview,'OK');
+ assert.equal(generations,1);
+ await f.dispose();
+});
 test('source login is visible in channel inventory without original plugin or config duplication',async()=>{
  const opaque=sourceAccountOpaqueId('loomy','loomy-local-01');
  let scans=0;

@@ -26,7 +26,7 @@ function pack(kind,{mounted=true,verified=true}={}){
   async readSourceStatuses(){calls.status++;return {state:'ready',
     accounts:[{accountId:'qr-private-01',authVerified:verified,
       nickname:'QR signed-in owner'}]}},
-  async listModels(){calls.models++;return {state:'ready',models:[{id:kind+'-model'}]}},
+  async listModels(){calls.models++;return {state:'ready',models:[{id:kind+'-model',isFree:true}]}},
   async streamNative(request){
    calls.stream++;
    assert.equal(request.providerId,'codearts');
@@ -61,7 +61,7 @@ test('CodeArts QR self-owned sp_ account refreshes via private pack and complete
  assert.equal((await driver.refresh({account})).state,'online');
  assert.equal((await driver.refreshAccountStatus({account})).authVerified,true);
  assert.equal(driver.accountSnapshot(account).nickname,'QR signed-in owner');
- assert.deepEqual(await driver.listModels({account}),[{id:'own-model'}]);
+ assert.deepEqual(await driver.listModels({account}),[{id:'own-model',upstreamFreeLabel:true}]);
  assert.equal((await driver.generate({account,model:'own-model',
   options:{messages:[{role:'user',content:[{type:'text',text:'Hello'}]}]}})).text,'OWN_REPLY');
  assert.equal(external.calls.list,0,'private QR credentials must NEVER fall back to original DSH provider');

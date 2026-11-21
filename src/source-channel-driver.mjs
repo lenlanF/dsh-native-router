@@ -204,7 +204,14 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
      await resolve(account);
      const result=await embeddedPack.listModels(providerId);
      if(result.state!=='ready')throw unable('Source provider model list is unavailable');
-     return result.models.map(({id})=>({id}));
+     // Preserve vetted zero-price/free facts from this plugin's isolated
+     // source pack: dropping them prevented safe real free-model testing.
+     return result.models.filter(row=>row&&typeof row.id==='string')
+       .map(row=>({id:row.id,
+         ...(typeof row.name==='string'?{name:row.name}:{}),
+         ...(row.upstreamFreeLabel===true||row.isFree===true||row.free===true
+           ?{upstreamFreeLabel:true}:{}),
+         ...(row.pricing?{pricing:{...row.pricing}}:{})}));
    },
    // Model directory merely indicates advertised candidates. Account-level
    // proof requires official provider API, or an actual successful inference.

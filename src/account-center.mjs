@@ -3,6 +3,8 @@ import {describeChannels,automaticPools} from './channels.mjs';
 import {publicAccountName,publicBalance} from './account-facts.mjs';
 import {runtimeOwnership} from './account-runtime-ownership.mjs';
 import {verificationWithinPeriod} from './account-verification-store.mjs';
+import {freeEvidence} from './auto-free.mjs';
+import {classifyFailure} from './failure.mjs';
 
 const MAX_PROBE_MS=15000, AUTO_VERIFY_MS=15*60*1000, FRESH_MS=30*60*1000;
 function concise(message){return String(message??'').replace(/(?:Bearer\s+|sk-)[\w.~+-]{12,}/gi,'[REDACTED]').slice(0,160)}
@@ -89,9 +91,11 @@ export function createAccountCenter({
           const balance=publicBalance(live);
           const lastProof=inferenceProof.get(account.id);
           const lastFailure=inferenceFailures.get(account.id);
+          const persistentProof=verificationStore?.getModelTest?.(account);
           const verifiedAt=lastProof?.credentialRef===account.credentialRef?lastProof.at:null;
-          const failedAt=lastFailure?.credentialRef===account.credentialRef?lastFailure.at:null;
-          const bestProof=Math.max(verifiedAt??0,
+          const failedAt=Math.max(lastFailure?.credentialRef===account.credentialRef
+            ?lastFailure.at:0,persistentProof?.failedAt??0)||null;
+          const bestProof=Math.max(verifiedAt??0,persistentProof?.at??0,
            Number.isFinite(live.modelInferenceVerifiedAt)&&live.modelInferenceVerifiedAt>0?
             live.modelInferenceVerifiedAt:0);
           return {id:account.id,providerId:account.providerId,providerName:provider.name,
@@ -189,20 +193,73 @@ export function createAccountCenter({
     try{verificationStore?.set?.(entry.account,result)}catch{}
     return {id,...result,manualKeyVerification:!driver?.[method]};
   }
+ // Model verification uses this plugin's own account/driver, never a
+ // borrowed client or original-plugin process. Free price must be explicit.
+ function modelTestEvidence(row,providerId){
+   const rules=configStore.get().freePool??{};
+   const explicit=(rules.models??[]).find(x=>x.providerId===providerId&&x.model===row.id);
+   if(explicit)return explicit.free?'用户手动声明免费（费用由用户确认）':null;
+   if((rules.providerIds??[]).includes(providerId))
+     return '用户手动声明该渠道免费（费用由用户确认）';
+   return freeEvidence(row,providerId);
+ }
+ function eligibleTestRow(row,providerId){
+   if(typeof row?.id!=='string'||!row.id.trim()||row.id.length>120
+      ||/[\u0000-\u001f]/.test(row.id))return null;
+   const evidence=modelTestEvidence(row,providerId);
+   return {id:row.id,name:typeof row.name==='string'&&row.name.length<=120
+     ?row.name:row.id,free:Boolean(evidence),...(evidence?{evidence}:{})};
+ }
+ function assertTestAccount(id){
+   const found=find(id),{account,provider,driver}=found;
+   if(!account.enabled||!provider.enabled||runtimeMode(account)!=='owned'
+     ||provider.protocol!=='native-channel'||typeof driver?.listModels!=='function'
+     ||typeof driver?.generate!=='function'){
+     const error=new Error('仅独立接管并启用的自有模型账号允许真实推理验证');
+     error.status=409;throw error;
+   }
+   return found;
+ }
+ async function listTestModels(id,{signal}={}){
+   if(pending.has(id)){
+     const error=new Error('Account operation already running');error.status=409;throw error;
+   }
+   const {account,provider,driver}=assertTestAccount(id);
+   const controller=new AbortController();
+   const stop=()=>controller.abort();
+   const timer=setTimeout(stop,10000);
+   signal?.addEventListener('abort',stop,{once:true});
+   if(signal?.aborted)stop();
+   const cancelled=new Promise((_,reject)=>{
+     const done=()=>reject(Error('独立模型目录查询已取消或超时'));
+     if(controller.signal.aborted)done();
+     else controller.signal.addEventListener('abort',done,{once:true});
+   });
+   try{
+     const raw=await Promise.race([Promise.resolve().then(()=>driver.listModels({
+       account,provider,signal:controller.signal})),cancelled]);
+     const models=[],seen=new Set();
+     for(const row of Array.isArray(raw)?raw:[]){
+       const candidate=eligibleTestRow(row,provider.id);
+       if(!candidate||seen.has(candidate.id))continue;
+       seen.add(candidate.id);models.push(candidate);
+       if(models.length>=60)break;
+     }
+     return {state:'ready',models,freeCount:models.filter(x=>x.free).length,
+       message:'仅明确免费模型允许发送最小真实请求；未知价格不测试'};
+   }finally{clearTimeout(timer);signal?.removeEventListener('abort',stop)}
+ }
  async function verifyModel(id,{modelId,signal}={}){
   if(pending.has(id)){const error=new Error('Account operation already running');error.status=409;throw error}
-  const {account,provider,driver}=find(id);
-  if(!account.enabled||!provider.enabled||runtimeMode(account)!=='owned'
-    ||provider.protocol!=='native-channel'||typeof driver?.listModels!=='function'
-    ||typeof driver?.generate!=='function'){
-   const error=new Error('仅独立接管并启用的自有模型账号允许真实推理验证');
-   error.status=409;throw error;
-  }
+  const {account,provider,driver}=assertTestAccount(id);
+  const feePolicy=JSON.stringify(configStore.get().freePool??{});
   if(modelId!==undefined&&(typeof modelId!=='string'||modelId.length>120)){
    const error=new Error('Invalid model ID');error.status=400;throw error;
   }
   pending.add(id);
-  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),90000);
+  const controller=new AbortController();
+  let timedOut=false;
+  const timer=setTimeout(()=>{timedOut=true;controller.abort()},90000);
   const abort=()=>controller.abort();
   if(signal?.aborted)abort();else signal?.addEventListener('abort',abort,{once:true});
   const cancelled=new Promise((_,reject)=>{
@@ -212,35 +269,69 @@ export function createAccountCenter({
   });
   try{
    const rows=await Promise.race([driver.listModels({account,provider,signal:controller.signal}),cancelled]);
-   const models=Array.isArray(rows)?rows.filter(row=>typeof row?.id==='string'
-     &&row.id.length>0&&row.id.length<=120):[];
-   const chosen=modelId?models.find(row=>row.id===modelId):models[0];
-   if(!chosen)throw new Error('No independently authorized chat model found');
+   const models=Array.isArray(rows)?rows.filter(row=>eligibleTestRow(row,provider.id)):[];
+   const chosen=modelId?models.find(row=>row.id===modelId):
+     models.find(row=>modelTestEvidence(row,provider.id));
+   if(!chosen){
+     if(models.length&&(!modelId||models.some(row=>row.id===modelId)))
+       return {id,state:'skipped',code:'COST_NOT_CONFIRMED_FREE',at:now(),
+         message:'没有确认免费的模型；未发送真实推理请求，也未消耗模型额度'};
+     return {id,state:'skipped',code:'MODEL_NOT_IN_CATALOG',at:now(),
+       message:'指定模型不在该自有账号的实时目录中；未发送请求'};
+   }
+   const evidence=modelTestEvidence(chosen,provider.id);
+   if(!evidence)return {id,state:'skipped',code:'COST_NOT_CONFIRMED_FREE',at:now(),
+     message:'模型费用尚未确认为免费或已被人工排除；未发送请求'};
+   if(feePolicy!==JSON.stringify(configStore.get().freePool??{}))
+     return {id,state:'skipped',code:'FEE_RULE_CHANGED',at:now(),
+       message:'免费声明已变化；未发送模型调用'};
    const reply=await Promise.race([driver.generate({account,provider,model:chosen.id,
     options:{messages:[{role:'user',content:[{type:'text',text:'请只回复 OK'}]}],
      maxTokens:32,sessionId:'native-router-test-'+id},signal:controller.signal}),cancelled]);
    if(reply?.finishReason!=='stop'||typeof reply?.text!=='string'||!reply.text.trim()
      ||(Array.isArray(reply.toolCalls)&&reply.toolCalls.length))
-    throw new Error('Model reply was incomplete');
-   const stillBound=!disposed&&configStore.get().accounts.some(row=>row.id===id
-     &&row.providerId===account.providerId&&row.credentialRef===account.credentialRef&&row.enabled);
-   if(!stillBound)throw new Error('Account binding changed during model verification');
+    throw Object.assign(new Error('Model reply was incomplete'),{code:'TRUNCATED'});
+   const current=configStore.get();
+   const stillBound=!disposed&&current.accounts.some(row=>row.id===id
+     &&row.providerId===account.providerId&&row.credentialRef===account.credentialRef&&row.enabled)
+     &&current.providers.some(row=>row.id===provider.id&&row.enabled);
+   if(!stillBound||feePolicy!==JSON.stringify(current.freePool??{})
+     ||!modelTestEvidence(chosen,provider.id))
+     throw new Error('账号绑定或模型免费资格在实测期间已改变');
    const at=now(),status={state:'online',at,bindingRef:account.credentialRef,
     message:'本插件自有账号已完成独立真实模型对话验证'};
    inferenceProof.set(id,{at,credentialRef:account.credentialRef,modelId:chosen.id});
    inferenceFailures.delete(id);
    checks.set(id,status);
-   try{verificationStore?.set?.(account,status)}catch{}
+   try{
+     verificationStore?.set?.(account,status);
+     verificationStore?.setModelTest?.(account,{at,modelId:chosen.id});
+   }catch{}
    adapter?.invalidateCatalog?.();
-   return {id,state:'verified',modelId:chosen.id,at,
-    message:'已通过自有凭据完成一轮真实模型回复（非模型目录模拟）'};
+   const rawUsage=reply?.usage;
+   const usage=rawUsage&&typeof rawUsage==='object'
+     ?Object.fromEntries(['prompt_tokens','completion_tokens','total_tokens']
+       .filter(k=>Number.isSafeInteger(rawUsage[k])&&rawUsage[k]>=0)
+       .map(k=>[k,rawUsage[k]])):{};
+   return {id,state:'verified',modelId:chosen.id,at,evidence,
+     responsePreview:reply.text.trim().slice(0,120),usage,
+     message:'已通过自有账号真实完成一次最小模型回复（不是模型目录模拟）'};
   }catch(error){
    const at=now();
    inferenceProof.delete(id);
    inferenceFailures.set(id,{at,credentialRef:account.credentialRef});
-   return {id,state:'failed',at,
-    message:error?.code==='CREDENTIAL'?'当前自有凭据未通过模型验收':
-     '模型未完成真实回复；账号目录与适配器状态不能视为推理成功'};
+   try{verificationStore?.setModelTestFailure?.(account,{at})}catch{}
+   const code=timedOut?'TIMEOUT':classifyFailure(error,controller.signal).code;
+   const meanings={AUTH:'渠道拒绝本账号授权',CREDENTIAL:'自有凭据失效或不可读取',
+     QUOTA:'账号额度不足',RATE_LIMIT:'官方接口正在限流',
+     PROVIDER_NOT_READY:'渠道模型适配器尚未就绪',
+     TRUNCATED:'模型回复不完整或超出输出限制',
+     TIMEOUT:'模型调用超时',TRANSPORT:'渠道网络连接失败',
+     SERVER:'渠道服务暂时异常',CANCELLED:'请求被取消',
+     INVALID_REQUEST:'模型请求格式不受支持',
+     UNKNOWN:'模型没有返回完整的成功回复'};
+   return {id,state:'failed',at,code,
+     message:(meanings[code]??meanings.UNKNOWN)+'；没有将该模型标记为实测成功'};
   }finally{
    clearTimeout(timer);signal?.removeEventListener('abort',abort);pending.delete(id);
   }
@@ -593,5 +684,5 @@ export function createAccountCenter({
   if(initialTimer)clearTimeout(initialTimer);
   automaticTimer=null;initialTimer=null;
  }
-  return {list,verify,verifyModel,setEnabled,logout,discover,importCandidate,refreshAll,refreshReadOnly,autoCheckDue,start,stop,drivers,driverFor,find,commitMimoDesktopAccount,startMimoLogin,pollMimoLogin,cancelMimoLogin,ensureDoubaoProvider,addDoubaoCookie,startDoubaoLogin,pollDoubaoLogin,cancelDoubaoLogin};
+  return {list,verify,verifyModel,listTestModels,setEnabled,logout,discover,importCandidate,refreshAll,refreshReadOnly,autoCheckDue,start,stop,drivers,driverFor,find,commitMimoDesktopAccount,startMimoLogin,pollMimoLogin,cancelMimoLogin,ensureDoubaoProvider,addDoubaoCookie,startDoubaoLogin,pollDoubaoLogin,cancelDoubaoLogin};
 }
