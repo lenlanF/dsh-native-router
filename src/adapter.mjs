@@ -4,7 +4,7 @@ import {createAccountPool} from './accounts.mjs';
 import {requestOpenAI} from './provider/openai.mjs';
 import {requestAnthropic} from './provider/anthropic.mjs';
 import {validateModelCalls} from './provider/openai.mjs';
-import {UpstreamError} from './failure.mjs';
+import {UpstreamError,safeHostFailure} from './failure.mjs';
 import {toDshEvents} from './protocol.mjs';
 import {RoutingError} from './router.mjs';
 import {toSourceMessages,collectSourceDshStream} from './source-channel-driver.mjs';
@@ -41,10 +41,8 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
           maxTokens:arg.options.maxTokens});
         return await collectSourceDshStream(native,{tools:arg.options.tools,signal:arg.signal});
       }catch(error){
-        if(error instanceof UpstreamError)throw error;
         if(arg.signal?.aborted)throw new UpstreamError('Host request cancelled',{code:'CANCELLED'});
-        throw new UpstreamError('Original DSH plugin request failed',{
-          code:'UPSTREAM',status:Number.isInteger(error?.status)?error.status:0});
+        throw safeHostFailure(error);
       }
     }
     if(arg.provider.protocol==='native-channel'){

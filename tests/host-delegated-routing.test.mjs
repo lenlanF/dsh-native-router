@@ -51,6 +51,80 @@ test('accountless registered host plugin publishes real aggregate models and del
  assert.equal(rig.adapter.getStatus().metrics.successfulTurns,1);
  rig.source.dispose();
 });
+test('Host DSH error machine codes without numeric HTTP status trigger safe cross-provider fallback',async()=>{
+ for(const fault of ['ACCOUNT_QUOTA','RATE_LIMIT','PROVIDER_NOT_READY']){
+  const events=[],requests=[];
+  const cfg=normalizeConfig({providers:[
+   {id:'hostA',protocol:'dsh-host',models:['a']},
+   {id:'hostB',protocol:'dsh-host',models:['b']}],routes:[{
+   id:'dynamic-host',enabled:true,mode:'priority',maxSwitches:1,
+   tiers:[{providerId:'hostA',model:'a'},{providerId:'hostB',model:'b'}]}]});
+  const llm={
+   listProviders:()=>[{id:'hostA'},{id:'hostB'},{id:'native-router'}],
+   listModels:async id=>[{id:id==='hostA'?'a':'b',provider:id}],
+   async *stream(row){
+    requests.push(row.provider);
+    if(row.provider==='hostA'){
+     throw Object.assign(Error('Bearer SECRET_JWT_NOT_FOR_UI'),{code:fault});
+    }
+    yield {type:'block-start',index:0,blockType:'text'};
+    yield {type:'text-delta',index:0,text:'SAFE_REPLY'};
+    yield {type:'block-end',index:0,block:{type:'text',text:'SAFE_REPLY'}};
+    yield {type:'finish',reason:{kind:'stop'}};
+   },
+  };
+  const host=createExistingDshChannelFacade({ctx:{llm,get:()=>undefined}});
+  const adapter=createNativeRouterAdapter({configStore:{get:()=>cfg},hostProviderInventory:host});
+  for await(const e of adapter.stream({model:'chain:dynamic-host',sessionId:'t1',
+    messages:[{role:'user',content:[{type:'text',text:'Hello'}]}]}))events.push(e);
+  assert.deepEqual(requests,['hostA','hostB'],fault);
+  assert.equal(events.find(e=>e.type==='text-delta')?.text,'SAFE_REPLY');
+  assert.doesNotMatch(JSON.stringify(events),/SECRET_JWT_NOT_FOR_UI/);
+  assert.equal(adapter.getStatus().metrics.failedAttempts,1);
+  requests.length=0;
+  for await(const _ of adapter.stream({model:'chain:dynamic-host',sessionId:'t2',
+    messages:[{role:'user',content:[{type:'text',text:'Again'}]}]})){}
+  assert.deepEqual(requests,['hostB'],'failure cooldown must avoid retrying a broken original host');
+  host.dispose();
+ }
+});
+test('original DSH Provider hot-unload before first response falls back without leaking an interrupted stream',async()=>{
+ let originalRegistered=true;
+ const requests=[];
+ const cfg=normalizeConfig({providers:[
+  {id:'hostA',protocol:'dsh-host',models:['one']},
+  {id:'hostB',protocol:'dsh-host',models:['two']}],
+  routes:[{id:'host-hot-unload',enabled:true,maxSwitches:1,tiers:[
+   {providerId:'hostA',model:'one'},
+   {providerId:'hostB',model:'two'}]}]});
+ const llm={
+  listProviders:()=>[...(originalRegistered?[{id:'hostA'}]:[]),{id:'hostB'},{id:'native-router'}],
+  listModels:async id=>[{id:id==='hostA'?'one':'two',provider:id}],
+  async *stream(row){
+   requests.push(row.provider);
+   if(row.provider==='hostA'){
+    originalRegistered=false;
+    yield {type:'block-start',index:0,blockType:'text'};
+    yield {type:'text-delta',index:0,text:'DO_NOT_SEND'};
+    return;
+   }
+   yield {type:'block-start',index:0,blockType:'text'};
+   yield {type:'text-delta',index:0,text:'ONLY_BACKUP'};
+   yield {type:'block-end',index:0,block:{type:'text',text:'ONLY_BACKUP'}};
+   yield {type:'finish',reason:{kind:'stop'}};
+  },
+ };
+ const host=createExistingDshChannelFacade({ctx:{llm,get:()=>undefined}});
+ const adapter=createNativeRouterAdapter({configStore:{get:()=>cfg},hostProviderInventory:host});
+ const output=[];
+ for await(const chunk of adapter.stream({model:'chain:host-hot-unload',
+  messages:[{role:'user',content:[{type:'text',text:'ping'}]}]}))output.push(chunk);
+ assert.deepEqual(requests,['hostA','hostB']);
+ assert.equal(output.find(x=>x.type==='text-delta')?.text,'ONLY_BACKUP');
+ assert.doesNotMatch(JSON.stringify(output),/DO_NOT_SEND/);
+ assert.equal(adapter.getStatus().metrics.failedAttempts,1);
+ host.dispose();
+});
 test('native-router does not create shadow credentials and rejects removed or unregistered host providers',async()=>{
  assert.throws(()=>normalizeConfig({providers:[{id:'wb',protocol:'dsh-host',models:['test']}],
   accounts:[{id:'bad',providerId:'wb',credentialRef:'host:any'}]}),/shadow accounts/);

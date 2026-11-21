@@ -4,6 +4,7 @@ import {createSourceChannelDriver,collectSourceDshStream} from '../src/source-ch
 import {sourceAccountOpaqueId} from '../src/source-account-ref.mjs';
 import {createNativeRouterAdapter} from '../src/adapter.mjs';
 import {normalizeConfig} from '../src/config.mjs';
+import {classifyFailure} from '../src/failure.mjs';
 import {createAccountCenter} from '../src/account-center.mjs';
 
 const textStream=(text='source reply')=>(async function*(){
@@ -143,6 +144,25 @@ test('incomplete, failed, invalid and oversized upstream DSH streams never relea
  await assert.rejects(()=>collectSourceDshStream(failed()),/did not complete successfully/);
  await assert.rejects(()=>collectSourceDshStream(oversized()),/exceeded size/);
 });
+test('native source finish failure preserves only structured quota/rate-limit/provider codes for safe fallback',async()=>{
+ for(const [code,expected] of [
+  ['ACCOUNT_QUOTA','QUOTA'],['RATE_LIMIT','RATE_LIMIT'],
+  ['PROVIDER_NOT_READY','PROVIDER_NOT_READY']]){
+  const broken=(async function*(){
+   yield {type:'block-start',index:0,blockType:'text'};
+   yield {type:'text-delta',index:0,text:'DO_NOT_EXPOSE_PARTIAL'};
+   yield {type:'block-end',index:0};
+   yield {type:'finish',reason:{kind:'error',failure:{code,message:'Bearer SECRET_SESSION'}}};
+  })();
+  await assert.rejects(()=>collectSourceDshStream(broken),error=>{
+   const reason=classifyFailure(error);
+   assert.equal(reason.code,expected);
+   assert.equal(reason.retryable,true);
+   assert.doesNotMatch(error.message,/SECRET_SESSION|DO_NOT_EXPOSE_PARTIAL/);
+   return true;
+  });
+ }
+});
 test('source channel through native-router chain delivers DSH stream with no separate proxy',async()=>{
  const rig=mockSource([{id:'qoder-a',providerId:'qoder',enabled:true}]);
  const driver=createSourceChannelDriver({providerId:'qoder',embeddedPack:rig.embeddedPack});
@@ -228,6 +248,21 @@ test('source stream status 429 triggers existing native-router fallback without 
  const metrics=adapter.getStatus().metrics;
  assert.equal(metrics.failedAttempts,1);
  assert.equal(metrics.successfulTurns,1);
+});
+test('a private source throwing a structured quota code before streaming also falls back without exposing credentials',async()=>{
+ const rig=mockSource([{id:'qoder-source',providerId:'qoder',enabled:true}]);
+ const driver=createSourceChannelDriver({providerId:'qoder',embeddedPack:rig.embeddedPack});
+ const candidate=(await driver.discover())[0];
+ const adopted=await driver.importCandidate({candidateId:candidate.id,consent:true});
+ rig.embeddedPack.streamNative=async()=>{
+  throw Object.assign(Error('Bearer SENSITIVE_SESSION'),{code:'ACCOUNT_QUOTA'});
+ };
+ await assert.rejects(()=>driver.generate({account:{...adopted,providerId:'qoder'},
+  model:'qoder-chat',options:{messages:[{role:'user',content:[]}]}}),error=>{
+   assert.equal(classifyFailure(error).code,'QUOTA');
+   assert.doesNotMatch(error.message,/SENSITIVE_SESSION/);
+   return true;
+ });
 });
 test('raw upstream native error messages are hidden while bounded HTTP codes are preserved',async()=>{
  const rig=mockSource([{id:'qoder-a',providerId:'qoder',enabled:true}]);

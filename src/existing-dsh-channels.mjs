@@ -1,4 +1,5 @@
 import {SOURCE_PACK_PROVIDERS} from './embedded-pack.mjs';
+import {UpstreamError} from './failure.mjs';
 
 /**
  * DSH-host provider reuse; does not install source pack, copy credentials or
@@ -176,21 +177,26 @@ async function listHostModels(providerId){
  // account selection and credential storage; native-router never reads tokens.
  async function streamHost({providerId,model,messages,tools,signal,maxTokens}={}){
   const llm=ctx?.llm??ctx?.get?.('llm',false);
-  if(disposed||!safeId(providerId)||providerId==='native-router'||!safeModel(model)
-    ||!Array.isArray(messages)||!messages.length||signal?.aborted
-    ||typeof llm?.stream!=='function'||!hostProviders().some(p=>p.providerId===providerId))
-   throw Error('Original DSH provider is unavailable');
+  if(!safeId(providerId)||providerId==='native-router'||!safeModel(model)
+    ||!Array.isArray(messages)||!messages.length)
+   throw Error('Invalid host model request');
+  if(signal?.aborted)throw new UpstreamError('Original DSH host request cancelled',{code:'CANCELLED'});
+  if(disposed||typeof llm?.stream!=='function'
+    ||!hostProviders().some(p=>p.providerId===providerId))
+   throw new UpstreamError('Original DSH provider is unavailable',{code:'PROVIDER_NOT_READY'});
   const request={provider:providerId,model,messages,tools:Array.isArray(tools)?tools:[],signal,
    ...(Number.isInteger(maxTokens)&&maxTokens>0?{maxTokens}:{})};
   return (async function*(){
-   if(disposed||signal?.aborted||!hostProviders().some(p=>p.providerId===providerId))
-    throw Error('Original DSH provider changed before request');
+   if(signal?.aborted)throw new UpstreamError('Host request cancelled',{code:'CANCELLED'});
+   if(disposed||!hostProviders().some(p=>p.providerId===providerId))
+    throw new UpstreamError('Original DSH provider changed before request',{code:'PROVIDER_NOT_READY'});
    const started=llm.stream(request);
    if(!started||typeof started[Symbol.asyncIterator]!=='function')
-    throw Error('Original DSH provider did not return a stream');
+    throw new UpstreamError('Original DSH provider did not return a stream',{code:'PROVIDER_NOT_READY'});
    for await(const event of started){
-    if(disposed||signal?.aborted||!hostProviders().some(p=>p.providerId===providerId))
-     throw Error('Original DSH provider unloaded during request');
+    if(signal?.aborted)throw new UpstreamError('Host request cancelled',{code:'CANCELLED'});
+    if(disposed||!hostProviders().some(p=>p.providerId===providerId))
+     throw new UpstreamError('Original DSH provider unloaded during request',{code:'PROVIDER_NOT_READY'});
     yield event;
    }
   })();

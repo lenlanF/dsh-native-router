@@ -20,7 +20,8 @@ export function createAccountPool({now=()=>Date.now()}={}) {
   const key=(id,model)=>id+'\u0000'+model;
   function mark(account, model, reason) {
     const cooldown=reason.cooldownMs || 30000;
-    exhausted.set(key(account.id,reason.code==='AUTH'||reason.code==='CREDENTIAL'?'*':model),{until:now()+cooldown,code:reason.code});
+    exhausted.set(key(account.id,reason.code==='AUTH'||reason.code==='CREDENTIAL'
+      ||reason.scope==='provider'?'*':model),{until:now()+cooldown,code:reason.code});
     // Session stickiness is revoked after a failed account attempt.
     for(const [sid,id] of stickiness)if(id===account.id)stickiness.delete(sid);
   }
@@ -30,8 +31,14 @@ export function createAccountPool({now=()=>Date.now()}={}) {
     if(!provider?.enabled || (needTools&&!provider.supportsTools))return [];
     // Host-managed providers use the ORIGINAL plugin's own account selection.
     // No duplicate token, imported secret or synthetic persisted account exists.
-    if(provider.protocol==='dsh-host')return tier.accountIds?.length?[]:
-      [{id:'__host_'+provider.id,providerId:provider.id,enabled:true,weight:1}];
+    if(provider.protocol==='dsh-host'){
+      // The host still owns its real login. This virtual identity only tracks
+      // per-Provider/model failures and MUST honor the same cooldown as an
+      // independently owned account. Otherwise a failed Host is retried on
+      // every AutoFree turn, or every model after a 401, despite being marked.
+      const host={id:'__host_'+provider.id,providerId:provider.id,enabled:true,weight:1};
+      return !tier.accountIds?.length&&isReady(host,tier.model)?[host]:[];
+    }
     const allowed=tier.accountIds?.length?new Set(tier.accountIds):null;
     const accounts=config.accounts.filter(a=>a.enabled&&a.providerId===tier.providerId&&(!allowed||allowed.has(a.id))&&isReady(a,tier.model));
     if(!accounts.length)return [];

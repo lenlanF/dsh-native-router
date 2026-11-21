@@ -11,6 +11,74 @@ function rig(extra={},request=async({model,account})=>({model,account:account.id
  const events=[],pool=createAccountPool();
  return {config,events,pool,engine:createRoutingEngine({getConfig:()=>config,pool,request,onEvent:evt=>events.push(evt)})};
 }
+test('host-managed Provider cooldown survives AutoFree failover across turns, then expires without copying host credentials',async()=>{
+ let time=1000,failFirst=true;
+ const cfg=normalizeConfig({providers:[
+  {id:'hostA',name:'Host A',protocol:'dsh-host',enabled:true},
+  {id:'hostB',name:'Host B',protocol:'dsh-host',enabled:true},
+ ],routes:[{id:'host-route',mode:'priority',enabled:true,maxSwitches:1,tiers:[
+  {providerId:'hostA',model:'free-A',free:true},
+  {providerId:'hostB',model:'free-B',free:true}]}]});
+ const calls=[],pool=createAccountPool({now:()=>time});
+ const engine=createRoutingEngine({getConfig:()=>cfg,pool,request:async({provider,account,model})=>{
+  calls.push([provider.id,account.id,model]);
+  if(provider.id==='hostA'&&failFirst)throw new UpstreamError('rate limit',{status:429});
+  return {text:'OK',finishReason:'stop',toolCalls:[]};
+ }});
+ assert.equal((await engine.execute('host-route',{sessionId:'turn-1'})).text,'OK');
+ assert.deepEqual(calls.map(x=>x[0]),['hostA','hostB']);
+ assert.equal(calls[0][1],'__host_hostA');
+ assert.equal(cfg.accounts.length,0,'host authentication must stay in original DSH provider');
+ calls.length=0;failFirst=false;
+ assert.equal((await engine.execute('host-route',{sessionId:'turn-2'})).text,'OK');
+ assert.deepEqual(calls.map(x=>x[0]),['hostB'],'cooldown must suppress failed host provider, even after a successful fallback');
+ time+=60000;
+ calls.length=0;
+ assert.equal((await engine.execute('host-route',{sessionId:'turn-3'})).text,'OK');
+ assert.deepEqual(calls.map(x=>x[0]),['hostA'],'host recovers automatically after its bounded cooldown');
+});
+test('host-level AUTH failure blocks subsequent models of the same host until credential cooldown expires',async()=>{
+ let time=1000;
+ const pool=createAccountPool({now:()=>time});
+ const cfg=normalizeConfig({providers:[{id:'authHost',protocol:'dsh-host',enabled:true}],
+  routes:[{id:'host-auth',enabled:true,maxSwitches:1,tiers:[
+   {providerId:'authHost',model:'modelA'},{providerId:'authHost',model:'modelB'}]}]});
+ const attempts=[],engine=createRoutingEngine({getConfig:()=>cfg,pool,
+  request:async({account,model})=>{attempts.push(model);throw new UpstreamError('unauthorized',{status:401})}});
+ await assert.rejects(()=>engine.execute('host-auth'));
+ assert.deepEqual(attempts,['modelA'],'host-level auth failure must suppress its other models, not repeatedly call an invalid token');
+ await assert.rejects(()=>engine.execute('host-auth'));
+ assert.deepEqual(attempts,['modelA'],'authorization cooldown must persist across turns');
+ time+=3600000;
+ await assert.rejects(()=>engine.execute('host-auth'));
+ assert.deepEqual(attempts,['modelA','modelA'],
+  'after cooldown host may retry once; the renewed authentication failure blocks its next model');
+});
+test('a Host Provider registration failure suppresses all its models during one cooldown window',async()=>{
+ let time=1000;
+ const pool=createAccountPool({now:()=>time});
+ const cfg=normalizeConfig({providers:[
+  {id:'missingHost',protocol:'dsh-host',enabled:true},
+  {id:'backupHost',protocol:'dsh-host',enabled:true}],
+  routes:[{id:'provider-down',enabled:true,maxSwitches:2,tiers:[
+   {providerId:'missingHost',model:'one'},
+   {providerId:'missingHost',model:'two'},
+   {providerId:'backupHost',model:'three'}]}]});
+ const calls=[];
+ const engine=createRoutingEngine({getConfig:()=>cfg,pool,request:async({provider,model})=>{
+  calls.push([provider.id,model]);
+  if(provider.id==='missingHost')throw new UpstreamError('Provider unavailable',{code:'PROVIDER_NOT_READY'});
+  return {text:'OK'};
+ }});
+ assert.equal((await engine.execute('provider-down')).text,'OK');
+ assert.deepEqual(calls,[['missingHost','one'],['backupHost','three']]);
+ calls.length=0;
+ assert.equal((await engine.execute('provider-down')).text,'OK');
+ assert.deepEqual(calls,[['backupHost','three']]);
+ time+=60000;calls.length=0;
+ assert.equal((await engine.execute('provider-down')).text,'OK');
+ assert.deepEqual(calls,[['missingHost','one'],['backupHost','three']]);
+});
 test('normal route uses first provider and an eligible account',async()=>{
  const {engine}=rig();
  const x=await engine.execute('daily',{sessionId:'s1'});

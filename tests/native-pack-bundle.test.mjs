@@ -90,7 +90,7 @@ test('release package ships only native in-process bundle with host-provided pee
   assert.equal(pkg.private,false);
   assert.equal(pkg.license,'MIT');
   assert.equal(pkg.engines.node,'>=22.10.0');
-      assert.equal(pkg.version,'1.0.0-rc.34');  assert.ok(pkg.files.includes('vendor/channel-pack/NATIVE_BUILD_RECEIPT.json')); assert.ok(pkg.files.includes('vendor/channel-pack/SOURCE_RECEIPT.json')); assert.ok(!pkg.files.includes('vendor/channel-pack')); assert.ok(!pkg.files.includes('vendor/channel-pack/pack.js')); assert.match(bridge,/import\('\.\.\/vendor\/channel-pack\/pack-runtime\.mjs'\)/); assert.equal(pkg.dependencies,undefined,'DSH plugin manager must not need to preserve nested runtime packages');
+      assert.equal(pkg.version,'1.0.0-rc.35');  assert.ok(pkg.files.includes('vendor/channel-pack/NATIVE_BUILD_RECEIPT.json')); assert.ok(pkg.files.includes('vendor/channel-pack/SOURCE_RECEIPT.json')); assert.ok(!pkg.files.includes('vendor/channel-pack')); assert.ok(!pkg.files.includes('vendor/channel-pack/pack.js')); assert.match(bridge,/import\('\.\.\/vendor\/channel-pack\/pack-runtime\.mjs'\)/); assert.equal(pkg.dependencies,undefined,'DSH plugin manager must not need to preserve nested runtime packages');
  assert.equal(pkg.bundleDependencies,undefined);
  assert.ok(pkg.files.includes('vendor/channel-pack/pack-runtime.mjs'));
  assert.ok(pkg.files.includes('vendor/channel-pack/STANDALONE_BUILD_RECEIPT.json'));

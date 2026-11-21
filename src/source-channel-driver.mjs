@@ -2,7 +2,7 @@
 // no duplicate OAuth, model protocol, sign-in, or credential implementation.
 import {randomUUID} from 'node:crypto';
 import {sourceAccountOpaqueId} from './source-account-ref.mjs';
-import {UpstreamError} from './failure.mjs';
+import {UpstreamError,safeDshFailureFacts} from './failure.mjs';
 import {visibleTools} from './host-tools.mjs';
 import {flattenContent} from './protocol.mjs';
 import {validateModelCalls} from './provider/openai.mjs';
@@ -112,10 +112,13 @@ export async function collectSourceDshStream(stream,{tools=[],signal}={}){
     break;
    case 'finish':
     if(!item.reason||!['stop','tool-calls','max-tokens'].includes(item.reason.kind)){
-     const reported=Number(item.reason?.failure?.status??item.reason?.failure?.statusCode);
-     const status=Number.isInteger(reported)&&reported>=400&&reported<600?reported:0;
-     throw new UpstreamError('Native DSH source did not complete successfully',
-       {status,code:item.reason?.kind==='aborted'?'CANCELLED':'STREAM'});
+     const facts=safeDshFailureFacts(item.reason?.failure);
+     throw new UpstreamError('Native DSH source did not complete successfully',{
+       status:facts.status,
+       code:item.reason?.kind==='aborted'?'CANCELLED':
+         facts.code==='UPSTREAM'?'STREAM':facts.code,
+       retryAfterMs:facts.retryAfterMs,
+     });
     }
     finish=item.reason.kind;
     break;
@@ -247,14 +250,12 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
      inferenceProof.set(account.id,{at:Date.now(),model});
      return output;
    }catch(error){
-    // Preserve bounded HTTP status for account/route failover, NEVER raw
-    // source error messages (which may contain token paths or credentials).
-    if(error instanceof UpstreamError)throw error;
+    // The pack can fail before emitting the first event. Keep only vetted
+    // machine failure facts for failover. Never expose arbitrary upstream
+    // Error.message, even when the upstream happens to use UpstreamError.
     if(signal?.aborted)throw unable('Isolated source request cancelled','CANCELLED');
-    const status=Number(error?.status);
-    throw new UpstreamError('Isolated DSH native source request failed',{
-      status:Number.isInteger(status)&&status>=400&&status<600?status:0,code:'UPSTREAM',
-    });
+    throw new UpstreamError('Isolated DSH native source request failed',
+      safeDshFailureFacts(error));
    }
   },
  };
