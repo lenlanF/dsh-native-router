@@ -1,5 +1,10 @@
 # DSH Native Router｜全项目未完工横向核查与验收计划（更新至 2026-11-22 rc.74）
 
+## rc.76 官方8账号真实只读、正式DSH路由复验
+
+**rc.76 真机8账号+3条 DSH 正式路由证据：** 一次性只读审计得到8/8个账号官方鉴权与模型目录成功；WorkBuddy 国内每个16款/1个免费候选、国际每个35款/3个免费候选、Loomy6款/1个赠送候选、Lingxi11款、ZCode2款（目前无免费赠送）、CodeArts11款（11款精确费率）。此外三次实际 DSH Provider 免费调用：WorkBuddy CN `hy4flash-free`、WorkBuddy global `deepseek-v4.1-flash`、Loomy `spark-x2.6` 均取得完整结束 `DSH_HOST_ROUTE_COMPLETE`；global 免费 `hy3` 在32 Tokens预算下 MAX_TOKENS 截断，不计完成也不计账号失败。端口9230监听正常，所有nonce已消费，无后台待发请求。ZCode当前账号仍无可用赠送，不做收费验证。
+
+
 ## rc.74 修正官方营销触达 seq 语义并准备复验
 
 - ZCode 3.17 协议中的 marketing/touch seq 是连续请求计数，而不是分页，纠正 rc.72/73 每刷新最多9个 GET 的设计；现在每个调用仅1次 GET，序号随进程单调递增。营销成功列表是现代来源，旧 preview 出错不否认它的空结果；营销本身未知不能冒称没有活动。

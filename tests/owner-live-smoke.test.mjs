@@ -34,6 +34,42 @@ function rig(dir,{listModels,verifyModel,env}={}){
  return {input,request,get calls(){return calls},get catalogCalls(){return catalogCalls},
   report:()=>JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'))};
 }
+test('inventory-audit examines all enabled accounts read-only, without charging models',async()=>fixture(async dir=>{
+ const h=rig(dir);h.request();
+ const file=join(dir,'owner-live-smoke-request.json');
+ const req=JSON.parse(readFileSync(file,'utf8'));
+ writeFileSync(file,JSON.stringify({...req,mode:'inventory-audit'}));
+ let remote=0,model=0;
+ h.input.accountCenter.driverFor=providerId=>({
+   refreshAccountStatus:async()=>{remote++;return {state:'ready',authVerified:true,balanceState:'available'}},
+   listModels:async()=>{model++;return [{id:'free',upstreamFreeLabel:true}]},
+   generate(){throw Error('inference must never happen')},
+ });
+ const state=await runOwnerLiveSmoke(h.input);
+ assert.equal(state.state,'complete');
+ assert.equal(h.calls,0);
+ assert.equal(remote,2);
+ assert.equal(model,2);
+ const report=h.report();
+ assert.equal(report.runtime,'dsh-plugin-official-account-inventory');
+ assert.equal(report.accounts.length,2);
+ assert.ok(report.accounts.every(row=>row.code==='OFFICIAL_ACCOUNT_AND_CATALOG'));
+ assert.ok(report.accounts.every(row=>row.officialFreeCandidates===1));
+ assert.doesNotMatch(JSON.stringify(report),/wbp_aa|sp_bb|secret|credentialRef/);
+ assert.equal((await runOwnerLiveSmoke(h.input)).state,'already_consumed');
+}));
+test('inventory-audit prohibits billing permissions, arbitrary provider selectors and model selection',async()=>fixture(async dir=>{
+ const h=rig(dir);h.request();
+ const file=join(dir,'owner-live-smoke-request.json');
+ const req=JSON.parse(readFileSync(file,'utf8'));
+ for(const payload of [{mode:'inventory-audit',providers:['own_zcode']},
+   {mode:'inventory-audit',billingConsent:'single-low-cost-call'},
+   {mode:'inventory-audit',freeModelIndex:0}]){
+   writeFileSync(file,JSON.stringify({...req,...payload}));
+   assert.equal((await runOwnerLiveSmoke(h.input)).state,'invalid_request');
+   assert.equal(h.calls,0);
+ }
+}));
 test('no operator nonce never triggers real model calls',async()=>fixture(async dir=>{
  const h=rig(dir,{env:{}});h.request();
  assert.equal((await runOwnerLiveSmoke(h.input)).state,'disabled');

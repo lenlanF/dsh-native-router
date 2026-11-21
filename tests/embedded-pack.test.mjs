@@ -17,6 +17,37 @@ const isolatedEnv={DSH_NATIVE_ROUTER_CHANNEL_PACK_ENABLE:'1',DSH_OPENAI_GATEWAY_
  DSH_REASONING_LOOP_AUTO_RESUME:'0',DSH_NATIVE_ROUTER_CHANNEL_PACK_ISOLATED_PROFILE:'1',
  DSH_HOME:isolatedHome,DSH_CHANNEL_PACK_STATE_DIR:isolatedHome};
 const enabled=()=>({embeddedPack:{enabled:true}});
+test('ZCode signed claimable plan can enter exact-account claim without legacy available field',async()=>{
+ const rows=[{id:'zc-a',provider:'zcode',enabled:true,credentialRef:'ZA'},
+             {id:'zc-b',provider:'zcode',enabled:true,credentialRef:'ZB'}];
+ let eligible=true,called=0;
+ const pool={listAllAccounts:async()=>rows};
+ const ops={
+  status:async(p,id)=>({ok:true,value:{accounts:[{accountId:id,status:{
+    active:true,claimable:eligible,planCount:eligible?1:0,todayCheckedIn:false}}]}}),
+  claim:async(p,id)=>{assert.equal(p,'zcode');assert.equal(id,'zc-b');called++;
+    return {ok:true,value:{results:[{accountId:'zc-b',outcome:{kind:'claimed'}},
+      {accountId:'zc-a',outcome:{kind:'failed'}}]}}}
+ };
+  let livePool;
+  const scope={llm:{listProviders:async()=>[]},
+   get:k=>k==='accountPool'?livePool:k==='nativeRouterSourceCheckins'?ops:undefined};
+  const bridge=createEmbeddedChannelPack({ctx:{inject(_d,fn){fn(scope)}},getConfig:enabled,
+   env:isolatedEnv,loadPack:async()=>({apply(){livePool=pool}})}); bridge.attach();await tick();await tick();
+ assert.equal(bridge.status().state,'mounted');
+ try{
+  const out=await bridge.checkinAccount({providerId:'zcode',sourceAccountId:'zc-b'});
+  assert.equal(out.state,'pending_confirmation');
+  assert.equal(called,1,'one exact-account claim only');
+  eligible=false;
+  const blocked=await bridge.checkinAccount({providerId:'zcode',sourceAccountId:'zc-b'});
+  assert.equal(blocked.state,'failed');
+  assert.equal(called,1,'do not claim without official eligibility');
+  const missing=await bridge.checkinAccount({providerId:'zcode',sourceAccountId:'absent'});
+  assert.equal(missing.state,'unavailable');
+  assert.equal(called,1);
+ }finally{bridge.dispose()}
+});
 test('real pinned source pack ESM import is refused on incompatible Node runtimes before loading its embedded Undici',()=>{
   const available=()=>{};
   assert.match(channelPackNodeRuntimeReason({nodeVersion:'22.5.0',markAsUncloneable:undefined}),/22.10/);

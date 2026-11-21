@@ -1,5 +1,23 @@
 # Change Log
 
+## 1.0.0-rc.76 — 2026-11-22 — 全渠道官方只读鉴权格式归一与重新验收
+
+- rc.75 本机真实一次性只读审计覆盖8个启用账号：Loomy/ZCode/CodeArts 有官方状态，4个 WorkBuddy 因驱动本来没有 refreshAccountStatus 而得到 OFFICIAL_READER_MISSING；Lingxi 因官方余额/每日任务接口返回 state=ready 但没有额外 authVerified 字段而被误报 OFFICIAL_ACCOUNT_UNCONFIRMED。这些是审计证据解读缺陷，不能用于断言账号或模型实际失效。
+- 两地区 WorkBuddy 改为其自身独立凭据 driver.refresh 调用官方签名模型接口，成功 online 才给出 authVerified；Lingxi 仅在官方 state=ready 且有非负明确余额或当日 confirmed/claimable 任务字段时确认，其他情况仍拒绝。各渠道官方证据种类以有限枚举 authProofType 匿名标注，不泄露账号名称、令牌或私有状态。
+- 免费模型候选采用同模型去重，目录可见只说明模型候选而不证明真实完成推理。保留 rc75 ZCode 晚间19:00领卡与官方 claimable/planCount 核验修复，不擅自开启此前关闭的全局自动签到、不触发任何未知费用生成。
+
+
+- **rc.76 真实 Windows DSH 验收结论：** 一次性 `inventory-audit` 共检查8个本插件已启用的自有账号，8/8 均以官方签名目录、余额/任务或服务端账号状态取得鉴权正面证据。Lingxi 11模型；WorkBuddy CN 双账号各16模型、各1免费候选；WorkBuddy global 双账号各35模型、各3免费候选；Loomy 6模型含1赠送候选；ZCode 2模型但本次活动无可领取且无已入账赠送；CodeArts 11模型均有官方精确倍率，最低仍为x0.07、零费率0。免费候选不是推理证明。
+- **真实 DSH 正式 Provider 模型端到端复验：** `own_workbuddy-cn/hy4flash-free`、`own_workbuddy-global/deepseek-v4.1-flash`、`own_loomy/spark-x2.6` 均真实产生非空文本并以finish(stop)完成（`DSH_HOST_ROUTE_COMPLETE`）。Global 默认第一款免费 `hy3` 用32 Tokens预算得到 `MAX_TOKENS`，其模型未在这次完成验收，随即使用已经明确免费的第二款 Flash 经独立一次性请求成功，不发送付费重试。三个真实完成结果使用已消费nonce留存；历史完整模型可用账号数依旧是7/8，只有ZCode因无赠送尚未验证真实生成。
+
+## 1.0.0-rc.75 — 2026-11-22 — ZCode 晚间赠送可领取修复与所有已接入账号只读验收
+
+- 经查 ZCode 本轮 Weekend Build 5 亿 Token 活动报告有效期到 11 月 23 日 09:00（北京时间）。工作日 3 亿与周末 5 亿属于同一常态每日赠卡系列，不应叠加；ZCode 官方新人前5天每日800万属于另一项短期权益。用户独立账号在 rc.74 签名接口返回0个可领取计划、0个已入账有效赠送，不能据此断言全网活动结束，也不允许替换为付费 Coding Plan。
+- 修复全渠道签到 10:05 之前开始重试而 ZCode 19:00 才发卡的时间错配：ZCode 自动签到/领取从 19:00 起判断，避免提前耗尽3次当日重试；其他渠道 10:05 的原工作不变，显式禁用的自动签到保持禁用。
+- 修复 ZCode 已确认可领取却被跨渠道通用 `available` 字段强制拒绝的问题：专有渠道要求官方 `active`、`claimable`、`planCount>0`，仍按精确账号发送原生领取，不跨账号、不在无资格时发验证码。成功请求但服务端未证明入账则维持待确认且阻止重复验证码。
+- 新增一次性在运行中的 DSH 内核查所有已启用账号的 `inventory-audit`：官方状态、目录数、官方模型费率/免费候选数匿名汇总；不触发生成、领取、签到或付费。用户完整验收历史与模型真实生成证据保持独立。
+- 详细规则、官方与活动线索、历史本机验证及边界见 `docs/ZCODE_FREE_REWARDS_2026-11-22.md`。
+
 ## 1.0.0-rc.74 — 2026-11-22 — ZCode 营销触达协议最终对齐
 
 - 对照公开 ZCode 3.17 官方客户端及 magpie ZCode 实现确认：marketing/touch 的 seq 是从进程启动递增的请求编号，**不是分页号**。纠正 rc.72/rc.73 的每次刷新并行请求 seq0至8 的错误，每次只进行一次 HTTP GET，避免不必要的上游负载、节流与活动识别不确定；在插件隔离运行时自增 seq，不向其他渠道泄漏。

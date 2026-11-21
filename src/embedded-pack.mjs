@@ -513,12 +513,17 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
        .format(new Date());
      if(upstreamCheckedInToday(before,today)===true)
        return {confirmed:true,message:'来源服务已确认今日签到'};
-     if(before?.available===true&&before.active===false)
-       return {state:'failed',message:'上游尚无明确的今日签到执行资格；未据套餐状态推断为无任务'};
-     if(before?.available!==true)
-       return {state:'failed',message:'来源今日签到状态暂不可核实，未发送领取请求'};
-    const claim=await ops.claim(providerId,sourceAccountId);
-    if(scope!==mountedScope())return {state:'unavailable'};
+      // 3.17+ ZCode has `claimable` and `planCount`, never `available`.
+      // Use the exact signed account preview, without guessing from balances.
+      const eligible=providerId==='zcode'
+        ?before?.active===true&&before?.claimable===true
+          &&Number.isInteger(before.planCount)&&before.planCount>0
+        :before?.available===true;
+      if(before?.active===false)
+        return {state:'failed',message:'来源活动尚未开放，未发送领取请求'};
+      if(!eligible)
+        return {state:'failed',message:'官方尚未确认本账号有可领取计划，未发送领取请求'};
+      const claim=await ops.claim(providerId,sourceAccountId);    if(scope!==mountedScope())return {state:'unavailable'};
     const outcomes=claim?.ok===true&&Array.isArray(claim.value?.results)
       ?claim.value.results.filter(row=>row?.accountId===sourceAccountId):[];
     if(outcomes.length===0)return {state:'failed',message:'上游未提供指定账号的签到回执'};

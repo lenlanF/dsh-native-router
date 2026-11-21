@@ -5,6 +5,7 @@
 import {readFileSync,writeFileSync,renameSync,existsSync,unlinkSync} from 'node:fs';
 import {dirname,join} from 'node:path';
 
+import {ownerReadOnlyInventory} from './owner-readonly-inventory.mjs';
 import {retryAtomicRename} from './retry-atomic-rename.mjs';
 const NONCE=/^[a-f0-9]{32}$/;
 const wait=(ms,signal)=>new Promise(resolve=>{
@@ -288,8 +289,7 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
          ||new Set(request.slots).size!==request.slots.length))
       ||(request.freeModelIndex!==undefined&&(!Number.isInteger(request.freeModelIndex)
         ||request.freeModelIndex<0||request.freeModelIndex>9))
-      ||(request.mode!==undefined&&!['host-route','bounded-priced','quota-audit','lowest-priced'].includes(request.mode))
-      ||(request.mode==='quota-audit'&&(
+       ||(request.mode!==undefined&&!['host-route','bounded-priced','quota-audit','inventory-audit','lowest-priced'].includes(request.mode))      ||(request.mode==='quota-audit'&&(
         (request.providers===undefined&&!Array.isArray(request.slots))||
         (request.providers!==undefined&&(
           request.slots!==undefined||!Array.isArray(request.providers)||
@@ -298,8 +298,10 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
           new Set(request.providers).size!==request.providers.length))||
         (request.providers===undefined&&(
           request.slots.length>2||request.slots.some(slot=>![7,8].includes(slot))))))
-      ||(request.mode==='bounded-priced'&&(
-        request.billingConsent!=='single-low-cost-call'||
+       ||(request.mode==='inventory-audit'&&(
+         request.providers!==undefined||request.freeModelIndex!==undefined||
+         request.billingConsent!==undefined||request.maxMultiplier!==undefined))
+       ||(request.mode==='bounded-priced'&&(        request.billingConsent!=='single-low-cost-call'||
         !Array.isArray(request.slots)||request.slots.length>3||
         request.slots.some(slot=>![1,7,8].includes(slot))))
       ||(request.mode==='lowest-priced'&&(
@@ -312,9 +314,9 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
   const report={version:1,nonce,state:'running',startedAt:now(),completedAt:null,
      runtime:request.mode==='host-route'?'dsh-llm-native-router':
        request.mode==='bounded-priced'?'dsh-plugin-native-bounded-priced':
-       request.mode==='quota-audit'?'dsh-plugin-official-read-only':
-        request.mode==='lowest-priced'?'dsh-plugin-one-codearts-minimum-rate':'dsh-plugin-native',
-     maxOutputTokensPerCall:128,accounts:[]};
+        request.mode==='quota-audit'?'dsh-plugin-official-read-only':
+        request.mode==='inventory-audit'?'dsh-plugin-official-account-inventory':
+         request.mode==='lowest-priced'?'dsh-plugin-one-codearts-minimum-rate':'dsh-plugin-native',     maxOutputTokensPerCall:128,accounts:[]};
    function persist(){    const temp=resultFile+'.tmp-'+process.pid;
     try{writeFileSync(temp,JSON.stringify(report,null,2)+'\n',{mode:0o600,flag:'wx'});
       retryAtomicRename(temp,resultFile)}catch(e){
@@ -342,8 +344,19 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
        modelId:null,freeCount:0,advertisedCount:0,
        maxOutputTokens:account.providerId==='own_loomy'?128:
          BOUNDED_MAX_OUTPUT[account.providerId]??32,       startedAt:now(),finishedAt:null};    report.accounts.push(result);persist();
-    if(request.mode==='quota-audit'){
-      const proof=await quotaEvidence({account,accountCenter,configStore,signal});
+     if(request.mode==='inventory-audit'){
+       // One-shot official account/catalog reads, no generate or claim.
+       const driver=accountCenter.driverFor?.(account.providerId);
+       const proof=await ownerReadOnlyInventory({account,driver,signal});
+       result.state=proof.state;result.code=proof.code;
+       for(const key of ['authVerified','authProofType','advertisedCount','officialFreeCandidates',
+         'exactOfficialZeroRateCount','exactOfficialRateCount','balanceObserved',
+         'zcodePreviewStartPlans','zcodeGiftConfirmed']){
+         if(Object.hasOwn(proof,key))result[key]=proof[key];
+       }
+       result.finishedAt=now();persist();continue;
+     }
+     if(request.mode==='quota-audit'){      const proof=await quotaEvidence({account,accountCenter,configStore,signal});
       result.state=proof.state;result.code=proof.code;
       for(const key of ['modelFound','giftConfirmed','officialRateCount',
         'zeroRateCount','lowestMultiplier','signedCatalogCount','misleadingZeroDisplay',

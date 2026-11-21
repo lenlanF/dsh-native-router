@@ -144,10 +144,9 @@ test('ZCode official empty preview is not false signed-in or claimable; rechecks
   'must not request captcha or claim when official preview is empty');
  assert.equal(h.calls.length,0);
  available=true;
- h.setNow(NOW+16*60*1000);
- assert.equal((await h.center.tick()).attempted,1,
-  'later claimable plan is reconsidered after short status cache expiry');
- assert.equal(h.calls.length,1);
+  h.setNow(Date.parse('2026-11-17T11:05:00Z')); // Beijing 19:05 card window
+  assert.equal((await h.center.tick()).attempted,1,
+   'later claimable plan is reconsidered after short status cache expiry'); assert.equal(h.calls.length,1);
  assert.ok(scans>=2);
  h.center.stop();
 });
@@ -211,13 +210,42 @@ test('global DSH opt-in signs in every supported source channel; four unsupporte
  assert.equal(view.accounts.filter(x=>x.checkinState==='unsupported').length,4);
  assert.ok(view.accounts.every(x=>x.id.startsWith('sp_')));
  assert.ok(view.accounts.every(x=>!x.id.includes('acct-1')));
- const result=await h.center.tick();
- assert.equal(result.attempted,supported.length);
+ h.setNow(Date.parse('2026-11-17T11:06:00Z')); // Beijing 19:06: claim window open
+ const result=await h.center.tick(); assert.equal(result.attempted,supported.length);
  assert.deepEqual(h.calls.map(x=>x.providerId),[...supported]);
  assert.equal(h.records.filter(x=>x.state==='success').length,supported.length);
  assert.equal((await h.center.tick()).attempted,0,'confirmed today cannot repeat');
  await h.center.run(sourceAccountOpaqueId('buddy','acct-1'));
  assert.equal(h.calls.length,supported.length,'manual repeat of success is idempotent');
+ h.center.stop();
+});
+test('ZCode evening window does not exhaust attempts in the morning',async()=>{
+ const h=fixture({rows:[row('zcode','zc'),row('qoder','qd')]});
+ h.setNow(Date.parse('2026-11-17T02:06:00Z'));
+ assert.equal((await h.center.tick()).attempted,1);
+ assert.deepEqual(h.calls.map(x=>x.providerId),['qoder']);
+ h.setNow(Date.parse('2026-11-17T10:59:00Z'));
+ assert.equal((await h.center.tick()).attempted,0);
+ h.setNow(Date.parse('2026-11-17T11:05:00Z'));
+ assert.equal((await h.center.tick()).attempted,1);
+ assert.deepEqual(h.calls.map(x=>x.providerId),['qoder','zcode']);
+ h.center.stop();
+});
+test('ZCode pre-19:00 no_task does not stop the evening card; pending acceptance does not loop',async()=>{
+ const h=fixture({rows:[row('zcode','zc')],
+   handler:async()=>({state:'pending_confirmation',accepted:true})});
+ h.setNow(Date.parse('2026-11-17T02:10:00Z'));
+ await h.center.refreshSources();
+ const id=sourceAccountOpaqueId('zcode','zc');
+ h.records.push({date:'2026-11-17',accountId:id,providerId:'zcode',
+   state:'no_task',message:'morning empty',at:Date.parse('2026-11-17T02:10:00Z'),source:'manual'});
+ assert.equal((await h.center.tick()).attempted,0);
+ h.setNow(Date.parse('2026-11-17T11:05:00Z'));
+ assert.equal((await h.center.tick()).attempted,1);
+ assert.equal(h.records.at(-1).state,'pending_confirmation');
+ h.setNow(Date.parse('2026-11-17T12:15:00Z'));
+ assert.equal((await h.center.tick()).attempted,0);
+ assert.equal(h.calls.length,1);
  h.center.stop();
 });
 test('source auto-signin respects global off and independent source-off switch',async()=>{
@@ -260,8 +288,8 @@ test('disabled source account, no-task, unavailable service and no-ready source 
  const h=fixture({rows:[row('qoder','a',false),row('zcode','b',true)],
   handler:async({sourceAccountId})=>sourceAccountId==='b'
    ?{state:'no_task',message:'daily event not available'}:{confirmed:true}});
- await h.center.tick();
- assert.equal(h.calls.length,1);
+  h.setNow(Date.parse('2026-11-17T11:06:00Z')); // Beijing 19:06
+  await h.center.tick(); assert.equal(h.calls.length,1);
  assert.equal(h.records[0].state,'no_task');
  assert.equal((await h.center.tick()).attempted,0);
  const broken=fixture({rows:[row('qoder')],handler:async()=>({state:'unavailable'})});

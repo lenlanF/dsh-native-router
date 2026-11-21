@@ -7,7 +7,9 @@ import {publicCheckinMessage,publicAccountFailureMessage} from './public-diagnos
 
 const supported=new Set(SOURCE_DAILY_SIGNIN_PROVIDERS);const RETRY_DELAY_MS=60*60*1000;
 const MAX_AUTO_ATTEMPTS=3;
-
+// ZCode promotional Start Plan GLOBAL/WEEKEND cards drop at 19:00 Beijing.
+// The other channel daily activities may already run from 10:05.
+const ZCODE_PROMO_START='19:00';
 /**
  * Source-channel check-in is account-scoped, runs only inside DSH, and
  * shares the native router history. No external RPC server or timer.
@@ -307,17 +309,23 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
   const results=[];
   for(const row of roster.values()){
    if(stopped)break;
-   const cfg=configFor(row);
-   if(!cfg.enabled||!cfg.providerEnabled||!cfg.autoCheckin||!supported.has(row.providerId))continue;
-   const records=history(row.id),recent=records.at(-1);
-    // A fresh official ZCode no-plans response prevents unnecessary captcha
+    const cfg=configFor(row);
+    if(!cfg.enabled||!cfg.providerEnabled||!cfg.autoCheckin||!supported.has(row.providerId))continue;
+    if(row.providerId==='zcode'&&clockAt(now(),'Asia/Shanghai')<ZCODE_PROMO_START)
+      continue; // preserve all claim retries until promotional cards arrive
+    const records=history(row.id),recent=records.at(-1);    // A fresh official ZCode no-plans response prevents unnecessary captcha
     // and claim POST; it may become available later and is rechecked after TTL.
     const noPlan=statusCache.get(row.id);
     if(row.providerId==='zcode'&&noPlan?.day===today()&&noPlan.noClaimablePlans===true
       &&verificationWithinPeriod({state:noPlan.state,checkedAt:noPlan.checkedAt},
         now(),STATUS_TTL_MS))continue;
-    if(records.some(x=>x.state==='success')||['no_task','client_required'].includes(recent?.state))continue;    if(statusCache.get(row.id)?.day===today()&&statusCache.get(row.id)?.todayCheckedIn===true)continue;
-   if(records.filter(x=>x.source==='auto').length>=MAX_AUTO_ATTEMPTS)continue;
+    if(records.some(x=>x.state==='success')||recent?.state==='client_required')continue;
+    // A morning manual no-task is not evidence that no evening card will drop.
+    // A ZCode receipt accepted earlier tonight must not trigger more captchas.
+    if(row.providerId==='zcode'&&recent?.state==='pending_confirmation')continue;
+    if(recent?.state==='no_task'&&!(row.providerId==='zcode'
+      &&clockAt(recent.at,'Asia/Shanghai')<ZCODE_PROMO_START))continue;
+    if(statusCache.get(row.id)?.day===today()&&statusCache.get(row.id)?.todayCheckedIn===true)continue;   if(records.filter(x=>x.source==='auto').length>=MAX_AUTO_ATTEMPTS)continue;
    if(recent&&now()-recent.at<RETRY_DELAY_MS)continue;
    try{results.push(await run(row.id,{source:'auto'}));attempted++}
    catch(error){logger?.warn?.('source sign-in skipped '+row.providerId+': '+publicAccountFailureMessage(error))}
