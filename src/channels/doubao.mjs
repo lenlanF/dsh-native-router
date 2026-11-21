@@ -1,6 +1,6 @@
 // First-party self-owned Doubao Work adapter. No original plugin runtime dependency.
 // Request dialect / browser login derived from hulibuld/dsh-get-it-for-free (MIT).
-import {createHash} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {UpstreamError} from '../failure.mjs';
 import {toChatMessages} from '../protocol.mjs';
 import {visibleTools} from '../host-tools.mjs';
@@ -27,12 +27,16 @@ function cookieHeader(value){
  if(!hasSession(joined))throw new Error('豆包 Cookie 不包含有效会话标识');
  return joined;
 }
-function hashId(cookie){
+function legacyHashId(cookie){
  const stable=/(?:^|;\s*)uid_tt=([^;]+)/.exec(cookie)?.[1]??'';
  let uid='';try{uid=uidFromCookie(cookie)}catch{}
  return 'db_'+createHash('sha256').update('dsh-native-router-doubao\0'+
   (stable||uid||cookie)).digest('hex').slice(0,28);
 }
+// A browser profile/device cookie can rotate at every scan. The member's
+// server-verified UID is the durable identity; keep legacy IDs readable.
+const memberId=uid=>'db_'+createHash('sha256')
+ .update('dsh-native-router-doubao-member\0'+uid).digest('hex').slice(0,28);
 
 function beijingDate(now){
  return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',
@@ -49,8 +53,9 @@ function promptFor(options){
  return text.slice(-80000);
 }
 export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
- sleepMs=ms=>new Promise(resolve=>setTimeout(resolve,ms)),logger}={}){
+ sleepMs=ms=>new Promise(resolve=>setTimeout(resolve,ms)),getAccounts=()=>[],logger}={}){
  const publicStatus=new Map(),cache=new Map(),conversations=new Map(),writes=new Set();
+ const pendingRollbacks=new Map();
  async function secret(account){
   const match=REF.exec(String(account?.credentialRef??''));
   if(!match||account?.providerId!==ID||account.id!==match[1])
@@ -67,7 +72,7 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
  async function verifyMemberCookie(cookie){
   try{
    const info=await fetchAccountInfo(cookie,withFetch({timeoutMs:12000}));
-   if(!String(info?.uid??'').trim()&&!publicAccountName({nickname:info?.name}))
+   if(typeof info?.uid!=='string'||!/^[A-Za-z0-9_.-]{1,128}$/.test(info.uid))
     throw Error('Account identity missing');
    return info;
   }catch{
@@ -75,35 +80,63 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
     {code:'CREDENTIAL'});
   }
  }
- async function addCookie({cookie,name}={}){
+ async function addCookie({cookie,name,stageRollback=false}={}){
   const parsed=cookieHeader(cookie);
   if(typeof vault?.set!=='function'||typeof vault?.resolve!=='function')
    throw new UpstreamError('DSH Credentials cannot store Doubao',{code:'CREDENTIAL'});
-  const id=hashId(parsed),key=keyFor(id);
-  if(writes.has(key))throw new UpstreamError('Doubao credential import already running',{code:'CREDENTIAL'});
-  writes.add(key);
+  const remote=await verifyMemberCookie(parsed);
+  // One in-process serialization scope per verified account. No background
+  // app, old plugin, shared gateway, or local browser process is involved.
+  const lock=memberId(remote.uid);
+  if(writes.has(lock))throw new UpstreamError('Doubao member import already running',{code:'CREDENTIAL'});
+  writes.add(lock);
   try{
+   const configured=typeof getAccounts==='function'?getAccounts():[];
+   const candidates=(Array.isArray(configured)?configured:[])
+    .filter(x=>x?.providerId===ID&&typeof x.id==='string'
+      &&x.credentialRef==='driver:'+ID+':'+x.id&&/^db_[a-f0-9]{28}$/.test(x.id)).slice(0,200);
+   const matches=[];
+   for(const account of candidates){
+    let value;
+    try{value=await vault.resolve(keyFor(account.id))}catch{}
+    const raw=typeof value==='string'?value:value?.value;
+    let saved;
+    try{saved=raw?JSON.parse(raw):null}catch{}
+    if(!saved||typeof saved.cookie!=='string')continue;
+    let oldUid=typeof saved.uid==='string'?saved.uid:'';
+    // RC.28/29 legacy records predate the member UID field. Verify their
+    // still-live session only when the same old device identity is supplied.
+    if(!oldUid&&legacyHashId(saved.cookie)===legacyHashId(parsed))
+     try{oldUid=(await verifyMemberCookie(saved.cookie)).uid}catch{}
+    if(oldUid===remote.uid)matches.push(account.id);
+   }
+   if(matches.length>1)
+    throw new UpstreamError('Multiple owned Doubao records for the same member need reconciliation',{code:'CREDENTIAL'});
+   const id=matches[0]??memberId(remote.uid),key=keyFor(id);
    let previous;
    try{previous=await vault.resolve(key)}catch{}
    const existingValue=typeof previous==='string'?previous:previous?.value;
    let existing;
    try{if(existingValue)existing=JSON.parse(existingValue)}catch{}
-   const remote=await verifyMemberCookie(parsed);
    const oldCookie=typeof existing?.cookie==='string'?existing.cookie:'';
-   if(oldCookie&&oldCookie!==parsed){
-    // Same stable uid_tt must never silently overwrite a different verified
-    // upstream user, even if a caller crafts the local Cookie fields.
+   if(previous&&oldCookie!==parsed){
     let oldUid=typeof existing?.uid==='string'?existing.uid:'';
-    if(!oldUid){
-     try{oldUid=(await verifyMemberCookie(oldCookie)).uid??''}catch{}
-    }
-    if(oldUid&&remote.uid&&oldUid!==remote.uid)
+    if(!oldUid&&oldCookie)
+     try{oldUid=(await verifyMemberCookie(oldCookie)).uid}catch{}
+    if(oldUid!==remote.uid)
      throw new UpstreamError('Doubao reauthorization identity mismatch',{code:'CREDENTIAL'});
    }
+   let rollbackToken;
    if(!previous||oldCookie!==parsed){
-    await vault.set(key,JSON.stringify({cookie:parsed,uid:remote.uid??''}));
-    // A reauthenticated web session has no authority over conversations
-    // or model menus from an expired earlier session with the same account ID.
+    const replacement=JSON.stringify({cookie:parsed,uid:remote.uid});
+    await vault.set(key,replacement);
+    if(stageRollback){
+     rollbackToken=randomUUID();
+     pendingRollbacks.set(rollbackToken,{id,
+      previous:typeof existingValue==='string'?existingValue:null,replacement});
+     // In-memory rollback receipts never enter config or public HTTP responses.
+     if(pendingRollbacks.size>32)pendingRollbacks.delete(pendingRollbacks.keys().next().value);
+    }
     cache.delete(id);
     for(const sessionKey of conversations.keys())
      if(sessionKey.startsWith(id+':'))conversations.delete(sessionKey);
@@ -112,8 +145,8 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
    publicStatus.set(id,{...(nickname?{nickname}:{}),
     uidConfirmed:true,verifiedAt:now(),balanceState:'not_checked'});
    return {id,providerId:ID,credentialRef:'driver:'+ID+':'+id,
-    ...(previous?{alreadyOwned:true}:{})};
-  }finally{writes.delete(key)}
+    ...(previous?{alreadyOwned:true}:{}),...(rollbackToken?{rollbackToken}:{})};
+  }finally{writes.delete(lock)}
  }
  function withFetch(extra={}){return {...extra,fetchImpl}}
  async function probe(account){
@@ -230,8 +263,29 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
  async function rollbackCandidate({account}={}){
   const match=REF.exec(String(account?.credentialRef??''));
   if(!match||match[1]!==account?.id||account?.providerId!==ID)return;
-  try{await vault?.unset?.(keyFor(match[1]))}catch{}
-  publicStatus.delete(match[1]);cache.delete(match[1]);
+  const pending=pendingRollbacks.get(account?.rollbackToken);
+  if(pending){
+   if(pending.id!==account.id)return;
+   let current;
+   try{current=await vault.resolve(keyFor(account.id))}catch{}
+   const stored=typeof current==='string'?current:current?.value;
+   if(stored===pending.replacement){
+    if(pending.previous===null)await vault.unset(keyFor(account.id));
+    else await vault.set(keyFor(account.id),pending.previous);
+   }
+   pendingRollbacks.delete(account.rollbackToken);
+   publicStatus.delete(account.id);cache.delete(account.id);
+   return;
+  }
+  // A canceled duplicate login without a rollback journal must NEVER remove
+  // a credential that predates this authorization attempt.
+  if(account?.alreadyOwned===true)return;
+  await vault?.unset?.(keyFor(account.id));
+  publicStatus.delete(account.id);cache.delete(account.id);
+ }
+ function completeCandidate({account}={}){
+  const pending=pendingRollbacks.get(account?.rollbackToken);
+  if(pending?.id===account?.id)pendingRollbacks.delete(account.rollbackToken);
  }
  async function logout({account}={}){
   const match=REF.exec(String(account?.credentialRef??''));
@@ -241,7 +295,7 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
   return {revokedUpstream:false,message:'豆包凭据已从本插件删除；官方账号登录不受影响'};
  }
  const browser=createLoginFlow({logger,
-  addAccount:async({cookie,name})=>({account:await addCookie({cookie,name})}),
+  addAccount:async({cookie,name})=>({account:await addCookie({cookie,name,stageRollback:true})}),
   validateCookie:async cookie=>{
    try{await verifyMemberCookie(cookie);return true}catch{return false}
   },
@@ -251,10 +305,11 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
   const status=browser.status();
   return {...status,account:status.account?{
    id:status.account.id,providerId:ID,credentialRef:status.account.credentialRef,
-   alreadyOwned:status.account.alreadyOwned===true}:null};
+   alreadyOwned:status.account.alreadyOwned===true,
+   ...(status.account.rollbackToken?{rollbackToken:status.account.rollbackToken}:{})}:null};
  }
  function accountSnapshot(account){return publicStatus.get(account?.id)??{}}
  return {authMethod:'独立浏览器扫码登录 / Cookie',
-   addCookie,rollbackCandidate,loginStatus,startLogin:()=>browser.start(),cancelLogin:()=>browser.cancel(),
+   addCookie,rollbackCandidate,completeCandidate,loginStatus,startLogin:()=>browser.start(),cancelLogin:()=>browser.cancel(),
    listModels,generate,refresh,login:refresh,logout,checkIn,accountSnapshot};
 }

@@ -327,6 +327,7 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
         switch(body.action){
           case 'login':result=await accountCenter.verify(body.accountId,{login:true});break;
           case 'refresh':result=await accountCenter.verify(body.accountId);break;
+          case 'model-test':result=await accountCenter.verifyModel(body.accountId,{modelId:body.modelId});break;
           case 'enable':result=accountCenter.setEnabled(body.accountId,body.enabled);break;
           case 'logout':result=await accountCenter.logout(body.accountId);break;
           default:{const e=new Error('Unknown account action');e.status=400;throw e}

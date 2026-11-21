@@ -570,6 +570,8 @@ window.__ModuleLoader__.load({
                     '余额更新 '+new Date(account.balanceCheckedAt).toLocaleString()):null,
                   account.modelInferenceVerifiedAt?h('span',{style:css.mutedTag},
                     '模型实测成功 · '+new Date(account.modelInferenceVerifiedAt).toLocaleString()):
+                    account.modelTestFailedAt?h('span',{style:css.mutedTag},
+                      '最近实测失败 · '+new Date(account.modelTestFailedAt).toLocaleString()):
                     account.connectionState==='online'?h('span',{style:css.small},
                       '只读鉴权通过，模型推理尚未实测'):null),
                h('div',{style:css.line},
@@ -606,6 +608,13 @@ window.__ModuleLoader__.load({
                  h(Button,{disabled:!!busy||!account.refreshAvailable||!account.configuredEnabled,
                    onClick:()=>run('/channels/accounts/action',{action:'refresh',accountId:account.id},
                      '账号状态已刷新')},'刷新'),
+                 account.modelTestAvailable?h(Button,{
+                  disabled:!!busy||!account.configuredEnabled,
+                  onClick:()=>{
+                   if(window.confirm('将使用此独立账号发送一次最小测试消息，可能消耗会员额度。确认执行真实模型回复验收？'))
+                    run('/channels/accounts/action',{action:'model-test',accountId:account.id},
+                     '模型实测结果已返回，请查看账号状态');
+                  }},'实测对话'):null,
                  h(Button,{disabled:!!busy,onClick:()=>run('/channels/accounts/action',
                    {action:'enable',accountId:account.id,enabled:!account.configuredEnabled},
                    '账号启停状态已更新')},account.configuredEnabled?'停用':'启用'),
@@ -627,7 +636,7 @@ window.__ModuleLoader__.load({
               h(Button,{disabled:!!busy,onClick:()=>{
                 if(window.confirm('确认导入该已授权账号？仅保存引用，导入后默认停用。'))
                   run('/channels/import',{providerId:channel.id,candidateId:candidate.id},
-                    '已导入账号引用');
+                    '账号授权已导入，请执行远端鉴权和实测对话');
               }},'审核后导入'))));
         }));
     }
@@ -1048,9 +1057,13 @@ window.__ModuleLoader__.load({
             setNotice('发现 '+(data.candidates?.length||0)+' 个候选；需人工确认后才能导入。');
           }else if(path==='/channels/import'){
             setDiscovered(old=>({...old,[body.providerId]:[]}));
-            setNotice('账号引用已导入，默认停用。请验证该账号后再启用。');
+            setNotice('账号引用已导入并启用；还需完成服务端鉴权及真实模型回复验收。');
           }
           else if(path==='/channels/accounts/action'&&body.action==='refresh-all')setNotice('已检查 '+data.attempted+' 个可验证账号，各账号的真实结果见上方。');
+          else if(path==='/channels/accounts/action'&&body.action==='model-test'){
+            if(data.result?.state==='verified')setNotice('真实模型回复通过：'+data.result.modelId+'。已记录到对应账号。');
+            else setError(data.result?.message||'模型尚未完成真实回复验收；没有标记为可用。');
+          }
           else setNotice(success||'操作完成，详细状态已刷新。');
         }catch(error){setError(String(error?.message??error));}
         finally{setActionBusy('')}
@@ -1296,7 +1309,7 @@ window.__ModuleLoader__.load({
            const data=await response.json();
            if(!response.ok||!data.ok)throw Error(data.error||'豆包授权未保存');
            setDoubaoCookie('');await refresh();
-           setNotice('豆包账号已存入独立凭据库；尚需验证官方身份、模型推理及额度。');
+           setNotice('豆包会员身份已获远端确认，账号保存在独立凭据库；还需实测模型回复与额度。');
          }catch(error){setError(String(error?.message??error))}
          finally{setDoubaoBusy(false)}
        }

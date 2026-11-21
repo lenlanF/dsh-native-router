@@ -46,7 +46,8 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
        createMimoDesktopDriver({vault:ownedVault})));
    if(!channelDrivers&&!drivers.has('own_doubao'))
      builtInCleanup.push(registerNativeChannelDriver('own_doubao',
-       createDoubaoDriver({vault:ownedVault,fetchImpl,logger:ctx.logger})));
+       createDoubaoDriver({vault:ownedVault,fetchImpl,logger:ctx.logger,
+        getAccounts:()=>ownStore.get().accounts})));
    if(!channelDrivers)for(const region of ['cn','global']){
      const owner='own_workbuddy-'+region;
      if(!drivers.has(owner))builtInCleanup.push(registerNativeChannelDriver(owner,

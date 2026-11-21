@@ -22,7 +22,8 @@ function mock(){
   const data=payload=>new Response(JSON.stringify({code:0,data:payload}),{
    status:200,headers:{'content-type':'application/json'}});
   if(url.pathname==='/passport/account/info/v2/')
-   return data({user_id_str:'user-1',screen_name:'豆包测试用户'});
+   return data({user_id_str:cookie.includes('unit-testing-session-account-B')?'user-2':'user-1',
+    screen_name:'豆包测试用户'});
   if(url.pathname==='/alice/slot/action_bar_v3/brief_list')
    return data({entry_list:[{action_bar_key:'coco_deep_thinking',active_switch_conf:{
     menu_conf_v2:{model_list:{item_list:[

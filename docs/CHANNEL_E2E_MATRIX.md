@@ -44,6 +44,7 @@
 
 - `node --test tests/source-owned-all-channels.test.mjs`：13 个渠道自有精确账号绑定，模拟官方信息读取、账户名/零余额、模型枚举与真实推理事件流、成功证据单独记录；不使用原插件数据。
 - `node --test tests/hostless-all-channel-models.test.mjs tests/hostless-browser-auth.test.mjs tests/doubao-hostless-checkin.test.mjs`：13 渠道真正通过 DSH 路由输出模拟完整回合，MiMo/豆包自主登录不启动原客户端，豆包签到走原生网页领取和确认回查。
+- `node --test tests/owned-model-e2e.test.mjs tests/doubao-ownership.test.mjs`：单账号主动真实回复验收必须绑定自有凭据且完整文本结束；模拟被截断或无回复拒绝；豆包多浏览器相同远端 UID 保留一个账号，旧版 ID 读取兼容，取消/失败按精确凭据回滚。
 - `node --test tests/embedded-pack.test.mjs tests/source-channel-driver.test.mjs`：官方账号证据、已签状态、模型事件协议、精确账号选择及异常回退。
 - `node --test tests/*.test.mjs`：完整项目回归。
 - `python tools/build-native-channel-pack.py --check` 及 `python tools/build-standalone-channel-pack.py --check`：上游来源包/单文件运行时锁定版本与审计核对。

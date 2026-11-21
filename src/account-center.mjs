@@ -11,7 +11,8 @@ export function createAccountCenter({
    getSourceStatus=()=>({state:'unavailable'}),verificationStore,autoVerifyMs=AUTO_VERIFY_MS,
    readOnlyTimeoutMs=8000,readOnlyConcurrency=4,}={}){
   if(!configStore?.get||!configStore?.replace)throw Error('ConfigStore must support get and replace');
-  const checks=new Map(),pending=new Set(),discoverCache=new Map();
+  const checks=new Map(),pending=new Set(),discoverCache=new Map(),
+   inferenceProof=new Map(),inferenceFailures=new Map();
   let automaticTimer=null,initialTimer=null,autoBusy=false,disposed=false;
   const storedFor=account=>verificationStore?.get?.(account)??null;
   function checkFor(account){
@@ -79,10 +80,18 @@ export function createAccountCenter({
             driver.accountSnapshot(account)??{}:{}}catch{}
           const name=publicAccountName(live,account);
           const balance=publicBalance(live);
+          const lastProof=inferenceProof.get(account.id);
+          const lastFailure=inferenceFailures.get(account.id);
+          const verifiedAt=lastProof?.credentialRef===account.credentialRef?lastProof.at:null;
+          const failedAt=lastFailure?.credentialRef===account.credentialRef?lastFailure.at:null;
+          const bestProof=Math.max(verifiedAt??0,
+           Number.isFinite(live.modelInferenceVerifiedAt)&&live.modelInferenceVerifiedAt>0?
+            live.modelInferenceVerifiedAt:0);
           return {id:account.id,providerId:account.providerId,providerName:provider.name,
             ...(name?{nickname:name}:{}),
              ...balance,
-             modelInferenceVerifiedAt:Number.isFinite(live.modelInferenceVerifiedAt)&&live.modelInferenceVerifiedAt>0?live.modelInferenceVerifiedAt:null,
+             modelInferenceVerifiedAt:failedAt&&failedAt>=bestProof?null:bestProof||null,
+             modelTestFailedAt:failedAt??null,
             upstreamCheckinDate:live.checkinDate??null,
             upstreamCheckinOutcome:live.checkinOutcome??null,
             upstreamCheckinSource:live.checkinDate?'own-driver-live':'unknown',
@@ -93,7 +102,10 @@ export function createAccountCenter({
          checkedAt:check.at,lastVerifiedAt:check.verifiedAt,
          connectionState:!account.enabled?'disabled':!provider.enabled?'provider_disabled':check.state,
          message:!account.enabled?'此账号已停用':!provider.enabled?'所属渠道已停用':check.message,
-         busy:pending.has(account.id),loginAvailable:!!driver?.login||['openai-chat','anthropic-messages'].includes(provider.protocol),
+         busy:pending.has(account.id),
+         modelTestAvailable:runtimeOwnership(account)==='owned'&&provider.protocol==='native-channel'
+          &&typeof driver?.listModels==='function'&&typeof driver?.generate==='function',
+         loginAvailable:!!driver?.login||['openai-chat','anthropic-messages'].includes(provider.protocol),
          refreshAvailable:!!driver?.refresh||['openai-chat','anthropic-messages'].includes(provider.protocol),
          checkinAvailable:typeof driver?.checkIn==='function',
        };
@@ -170,12 +182,69 @@ export function createAccountCenter({
     try{verificationStore?.set?.(entry.account,result)}catch{}
     return {id,...result,manualKeyVerification:!driver?.[method]};
   }
+ async function verifyModel(id,{modelId,signal}={}){
+  if(pending.has(id)){const error=new Error('Account operation already running');error.status=409;throw error}
+  const {account,provider,driver}=find(id);
+  if(!account.enabled||!provider.enabled||runtimeOwnership(account)!=='owned'
+    ||provider.protocol!=='native-channel'||typeof driver?.listModels!=='function'
+    ||typeof driver?.generate!=='function'){
+   const error=new Error('仅独立接管并启用的自有模型账号允许真实推理验证');
+   error.status=409;throw error;
+  }
+  if(modelId!==undefined&&(typeof modelId!=='string'||modelId.length>120)){
+   const error=new Error('Invalid model ID');error.status=400;throw error;
+  }
+  pending.add(id);
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),90000);
+  const abort=()=>controller.abort();
+  if(signal?.aborted)abort();else signal?.addEventListener('abort',abort,{once:true});
+  const cancelled=new Promise((_,reject)=>{
+   const rejectAborted=()=>reject(new Error('Model verification timed out or was canceled'));
+   if(controller.signal.aborted)rejectAborted();
+   else controller.signal.addEventListener('abort',rejectAborted,{once:true});
+  });
+  try{
+   const rows=await Promise.race([driver.listModels({account,provider,signal:controller.signal}),cancelled]);
+   const models=Array.isArray(rows)?rows.filter(row=>typeof row?.id==='string'
+     &&row.id.length>0&&row.id.length<=120):[];
+   const chosen=modelId?models.find(row=>row.id===modelId):models[0];
+   if(!chosen)throw new Error('No independently authorized chat model found');
+   const reply=await Promise.race([driver.generate({account,provider,model:chosen.id,
+    options:{messages:[{role:'user',content:[{type:'text',text:'请只回复 OK'}]}],
+     maxTokens:32,sessionId:'native-router-test-'+id},signal:controller.signal}),cancelled]);
+   if(reply?.finishReason!=='stop'||typeof reply?.text!=='string'||!reply.text.trim()
+     ||(Array.isArray(reply.toolCalls)&&reply.toolCalls.length))
+    throw new Error('Model reply was incomplete');
+   const stillBound=!disposed&&configStore.get().accounts.some(row=>row.id===id
+     &&row.providerId===account.providerId&&row.credentialRef===account.credentialRef&&row.enabled);
+   if(!stillBound)throw new Error('Account binding changed during model verification');
+   const at=now(),status={state:'online',at,bindingRef:account.credentialRef,
+    message:'本插件自有账号已完成独立真实模型对话验证'};
+   inferenceProof.set(id,{at,credentialRef:account.credentialRef,modelId:chosen.id});
+   inferenceFailures.delete(id);
+   checks.set(id,status);
+   try{verificationStore?.set?.(account,status)}catch{}
+   adapter?.invalidateCatalog?.();
+   return {id,state:'verified',modelId:chosen.id,at,
+    message:'已通过自有凭据完成一轮真实模型回复（非模型目录模拟）'};
+  }catch(error){
+   const at=now();
+   inferenceProof.delete(id);
+   inferenceFailures.set(id,{at,credentialRef:account.credentialRef});
+   return {id,state:'failed',at,
+    message:error?.code==='CREDENTIAL'?'当前自有凭据未通过模型验收':
+     '模型未完成真实回复；账号目录与适配器状态不能视为推理成功'};
+  }finally{
+   clearTimeout(timer);signal?.removeEventListener('abort',abort);pending.delete(id);
+  }
+ }
  function setEnabled(id,enabled){
    if(typeof enabled!=='boolean'){const e=new Error('enabled must be boolean');e.status=400;throw e}
    const {cfg}=find(id);
    const next={...cfg,accounts:cfg.accounts.map(a=>a.id===id?{...a,enabled}:a)};
    configStore.replace(next);
-    if(!enabled){checks.delete(id);try{verificationStore?.forget?.(id)}catch{}}
+    if(!enabled){checks.delete(id);inferenceProof.delete(id);inferenceFailures.delete(id);
+      try{verificationStore?.forget?.(id)}catch{}}
     adapter?.invalidateCatalog?.();
    return {id,enabled,changed:true};
  }
@@ -194,7 +263,8 @@ export function createAccountCenter({
       sessionReuse:autoLinked?{...cfg.sessionReuse,
         linkedIds:cfg.sessionReuse.linkedIds.filter(x=>x!==id),
         ignoredIds:[...new Set([...cfg.sessionReuse.ignoredIds,id])].slice(-200)}:cfg.sessionReuse});
-    checks.delete(id);try{verificationStore?.forget?.(id)}catch{}
+    checks.delete(id);inferenceProof.delete(id);inferenceFailures.delete(id);
+    try{verificationStore?.forget?.(id)}catch{}
     adapter?.invalidateCatalog?.();
    return {id,detached:true,revokedUpstream:outcome?.revokedUpstream===true,
      message:outcome?.message??(outcome?.revokedUpstream===true?'已撤销渠道授权并解除插件关联':
@@ -397,6 +467,7 @@ export function createAccountCenter({
       if(prev){
         if(prev.providerId!=='own_doubao'||prev.credentialRef!==result.credentialRef)
           throw Error('Doubao account identifier conflict');
+        driverFor('own_doubao')?.completeCandidate?.({account:result});
         return {id:prev.id,alreadyOwned:true};
       }
       if(cfg.providers.some(p=>p.id==='own_doubao'&&p.protocol!=='native-channel'))
@@ -409,6 +480,7 @@ export function createAccountCenter({
       try{configStore.replace({...cfg,providers,accounts:[...cfg.accounts,account]})}
       catch(error){if(result.alreadyOwned!==true)
         await driverFor('own_doubao')?.rollbackCandidate?.({account});throw error}
+      driverFor('own_doubao')?.completeCandidate?.({account:result});
       adapter?.invalidateCatalog?.();
       return {id:result.id,providerId:'own_doubao',stored:true};
     }
@@ -451,5 +523,5 @@ export function createAccountCenter({
   if(initialTimer)clearTimeout(initialTimer);
   automaticTimer=null;initialTimer=null;
  }
-  return {list,verify,setEnabled,logout,discover,importCandidate,refreshAll,refreshReadOnly,autoCheckDue,start,stop,drivers,driverFor,find,commitMimoDesktopAccount,startMimoLogin,pollMimoLogin,cancelMimoLogin,ensureDoubaoProvider,addDoubaoCookie,startDoubaoLogin,pollDoubaoLogin,cancelDoubaoLogin};
+  return {list,verify,verifyModel,setEnabled,logout,discover,importCandidate,refreshAll,refreshReadOnly,autoCheckDue,start,stop,drivers,driverFor,find,commitMimoDesktopAccount,startMimoLogin,pollMimoLogin,cancelMimoLogin,ensureDoubaoProvider,addDoubaoCookie,startDoubaoLogin,pollDoubaoLogin,cancelDoubaoLogin};
 }

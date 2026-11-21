@@ -69,6 +69,21 @@ test('cancel during duplicate login never deletes a previously owned credential'
  assert.equal(rig.flow.status().status,'canceled');
  assert.deepEqual(rolled,[]);
 });
+test('cancel during a rotated existing credential triggers exact rollback receipt',async()=>{
+ const saving=deferred(),release=deferred(),rolled=[];
+ const account={id:'existing',alreadyOwned:true,rollbackToken:'private-random-receipt'};
+ const rig=fixture({
+  addAccount:async()=>{saving.resolve();await release.promise;return {account}},
+  rollbackAccount:async result=>rolled.push(result),
+ });
+ await rig.flow.start();
+ rig.opened.resolve('sessionid=rotated-existing-session');
+ await saving.promise;
+ rig.flow.cancel();release.resolve();
+ await eventually(()=>rig.calls.includes('stop'));
+ assert.equal(rig.flow.status().status,'canceled');
+ assert.deepEqual(rolled,[account]);
+});
 test('uncanceled login saves exactly once and reports completed receipt',async()=>{
  const saves=[],rig=fixture({
   addAccount:async input=>{saves.push(input);

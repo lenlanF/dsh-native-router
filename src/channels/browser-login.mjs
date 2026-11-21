@@ -274,7 +274,8 @@ export function createBrowserLoginFlow({ logger, addAccount, rollbackAccount,
         if (state.status === 'canceled') {
           // Cancel can happen while Credentials.set is in progress. Do not
           // leave newly captured tokens orphaned or delete preexisting ones.
-          if (saved?.account && saved.account.alreadyOwned !== true && rollbackAccount) {
+          if (saved?.account && (saved.account.alreadyOwned !== true
+            || saved.account.rollbackToken) && rollbackAccount) {
             try { await rollbackAccount(saved.account) }
             catch {
               state = { ...state, status: 'error', error: '取消授权后清理新凭据失败，请检查账号记录' }
