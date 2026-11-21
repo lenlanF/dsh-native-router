@@ -36,6 +36,22 @@ test('existing plugin-owned source status remains eligible from authenticated fr
   }]}),false);
  }
 });
+test('source-pack native model alias follows explicit account detach, disable and private ownership',()=>{
+ const id='sp_'+'a'.repeat(24);
+ const sourceRows=[{id,providerId:'loomy',enabled:true,connectionState:'online',sourceAccount:true}];
+ const live=row({providerId:'own_loomy'});
+ assert.equal(sourceModelEligible('loomy',{accounts:[],sourceRows}),true,
+  'unclaimed private member may be auto-discovered when user did not explicitly remove it');
+ assert.equal(sourceModelEligible('loomy',{accounts:[],sourceRows,ignoredIds:[id]}),false,
+  'user explicit logout must suppress the source-pack native alias');
+ assert.equal(sourceModelEligible('loomy',{accounts:[live],sourceRows,ignoredIds:[id]}),true,
+  'an independently reconnected account may re-enable the alias');
+ assert.equal(sourceModelEligible('loomy',{accounts:[{...live,enabled:false}],sourceRows}),false);
+ assert.equal(sourceModelEligible('loomy',{accounts:[{...live,connectionState:'expired'}],sourceRows}),false);
+ assert.equal(sourceModelEligible('loomy',{accounts:[{...live,runtimeMode:'linked'}],sourceRows}),false);
+ assert.equal(sourceModelEligible('loomy',{accounts:[{...live,connectionState:'pending'}],sourceRows}),true,
+  'fresh upstream auth may settle a pending independent owner account');
+});
 test('authenticated source health cannot bypass external-reference ownership or explicit auth expiry',()=>{
  const id='sp_'+'a'.repeat(24);
  const account={id,providerId:'codearts',enabled:true,

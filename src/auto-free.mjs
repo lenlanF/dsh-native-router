@@ -45,9 +45,17 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
  };
  const packStatus=()=>ownedPack?.status?.()??{state:'disabled'};
  const owner=()=>getConfig?.()?.freePool??{providerIds:[],models:[]};
- const signature=()=>hostIds().join('|')+'|'+packStatus().state+'|'
-  +JSON.stringify(owner())+'|'
-  +(getConfig?.()?.providers??[]).map(p=>p.id+':'+p.enabled).join('|');
+ const signature=()=>{
+  const cfg=getConfig?.()??{};
+  // Do not reuse the previous source roster after the owner logs out,
+  // disables, readopts or explicitly ignores a private channel account.
+  const accounts=(cfg.accounts??[]).map(a=>[a.id,a.providerId,a.enabled]).sort();
+  const ignored=(cfg.sessionReuse?.ignoredIds??[]).slice().sort();
+  const origins=Object.entries(cfg.sessionReuse?.linkedOrigins??{}).sort();
+  return JSON.stringify([hostIds(),packStatus().state,owner(),
+    (cfg.providers??[]).map(p=>[p.id,p.enabled,p.protocol]).sort(),
+    accounts,ignored,origins]);
+ };
  const bounded=async job=>{
   let timer;
   try{return await Promise.race([Promise.resolve().then(job),
@@ -93,6 +101,8 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
   // own_codearts shadow of that exact account: DSH account IDs are globally
   // unique and a phantom provider would be unroutable.
   const configured=getConfig?.()??{};
+  const ignoredIds=new Set(configured.sessionReuse?.ignoredIds??[]);
+  const configuredIds=new Set((configured.accounts??[]).map(a=>a.id));
   const targetProvider=(sourceId,accountId)=>{
    const account=configured.accounts?.find(a=>a.id===accountId);
    const provider=configured.providers?.find(p=>p.id===sourceId);
@@ -110,6 +120,7 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
     for(const row of accounts.accounts){
      if(row?.enabled!==true||!OWN.has(row.providerId)||!isId(row.id))continue;
      const safeRef=sourceAccountOpaqueId(row.providerId,row.id);
+     if(ignoredIds.has(safeRef)&&!configuredIds.has(safeRef))continue;
      const fullId=targetProvider(row.providerId,safeRef);
      sourceAccounts.push({providerId:fullId,accountId:safeRef});
      const list=byProvider.get(row.providerId)??[];
@@ -182,6 +193,7 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
   const accountIds=new Set(cfg.accounts.map(a=>a.id));
   for(const row of cache.sourceAccounts){
    if(!sourceProviders.has(row.providerId)||!ids.has(row.providerId)||accountIds.has(row.accountId)
+    ||cfg.sessionReuse?.ignoredIds?.includes(row.accountId)
     ||cfg.providers.find(p=>p.id===row.providerId)?.protocol!=='native-channel')continue;
    cfg.accounts.push({id:row.accountId,providerId:row.providerId,
     credentialRef:'driver:'+row.providerId+':'+row.accountId,

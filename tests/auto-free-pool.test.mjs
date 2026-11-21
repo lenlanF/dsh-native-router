@@ -5,6 +5,7 @@ import {createCatalog} from '../src/catalog.mjs';
 import {normalizeConfig} from '../src/config.mjs';
 import {sourceAccountOpaqueId} from '../src/source-account-ref.mjs';
 import {createRoutingEngine} from '../src/router.mjs';
+import {createAccountCenter} from '../src/account-center.mjs';
 
 function originalHost({models=[{id:'host-free',isFree:true},{id:'host-paid',isFree:false}]}={}){
  let calls=0,registered=true;
@@ -151,6 +152,54 @@ test('owner can explicitly mark exact models and entire channel free, exclude a 
  assert.throws(()=>normalizeConfig({freePool:{models:[
    {providerId:'native-router',model:'autofree',free:true}
  ]}}),/recursive/);
+});
+test('a deliberately removed private channel account never reappears through AutoFree dynamic reconstruction',async()=>{
+ const id=sourceAccountOpaqueId('loomy','logged-out-01');
+ let cfg=normalizeConfig({embeddedPack:{enabled:true},
+  sessionReuse:{ignoredIds:[id]}});
+ const ownedPack={status:()=>({state:'mounted',experimentalMultiAccountProviders:[]}),
+  listAccounts:async()=>({state:'ready',accounts:[{providerId:'loomy',id:'logged-out-01',enabled:true}]}),
+  listModels:async()=>({state:'ready',models:[{id:'free-model',isFree:true}]})};
+ const pool=createAutoFreePool({getConfig:()=>cfg,ownedPack});
+ await pool.refresh();
+ assert.deepEqual(pool.snapshot().sourceAccounts,[],
+  'manual account removal must survive source-pack roster refresh');
+ assert.equal(pool.effectiveConfig().accounts.length,0,
+  'removed member must never silently become a new private shadow account');
+ assert.equal(pool.tiers().length,0);
+ cfg=normalizeConfig({...cfg,providers:[{id:'own_loomy',protocol:'native-channel'}],
+  accounts:[{id,providerId:'own_loomy',credentialRef:'driver:own_loomy:'+id}]});
+ await pool.refresh();
+ assert.equal(pool.effectiveConfig().accounts.length,1,
+  'user explicitly readopting the account overrides the previous ignore entry');
+ assert.equal(pool.tiers().length,1);
+});
+test('private logout prevents account resurrection after automatic model rescan and plugin restart',async()=>{
+ const id=sourceAccountOpaqueId('loomy','private-owner-01');
+ let cfg=normalizeConfig({embeddedPack:{enabled:true},
+  providers:[{id:'own_loomy',protocol:'native-channel'}],
+  accounts:[{id,providerId:'own_loomy',credentialRef:'driver:own_loomy:'+id}],
+  sessionReuse:{linkedIds:[]}});
+ const store={get:()=>structuredClone(cfg),replace(next){cfg=normalizeConfig(next);return store.get()}};
+ const pack={status:()=>({state:'mounted',experimentalMultiAccountProviders:[]}),
+  listAccounts:async()=>({state:'ready',accounts:[{providerId:'loomy',id:'private-owner-01',enabled:true}]}),
+  listModels:async()=>({state:'ready',models:[{id:'free',isFree:true}]})};
+ const createPool=()=>createAutoFreePool({getConfig:store.get,ownedPack:pack});
+ const pool=createPool();
+ await pool.refresh();
+ assert.equal(pool.tiers().length,1);
+ const center=createAccountCenter({configStore:store,drivers:new Map(),
+  adapter:{invalidateCatalog(){pool.invalidate()}}});
+ await center.logout(id);
+ assert.ok(store.get().sessionReuse.ignoredIds.includes(id));
+ await pool.refresh();
+ assert.equal(pool.tiers().length,0);
+ assert.equal(pool.effectiveConfig().accounts.length,0);
+ assert.equal(pool.snapshot().sourceAccounts.length,0);
+ const restarted=createPool();
+ await restarted.refresh();
+ assert.equal(restarted.tiers().length,0);
+ assert.equal(restarted.effectiveConfig().accounts.length,0);
 });
 test('multi-account owned-source inventory creates separate enabled account entries with no shadow Host login',async()=>{
  const config=normalizeConfig({embeddedPack:{enabled:true}});

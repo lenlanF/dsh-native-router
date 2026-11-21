@@ -17,16 +17,26 @@ export function privateSourceAccountRoutable(account,live,sourceOnline=false){
 }
 
 const canonical=id=>typeof id==='string'&&id.startsWith('own_')?id.slice(4):id;
-export function sourceModelEligible(providerId,{accounts=[],sourceRows=[]}={}){
+export function sourceModelEligible(providerId,{accounts=[],sourceRows=[],ignoredIds=[]}={}){
  if(typeof providerId!=='string'||!providerId||providerId.length>70)return false;
- const readOnly=(Array.isArray(sourceRows)?sourceRows:[]).some(row=>
-   row?.providerId===providerId&&row.enabled===true
-   &&row.connectionState==='online'&&row.sourceAccount===true);
+ const localAccounts=Array.isArray(accounts)?accounts:[];
+ const ignored=new Set(Array.isArray(ignoredIds)?ignoredIds:[]);
+ const owned=row=>canonical(row?.providerId)===providerId&&row.enabled===true
+   &&row.runtimeMode==='owned'&&row.origin?.kind==='independent-owned';
+ // Source health can precede AccountCenter's remote account probe, but must
+ // never resurrect a user-removed account, nor override an explicitly disabled,
+ // expired, or linked reference with the same opaque identity.
+ const readOnly=(Array.isArray(sourceRows)?sourceRows:[]).some(row=>{
+   if(row?.providerId!==providerId||typeof row.id!=='string'||row.enabled!==true
+      ||row.connectionState!=='online'||row.sourceAccount!==true)return false;
+   const local=localAccounts.find(a=>a.id===row.id);
+   if(local)return owned(local)&&['online','pending','not_checked','recently_verified']
+     .includes(local.connectionState);
+   return !ignored.has(row.id);
+ });
  if(readOnly)return true;
  // Own CodeArts QR accounts may retain the historical public "codearts"
- // provider ID. Only the actual private runtime binding can authorize them.
- return (Array.isArray(accounts)?accounts:[]).some(row=>
-   canonical(row?.providerId)===providerId&&row.enabled===true
-   &&row.runtimeMode==='owned'&&row.origin?.kind==='independent-owned'
-   &&row.connectionState==='online');
+ // provider ID. Their independent authenticated state remains eligible even
+ // if the separate source daily-sign-in status has not refreshed yet.
+ return localAccounts.some(row=>owned(row)&&row.connectionState==='online');
 }

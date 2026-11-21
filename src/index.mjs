@@ -119,7 +119,8 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
    // A verified private QR account is eligible even while the separate
    // daily-sign-in status cache has not refreshed after a DSH restart.
    embeddedPack.setModelEligibility?.(providerId=>sourceModelEligible(providerId,{
-     accounts:accountCenter.list().accounts,sourceRows:sourceHealth()}));
+     accounts:accountCenter.list().accounts,sourceRows:sourceHealth(),
+     ignoredIds:ownStore.get().sessionReuse?.ignoredIds??[]}));
    ownAdapter.setAccountVerificationResolver?.(account=>{
      if(typeof account?.id!=='string'||typeof account.providerId!=='string')return false;
      const local=accountCenter.list().accounts.find(row=>row.id===account.id

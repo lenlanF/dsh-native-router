@@ -264,11 +264,13 @@ export function createAccountCenter({
      pending.add(id);
      try{outcome=await driver.logout({provider,account})}finally{pending.delete(id)}
    }
-    const autoLinked=cfg.sessionReuse?.linkedIds?.includes(id)===true;
+    // Explicit logout always wins over stale independent source-pack sessions,
+    // even when the account was never imported via session reuse. AutoFree
+    // cannot re-create a private account the owner intentionally detached.
     configStore.replace({...cfg,accounts:cfg.accounts.filter(a=>a.id!==id),
-      sessionReuse:autoLinked?{...cfg.sessionReuse,
-        linkedIds:cfg.sessionReuse.linkedIds.filter(x=>x!==id),
-        ignoredIds:[...new Set([...cfg.sessionReuse.ignoredIds,id])].slice(-200)}:cfg.sessionReuse});
+      sessionReuse:{...cfg.sessionReuse,
+        linkedIds:(cfg.sessionReuse?.linkedIds??[]).filter(x=>x!==id),
+        ignoredIds:[...new Set([...(cfg.sessionReuse?.ignoredIds??[]),id])].slice(-200)}});
     checks.delete(id);inferenceProof.delete(id);inferenceFailures.delete(id);
     try{verificationStore?.forget?.(id)}catch{}
     adapter?.invalidateCatalog?.();

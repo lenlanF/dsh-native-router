@@ -38,6 +38,35 @@ test('native chat model visibility tracks actual authentication changes without 
  auth=false;
  assert.equal((await names()).length,0,'expired authorization evicts cached model immediately');
 });
+test('provider disable, route changes and manual model edits invalidate cached picker immediately',async()=>{
+ const {createNativeRouterAdapter}=await import('../src/adapter.mjs');
+ const {normalizeConfig}=await import('../src/config.mjs');
+ const driver={async generate(){return {text:'ok',finishReason:'stop',toolCalls:[]}},
+  async listModels(){return []}};
+ let config=normalizeConfig({providers:[{id:'codearts',name:'CodeArts',
+   protocol:'native-channel',models:['old'],enabled:true}],
+  accounts:[{id:'qr_a',providerId:'codearts',credentialRef:'driver:codearts:qr_a'}],
+  routes:[{id:'old-route',tiers:[{providerId:'codearts',model:'old'}]}]});
+ const adapter=createNativeRouterAdapter({configStore:{get:()=>config},
+  channelDrivers:new Map([['codearts',driver]])});
+ adapter.setAccountVerificationResolver(()=>true);
+ const ids=async()=>(await adapter.listModels()).map(x=>x.id);
+ assert.ok((await ids()).includes('direct:codearts:old'));
+ assert.ok((await ids()).includes('chain:old-route'));
+ config=normalizeConfig({...config,providers:config.providers.map(p=>({...p,enabled:false})),
+  routes:config.routes.map(r=>({...r,enabled:false}))});
+ const disabled=await ids();
+ assert.equal(disabled.includes('direct:codearts:old'),false,
+  'a disabled Provider must disappear from the picker immediately, not after the catalog TTL');
+ assert.equal(disabled.includes('chain:old-route'),false);
+ config=normalizeConfig({...config,providers:config.providers.map(p=>({...p,enabled:true,models:['new']})),
+  routes:[{id:'next-route',tiers:[{providerId:'codearts',model:'new'}]}]});
+ const changed=await ids();
+ assert.ok(changed.includes('direct:codearts:new'));
+ assert.equal(changed.includes('direct:codearts:old'),false);
+ assert.ok(changed.includes('chain:next-route'));
+ assert.equal(changed.includes('chain:old-route'),false);
+});
 test('dynamic original host model and owned source use compact labels without changing model identity',async()=>{
  const originals={
    status:()=>({hostProviders:[{providerId:'workbuddy-global'}]}),

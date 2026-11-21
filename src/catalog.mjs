@@ -47,11 +47,18 @@ export function createCatalog({getConfig,getEffectiveConfig,fetchImpl=fetch,reso
      // incorrectly advertising locked/expired models in the DSH picker.
      const cfg=typeof getEffectiveConfig==='function'?getEffectiveConfig():
        autoFreePool?autoFreePool.effectiveConfig(getConfig()):getConfig();
+     // Provider enablement, model edits and model-chain changes are user
+     // visible immediately, not after the 60-second model cache TTL.
+     // Only nonsecret selector metadata is included in this in-RAM key.
      const accountSignature=cfg.accounts.filter(a=>a.enabled)
-       .map(a=>a.providerId+':'+a.id).sort().join('|');
+       .map(a=>[a.providerId,a.id]).sort();
+     const providerSignature=cfg.providers.map(p=>[
+       p.id,p.enabled,p.protocol,p.name,p.models,p.supportsTools]).sort();
+     const routeSignature=cfg.routes.map(r=>[
+       r.id,r.name,r.enabled,r.mode,r.tiers.map(t=>[t.providerId,t.model,t.accountIds])]).sort();
      const currentSourceAvailability=sourceState()+'|host:'+
        (hostProviderInventory?.status?.().hostProviders??[]).map(row=>row.providerId).sort().join(',')
-       +'|verified:'+accountSignature;
+       +'|selector:'+JSON.stringify([accountSignature,providerSignature,routeSignature]);
      if(updatedAt&&sourceAvailability===currentSourceAvailability&&Date.now()-updatedAt<ttlMs)
        return cached.map(x=>({...x}));
     const all=autoFreePool?.snapshot?.().catalog??[];

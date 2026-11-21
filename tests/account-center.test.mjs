@@ -72,6 +72,16 @@ test('logout detaches unused account metadata but cannot revoke external env key
  assert.equal(f.configStore.get().accounts.some(a=>a.id==='a1'),false);
  assert.ok(f.configStore.get().accounts.some(a=>a.id==='a2'));
 });
+test('logging out a separately owned account records a persistent ignore even when it was never session-linked',async()=>{
+ const id='sp_'+'a'.repeat(24);
+ const f=fixture({config:{providers:[{id:'own_loomy',protocol:'native-channel'}],
+  accounts:[{id,providerId:'own_loomy',credentialRef:'driver:own_loomy:'+id}],
+  sessionReuse:{linkedIds:[]}}});
+ await f.center.logout(id);
+ assert.equal(f.configStore.get().accounts.length,0);
+ assert.ok(f.configStore.get().sessionReuse.ignoredIds.includes(id),
+  'a private account still present in the channel pack cannot be auto-reimported after logout');
+});
 test('optional channel discovery does not run without a native driver and does not auto-import candidates',async()=>{
  const f=fixture();
  await assert.rejects(()=>f.center.discover('alpha'),e=>e.status===501);
