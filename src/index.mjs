@@ -21,7 +21,7 @@ import {createCodeArtsDriver} from './channels/codearts.mjs';
 import {createLocalAndSourceDriver} from './channels/local-source.mjs';
 import {createEmbeddedChannelPack,SOURCE_PACK_PROVIDERS} from './embedded-pack.mjs';
 import {createSourceChannelDriver} from './source-channel-driver.mjs';
-import {sourceModelEligible} from './source-model-eligibility.mjs';
+import {sourceModelEligible,privateSourceAccountRoutable} from './source-model-eligibility.mjs';
 import {createHostCredentialBridge} from './credentials-bridge.mjs';
 import {join,dirname} from 'node:path';
 export {registerNativeChannelDriver,getNativeChannelDrivers} from './driver-registry.mjs';
@@ -130,8 +130,8 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
        // Private QR accounts should become routable immediately after this
        // plugin verifies their own remote identity. Source check-in status
        // refresh is asynchronous and must not remain an extra hidden gate.
-       return (local?.runtimeMode==='owned'&&local.connectionState==='online')
-         ||sourceVerified(sourceId,account.id);
+       return privateSourceAccountRoutable(account,local,
+         sourceVerified(sourceId,account.id));
      }
      return local?.connectionState==='online';
    });

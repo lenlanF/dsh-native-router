@@ -26,7 +26,7 @@ export function conciseModelName(providerId,channel,model,sourceName){
     .replace(/[·\s()]+$/u,'').trim()||model;
   return conciseChannelName(providerId,channel)+' · '+plain+' · '+(match?'x'+match[1]:'x?');
 }
-export function createCatalog({getConfig,fetchImpl=fetch,resolveKey=resolveCredential,credentialOptions={},ttlMs=60000,channelDrivers=new Map(),hostProviderInventory,autoFreePool}){
+export function createCatalog({getConfig,getEffectiveConfig,fetchImpl=fetch,resolveKey=resolveCredential,credentialOptions={},ttlMs=60000,channelDrivers=new Map(),hostProviderInventory,autoFreePool}){
   const driverFor=id=>channelDrivers instanceof Map?channelDrivers.get(id):channelDrivers?.[id];
   const hostRegistered=id=>id!=='native-router'&&hostProviderInventory?.status?.()
     .hostProviders?.some(row=>row.providerId===id)===true;
@@ -41,7 +41,12 @@ export function createCatalog({getConfig,fetchImpl=fetch,resolveKey=resolveCrede
      // A source login can expire between catalog requests. Include the
      // actual verified-account set in the cache signature rather than trusting
      // an old "model was listed" cache for its full TTL.
-     const cfg=autoFreePool?autoFreePool.effectiveConfig(getConfig()):getConfig();
+     // The adapter has ALREADY applied account verification to its effective
+     // configuration. Do not call effectiveConfig() a second time: it would
+     // recreate an unverified source account that the verifier just removed,
+     // incorrectly advertising locked/expired models in the DSH picker.
+     const cfg=typeof getEffectiveConfig==='function'?getEffectiveConfig():
+       autoFreePool?autoFreePool.effectiveConfig(getConfig()):getConfig();
      const accountSignature=cfg.accounts.filter(a=>a.enabled)
        .map(a=>a.providerId+':'+a.id).sort().join('|');
      const currentSourceAvailability=sourceState()+'|host:'+
@@ -72,12 +77,21 @@ export function createCatalog({getConfig,fetchImpl=fetch,resolveKey=resolveCrede
       if(p.protocol==='dsh-host'&&!hostRegistered(p.id))continue;
        if(p.protocol==='native-channel'&&(typeof driver?.generate!=='function'||
          (driver?.isSourceBridge===true&&driver.runtimeReady!==true)))continue;
-      const models=new Set([...p.models,...all.filter(row=>row.providerId===p.id).map(row=>row.model)]);
+      const sourceModels=all.filter(row=>row.providerId===p.id);
+      const models=new Set([...p.models,...sourceModels.map(row=>row.model)]);
+      const liveNames=new Map();
        const accounts=cfg.accounts.filter(a=>a.providerId===p.id&&a.enabled).slice(0,32);
        // A listed model is not a usable login. The runtime account verifier
        // excludes pending/unverified native credentials from the effective config.
        if(p.protocol==='native-channel'&&accounts.length===0)continue;
-      if(accounts.length && models.size===0){
+      // Static models are configuration, NOT a live upstream directory. Always
+      // discover authenticated native models unless the private source pack
+      // already returned its live catalog during the shared AutoFree scan.
+      // The presence of manually entered IDs must not hide newly added models.
+      const sourceAlreadyScanned=p.protocol==='native-channel'
+        &&sourceModels.some(row=>row.kind==='owned-source');
+      if(accounts.length && (models.size===0||
+         (p.protocol==='native-channel'&&!sourceAlreadyScanned))){
         // Do not let the first expired account hide working models behind a
         // second account. Discover independently and union the visible IDs.
         for(const account of accounts){
@@ -96,8 +110,14 @@ export function createCatalog({getConfig,fetchImpl=fetch,resolveKey=resolveCrede
             }
             if(Array.isArray(found))for(const m of found){
               const modelId=typeof m==='string'?m:m?.id;
-              if(typeof modelId==='string'&&modelId.trim()&&modelId.length<150)
-                models.add(modelId.trim());
+              if(typeof modelId==='string'&&modelId.trim()&&modelId.length<150
+                 &&!/[\u0000-\u001f]/.test(modelId)){
+                const clean=modelId.trim();
+                models.add(clean);
+                if(typeof m?.name==='string'&&m.name.trim()&&m.name.length<=120
+                   &&!/[\u0000-\u001f]/.test(m.name)&&!liveNames.has(clean))
+                  liveNames.set(clean,m.name.trim());
+              }
               if(models.size>=256)break;
             }
           }catch{ /* One unhealthy account must not hide healthy peers. */ }
@@ -106,7 +126,7 @@ export function createCatalog({getConfig,fetchImpl=fetch,resolveKey=resolveCrede
       }
       for(const model of models){
         const discovered=all.find(row=>row.providerId===p.id&&row.model===model);
-        const name=conciseModelName(p.id,p.name,model,discovered?.name);
+        const name=conciseModelName(p.id,p.name,model,discovered?.name??liveNames.get(model));
         result.push({provider:'native-router',id:directModelId(p.id,model),
           name,inputModalities:['text']});
       }    }

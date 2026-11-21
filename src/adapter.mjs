@@ -66,8 +66,8 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
     const {usage,...safe}=evt;
     history.push({at:Date.now(),...safe});if(history.length>50)history.shift();
   }});
-  const catalog=createCatalog({getConfig,fetchImpl,credentialOptions:{env,vault},
-    channelDrivers,hostProviderInventory,autoFreePool});
+  const catalog=createCatalog({getConfig,getEffectiveConfig:getConfig,fetchImpl,
+    credentialOptions:{env,vault},channelDrivers,hostProviderInventory,autoFreePool});
   async function routeForModel(model){
     if(typeof model!=='string')throw new RoutingError('ERR_ROUTE_NOT_FOUND','Invalid DSH model');
     if(model==='autofree'){

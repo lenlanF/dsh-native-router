@@ -5,6 +5,7 @@ import {createAutoFreePool} from '../src/auto-free.mjs';
 import {normalizeConfig} from '../src/config.mjs';
 import {sourceAccountOpaqueId} from '../src/source-account-ref.mjs';
 import {createRoutingEngine} from '../src/router.mjs';
+import {createNativeRouterAdapter} from '../src/adapter.mjs';
 import {createCatalog} from '../src/catalog.mjs';
 import {registerRouterRoutes} from '../src/routes.mjs';
 import {EventEmitter} from 'node:events';
@@ -23,7 +24,7 @@ function accountFixture({enabled=true,origin='own-source-pack'}={}){
   listModels:async provider=>{assert.equal(provider,'codearts');return {state:'ready',
    models:[{id:'free-choice',isFree:true},{id:'unknown',name:'Paid?'}]}}};
  const pool=createAutoFreePool({getConfig:()=>config,ownedPack});
- return {id,config,pool};
+ return {id,config,pool,ownedPack};
 }
 test('CodeArts independent QR account shares one physical identity across AutoFree, catalog and actual router tiers',async()=>{
  const {id,config,pool}=accountFixture();
@@ -49,6 +50,37 @@ test('CodeArts independent QR account shares one physical identity across AutoFr
   tiers:pool.tiers(),maxSwitches:0},{sessionId:'qr-1'});
  assert.equal(output.text,'OK');
  assert.deepEqual(attempts,[['codearts',id,'free-choice']]);
+});
+test('CodeArts private QR login unblocks actual direct model routing only while verified',async()=>{
+ const {id,config,ownedPack}=accountFixture();
+ let verified=false;
+ const invoked=[];
+ const driver={isSourceBridge:true,get runtimeReady(){return true},
+  async listModels(){return [{id:'fresh-source-model'}]},
+  async generate({account,model}){
+   invoked.push([account.id,account.providerId,model]);
+   return {text:'verified private CodeArts reply',finishReason:'stop',toolCalls:[]};
+  }};
+ const adapter=createNativeRouterAdapter({configStore:{get:()=>config},ownedPack,
+  channelDrivers:new Map([['codearts',driver]])});
+ adapter.setAccountVerificationResolver(a=>a.id===id&&verified);
+ const direct='direct:codearts:free-choice';
+ assert.equal((await adapter.listModels()).some(x=>x.id===direct),false);
+ verified=true;
+ assert.equal((await adapter.listModels()).some(x=>x.id===direct),true);
+ const output=[];
+ for await(const event of adapter.stream({model:direct,sessionId:'qr-own-1',
+  messages:[{role:'user',content:[{type:'text',text:'ping'}]}]}))output.push(event);
+ assert.equal(output.find(x=>x.type==='text-delta')?.text,'verified private CodeArts reply');
+ assert.deepEqual(invoked,[[id,'codearts','free-choice']],
+  'an owned QR login cannot silently switch to old DSH plugin credentials');
+ verified=false;
+ assert.equal((await adapter.listModels()).some(x=>x.id===direct),false);
+ await assert.rejects(async()=>{
+  for await(const _ of adapter.stream({model:direct,
+   messages:[{role:'user',content:[{type:'text',text:'ping'}]}]})){}
+ },/not advertised/);
+ assert.equal(invoked.length,1,'expired QR account must not generate another request');
 });
 test('a historical EXTERNAL DSH CodeArts ref never impersonates the private QR source',async()=>{
  const {pool}=accountFixture({origin:'external-dsh-provider'});

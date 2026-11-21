@@ -21,6 +21,39 @@ test('native provider model catalog continues after first account expires and un
  assert.equal((await cat.list()).length,found.length,'model catalog should cache successful peer results');
  assert.equal(called.length,2);
 });
+test('configured native models never suppress live channel model discovery and readable multiplier labels',async()=>{
+ const cfg=normalizeConfig({...rows,providers:[{id:'codearts',name:'CodeArts',protocol:'native-channel',models:['configured-old']}]});
+ const calls=[];
+ const driver={generate:async()=>({text:'ok',finishReason:'stop',toolCalls:[]}),
+  listModels:async({account})=>{
+   calls.push(account.id);
+   if(account.id==='ca_ALPHA')throw Error('expired account');
+   return [{id:'new-online-model',name:'New Live Model · x0.00'},
+    {id:'configured-old',name:'Configured Model'}];
+  }};
+ const catalog=createCatalog({getConfig:()=>cfg,channelDrivers:new Map([['codearts',driver]])});
+ const list=await catalog.list();
+ assert.deepEqual(calls,['ca_ALPHA','ca_BETA']);
+ assert.ok(list.some(row=>row.id==='direct:codearts:configured-old'));
+ const fresh=list.find(row=>row.id==='direct:codearts:new-online-model');
+ assert.ok(fresh,'a stale configured roster cannot hide models newly listed by a working login');
+ assert.equal(fresh.name,'CodeArts · New Live Model · x0.00');
+ assert.equal(list.filter(row=>row.id==='direct:codearts:configured-old').length,1);
+ assert.equal((await catalog.list()).length,list.length);
+ assert.equal(calls.length,2,'cached model lists do not trigger duplicate remote discovery');
+});
+test('model discovery respects a verified dynamic upstream catalog and avoids duplicate private-channel scans',async()=>{
+ const cfg=normalizeConfig({...rows,providers:[{id:'codearts',name:'CodeArts',protocol:'native-channel',models:['manual']} ]});
+ let called=0;
+ const driver={generate:async()=>{},listModels:async()=>{called++;return [{id:'extra'}]}};
+ const upstream={refresh:async()=>{},effectiveConfig:()=>cfg,
+  snapshot:()=>({catalog:[{providerId:'codearts',model:'upstream',name:'Cloud Live · x1.20',kind:'owned-source'}]})};
+ const list=await createCatalog({getConfig:()=>cfg,channelDrivers:new Map([['codearts',driver]]),
+  autoFreePool:upstream}).list();
+ assert.ok(list.some(row=>row.id==='direct:codearts:manual'));
+ assert.equal(list.find(row=>row.id==='direct:codearts:upstream').name,'CodeArts · Cloud Live · x1.20');
+ assert.equal(called,0,'do not query a source twice after its isolated pack returned a fresh directory');
+});
 test('native provider discovery merges models of multiple valid accounts without duplicates',async()=>{
  const driver={generate:async()=>({text:'',finishReason:'stop',toolCalls:[]}),
   listModels:async({account})=>account.id==='ca_ALPHA'?

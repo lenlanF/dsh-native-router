@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {sourceModelEligible} from '../src/source-model-eligibility.mjs';
+import {sourceModelEligible,privateSourceAccountRoutable} from '../src/source-model-eligibility.mjs';
 
 const row=(override={})=>({id:'sp_'+'a'.repeat(24),providerId:'codearts',
   enabled:true,origin:{kind:'independent-owned'},runtimeMode:'owned',
@@ -35,6 +35,26 @@ test('existing plugin-owned source status remains eligible from authenticated fr
    ...change,
   }]}),false);
  }
+});
+test('authenticated source health cannot bypass external-reference ownership or explicit auth expiry',()=>{
+ const id='sp_'+'a'.repeat(24);
+ const account={id,providerId:'codearts',enabled:true,
+  credentialRef:'driver:codearts:'+id};
+ const live=row();
+ assert.equal(privateSourceAccountRoutable(account,live,true),true);
+ assert.equal(privateSourceAccountRoutable(account,{...live,runtimeMode:'linked'},true),false,
+  'a legacy external reference with the same opaque ID must not hijack the private source');
+ assert.equal(privateSourceAccountRoutable(account,{...live,origin:{kind:'dsh-account-pool'}},true),false);
+ for(const state of ['expired','limited','disabled','provider_disabled','error']){
+  assert.equal(privateSourceAccountRoutable(account,{...live,connectionState:state},true),false,state);
+ }
+ assert.equal(privateSourceAccountRoutable(account,{...live,connectionState:'pending'},true),true,
+  'fresh independent source auth can settle pending local verification');
+ assert.equal(privateSourceAccountRoutable(account,{...live,connectionState:'pending'},false),false);
+ assert.equal(privateSourceAccountRoutable(account,{...live,connectionState:'recently_verified'},false),false);
+ assert.equal(privateSourceAccountRoutable({...account,enabled:false},live,true),false);
+ assert.equal(privateSourceAccountRoutable(account,{...live,enabled:false},true),false);
+ assert.equal(privateSourceAccountRoutable(account,{...live,id:'another'},true),false);
 });
 test('unrelated account field names and untrusted model directory metadata are never authorization',()=>{
  assert.equal(sourceModelEligible('codearts',{accounts:[{
