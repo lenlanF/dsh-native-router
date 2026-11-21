@@ -23,10 +23,20 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
   const cfg=configStore.get();
   const imported=cfg.accounts.find(x=>x.id===row.id
     &&(x.providerId===row.providerId||x.providerId==='own_'+row.providerId));
+  // A detached account can remain in the source pack's stored session.
+  // Ignore its old login for BOTH display and sign-in until the owner
+  // explicitly imports the same account again. Do not silently resurrect it.
+  const hidden=(cfg.sessionReuse?.ignoredIds??[]).includes(row.id)&&!imported;
+  // An automatically discovered account still belongs to its own native
+  // channel. A disabled own_* Provider must block check-in before an account
+  // has been imported into the plugin's static account list.
+  const provider=cfg.providers.find(p=>p.id===(imported?.providerId??'own_'+row.providerId));
+  const providerEnabled=provider?.enabled!==false;
+  const enabled=!hidden&&row.enabled&&(!imported||imported.enabled===true);
   return {
-   enabled:row.enabled&&(!imported||imported.enabled===true),
-   autoCheckin:cfg.checkin.autoSourceAccounts===true&&(!imported||imported.autoCheckin===true),
-   providerEnabled:!imported||cfg.providers.find(p=>p.id===imported.providerId)?.enabled===true,
+   hidden,enabled,providerEnabled,
+   autoCheckin:enabled&&providerEnabled&&cfg.checkin.autoSourceAccounts===true
+     &&(!imported||imported.autoCheckin===true),
   };
  }
   async function refresh({force=false}={}){
@@ -47,20 +57,37 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
     }
     roster.clear();
     for(const [id,row] of next)roster.set(id,row);
-    for(const key of [...statusCache.keys()])if(!roster.has(key))statusCache.delete(key);
-     const providers=[...new Set([...roster.values()].filter(row=>row.enabled===true&&SOURCE_PACK_PROVIDERS.includes(row.providerId))
+    const active=row=>{
+      if(!row?.enabled)return false;
+      const state=configFor(row);
+      return state.enabled&&state.providerEnabled;
+    };
+    for(const key of [...statusCache.keys()])if(!roster.has(key)||!active(roster.get(key)))
+      statusCache.delete(key);
+    // A disabled or detached native channel must not continue polling its
+    // old official account endpoint simply because the bundled pack still
+    // holds the session. Only independently enabled accounts may trigger I/O.
+     const providers=[...new Set([...roster.values()].filter(row=>active(row)
+       &&SOURCE_PACK_PROVIDERS.includes(row.providerId))
        .map(row=>row.providerId))].slice(0,13);    for(const key of [...statusAttempts.keys()]){
       if(!providers.includes(key))statusAttempts.delete(key);
     }
     if(typeof sourcePack.readSourceStatuses==='function'){
       await Promise.all(providers.map(async providerId=>{
-        const members=[...roster.values()].filter(row=>row.providerId===providerId);
+        const members=[...roster.values()].filter(row=>row.providerId===providerId&&active(row));
         const last=statusAttempts.get(providerId);
-         if(!force&&last&&now()-last.at<(last.ok?STATUS_TTL_MS:60000))return;
-         if(!force&&members.every(row=>{
-           const cached=statusCache.get(row.id);
-           return cached&&cached.day===today()&&now()-cached.checkedAt<STATUS_TTL_MS;
-         }))return;
+        if(!force){
+          // A provider-level successful probe is not a proof for every
+          // account on that provider. Newly enabled/imported members without
+          // their own fresh result must be checked immediately, rather than
+          // being blocked by the first account's five-minute success cache.
+          if(members.every(row=>{
+            const cached=statusCache.get(row.id);
+            return cached&&cached.day===today()&&now()-cached.checkedAt<STATUS_TTL_MS;
+          }))return;
+          // Preserve bounded retries after failed provider requests.
+          if(last&&!last.ok&&now()-last.at<60000)return;
+        }
         statusAttempts.set(providerId,{at:now(),ok:false});
         const result=await sourcePack.readSourceStatuses(providerId)
           .catch(()=>({state:'unavailable'}));
@@ -90,9 +117,9 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
   })().finally(()=>{refreshing=null});
   return refreshing;
  }
- function has(id){return roster.has(id)}
+ function has(id){const row=roster.get(id);return !!row&&!configFor(row).hidden}
  function snapshot(){
-  return [...roster.values()].map(row=>{
+  return [...roster.values()].filter(row=>!configFor(row).hidden).map(row=>{
    const state=configFor(row),recent=latest(row.id),implemented=supported.has(row.providerId);
    const verified=statusCache.get(row.id);
    const fresh=verified?.day===today()&&now()-verified.checkedAt<STATUS_TTL_MS*3;
@@ -111,7 +138,8 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
       connectionState:!state.enabled||!state.providerEnabled?'disabled':
         report?.authVerified===true?'online':'not_checked',
       sourceAccount:true,autoCheckin:state.autoCheckin,
-      autoCheckinEffective:state.autoCheckin&&configStore.get().checkin.autoEnabled===true,
+      autoCheckinEffective:state.autoCheckin&&state.enabled&&state.providerEnabled
+        &&configStore.get().checkin.autoEnabled===true,
       checkinSupported:implemented,checkinAvailable:implemented,
       checkinState:accountState,checkinAt:report?.checkedAt??recent?.at??null,
       ...publicBalance(report),
@@ -128,7 +156,7 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
   if(stopped){const e=Error('插件已经停止');e.status=503;throw e}
   if(store.blocked){const e=Error(store.error??'签到历史不可用');e.status=503;throw e}
   const row=roster.get(id);
-  if(!row){const e=Error('来源账号不存在或未同步');e.status=404;throw e}
+  if(!row||configFor(row).hidden){const e=Error('来源账号不存在或已移除');e.status=404;throw e}
   const cfg=configFor(row);
   if(!cfg.enabled||!cfg.providerEnabled){const e=Error('账号已停用');e.status=409;throw e}
   if(!supported.has(row.providerId)){const e=Error('此渠道没有每日签到');e.status=501;throw e}
