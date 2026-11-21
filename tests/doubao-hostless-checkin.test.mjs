@@ -17,6 +17,8 @@ function fixture({already=false,afterClaim='verified',claimError=false,withTask=
   assert.equal(url.hostname,'www.doubao.com','no desktop or local client endpoint');
   const data=value=>new Response(JSON.stringify({code:0,data:value}),{
    status:200,headers:{'content-type':'application/json'}});
+  if(url.pathname==='/passport/account/info/v2/')
+   return data({user_id_str:'member-web-101',screen_name:'豆包会员'});
   if(url.pathname==='/alice/user/launch')
    return data({ug_campaign_info:{campaign_group_code:'member-signin'}});
   if(url.pathname==='/alice/ug/campaign/v3/detail'){

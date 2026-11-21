@@ -152,11 +152,13 @@ function connect(url, expectedPort, timeoutMs = 10_000) {
 }
 
 
-export function createBrowserLoginFlow({ logger, addAccount, loginUrl, extractCookie, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+export function createBrowserLoginFlow({ logger, addAccount, rollbackAccount,
+ loginUrl, extractCookie, validateCookie, timeoutMs = DEFAULT_TIMEOUT_MS, browserRuntime } = {}) {
   if(typeof loginUrl!=='string'||!/^https:\/\//.test(loginUrl)||typeof extractCookie!=='function')
     throw Error('Invalid isolated session login contract')
   let state = { status: 'idle', at: 0, account: null, error: null, browser: '', steps: [] }
   let running = null
+  let activeBrowser = null
 
   function snapshot() {
     return { ...state, steps: [...state.steps] }
@@ -209,8 +211,16 @@ export function createBrowserLoginFlow({ logger, addAccount, loginUrl, extractCo
         catch { result = await client.send('Network.getAllCookies', {}) }
         const header = extractCookie(result?.cookies)
         if (typeof header === 'string' && header.length > 0) {
-          state.steps.push({ step: 'cookie' })
-          return header
+          // A cookie merely appearing in Chromium does not prove that an
+          // authenticated member session has completed the SSO callback.
+          let verified = typeof validateCookie !== 'function'
+          if (!verified) try { verified = await validateCookie(header) === true }
+          catch { verified = false }
+          if (state.status === 'canceled') return null
+          if (verified) {
+            state.steps.push({ step: 'cookie' })
+            return header
+          }
         }
         await sleep(POLL_MS)
       }
@@ -227,47 +237,72 @@ export function createBrowserLoginFlow({ logger, addAccount, loginUrl, extractCo
       let child = null
       let profileDir = ''
       try {
-        const browser = findBrowser()
-        if (browser === '') throw new Error('未找到 Chrome / Edge / Brave / Chromium；无需安装 MiMo 或豆包客户端，但自主网页登录需要独立浏览器')
-        state.browser = browser
-        const tempRoot = process.platform === 'win32' ? 'E:\\Temp' : os.tmpdir()
-        if (!existsSync(tempRoot)) throw new Error('E:\\Temp 不可用，拒绝改用系统盘')
-        profileDir = await mkdtemp(path.join(tempRoot, 'native-router-browser-login-'))
-        child = spawn(
-          browser,
-          [
+        let header
+        if (browserRuntime) {
+          // In-process simulator only: production passes no browserRuntime.
+          header = await browserRuntime.start({ loginUrl })
+        } else {
+          const browser = findBrowser()
+          if (browser === '') throw new Error('未找到 Chrome / Edge / Brave / Chromium；无需安装 MiMo 或豆包客户端，但自主网页登录需要独立浏览器')
+          if (state.status === 'canceled') return
+          state.browser = browser
+          const tempRoot = process.platform === 'win32' ? 'E:\\Temp' : os.tmpdir()
+          if (!existsSync(tempRoot)) throw new Error('E:\\Temp 不可用，拒绝改用系统盘')
+          profileDir = await mkdtemp(path.join(tempRoot, 'native-router-browser-login-'))
+          if (state.status === 'canceled') return
+          child = spawn(browser,[
             `--user-data-dir=${profileDir}`,
             '--remote-debugging-port=0',
             '--no-first-run',
             '--no-default-browser-check',
             '--disable-features=Translate,MediaRouter',
             loginUrl,
-          ],
-          { stdio: 'ignore' },
-        )
-        const header = await loop(child, profileDir)
+          ],{ stdio: 'ignore' })
+          activeBrowser = child
+          child.on('error', () => {}) // Node spawn failures must not crash DSH.
+          header = await loop(child, profileDir)
+        }
         if (state.status === 'canceled' || header === null) {
           state = { ...state, status: state.status === 'canceled' ? 'canceled' : 'idle', error: null }
           return
         }
+        if (browserRuntime && typeof validateCookie === 'function'
+          && await validateCookie(header) !== true)
+          throw new Error('会员浏览器登录未通过远端身份核验')
+        if (state.status === 'canceled') return
         const saved = await addAccount({ cookie: header, name: '' })
+        if (state.status === 'canceled') {
+          // Cancel can happen while Credentials.set is in progress. Do not
+          // leave newly captured tokens orphaned or delete preexisting ones.
+          if (saved?.account && saved.account.alreadyOwned !== true && rollbackAccount) {
+            try { await rollbackAccount(saved.account) }
+            catch {
+              state = { ...state, status: 'error', error: '取消授权后清理新凭据失败，请检查账号记录' }
+            }
+          }
+          return
+        }
         state = { ...state, status: 'done', account: saved?.account ?? null, error: null }
         logger?.info?.('[native-router] 独立浏览器授权已完成')
       } catch (error) {
         const message = String(error?.message ?? error).slice(0, 200)
         logger?.warn?.('[native-router] 独立浏览器授权未完成')
-        state = { ...state, status: 'error', error: message }
+        if (state.status !== 'canceled') state = { ...state, status: 'error', error: message }
       } finally {
-        if (child !== null && child.exitCode === null) {
-          try {
-            child.kill('SIGTERM')
-          } catch {}
+        activeBrowser = null
+        try { await browserRuntime?.stop?.() } catch {}
+        if (child !== null && child.exitCode === null && child.signalCode === null) {
+          // Stop the authorization browser before deleting its Cookie profile.
+          let timer
+          const exited=new Promise(resolve=>child.once('exit',resolve))
+          try {child.kill('SIGTERM')} catch {}
+          try {await Promise.race([
+            exited,new Promise(resolve=>{timer=setTimeout(resolve,3000)}),
+          ])} finally {clearTimeout(timer)}
         }
         if (profileDir !== '') {
-          // 让浏览器把锁放开再删；删不掉就留着，系统临时目录会自己清
-          setTimeout(() => {
-            void rm(profileDir, { recursive: true, force: true }).catch(() => {})
-          }, 3_000)
+          try { await rm(profileDir,{recursive:true,force:true,maxRetries:3,retryDelay:250}) }
+          catch { logger?.warn?.('[native-router] 临时浏览器授权目录清理未完成') }
         }
         running = null
       }
@@ -278,6 +313,8 @@ export function createBrowserLoginFlow({ logger, addAccount, loginUrl, extractCo
   function cancel() {
     if (running === null) return snapshot()
     state = { ...state, status: 'canceled' }
+    try { browserRuntime?.cancel?.() } catch {}
+    try { activeBrowser?.kill('SIGTERM') } catch {}
     return snapshot()
   }
 

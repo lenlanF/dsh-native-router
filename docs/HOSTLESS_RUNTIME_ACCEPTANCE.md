@@ -1,4 +1,4 @@
-# 全渠道“无原客户端进程”独立运行验收门禁（RC.29）
+# 全渠道“无原客户端进程”独立运行验收门禁（RC.30）
 
 ## 不可妥协的架构规则
 
@@ -6,6 +6,7 @@
 
 - **一次性授权**：可只读发现用户本人原客户端的已有会话，也可由本插件启动普通浏览器直接网页登录/扫码；不自动扫描、修改或窃取其他软件凭据。没有原客户端时，走自有网页登录路线。
 - **存储归属**：用户确认接管后，账号、区域与所需授权写进本插件的私密 DSH Credentials / 自有渠道账号池；配置只保存精确凭据引用。首次凭据写入与公开账号配置保存不一致时要可恢复/回滚。
+- **真实验真**：浏览器捕获到 Cookie 不等于完成登录；必须先用本插件的独立请求取得会员账号身份的远端证据，才能导入。重新授权先核对真实账户身份再覆盖旧会话，取消时不能留下新凭据或破坏已有记录。
 - **运行路径**：选用 `own_*` 的精确账号驱动，直接访问相应会员/客户端认可的远程服务；不用原插件导出的账号列表、客户端本地端口、原应用运行进程、后台网关或原插件的自动刷新服务。临时普通浏览器只在主动授权期间启动；授权后关闭，不参与模型推理。
 - **独立更新**：服务端仍会要求有效的账号会话、正常的身份验证及网络连通。凭据到期后应使用本插件的原生刷新机制，不能刷新时提示重新在本插件授权；不保证上游永不过期或所有会员权益永久保留。
 - **准确展示**：旧 `dsh-host` 路由/未接管的宿主 Provider 引用只能标为“宿主委托/待接管”，不等于独立账号。真正属于本插件的准确账号引用也不等于已通过在线鉴权；必须将账号在线、可用模型、真实成功模型回合区分展示。
@@ -21,6 +22,8 @@
 | 独立私有渠道 | `own_workbuddy-cn/global`、`own_lingxi` 及私有凭据迁移 | 旧插件移除、凭据只从本插件读的原有专项回归 |
 
 重现命令：`node --test tests/hostless-browser-auth.test.mjs tests/doubao-hostless-checkin.test.mjs tests/hostless-all-channel-models.test.mjs tests/independent-runtime-boundary.test.mjs`，以及全量 `npm test`。
+
+RC.30 增量验证：`node --test tests/browser-login-cancellation.test.mjs tests/mimo-desktop-owned.test.mjs tests/mimo-desktop-web-login.test.mjs tests/doubao-ownership.test.mjs`。真实网络无凭据检查：MiMo 五个会员区域的 `/api/user/xiaomi/me` 均返回 302 跳转到 `account.xiaomi.com`，豆包 `https://www.doubao.com/chat/` 返回 HTTP 200；这只证明入口可达，不证明会员在线推理。
 
 ## 尚不可宣称的结果
 

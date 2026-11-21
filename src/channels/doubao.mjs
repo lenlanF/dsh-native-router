@@ -4,6 +4,7 @@ import {createHash} from 'node:crypto';
 import {UpstreamError} from '../failure.mjs';
 import {toChatMessages} from '../protocol.mjs';
 import {visibleTools} from '../host-tools.mjs';
+import {publicAccountName} from '../account-facts.mjs';
 import {chat,fetchAccountInfo,fetchModels,fetchQuota,fetchLaunch,fetchCampaignDetail,
  findDailyCheckin,claimCheckin,DoubaoError,hasSession,uidFromCookie} from './doubao-upstream.mjs';
 import {createLoginFlow} from './doubao-login.mjs';
@@ -63,6 +64,17 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
    return cookieHeader(parsed.cookie);
   }catch{throw new UpstreamError('Independent Doubao cookie invalid',{code:'CREDENTIAL'})}
  }
+ async function verifyMemberCookie(cookie){
+  try{
+   const info=await fetchAccountInfo(cookie,withFetch({timeoutMs:12000}));
+   if(!String(info?.uid??'').trim()&&!publicAccountName({nickname:info?.name}))
+    throw Error('Account identity missing');
+   return info;
+  }catch{
+   throw new UpstreamError('Doubao membership identity not verified by remote server',
+    {code:'CREDENTIAL'});
+  }
+ }
  async function addCookie({cookie,name}={}){
   const parsed=cookieHeader(cookie);
   if(typeof vault?.set!=='function'||typeof vault?.resolve!=='function')
@@ -73,9 +85,32 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
   try{
    let previous;
    try{previous=await vault.resolve(key)}catch{}
-   if(!previous)await vault.set(key,JSON.stringify({cookie:parsed}));
-   if(typeof name==='string'&&name.length&&name.length<100)
-    publicStatus.set(id,{nickname:name,balanceState:'not_checked'});
+   const existingValue=typeof previous==='string'?previous:previous?.value;
+   let existing;
+   try{if(existingValue)existing=JSON.parse(existingValue)}catch{}
+   const remote=await verifyMemberCookie(parsed);
+   const oldCookie=typeof existing?.cookie==='string'?existing.cookie:'';
+   if(oldCookie&&oldCookie!==parsed){
+    // Same stable uid_tt must never silently overwrite a different verified
+    // upstream user, even if a caller crafts the local Cookie fields.
+    let oldUid=typeof existing?.uid==='string'?existing.uid:'';
+    if(!oldUid){
+     try{oldUid=(await verifyMemberCookie(oldCookie)).uid??''}catch{}
+    }
+    if(oldUid&&remote.uid&&oldUid!==remote.uid)
+     throw new UpstreamError('Doubao reauthorization identity mismatch',{code:'CREDENTIAL'});
+   }
+   if(!previous||oldCookie!==parsed){
+    await vault.set(key,JSON.stringify({cookie:parsed,uid:remote.uid??''}));
+    // A reauthenticated web session has no authority over conversations
+    // or model menus from an expired earlier session with the same account ID.
+    cache.delete(id);
+    for(const sessionKey of conversations.keys())
+     if(sessionKey.startsWith(id+':'))conversations.delete(sessionKey);
+   }
+   const nickname=publicAccountName({nickname:remote.name},{nickname:name});
+   publicStatus.set(id,{...(nickname?{nickname}:{}),
+    uidConfirmed:true,verifiedAt:now(),balanceState:'not_checked'});
    return {id,providerId:ID,credentialRef:'driver:'+ID+':'+id,
     ...(previous?{alreadyOwned:true}:{})};
   }finally{writes.delete(key)}
@@ -206,7 +241,12 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
   return {revokedUpstream:false,message:'豆包凭据已从本插件删除；官方账号登录不受影响'};
  }
  const browser=createLoginFlow({logger,
-  addAccount:async({cookie,name})=>({account:await addCookie({cookie,name})})});
+  addAccount:async({cookie,name})=>({account:await addCookie({cookie,name})}),
+  validateCookie:async cookie=>{
+   try{await verifyMemberCookie(cookie);return true}catch{return false}
+  },
+  rollbackAccount:account=>rollbackCandidate({account}),
+ });
  function loginStatus(){
   const status=browser.status();
   return {...status,account:status.account?{

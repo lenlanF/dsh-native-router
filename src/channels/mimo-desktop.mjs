@@ -14,8 +14,13 @@ export const MIMO_DESKTOP_ID='own_mimo_desktop';
 const models=Object.freeze(['mimo-x-pro-preview','mimo-x-flash-preview']);
 const TOKEN=/^sp_[a-f0-9]{24}$/;
 const inFlight=new Set();
-const idFor=session=>'sp_'+createHash('sha256')
+// RC.28/29 assigned the same ID to every region. New accounts always have
+// region-specific IDs; legacy records remain readable without rewriting.
+const legacyIdFor=session=>'sp_'+createHash('sha256')
  .update('dsh-native-router:mimo-desktop\0'+session.userId+'\0'+session.passToken)
+ .digest('hex').slice(0,24);
+const idFor=session=>'sp_'+createHash('sha256')
+ .update('dsh-native-router:mimo-desktop:region\0'+session.region+'\0'+session.userId+'\0'+session.passToken)
  .digest('hex').slice(0,24);
 const credentialKey=id=>'NATIVE_ROUTER_MIMO_DESKTOP_'+id.slice(3).toUpperCase();
 const fail=(code='CREDENTIAL')=>new UpstreamError(
@@ -84,16 +89,31 @@ export function createMimoDesktopDriver({
   let payload;
   try{payload=JSON.parse(value)}catch{throw fail()}
   const session=normalSession(payload);
-  if(!session||idFor(session)!==account.id)throw fail();
+  if(!session||![idFor(session),legacyIdFor(session)].includes(account.id))throw fail();
   return session;
  }
  async function persistOwnedSession(input,{allowExisting=false}={}){
   const source=normalSession(input);
   if(!source||typeof vault?.resolve!=='function'||typeof vault?.set!=='function')throw fail();
-  const id=idFor(source),key=credentialKey(id);
-  if(inFlight.has(key))throw fail();
-  inFlight.add(key);
+  const regionalId=idFor(source),regionalKey=credentialKey(regionalId);
+  if(inFlight.has(regionalKey))throw fail();
+  inFlight.add(regionalKey);
   try{
+   let id=regionalId,key=regionalKey;
+   const legacyId=legacyIdFor(source);
+   if(legacyId!==regionalId){
+    let old;
+    try{old=await vault.resolve(credentialKey(legacyId))}catch{}
+    const raw=typeof old==='string'?old:old?.value;
+    let existing;
+    try{if(raw)existing=normalSession(JSON.parse(raw))}catch{}
+    // Only reuse the OLD vault ID if this is the exact same region and
+    // membership; a legacy overseas account must not capture new CN login.
+    if(existing?.region===source.region&&existing.userId===source.userId
+      &&existing.passToken===source.passToken){
+      id=legacyId;key=credentialKey(id);
+    }
+   }
    let previous;
    try{previous=await vault.resolve(key)}catch{}
    if(previous){
@@ -104,9 +124,25 @@ export function createMimoDesktopDriver({
    await vault.set(key,JSON.stringify(source));
    return {id,providerId:MIMO_DESKTOP_ID,
     credentialRef:'driver:'+MIMO_DESKTOP_ID+':'+id};
-  }finally{inFlight.delete(key)}
+  }finally{inFlight.delete(regionalKey)}
  }
- const browser=loginFactory({onSession:session=>persistOwnedSession(session,{allowExisting:true})});
+ async function rollbackCandidate({account}={}){
+  const id=account?.id;
+  if(!TOKEN.test(String(id??''))||account?.providerId!==MIMO_DESKTOP_ID)return;
+  try{await vault?.unset?.(credentialKey(id))}catch{}
+ }
+ async function verifyMembership(session){
+  try{return (await transport.probe({session})).authVerified===true}
+  catch{return false}
+ }
+ const browser=loginFactory({
+  onSession:async session=>{
+   if(!await verifyMembership(session))throw fail('AUTH');
+   return persistOwnedSession(session,{allowExisting:true});
+  },
+  verifySession:verifyMembership,
+  onRollback:account=>rollbackCandidate({account}),
+ });
  return {
   independentProvider:MIMO_DESKTOP_ID,
   providerName:'小米 MiMo 会员 · 聚合路由自有',
@@ -132,15 +168,14 @@ export function createMimoDesktopDriver({
    if(!scanned||now()-scanned.at>10*60*1000)throw fail();
    const source=normalSession(await readCurrentSession().catch(()=>null));
    if(!source||idFor(source)!==candidateId)throw fail();
+   // Chromium Cookie presence is not proof of a live membership. Reject
+   // expired/stale desktop sessions before storing any independent account.
+   if(!await verifyMembership(source))throw fail('AUTH');
    const imported=await persistOwnedSession(source);
    discovered.delete(candidateId);
    return {id:imported.id,credentialRef:imported.credentialRef};
   },
-  async rollbackCandidate({account}={}){
-   const id=account?.id;
-   if(!TOKEN.test(String(id??''))||account?.providerId!==MIMO_DESKTOP_ID)return;
-   try{await vault?.unset?.(credentialKey(id))}catch{}
-  },
+  rollbackCandidate,
   async refresh({account,signal}={}){
    try{
     const session=await ownedSession(account);

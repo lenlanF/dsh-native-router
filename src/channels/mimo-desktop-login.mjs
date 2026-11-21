@@ -42,7 +42,7 @@ export function parseMimoLoginCookie(header,region='cn'){
  return {region,passToken:values.get('passToken'),userId,cUserId};
 }
 export function createMimoDesktopLoginFlow({
- onSession,logger,flowFactory=createBrowserLoginFlow,
+ onSession,onRollback,verifySession,logger,flowFactory=createBrowserLoginFlow,
 }={}){
  if(typeof onSession!=='function')throw Error('MiMo owned session callback required');
  let active=null;
@@ -53,7 +53,11 @@ export function createMimoDesktopLoginFlow({
    if(!Object.hasOwn(MIMO_LOGIN_REGIONS,region))
     throw Error('Unsupported MiMo Desktop account cluster');
    active=flowFactory({logger,loginUrl:MIMO_LOGIN_REGIONS[region],
-    extractCookie:mimoCookieFromCdp,
+    extractCookie:mimoCookieFromCdp,rollbackAccount:onRollback,
+    validateCookie:verifySession?async cookie=>{
+      const session=parseMimoLoginCookie(cookie,region);
+      return !!session&&await verifySession(session)===true;
+    }:undefined,
     addAccount:async({cookie})=>{
       const session=parseMimoLoginCookie(cookie,region);
       if(!session)throw Error('MiMo Desktop login session incomplete');

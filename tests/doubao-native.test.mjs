@@ -56,6 +56,7 @@ test('Doubao direct Cookie stays private and each account is bound to itself',as
  const {driver,stored,calls}=mock();
  const a=await driver.addCookie({cookie:COOKIE_A});
  const b=await driver.addCookie({cookie:COOKIE_B});
+ const afterImport=calls.length;
  assert.notEqual(a.id,b.id);
  assert.equal(stored.size,2);
  const status=await driver.refresh({account:account(a)});
@@ -65,7 +66,8 @@ test('Doubao direct Cookie stays private and each account is bound to itself',as
  assert.deepEqual(models.map(x=>x.id),['0']);
  const done=await driver.generate({account:account(a),model:'0',options});
  assert.equal(done.text,'豆包原生回答');
- assert(calls.every(x=>!x.cookie||x.cookie.startsWith(COOKIE_A)),'no cross-account cookie');
+ assert(calls.slice(afterImport).every(x=>!x.cookie||x.cookie.startsWith(COOKIE_A)),
+  'no cross-account cookie after independent imports');
  await assert.rejects(driver.generate({account:{...account(a),id:b.id},model:'0',options}),/binding/i);
  await driver.logout({account:account(a)});
  assert.equal(stored.size,1);
