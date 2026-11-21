@@ -25,7 +25,8 @@ export function freeEvidence(model,providerId=''){
  // WorkBuddy catalog exposes a literal x0.00 credit multiplier in the
  // *display name*, e.g. "Hy4 Flash · x0.00". Treat only WorkBuddy's exact
  // zero multiplier as its free credit usage, not arbitrary "free" in names.
- if(['workbuddy','workbuddy-global'].includes(providerId)
+ if(['workbuddy','workbuddy-global','own_workbuddy',
+   'own_workbuddy-cn','own_workbuddy-global'].includes(providerId)
    &&typeof model.name==='string'
    &&/(?:^|[\s·(])x\s*0(?:\.0+)?(?:$|[\s·)])/i.test(model.name))
   return 'WorkBuddy 目录标记 x0.00 积分倍率';
@@ -87,14 +88,29 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
    for(const model of result.models)add(providerId,model,'host');
   });
   const pack=packStatus();
+  // A standalone CodeArts QR login may retain its original public provider ID
+  // even though the credentials are owned by this plugin. Never synthesize an
+  // own_codearts shadow of that exact account: DSH account IDs are globally
+  // unique and a phantom provider would be unroutable.
+  const configured=getConfig?.()??{};
+  const targetProvider=(sourceId,accountId)=>{
+   const account=configured.accounts?.find(a=>a.id===accountId);
+   const provider=configured.providers?.find(p=>p.id===sourceId);
+   const ownBound=account?.providerId===sourceId
+     &&account?.credentialRef==='driver:'+sourceId+':'+accountId
+     &&configured.sessionReuse?.linkedOrigins?.[accountId]==='own-source-pack'
+     &&account.enabled===true&&provider?.enabled===true
+     &&provider.protocol==='native-channel';
+   return ownBound?sourceId:'own_'+sourceId;
+  };
   if(pack.state==='mounted'){
    const accounts=await bounded(()=>ownedPack.listAccounts());
    if(accounts?.state==='ready'&&Array.isArray(accounts.accounts)){
     const byProvider=new Map();
     for(const row of accounts.accounts){
      if(row?.enabled!==true||!OWN.has(row.providerId)||!isId(row.id))continue;
-     const fullId='own_'+row.providerId;
      const safeRef=sourceAccountOpaqueId(row.providerId,row.id);
+     const fullId=targetProvider(row.providerId,safeRef);
      sourceAccounts.push({providerId:fullId,accountId:safeRef});
      const list=byProvider.get(row.providerId)??[];
      list.push(row);byProvider.set(row.providerId,list);
@@ -107,7 +123,10 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
       const result=await bounded(()=>ownedPack.listModels(providerId));
       if(result?.state!=='ready'||!Array.isArray(result.models)){errors++;return}
       sourceCount++;
-      for(const model of result.models)add('own_'+providerId,model,'owned-source');
+      const eligibleProviderIds=new Set(rows.map(row=>
+        targetProvider(providerId,sourceAccountOpaqueId(providerId,row.id))));
+      for(const model of result.models)for(const target of eligibleProviderIds)
+        add(target,model,'owned-source');
      });
     }
    }else errors++;
@@ -126,8 +145,7 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
   for(const mark of owner().models??[]){
    if(mark.free!==true||!isId(mark.providerId)||!isModel(mark.model))continue;
    const isHost=hosts.includes(mark.providerId);
-   const isOwn=mark.providerId.startsWith('own_')
-     &&sourceAccounts.some(a=>a.providerId===mark.providerId);
+   const isOwn=sourceAccounts.some(a=>a.providerId===mark.providerId);
    if(isHost||isOwn)add(mark.providerId,{id:mark.model,name:mark.model},
      isHost?'host':'owned-source');
   }

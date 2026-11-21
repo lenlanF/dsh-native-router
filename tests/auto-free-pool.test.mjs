@@ -114,6 +114,13 @@ test('WorkBuddy x0.00 is detected as zero credit multiplier but never guessed fo
  assert.equal(freeEvidence({id:'paid',name:'Hy4 · x0.00'},'lingxi'),null);
  assert.equal(freeEvidence({id:'paid',name:'Hy4 · x0.00',isFree:false},'workbuddy'),null);
 });
+test('owned WorkBuddy member channels retain literal x0.00 free classification, never infer free from names on unrelated channels',()=>{
+ for(const owner of ['own_workbuddy','own_workbuddy-cn','own_workbuddy-global']){
+  assert.match(freeEvidence({id:'hy4',name:'Hy4 Flash · x0.00'},owner)??'',/x0.00/);
+  assert.equal(freeEvidence({id:'hy4',name:'Hy4 Flash · x0.01'},owner),null);
+ }
+ assert.equal(freeEvidence({id:'hy4',name:'Hy4 Flash · x0.00'},'codearts'),null);
+});
 test('owner can explicitly mark exact models and entire channel free, exclude a model, and persist declarations',async()=>{
  let cfg=normalizeConfig({freePool:{providerIds:['deepseek-account'],
   models:[{providerId:'workbuddy',model:'wb-pro',free:true},

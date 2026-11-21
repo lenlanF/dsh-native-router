@@ -1,4 +1,7 @@
+import {readFileSync} from 'node:fs';
 import {freeEvidence} from './auto-free.mjs';
+// Version is read from this installed package, never hardcoded into the UI.
+const PLUGIN_VERSION=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8')).version;
 import {sourceAccountOpaqueId} from './source-account-ref.mjs';
 import {mergeAccountSources} from './account-source-view.mjs';
 // Owner-authenticated DSH Connection admin APIs; same-origin management writes, loopback-only HTTP.
@@ -91,7 +94,7 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
   mount('/status',(req,res)=>{
     if(!isLoopback(req))return json(res,403,{error:'Loopback only'});
     if(req.method!=='GET')return json(res,405,{error:'Method not allowed'});
-    return json(res,200,{ok:true,...adapter.getStatus(),embeddedPack:embeddedPack?.status?.()??{state:'unavailable'},
+    return json(res,200,{ok:true,...adapter.getStatus(),version:PLUGIN_VERSION,embeddedPack:embeddedPack?.status?.()??{state:'unavailable'},
       credentialService:credentialsBridge?.status?.()??{state:'unknown',available:false},
       sessionReuse:sessionReuse?.snapshot?.()??{enabled:false,channels:[]}});
   });
