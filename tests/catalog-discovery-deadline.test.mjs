@@ -76,6 +76,47 @@ test('two simultaneous model selector reloads share one in-flight native roster 
  assert.notEqual(a,b,'separate caller must receive its own model array');
  assert.ok(a.some(x=>x.id==='direct:codearts:concurrent-live-model'));
 });
+test('canceling one model-picker page cannot abort the shared native catalog scan required by another active DSH caller',async()=>{
+ let calls=0,signalObserved,release,notify;
+ const started=new Promise(resolve=>{notify=resolve});
+ const waiting=new Promise(resolve=>{release=resolve});
+ const driver={generate:async()=>({text:'OK',finishReason:'stop'}),
+  async listModels({signal}){calls++;signalObserved=signal;notify();
+   await waiting;return [{id:'still-needed-model'}]}};
+ const cfg=normalizeConfig({providers:[{id:'codearts',protocol:'native-channel'}],
+  accounts:[{id:'one',providerId:'codearts',credentialRef:'driver:codearts:one'}]});
+ const cat=createCatalog({getConfig:()=>cfg,channelDrivers:new Map([['codearts',driver]])});
+ const pageAbort=new AbortController();
+ const closingPage=cat.list(pageAbort.signal);
+ await started;
+ const modelPicker=cat.list();
+ pageAbort.abort();
+ release();
+ const published=await modelPicker;
+ assert.ok(published.some(row=>row.id==='direct:codearts:still-needed-model'),
+  'closing the settings page must not abort a DSH model picker waiting on the same scan');
+ assert.equal(calls,1,'cancelled page does not start another concurrent catalog request');
+ assert.equal(signalObserved.aborted,false,'the shared request remains active for other consumers');
+ await closingPage;
+});
+test('aborting the sole model-directory viewer does not start duplicated scans when another viewer arrives',async()=>{
+ let calls=0,release,notify;
+ const started=new Promise(resolve=>{notify=resolve});
+ const waiting=new Promise(resolve=>{release=resolve});
+ const driver={generate:async()=>({text:'OK',finishReason:'stop'}),
+  async listModels(){calls++;notify();await waiting;return [{id:'single-scan-model'}]}};
+ const cfg=normalizeConfig({providers:[{id:'codearts',protocol:'native-channel'}],
+  accounts:[{id:'one',providerId:'codearts',credentialRef:'driver:codearts:one'}]});
+ const cat=createCatalog({getConfig:()=>cfg,channelDrivers:new Map([['codearts',driver]])});
+ const controller=new AbortController();
+ const first=cat.list(controller.signal);
+ await started;controller.abort();
+ const second=cat.list();
+ release();
+ assert.ok((await second).some(x=>x.id==='direct:codearts:single-scan-model'));
+ assert.equal(calls,1,'an aborted wait does not abandon an in-flight shared scan');
+ await first;
+});
 test('catalog invalidation during upstream discovery never publishes a detached provider model',async()=>{
  let cfg=normalizeConfig({providers:[{id:'codearts',protocol:'native-channel'}],
   accounts:[{id:'one',providerId:'codearts',credentialRef:'driver:codearts:one'}]});

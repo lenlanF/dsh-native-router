@@ -207,15 +207,29 @@ export function createCatalog({getConfig,getEffectiveConfig,fetchImpl=fetch,
     return result.map(x=>({...x}));
   }
   async function list(signal){
-    // Model picker, dashboard and settings may ask in parallel. Share one
-    // in-flight scan instead of recontacting exactly the same source logins.
-    const existing=inFlight;
-    if(existing?.revision===revision)
-      return (await existing.promise).map(row=>({...row}));
-    const entry={revision,promise:scan(signal,revision)};
-    inFlight=entry;
-    try{return (await entry.promise).map(row=>({...row}))}
-    finally{if(inFlight===entry)inFlight=null}
+    // A model picker, settings panel and dashboard share one source scan.
+    // Its lifetime is NOT owned by the first caller's AbortSignal: closing
+    // that panel may cancel its own wait, but must not cancel another DSH
+    // consumer or force a duplicate upstream directory request.
+    if(signal?.aborted)return [];
+    let entry=inFlight;
+    if(entry?.revision!==revision){
+      entry={revision,promise:scan(undefined,revision)};
+      inFlight=entry;
+      const completed=()=>{if(inFlight===entry)inFlight=null};
+      entry.promise.then(completed,completed);
+    }
+    if(!signal)return (await entry.promise).map(row=>({...row}));
+    let onAbort;
+    const cancelled=new Promise(resolve=>{
+      onAbort=()=>resolve(null);
+      signal.addEventListener('abort',onAbort,{once:true});
+      if(signal.aborted)onAbort();
+    });
+    try{
+      const rows=await Promise.race([entry.promise,cancelled]);
+      return Array.isArray(rows)?rows.map(row=>({...row})):[];
+    }finally{signal.removeEventListener('abort',onAbort)}
   }
   return {list,invalidate(){revision++;updatedAt=0;cached=[];sourceAvailability=''}};
 }

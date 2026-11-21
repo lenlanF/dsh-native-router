@@ -82,7 +82,11 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
         'No upstream-confirmed free models are currently available; unknown pricing is excluded');
       const shift=freeCursor++%items.length;
       const ordered=[...items.slice(shift),...items.slice(0,shift)].slice(0,50);
+      // Bind this execution to the owner's exact free/paid declarations.
+      // A change while an upstream tier is failing must not allow a stale
+      // previously-free backup to be invoked as paid by surprise.
       return {id:'autofree',name:'AutoFree',mode:'free',enabled:true,tiers:ordered,
+        freePolicySignature:JSON.stringify(configStore.get().freePool??{}),
         maxSwitches:ordered.length-1,exhaustionCooldownMs:21600000};
     }
     if(model.startsWith('chain:'))return model.slice(6);

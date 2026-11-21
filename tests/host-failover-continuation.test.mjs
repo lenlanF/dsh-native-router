@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {attachHostFailover} from '../src/host-failover.mjs';
 import {normalizeConfig} from '../src/config.mjs';
 
-function harness(){
+function harness({createUserMessage}={}){
  const cfg=normalizeConfig({hostFailover:{enabled:true,mode:'off',priority:[
   {provider:'native-router',model:'chain:primary'},
   {provider:'native-router',model:'chain:backup'},
@@ -20,7 +20,7 @@ function harness(){
  const emit=(event,data,next=async()=>({kind:'give-up'}))=>events.get(event)(data,next);
  const plugin=attachHostFailover(ctx,{configStore:{
   get:()=>structuredClone(state),replace:value=>{state=normalizeConfig(value)},
- },createUserMessage:async args=>({id:'retry-'+(followups.length+1),...args})});
+ },createUserMessage:createUserMessage??(async args=>({id:'retry-'+(followups.length+1),...args}))});
   return {ctx,agent,emit,selections,followups,plugin,get selection(){return selection},
     get config(){return structuredClone(state)},
     updateHost:change=>{state=normalizeConfig({...state,hostFailover:{...state.hostFailover,...change}})}};
@@ -43,6 +43,108 @@ test('human message while async model validation awaits prevents automatic retry
  await pause();
  assert.equal(h.followups.length,0);
  assert.equal(h.selections.length,0);
+ h.plugin.dispose();
+});
+test('switching Host Failover to free-only while model validation awaits never selects paid target',async()=>{
+ const h=harness();
+ let release;
+ let signalStarted;
+ const started=new Promise(resolve=>{signalStarted=resolve});
+ h.ctx.llm.resolveCallConfig=()=>{signalStarted();return new Promise(resolve=>{release=resolve})};
+ await fail(h);
+ await h.emit('agent/status',{agent:h.agent,status:'idle'});
+ await started;
+ h.updateHost({mode:'free',priority:[
+  {provider:'native-router',model:'chain:primary',free:false},
+  {provider:'native-router',model:'chain:backup',free:false},
+  {provider:'native-router',model:'chain:free-only',free:true},
+ ]});
+ release();await pause();
+ assert.equal(h.followups.length,0,'old paid candidate must not be enqueued after owner sets free-only');
+ assert.equal(h.selections.length,0,'old paid model must not be selected while free-only is in force');
+ h.plugin.dispose();
+});
+test('removing a backup route during async resolve prevents stale model selection and retry message',async()=>{
+ const h=harness();
+ let release,signalStarted;
+ const started=new Promise(resolve=>{signalStarted=resolve});
+ h.ctx.llm.resolveCallConfig=()=>{signalStarted();return new Promise(resolve=>{release=resolve})};
+ await fail(h);
+ await h.emit('agent/status',{agent:h.agent,status:'idle'});
+ await started;
+ h.updateHost({priority:[
+  {provider:'native-router',model:'chain:primary'},
+  {provider:'native-router',model:'chain:last'},
+ ]});
+ release();await pause();
+ assert.equal(h.followups.length,0);
+ assert.equal(h.selections.length,0,'removed backup route must never become active');
+ h.plugin.dispose();
+});
+test('a model-select hook that changes host fee policy cannot enqueue stale paid continuation',async()=>{
+ const h=harness();
+ const select=h.agent.model.select;
+ h.agent.model.select=next=>{
+  select(next);
+  if(next.model==='chain:backup')h.updateHost({mode:'free',priority:[
+    {provider:'native-router',model:'chain:free-only',free:true},
+  ]});
+ };
+ await fail(h);
+ await h.emit('agent/status',{agent:h.agent,status:'idle'});
+ await pause();
+ assert.equal(h.followups.length,0,'a synchronous model selection callback changing free policy must stop continuation');
+ assert.equal(h.selection.model,'chain:primary','rollback stale paid target when select changes owner policy');
+ h.plugin.dispose();
+});
+test('a completed tool result cancels failover before retry and does not replay already committed tools',async()=>{
+ const h=harness();
+ await fail(h);
+ await h.emit('agent/inbox/inserted',{agent:h.agent,message:{
+  id:'committed-tool',source:{kind:'tool',callId:'tool-1'},
+  content:[{type:'tool-result',text:'side effect committed'}],
+ }});
+ await h.emit('agent/status',{agent:h.agent,status:'idle'});
+ await pause();
+ assert.equal(h.followups.length,0,'tool completion is progress, not a reason to replay a failed step');
+ assert.equal(h.selections.length,0);
+ h.plugin.dispose();
+});
+test('a committed tool result after a retry was queued rejects ONLY that stale owned retry before DSH tools run',async()=>{
+ const h=harness();
+ await fail(h);
+ await h.emit('agent/status',{agent:h.agent,status:'idle'});await pause();
+ const retry=h.followups[0];
+ assert.equal(h.followups.length,1);
+ await h.emit('agent/inbox/inserted',{agent:h.agent,message:{
+  id:'tool-committed',source:{kind:'tool',callId:'tool-1'},content:[],
+ }});
+ let runTools=0;
+ const result=await h.emit('agent/pre-step',{agent:h.agent,messages:[retry],
+  modelSelection:h.selection},async()=>{runTools++;return {kind:'enter',messages:[retry]}});
+ assert.deepEqual(result,{kind:'reject'});
+ assert.equal(runTools,0,'completed tool side effect must never be executed again by this retry');
+ assert.equal(h.followups.length,1,'even repeated idle signals must not enqueue another retry');
+ h.plugin.dispose();
+});
+test('owner changes to free-only while async retry message is being made: pending paid backup is discarded',async()=>{
+ let notify,release;
+ const started=new Promise(resolve=>{notify=resolve});
+ const waiting=new Promise(resolve=>{release=resolve});
+ const h=harness({createUserMessage:async args=>{
+  notify();await waiting;
+  return {id:'held-retry',...args};
+ }});
+ await fail(h);
+ await h.emit('agent/status',{agent:h.agent,status:'idle'});
+ await started;
+ h.updateHost({mode:'free',priority:[
+  {provider:'native-router',model:'chain:free-only',free:true},
+ ]});
+ release();await pause();
+ assert.equal(h.followups.length,0);
+ assert.equal(h.selections.length,0,
+  'fee-policy change during retry creation cannot select an old paid model');
  h.plugin.dispose();
 });
 test('repeated idle/error notifications never re-enqueue an already queued retry',async()=>{

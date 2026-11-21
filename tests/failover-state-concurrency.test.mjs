@@ -51,6 +51,21 @@ test('external DSH retry supersedes our pending intent, our own retry does not',
  assert.equal(noteIncoming(state,{id:'another-DSH-component',source:{kind:'retry'}}),true);
  assert.equal(state.intent,undefined);
 });
+test('system context is not a new turn, but completed tool/model progress cancels unsafe replay',()=>{
+ const state=setup();
+ assert.equal(noteIncoming(state,{id:'system-1',source:{kind:'system'},
+  content:[{type:'text',text:'runtime context'}]}),false);
+ assert.ok(state.intent,'system bookkeeping should not cancel a valid pending continuation');
+ assert.equal(noteIncoming(state,{id:'tool-1',source:{kind:'tool',callId:'safe-tool'},
+  content:[{type:'tool-result',text:'tool committed'}]}),true,
+  'late committed tool progress must invalidate old replay to avoid repeating side effects');
+ assert.equal(state.intent,undefined);
+ const again=setup();
+ assert.equal(noteIncoming(again,{id:'assistant-1',source:{kind:'model',provider:'test',model:'a'},
+  content:[{type:'text',text:'newer model output'}]}),true,
+  'new model result means old retry intent is stale');
+ assert.equal(again.intent,undefined);
+});
 test('stopped agent cannot be rescheduled by an idle notification',async()=>{
  const state=setup();
  let calls=0;

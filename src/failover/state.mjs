@@ -53,11 +53,15 @@ export function clearIntent(state) {
   state.intent = undefined;
 }
 
-/** Competing human input wins: our automatic continuation must not overwrite it. */
+/** New human input, another retry, or committed tool/model progress
+ * supersedes our failed step to prevent replaying side-effectful actions.
+ * A system-only context message is bookkeeping rather than a new turn.
+ */
 export function noteIncoming(state, message) {
   if (state.intent === undefined) return false;
   const source = message?.source;
   if(source?.kind==='retry'&&state.ownedRetryIds?.has(message?.id))return false;
+  if(source?.kind==='system')return false;
   clearIntent(state);
   return true;
 }

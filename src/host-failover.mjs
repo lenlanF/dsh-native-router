@@ -1,6 +1,7 @@
 // DSH host-level failover, merged with native-router.
 import {normalizeRules,normalizeMode,qualifies,canSwitch,allowsSelection,firstUsableSelection,
-  nextUsableSelection,markExhausted,normalizeExhausted,isExhausted,appendSwitchLog,DEFAULT_COOLDOWN_MS} from './failover/rules.mjs';
+  nextUsableSelection,markExhausted,normalizeExhausted,isExhausted,appendSwitchLog,DEFAULT_COOLDOWN_MS,
+  sameSelection} from './failover/rules.mjs';
 import {createStateStore,recordIntent,clearIntent,noteIncoming,requestDrive} from './failover/state.mjs';
 import {randomUUID} from 'node:crypto';
 // Equivalent to DSH createUserMessage for a zero-content retry intent:
@@ -36,6 +37,16 @@ export function attachHostFailover(ctx,{configStore,now=()=>Date.now(),createUse
     }catch(error){log('warn','switch log persistence failed: '+String(error?.message??error))}
   }
   const on=(event,fn)=>{const remove=ctx.on?.(event,fn);if(typeof remove==='function')disposers.push(remove)};
+  // Live owner policy is stronger than a candidate chosen before awaiting
+  // model availability / retry-message creation. In particular toggling to
+  // free-only must NEVER enqueue a previously selected paid candidate.
+  function stillPermitted(target){
+    refreshRules();
+    // 'off' disables per-step enforcement, NOT the owner's configured
+    // priority allowlist for an automatically chosen backup target.
+    return rules.priority.some(item=>sameSelection(item,target))
+      &&(mode==='off'||allowsSelection(target,rules,mode));
+  }
   async function drive(state){
     const {agent,intent}=state;
     const current=()=>!state.stopping&&state.intent===intent&&!intent?.stale
@@ -53,10 +64,12 @@ export function attachHostFailover(ctx,{configStore,now=()=>Date.now(),createUse
       try{
         if(ctx.llm?.resolveCallConfig)await ctx.llm.resolveCallConfig({provider:next.provider,model:next.model});
         if(!current())return; // Human input / newer Agent step wins over async model validation.
+        if(!stillPermitted(next)){clearIntent(state);return}
         if(typeof agent.model?.select!=='function'||typeof agent.followup!=='function')
           throw Error('DSH agent selection API missing');
         message=await factory({content:[],source:{kind:'retry'}});
         if(!current())return;
+        if(!stillPermitted(next)){clearIntent(state);return}
         if(typeof message?.id!=='string'||!message.id)
           throw Error('DSH retry message needs a stable ID');
       }catch(error){
@@ -75,6 +88,17 @@ export function attachHostFailover(ctx,{configStore,now=()=>Date.now(),createUse
         spent=markExhausted(spent,next,now());persistExhausted();
         next=nextUsableSelection(next,rules,{exhausted:spent,now:now(),cooldownMs:cooldown(),mode});
         continue;
+      }
+      // model.select() may synchronously invoke another plugin/owner callback
+      // that edits the backup list or enables free-only mode. Check once more
+      // after this reentrant boundary, before enqueueing a retry which could
+      // otherwise invoke an undesired paid model or replay completed tools.
+      if(!current()||!stillPermitted(next)){
+        clearIntent(state);
+        if(agent.status!=='running'){
+          try{if(previous?.provider&&previous.model)agent.model.select(previous)}catch{}
+        }
+        return;
       }
       // Publish intent before followup because an Agent may process followup synchronously.
       state.intent={...intent,queuedMessageId:message.id};

@@ -24,6 +24,12 @@ export function createRoutingEngine({getConfig,request,pool=createAccountPool(),
       const live=getConfig(),active=live.providers.find(p=>p.id===provider.id);
       if(!active?.enabled||active.protocol!==provider.protocol||
         (needTools&&!active.supportsTools))return false;
+      // AutoFree is a dynamic, object-valued route. Unlike a named route it
+      // has no persisted tier list to re-read; lock its fee policy to the
+      // exact owner declaration at selection time. Any in-flight change
+      // fails closed before sending another request or releasing tool calls.
+      if(route.mode==='free'&&typeof route.freePolicySignature==='string'
+        &&route.freePolicySignature!==JSON.stringify(live.freePool??{}))return false;
       if(typeof routeId==='string'){
         const current=live.routes.find(row=>row.id===route.id&&row.enabled);
         if(!current||current.mode!==route.mode||!current.tiers.some(row=>
