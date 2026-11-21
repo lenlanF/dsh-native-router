@@ -23,6 +23,7 @@ import {createEmbeddedChannelPack,SOURCE_PACK_PROVIDERS} from './embedded-pack.m
 import {createSourceChannelDriver} from './source-channel-driver.mjs';
 import {sourceModelEligible,privateSourceAccountRoutable} from './source-model-eligibility.mjs';
 import {createHostCredentialBridge} from './credentials-bridge.mjs';
+import {scheduleOwnerLiveSmoke} from './owner-live-smoke.mjs';
 import {join,dirname} from 'node:path';
 export {registerNativeChannelDriver,getNativeChannelDrivers} from './driver-registry.mjs';
 
@@ -159,7 +160,9 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
    cleanups.push(failover.dispose);
     cleanups.push(checkinCenter.start());
      cleanups.push(sessionReuse.start());
-     cleanups.push(accountCenter.start());
+      cleanups.push(accountCenter.start());
+       cleanups.push(scheduleOwnerLiveSmoke({configStore:ownStore,accountCenter,
+         adapter:ownAdapter,llm:ctx.llm,env:env??process.env,logger:ctx.logger}));
     // The source drivers reuse this single lifetime-bound channel-pack facade.
     cleanups.push(existingHostSource.dispose);
     cleanups.push(embeddedPack.dispose);

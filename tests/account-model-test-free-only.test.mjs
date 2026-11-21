@@ -38,6 +38,20 @@ test('model-test defaults to a truly zero-rate model and never sends the earlier
  assert.equal(result.usage.completion_tokens,2);
  h.center.stop();
 });
+test('live inference stream failure exposes only fixed diagnostic enum',async()=>{
+ const h=rig({models:[{id:'safe',upstreamFreeLabel:true}],onGenerate:async()=>{
+  const e=Object.assign(Error('private token or cookie is never public'),{
+   code:'TRUNCATED',safeStreamPhase:'FINISH_FRAME_MISSING_DONE'});
+  throw e;
+ }});
+ const result=await h.center.verifyModel(h.id,{modelId:'safe'});
+ assert.equal(result.state,'failed');
+ assert.equal(result.code,'STREAM_CLOSED');
+ assert.equal(result.streamPhase,'FINISH_FRAME_MISSING_DONE');
+ assert.doesNotMatch(JSON.stringify(result),/private token|cookie/);
+ assert.equal(h.generates,1);
+ h.center.stop();
+});
 test('unknown-price model does not issue any real generation even with an exact chosen model ID',async()=>{
  const h=rig({models:[{id:'unknown',name:'not clearly rated'}]});
  const result=await h.center.verifyModel(h.id,{modelId:'unknown'});

@@ -352,8 +352,12 @@ export function createAccountCenter({
      SERVER:'渠道服务暂时异常',CANCELLED:'请求被取消',
      INVALID_REQUEST:'模型请求格式不受支持',
      UNKNOWN:'模型没有返回完整的成功回复'};
-   return {id,state:'failed',at,code,
-     message:(meanings[code]??meanings.UNKNOWN)+'；没有将该模型标记为实测成功'};
+    return {id,state:'failed',at,code,
+      ...(code==='STREAM_CLOSED'&&['NON_SSE_INCOMPLETE','NO_SSE_FRAMES',
+        'FINISH_FRAME_MISSING_DONE','MISSING_DONE_AND_FINISH',
+        'DONE_MISSING_FINISH','UNCLASSIFIED_SSE'].includes(error?.safeStreamPhase)
+         ?{streamPhase:error.safeStreamPhase}:{}),
+      message:(meanings[code]??meanings.UNKNOWN)+'；没有将该模型标记为实测成功'};
   }finally{
    clearTimeout(timer);signal?.removeEventListener('abort',abort);pending.delete(id);
   }

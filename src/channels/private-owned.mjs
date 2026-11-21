@@ -44,13 +44,20 @@ function buildLingxiHeaders(secret,base){
   accept:'application/json,text/event-stream','content-type':'application/json',
   origin:base,referer:base+'/'};
 }
+function strictZeroLingxiMultiplier(value){
+  // The official Lingxi /sessions/plans response is the sole pricing source.
+  // Reject approximate (~0x), undisclosed, negative and nonzero rates.
+  return value===0 || typeof value==='string'
+    && /^\s*(?:x\s*0(?:\.0+)?|0(?:\.0+)?\s*x)\s*$/i.test(value);
+}
 function planModels(json){
  // Follow the existing Lingxi adapter: data.plans lists client modes,
  // NOT inference models. Model id primarily uses entry.key.
  const candidates=Array.isArray(json?.data?.models)?json.data.models:[];
  const seen=new Set();return candidates.filter(x=>x&&typeof x==='object')
-  .map(x=>({id:typeof x.key==='string'&&x.key?x.key:x.id,
-    name:typeof x.name==='string'&&x.name?x.name:x.key??x.id}))
+   .map(x=>({id:typeof x.key==='string'&&x.key?x.key:x.id,
+     name:typeof x.name==='string'&&x.name?x.name:x.key??x.id,
+     ...(strictZeroLingxiMultiplier(x.multiplier)?{upstreamFreeLabel:true}:{})}))
   .filter(x=>typeof x.id==='string'&&x.id.length>0&&x.id.length<160
     &&!seen.has(x.id)&&seen.add(x.id))
   .slice(0,100);

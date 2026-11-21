@@ -109,6 +109,38 @@ test('single official quota package with explicit remaining balance and unit is 
    balanceRow:{balance:{packages:[{remaining:5,unit:'token'}]}}});
  assert.equal(unsupported.authVerified,false,'unknown channel balance is never proof of login');
 });
+test('ZCode gift allowance excludes paid buckets and anonymous fallback even when total balance is high',()=>{
+ const facts=sourceAccountFacts({providerId:'zcode',observedAt:Date.now(),
+  balanceRow:{accountId:'safe',balance:{total:90000,packages:[
+   {name:'签到赠送',unit:'token',remaining:2400,active:true},
+   {name:'购买套餐',unit:'token',remaining:38000,active:true},
+   {name:'ZCode 免费额度',unit:'token',remaining:49000,active:true},
+   {name:'每日赠送过期',unit:'token',remaining:600,expiredTime:'2020-01-01T00:00:00Z'},
+  ]}}});
+ assert.equal(facts.balance,90000,'the display can report official whole-account balance');
+ assert.equal(facts.giftedBalance,2400,'only explicitly named nonexpired free gifts may fund the model');
+ const boughtOnly=sourceAccountFacts({providerId:'zcode',balanceRow:{balance:{total:99000,
+  packages:[{name:'购买套餐',unit:'token',remaining:99000}]}}});
+ assert.equal(boughtOnly.giftedBalance,undefined,
+  'paid quota must never grant fee-free model testing');
+});
+
+test('Loomy daily gift is extracted only from the exact official daily bucket, not paid permanent points',()=>{
+ const gift=sourceAccountFacts({providerId:'loomy',balanceRow:{balance:{total:9500,packages:[
+  {name:'永久积分',unit:'积分',remaining:7500},
+  {name:'每日赠送',unit:'积分',remaining:2000,active:true},
+ ]}}});
+ assert.equal(gift.loomyDailyGift,2000);
+ assert.equal(gift.authVerified,true);
+ const paid=sourceAccountFacts({providerId:'loomy',balanceRow:{balance:{total:9000,packages:[
+  {name:'永久积分',unit:'积分',remaining:8000},
+  {name:'订阅赠送',unit:'积分',remaining:1000},
+ ]}}});
+ assert.equal(paid.loomyDailyGift,undefined,'permanent balance cannot fund a free-only test');
+ const ambiguous=sourceAccountFacts({providerId:'loomy',balanceRow:{balance:{total:9999}}});
+ assert.equal(ambiguous.loomyDailyGift,undefined,'aggregate balance cannot be treated as daily gift');
+});
+
 test('all source balance shapes and missing identity are safe, with no synthetic names or zeros',()=>{
  const date=1234;
  for(const [providerId,balance,balanceValue,unit] of [

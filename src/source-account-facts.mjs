@@ -39,9 +39,33 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
     liveBalance?'authenticated_upstream_balance':'not_verified';
   const nickname=publicAccountName(identity?.status,identity,
     statusRow?.status,statusRow,balanceRow);
+  // The isolated Loomy source pack calls the official points API and returns
+  // two distinct buckets: "永久积分" may be purchased, whereas "每日赠送"
+  // consists solely of free daily credit. Never equate aggregate balance
+  // with free allocation or infer a gift when the bucket is absent.
+  const loomyDailyGift=providerId==='loomy'&&!balanceRow?.error
+    ?packages.filter(pkg=>pkg?.name==='每日赠送'&&pkg.unit==='积分'
+      &&pkg.active!==false&&Number.isFinite(pkg.remaining)&&pkg.remaining>=0)
+      .reduce((sum,pkg)=>sum+pkg.remaining,0):0;
+  // The ZCode Start Plan balance `total` aggregates *all* resource buckets.
+  // It is unsafe to treat paid/purchased tokens as gifted tokens. Keep only
+  // explicitly named official free gifts; reject generic fallback labels.
+  const giftedBalance=providerId==='zcode'&&!balanceRow?.error
+    ?packages.filter(pkg=>{
+       const name=typeof pkg?.name==='string'?pkg.name.trim():'';
+       if(!name||name==='ZCode 免费额度'||!/(赠送|签到|免费|gift|bonus|free)/i.test(name)
+         ||/(购买|付费|收费|订阅|paid|purchased|subscription)/i.test(name))return false;
+       const expiry=typeof pkg?.expiredTime==='string'&&pkg.expiredTime.trim()
+         ?Date.parse(pkg.expiredTime):NaN;
+       return pkg?.unit==='token'&&pkg.active!==false
+         &&Number.isFinite(pkg.remaining)&&pkg.remaining>=0
+         &&(!Number.isFinite(expiry)||expiry>observedAt);
+     }).reduce((sum,pkg)=>sum+pkg.remaining,0):0;
   return {
     ...(nickname?{nickname}:{}),
-    ...(balanceValue!==null?{balance:balanceValue,
+      ...(providerId==='loomy'&&loomyDailyGift>0?{loomyDailyGift}:{}),
+      ...(providerId==='zcode'&&giftedBalance>0?{giftedBalance}:{}),
+     ...(balanceValue!==null?{balance:balanceValue,
       ...(unit?{balanceUnit:unit}:{}),balanceCheckedAt:observedAt}:{}),
     balanceState:balanceValue!==null?'available':
       balanceRow?.error?'not_returned':balanceRow?'not_returned':'not_supported',

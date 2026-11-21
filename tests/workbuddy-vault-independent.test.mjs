@@ -7,6 +7,7 @@ import {tmpdir} from 'node:os';
 import {createInstalledPluginInventory} from '../src/installed-plugin-inventory.mjs';
 import {createWorkbuddyVaultAdoption,workbuddyOwnedId} from '../src/workbuddy-vault-adoption.mjs';
 import {createWorkBuddyDriver} from '../src/channels/workbuddy.mjs';
+import {freeEvidence} from '../src/auto-free.mjs';
 import {normalizeConfig} from '../src/config.mjs';
 import {createNativeRouterAdapter} from '../src/adapter.mjs';
 
@@ -55,7 +56,8 @@ function testRig(region){
   }
   if(String(url).includes('/v3/config'))return new Response(JSON.stringify({
    code:0,data:{models:[{id:region==='cn'?'hy4-preview-f':'default-model',
-    name:'Synthetic Model',supportsToolCall:true}]}}),{
+     name:'Synthetic Model',credits:'x0.00 credits',supportsToolCall:true},
+     {id:'synthetic-premium',name:'Synthetic paid',credits:'x0.79 credits',supportsToolCall:true}]}}),{
      status:200,headers:{'content-type':'application/json'}});
   if(String(url).includes('/v2/chat/completions')){
    const s='data: '+JSON.stringify({choices:[{
@@ -106,7 +108,12 @@ for(const region of ['cn','global']){
    assert.ok((await router.listModels()).some(x=>x.id===directId));
    const originalAccount=r.cfg.accounts[0];
    const realCatalog=await r.driver.listModels({account:originalAccount});
-   assert.ok(realCatalog.some(m=>m.id===(region==='cn'?'hy4-preview-f':'default-model')));
+    assert.ok(realCatalog.some(m=>m.id===(region==='cn'?'hy4-preview-f':'default-model')));
+    const freeModel=realCatalog.find(x=>x.id===(region==='cn'?'hy4-preview-f':'default-model'));
+    assert.equal(freeModel.upstreamFreeLabel,true,'official WorkBuddy x0.00 credits must survive into owned driver');
+    assert.ok(freeEvidence(freeModel,r.own));
+    assert.equal(realCatalog.find(x=>x.id==='synthetic-premium')?.upstreamFreeLabel,undefined,
+      'paid official model must not be auto-whitelisted as free');
    const events=[];
    for await(const event of router.stream({
      model:directId,
@@ -162,6 +169,27 @@ test('owned WorkBuddy refresh uses official MIT X-Refresh-Token contract and per
  const d2=make();assert.equal((await d2.listModels({account}))[0].id,'hy4flash-free');
  assert.equal(outbound.length,oldCount+1);
  assert.equal(outbound.at(-1).endsWith('/v3/config'),true);
+});
+
+test('incomplete official WorkBuddy SSE is rejected with only safe structural diagnostics',async()=>{
+ const id='wbp_'+'f'.repeat(24),key='NATIVE_ROUTER_WB_'+id.slice(4).toUpperCase();
+ const account={id,providerId:'own_workbuddy-cn',credentialRef:'driver:own_workbuddy-cn:'+id};
+ const vault={resolve:async name=>({value:name===key?JSON.stringify({
+  accessToken:'FAKE_PRIVATE_SESSION_NOT_TO_EXPOSE',
+  domain:'www.workbuddy.cn',expiresAt:Math.floor(Date.now()/1000)+3600}):''})};
+ const respond=async(text)=>{
+  const driver=createWorkBuddyDriver({ownedRegion:'cn',ownedVault:vault,
+   makeCredentialRef:x=>x,fetchImpl:async()=>new Response(text,{status:200,
+    headers:{'content-type':'text/event-stream'}})});
+  return assert.rejects(driver.generate({account,model:'official-free',options:{
+   messages:[{role:'user',content:'OK'}],maxTokens:32}}),e=>{
+    assert.equal(e.code,'TRUNCATED');
+    assert.equal(e.safeStreamPhase,'FINISH_FRAME_MISSING_DONE');
+    assert.doesNotMatch(JSON.stringify({code:e.code,phase:e.safeStreamPhase}),/FAKE_PRIVATE_SESSION/);
+    return true;
+  });
+ };
+ await respond('data: '+JSON.stringify({choices:[{delta:{content:'partial'},finish_reason:'stop'}]})+'\n\n');
 });
 
 test('WorkBuddy vault refuses malicious file ids, wrong region and disabled source package',async()=>{

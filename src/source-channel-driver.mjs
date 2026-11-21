@@ -203,15 +203,41 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
    async listModels({account}={}){
      await resolve(account);
      const result=await embeddedPack.listModels(providerId);
-     if(result.state!=='ready')throw unable('Source provider model list is unavailable');
-     // Preserve vetted zero-price/free facts from this plugin's isolated
+      if(result.state!=='ready')throw unable('Source provider model list is unavailable');
+      // ZCode Start Plan has a separate official JWT-backed gifted quota.
+      // A positive authenticated balance alone is NOT a free model: only
+      // the known GLM-5.3 Flash route and a sufficiently funded gift bucket
+      // may be offered. Never label ZCode Coding Plan or other models free.
+      let giftedStartPlan=false;
+      if(providerId==='zcode'&&accountProviderId==='own_zcode'
+        &&result.models?.some(row=>row?.id==='glm-5.3-flash')){
+        const facts=await readLiveFacts(account).catch(()=>null);
+        giftedStartPlan=facts?.authVerified===true
+          &&facts.balanceState==='available'
+          &&Number.isFinite(facts.giftedBalance)&&facts.giftedBalance>=1024;
+      }
+      // Loomy official points/records reports a separate daily gifted pool.
+      // The owned channel pack selects this before permanent purchased points.
+      // Allow only Spark X2.6 and only with a substantial verified gift buffer.
+      let giftedLoomy=false;
+      if(providerId==='loomy'&&accountProviderId==='own_loomy'
+        &&result.models?.some(row=>row?.id==='spark-x2.6')){
+        const facts=await readLiveFacts(account).catch(()=>null);
+        giftedLoomy=facts?.authVerified===true&&facts.balanceState==='available'
+          &&Number.isFinite(facts.loomyDailyGift)&&facts.loomyDailyGift>=2000;
+      }
+      // Preserve vetted zero-price/free facts from this plugin's isolated
      // source pack: dropping them prevented safe real free-model testing.
      return result.models.filter(row=>row&&typeof row.id==='string')
        .map(row=>({id:row.id,
          ...(typeof row.name==='string'?{name:row.name}:{}),
          ...(row.upstreamFreeLabel===true||row.isFree===true||row.free===true
            ?{upstreamFreeLabel:true}:{}),
-         ...(row.pricing?{pricing:{...row.pricing}}:{})}));
+          ...(row.pricing?{pricing:{...row.pricing}}:{}),
+           ...(giftedStartPlan&&row.id==='glm-5.3-flash'
+             ?{freeAllowance:'zcode-start-plan-gift'}:{}),
+           ...(giftedLoomy&&row.id==='spark-x2.6'
+             ?{freeAllowance:'loomy-daily-gift'}:{})}));
    },
    // Model directory merely indicates advertised candidates. Account-level
    // proof requires official provider API, or an actual successful inference.

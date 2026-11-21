@@ -5,6 +5,7 @@ import {normalizeConfig} from '../src/config.mjs';
 import {createPrivateOwnedAdoption} from '../src/private-owned-adoption.mjs';
 import {createPrivateOwnedDriver,PRIVATE_PROVIDERS,ownedPrivateId} from '../src/channels/private-owned.mjs';
 import {createNativeRouterAdapter} from '../src/adapter.mjs';
+import {freeEvidence} from '../src/auto-free.mjs';
 
 const fakeSourceId=provider=>'local_'+createHash('sha256').update(provider).digest('hex').slice(0,20);
 const payloads={
@@ -72,7 +73,11 @@ function rig(providerId){
   }
   if(providerId==='lingxi'){
    assert.ok((init.headers?.cookie??'').includes(secret));
-   if(name.endsWith('/sessions/plans'))return response({data:{models:[{key:'qwen3.8_flash',name:'Qwen Flash'}],plans:[{id:'agent-mode-not-a-model'}]}});
+    if(name.endsWith('/sessions/plans'))return response({data:{models:[
+      {key:'qwen3.8_flash',name:'Qwen Flash',multiplier:'x0.00'},
+      {key:'qwen-paid',name:'Paid',multiplier:'x0.79'},
+      {key:'qwen-approx',name:'Approx',multiplier:'～0.00x'},
+      {key:'qwen-unknown',name:'Unknown'}],plans:[{id:'agent-mode-not-a-model'}]}});
    if(name.endsWith('/cowork/sessions'))return response({data:{session_id:'session-test'}});
    if(name.endsWith('/credits/runs'))return response({data:{run_id:'run-test'}});
    if(name.endsWith('/chat/completions'))return response(lingxiSse(),{
@@ -110,7 +115,12 @@ for(const providerId of Object.keys(PRIVATE_PROVIDERS)){
   assert.equal(r.cfg.accounts[0].id,identity);
   r.removeOriginal();
   const checkedModels=await r.driver.listModels({account:r.cfg.accounts[0]});
-  assert.deepEqual(checkedModels.map(m=>m.id),['qwen3.8_flash']);
+   assert.deepEqual(checkedModels.map(m=>m.id),['qwen3.8_flash','qwen-paid','qwen-approx','qwen-unknown']);
+   const freeRow=checkedModels.find(m=>m.id==='qwen3.8_flash');
+   assert.equal(freeRow.upstreamFreeLabel,true);
+   assert.ok(freeEvidence(freeRow,'own_lingxi'));
+   for(const model of checkedModels.filter(m=>m.id!=='qwen3.8_flash'))
+     assert.equal(freeEvidence(model,'own_lingxi'),null,'only exact upstream zero multiplier can be free');
   const adapter=createNativeRouterAdapter({configStore:r.configStore,
    channelDrivers:new Map([[ownedId,r.driver]]),vault:{
     resolve:async()=>{throw Error('must not read original plugin')}}});

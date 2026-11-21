@@ -6,6 +6,7 @@ import {createNativeRouterAdapter} from '../src/adapter.mjs';
 import {normalizeConfig} from '../src/config.mjs';
 import {classifyFailure} from '../src/failure.mjs';
 import {createAccountCenter} from '../src/account-center.mjs';
+import {freeEvidence} from '../src/auto-free.mjs';
 
 const textStream=(text='source reply')=>(async function*(){
  yield {type:'block-start',index:0,blockType:'text'};
@@ -40,6 +41,56 @@ test('opt-in source discovery returns stable opaque references; import copies NO
  const other=createSourceChannelDriver({providerId:'loomy',embeddedPack:rig.embeddedPack});
  await assert.rejects(()=>other.importCandidate({candidateId:candidates[0].id,consent:true}),/no longer exists/);
 });
+test('ZCode private Start Plan grants only GLM-5.3 Flash when authenticated gift allowance is sufficient',async()=>{
+ const rig=mockSource([{id:'gift-01',providerId:'zcode',enabled:true}]);
+ rig.embeddedPack.listModels=async()=>({state:'ready',models:[
+  {id:'glm-5.3-flash',name:'GLM 5.3 Flash'},{id:'glm-5.3',name:'GLM 5.3'}]});
+  let giftedBalance=5000,balance=5000,authenticated=true;
+  rig.embeddedPack.readSourceStatuses=async()=>({state:'ready',accounts:[{
+   accountId:'gift-01',authVerified:authenticated,balanceState:'available',balance,giftedBalance,
+ }]});
+ const driver=createSourceChannelDriver({providerId:'zcode',accountProviderId:'own_zcode',
+   embeddedPack:rig.embeddedPack});
+ const id=sourceAccountOpaqueId('zcode','gift-01');
+ const account={id,providerId:'own_zcode',credentialRef:'driver:own_zcode:'+id};
+ const rows=await driver.listModels({account});
+ assert.match(freeEvidence(rows.find(x=>x.id==='glm-5.3-flash'),'own_zcode')??'',/赠送免费额度/);
+ assert.equal(freeEvidence(rows.find(x=>x.id==='glm-5.3'),'own_zcode'),null,
+   'premium Coding Plan must not inherit gifted Start Plan entitlement');
+  balance=1000;giftedBalance=1000;
+  assert.equal(freeEvidence((await driver.listModels({account}))[0],'own_zcode'),null);
+  balance=5000;giftedBalance=0;
+  assert.equal(freeEvidence((await driver.listModels({account}))[0],'own_zcode'),null,
+    'a paid-only official total cannot masquerade as gifted Start Plan balance');
+  giftedBalance=5000;authenticated=false;
+  assert.equal(freeEvidence((await driver.listModels({account}))[0],'own_zcode'),null);
+ assert.equal(rig.calls.length,0,'gift check is read-only; no model generation issued');
+});
+test('Loomy only grants Spark X2.6 free test from authenticated official daily gift bucket',async()=>{
+ const src=mockSource([{id:'loomy-gift',providerId:'loomy',enabled:true}]);
+ src.embeddedPack.listModels=async()=>({state:'ready',models:[
+  {id:'spark-x2.6',name:'Spark X2.6'},{id:'qwen3.8-flash',name:'Paid Qwen'}]});
+ let gift=5000,authenticated=true,total=15000;
+ src.embeddedPack.readSourceStatuses=async()=>({state:'ready',accounts:[{
+  accountId:'loomy-gift',authVerified:authenticated,balanceState:'available',
+  balance:total,loomyDailyGift:gift,
+ }]});
+ const driver=createSourceChannelDriver({providerId:'loomy',accountProviderId:'own_loomy',
+   embeddedPack:src.embeddedPack});
+ const id=sourceAccountOpaqueId('loomy','loomy-gift');
+ const account={id,providerId:'own_loomy',credentialRef:'driver:own_loomy:'+id};
+ const rows=await driver.listModels({account});
+ assert.match(freeEvidence(rows[0],'own_loomy')??'',/每日赠送积分/);
+ assert.equal(freeEvidence(rows[1],'own_loomy'),null,'other models never inherit gifted allowance');
+ gift=100;total=22000;
+ assert.equal(freeEvidence((await driver.listModels({account}))[0],'own_loomy'),null,
+   'large paid permanent balance cannot replace insufficient daily free gift');
+ gift=5000;authenticated=false;
+ assert.equal(freeEvidence((await driver.listModels({account}))[0],'own_loomy'),null,
+   'no authentic gift evidence, no billing-risk inference');
+ assert.equal(src.calls.length,0);
+});
+
 test('independent Loomy verifier uses only own account pool and authenticated credit status',async()=>{
  const rig=mockSource([{id:'loomy-own-01',providerId:'loomy',nickname:'Loomy 自有',
    enabled:true}]);

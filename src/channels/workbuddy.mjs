@@ -26,6 +26,13 @@ const sha=value=>createHash('sha256').update(value).digest('hex');
 const safeText=value=>typeof value==='string'?value.trim().slice(0,180):
   Number.isFinite(value)?String(value):'';
 const privateText=value=>typeof value==='string'&&value.trim().length<=16384?value.trim():'';
+// WorkBuddy's live /v3/config models carry their credit rate in `credits`
+// (e.g. "x0.00 credits"), NOT in `name`. The MIT original parser uses this
+// exact field; never infer a zero cost from model names, fallback rosters or IDs.
+function officialZeroCredit(item){
+  return typeof item?.credits==='string'
+    && /^\s*x\s*0(?:\.0+)?(?:\s+credits?)?\s*$/i.test(item.credits);
+}
 function timestamp(value){
   const num=Number(value);
   if(Number.isFinite(num)&&num>0)return num<1e11?num*1000:num;
@@ -323,7 +330,8 @@ export function createWorkBuddyDriver({
         for(const item of doc.data.models){
           if(typeof item?.id==='string'&&item.id.length<160&&item.id
              &&item.supportsToolCall!==false)
-            map.set(item.id,{id:item.id,name:typeof item.name==='string'?item.name:item.id});
+             map.set(item.id,{id:item.id,name:typeof item.name==='string'?item.name:item.id,
+               ...(officialZeroCredit(item)?{upstreamFreeLabel:true}:{})});
         }
         const cli=Array.isArray(doc?.data?.agents)
           ?doc.data.agents.find(x=>x?.name==='cli'&&Array.isArray(x.models)):null;
@@ -336,7 +344,10 @@ export function createWorkBuddyDriver({
           const cli=await readCatalog('/v3/config','CLI/2.63.2 CodeBuddy/2.63.2').catch(()=>[]);
           const desktop=await readCatalog('/v3/config','WorkBuddy/5.8.3').catch(()=>[]);
           const seen=new Map();
-          for(const item of [...cli,...desktop])if(!seen.has(item.id))seen.set(item.id,item);
+           for(const item of [...cli,...desktop]){
+             const prior=seen.get(item.id);
+             if(!prior||(!prior.upstreamFreeLabel&&item.upstreamFreeLabel))seen.set(item.id,item);
+           }
           rows=[...seen.values()];
         }else{
           const ua='WorkBuddy/5.8.3 WorkBuddy/5.8.3 CLI/2.161.0';
@@ -354,7 +365,20 @@ export function createWorkBuddyDriver({
     const rows=response?.data?.models;
     if(!Array.isArray(rows))throw new UpstreamError('WorkBuddy model catalog unavailable',{code:'BAD_JSON'});
     return rows.filter(x=>typeof x?.id==='string'&&x.id&&x.supportsToolCall!==false)
-      .map(x=>({id:x.id,name:typeof x.name==='string'?x.name:x.id}));
+       .map(x=>({id:x.id,name:typeof x.name==='string'?x.name:x.id,
+         ...(officialZeroCredit(x)?{upstreamFreeLabel:true}:{})}));
+  }
+  // Metadata-only diagnosis of incomplete OpenAI SSE. No model content, headers,
+  // cookie, user identity or upstream free-form error is ever retained.
+  function safeStreamPhase(body,contentType){
+    if(!contentType.includes('text/event-stream'))return 'NON_SSE_INCOMPLETE';
+    if(!/(?:^|\r?\n)data:\s*\S/m.test(body))return 'NO_SSE_FRAMES';
+    const done=/(?:^|\r?\n)data:\s*\[DONE\]\s*(?:\r?\n|$)/m.test(body);
+    const finish=/(?:^|[,{])\s*"finish_reason"\s*:\s*"(?:stop|length|tool_calls)"/m.test(body);
+    if(!done&&finish)return 'FINISH_FRAME_MISSING_DONE';
+    if(!done)return 'MISSING_DONE_AND_FINISH';
+    if(!finish)return 'DONE_MISSING_FINISH';
+    return 'UNCLASSIFIED_SSE';
   }
   async function workbuddyCheckIn({account,date}={}){
     if(!ownedRegion)return {state:'unsupported'};
@@ -470,7 +494,11 @@ export function createWorkBuddyDriver({
       const maxTokens=options.maxTokens??options.max_tokens;
       if(Number.isInteger(maxTokens)&&maxTokens>0)payload.max_tokens=maxTokens;
       const reply=await request(account,'/v2/chat/completions',{method:'POST',body:payload,model,signal});
-      return validateModelCalls(decodeOpenAIResponse(reply.text,reply.contentType),options.tools);
+       try{return validateModelCalls(decodeOpenAIResponse(reply.text,reply.contentType),options.tools)}
+       catch(error){
+         if(error?.code==='TRUNCATED')error.safeStreamPhase=safeStreamPhase(reply.text,reply.contentType);
+         throw error;
+       }
     },
   };
 }

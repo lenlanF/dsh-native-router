@@ -1,4 +1,4 @@
-# DSH Native Router｜全项目未完工横向核查与验收计划（2026-11-21，迭代至 rc.53）
+# DSH Native Router｜全项目未完工横向核查与验收计划（2026-11-21，迭代至 rc.59）
 
 > 本文是**核查台账**而不是“所有渠道线上可用”的声明。生产环境绝不通过测试模拟来冒充真实官方模型回复。项目唯一属地：Windows WebCodexTunnel 的 `F:\WebCodex\.webcodex-worktrees\dsh-native-router-690ec4c6`，GitHub `lenlanF/dsh-native-router` 仅推送 `main`。检查本机时未修改登录、签到、开关或模型额度。
 
@@ -156,3 +156,40 @@
 - 两组在途鉴权红测：账号在只读查询期间被停用，或所属 Provider 被关闭，旧查询仍覆盖独立已撤销授权缓存为 `online`；rc.53 核验提交前再按 ID/Provider/凭据引用/协议和启停复核，不再记录旧状态。健康账号15分钟、临时错误3分钟的 TTL 继承逻辑保持原样。
 - 模型目录超时红测：之前已获得完整模型回复的成功证据，后续 `listModels()` 报错导致成功证据被错误清除，重启后也会显示失败。现在把**从未开始 `generate`** 的目录异常作为跳过，不清除已成功的证据，生产实测资格继续由明确定价和自有授权机制控制。另将登出时上游响应文本改为安全固定确认，堵住 rc.52 遗漏的隐私入口。
 - 下一步最有价值的生产验收仍是：DSH owner 已认证会话中通过插件自身逐账号执行明确免费32 Token小回合，核实真实回复及额度并逐一落地接管 MiMo/豆包、自有签到账本、故障切换 Agent 续跑。没有真实官方完整回复，不能将模拟调用记作最终验收。
+
+## 11. rc.54 一次性宿主内实机模型验收任务
+
+- 不再把八账号最近鉴权 `online` 当成真实模型可用。新增宿主内 one-shot 真实调用入口：只在当次 DSH 启动随机 nonce 与15分钟内本插件目录用户明确 consent 任务一致时生效。任务先原子消费，后续重启不会重复调用；逐一使用 `accountCenter.listTestModels` 查费率，免费证据为 true 的才进入 `verifyModel` 自有独立驱动的32 Token 最小真实生成。不借用桌面浏览器、官方计费API或原插件运行进程；账本不保存令牌/账号ID/原始回复。
+- rc.54 **已实机安装并运行一次性原生检查**，真实报告：Lingxi=11、WorkBuddy CN 两账号各16、global 两账号各35、Loomy=6、ZCode=2、CodeArts=11；合计132个实时模型目录项，全部在自有驱动中真实返回。因为 0个模型携带可信免费判定，8/8 账号都是 `NO_CONFIRMED_FREE_MODEL`，0次真实推理发送。此证据不能被当成「全部模型不可用」，也不能被当成「模型真实回复成功」。
+
+## 12. rc.55 WorkBuddy 自有目录零积分元信息恢复
+
+- 现场比对安装的 `dsh-connect-workbuddy 5.24.14`：`/v3/config` 返回条目 `credits` 字符串可为 `x0.00 credits`，原插件用 `parseCreditMultiplier` 形成 `creditMultiplier` 和显示标签；聚合路由此前只存 `{id,name}`，导致免费信息被彻底丢失。现仅当本账号官方实时 `credits` 格式严格匹配零积分倍率时携带 `upstreamFreeLabel`，不对旧缓存或没有费用的其他模型自作免费判断。
+- rc.55 **已实机部署并真实推理**：8个独立账号、132个实时目录候选。已由插件自身实际完成 WorkBuddy 国内账号第1个 `hy4flash-free` (57输入/26输出token)、国际第1个 `hy3` (31/27)、国际第2个 `hy3` (31/32) 的官方完整回复，且已写入3条 `modelProofAt`。国内第2个 `hy4flash-free` 确实发出请求，但流 `STREAM_CLOSED` 未完成，记失败；Lingxi/Loomy/ZCode/CodeArts 4个账号未知免费费用、未发送生成，不能乱用收费渠道。
+
+## 13. rc.56 精准只重试未过关账号
+
+- rc.56 **已实机安装并精准仅重试失败的国内 WorkBuddy 第二账号**：官方零积分模型 `hy4flash-free` 返回 `STREAM_CLOSED`，故该账户仍然没有真实完成证据。先前成功的其他3账号证据没有被覆盖，实际累计3/8，而非4/8。
+
+## 14. rc.57 官方 Lingxi 实时倍率和流式响应精细安全验收
+
+- 对照本机已装 `dsh-connect-lingxi 0.5.9` 原始实现：`/sessions/plans` 官方 `multiplier` 是实际模型积分费率；当前自有 Lingxi 驱动丢失该字段，与上一版 WorkBuddy 的同类缺陷一致。严格匹配 `x0.00`、`0.00x`、数值0 为零倍率证据，其他未知或近似值一律不判定免费。实机再次查官方 11 模型有无明确零倍率；找到才调用，不是凭模型名推断。
+- 为排查 WorkBuddy 国内第二账号重复 `STREAM_CLOSED`，新增仅固定枚举（没有 SSE 正文）的 `streamPhase`，只有确认完整终止且非空模型回复才记成功。
+
+- rc.57 **实机复核结论**：Lingxi 模型目录11项，但零倍率0项；国内 WorkBuddy 第二自有账号在这次返回完整 hy4flash-free（57输入/30输出），成功证明写回本地。连同先前国内1与国际2个账号，共4个 WorkBuddy独立账号真实生成成功。此前两次 `STREAM_CLOSED` 是真实失败，不能抹掉历史，也不能因为后续成功而将过往说成通过。
+
+## 16. rc.58 DSH 真实路由试验的可复查结果
+
+- rc.58 由 DSH 正式 `ctx.llm.stream` 运行的 owner 单次验收报告证实：WorkBuddy 国内 Provider `hy4flash-free` **真实路由完整通过**，国际 Provider `hy3` **真实流未完整结束**，所以国际渠道仍需要修复。账号直接推理四个 WorkBuddy 均历史上成功过，但一个国际账号在此前成功后发生更晚的失败，当前账号成功证明净3/8。不能将4/8历史成功说成最新均通过。
+- 同一版另一只读+费用门槛原生 one-shot 复查：Lingxi 11候选、Loomy 6、ZCode 2、CodeArts 11；上述各一账号无确切免费模型或赠送池，因此均以 `NO_CONFIRMED_FREE_MODEL` **安全跳过而不是认定失败或成功**。
+
+## 17. rc.59 当前工作：全渠道 DSH 原生调用，优先解决国际路由失败
+
+- 在严格官方 `x0.00` 费用候选中指定 `freeModelIndex` 并记录安全 `hostPhase`，不存任何上游错误、回复正文、Cookie 或账户私有信息；所有同 Provider 账号需一致确认此模型免费，防止模型链从免费账号切换到收费账号。要对国际 WorkBuddy Provider 发起真实 DSH Host 生成并验证完整结束，随后检查其它渠道是否可从官方来源取得免费调用资格，不能因同一任务中小漏洞修复就宣布阶段完成。
+
+- 追加 Loomy 全链路费用调查：内置自有渠道包官方只读 `GET /points/records` 返回 `永久积分` 与 `每日赠送` 两种套餐（源码证据在自有 pack），每日赠送明确是免费积分且路由优先消耗。已新增 `loomyDailyGift` 可信字段，只在 exact `每日赠送` + `积分` + 非负余额下成立；新实测仅允许官方认证且每日赠送余额≥2000的 `spark-x2.6`，避免永久购入积分被误用。这需要安装 rc.59 后独立真实验证，不能因为离线测试通过就宣称 Loomy 可用。
+
+## 15. rc.57 追加 ZCode 官方 Start Plan 赠送额度与 DSH Provider 路由
+
+- 发现本插件内置 MIT 渠道包有明确且独立的 ZCode Start Plan：官方 `zcode.z.ai/api/v1/zcode-plan/anthropic/v1/messages` 通过已经授权的 `zcode_jwt` 使用**赠送免费额度**，与付费 Coding Plan 的 `api.z.ai/api/anthropic/v1/messages` /订阅 Key 分离。只有在自有账号的官方 `/billing/balance` 确认余额>=1024、确认该账号已登录、目录含确切 `glm-5.3-flash` 时提供该模型 `freeAllowance`；没有赠送额度绝不执行。其他 ZCode 模型不凭名字断言免费。
+- 通过 DSH Host 原生 `ctx.llm.stream({provider:'native-router',model:'direct:...'})` 实测的 `host-route` 是 Provider级验收；多个独立账号同 Provider 时不能据此确认命中哪个账号。先实测 Lingxi #1、ZCode #7、WorkBuddy 国内第2账号 #3，以官方完整回复和持久记录为唯一通过标准，另进行一次已确认零费 Provider 的 Host 路由验收。
