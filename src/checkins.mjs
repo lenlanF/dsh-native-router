@@ -6,6 +6,7 @@ import {checkinDisplayState,expiredCheckinConfirmation} from './account-facts.mj
 import {checkinGroups,latestConfirmedDate} from './checkin-summary.mjs';
 import {publicCheckinMessage,publicAccountFailureMessage} from './public-diagnostics.mjs';
 
+import {retryAtomicRename} from './retry-atomic-rename.mjs';
 const MAX_HISTORY=500;
 const STATES=new Set(['success','failed','pending_confirmation','no_task','client_required','unsupported']);
 export function todayKey(now=Date.now(),timeZone='Asia/Shanghai'){
@@ -44,7 +45,7 @@ export function createCheckinStore({path=join(dirname(defaultConfigPath()),'chec
       const target=path+'.tmp-'+process.pid;
       mkdirSync(dirname(path),{recursive:true});
       writeFileSync(target,JSON.stringify({version:1,history:next},null,2)+'\n',{flag:'wx',mode:0o600});
-      try{renameSync(target,path)}catch(error){try{unlinkSync(target)}catch{};throw error}
+      try{retryAtomicRename(target,path)}catch(error){try{unlinkSync(target)}catch{};throw error}
       records=next;
       return structuredClone(entry);
     },

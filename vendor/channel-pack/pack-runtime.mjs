@@ -36553,6 +36553,8 @@ function parseModelInfo(m, seen) {
   return {
     id,
     name: ratio === void 0 ? name2 : `${name2} \xB7 ${ratio}`,
+    catalogSource: "codearts-signed-official-model-catalog",
+    catalogObservedAt: Date.now(),
     ...exactRatio === void 0 ? {} : {
       costMultiplier: exactRatio,
       priceSource: "codearts-official-credit-ratio"
@@ -58315,13 +58317,6 @@ function available(credential, channel) {
   }
   return typeof credential.coding_plan_key_zai === "string" && credential.coding_plan_key_zai.length > 0 || typeof credential.coding_plan_key_bigmodel === "string" && credential.coding_plan_key_bigmodel.length > 0;
 }
-function describeChannels(credential) {
-  return ["start-plan", "coding-plan"].map((channel) => ({
-    channel,
-    available: available(credential, channel),
-    models: CHANNEL_MODELS[channel]
-  }));
-}
 function resolveChannelFor(credential, model) {
   const key = model.trim().toLowerCase();
   const inChannel = (channel) => CHANNEL_MODELS[channel].includes(key);
@@ -58399,10 +58394,6 @@ async function fetchCodingPlanApiKey(credential, fetchImpl = sanitizingFetch) {
   const secret = typeof copied?.secretKey === "string" ? copied.secretKey.trim() : "";
   if (secret.length === 0) return { key: void 0, reason: "no-secret" };
   return { key: `${apiKey}.${secret}` };
-}
-function shouldFallbackToOtherChannel(status, body) {
-  if (status !== 429) return false;
-  return body.includes("1005") || body.includes("1113");
 }
 function internalCarrierEnabledFromEnv(env = process.env) {
   const raw = env["DSH_ZCODE_INTERNAL_CARRIER"];
@@ -60895,7 +60886,7 @@ var ZcodeAdapter = class extends LlmAdapter {
             { status: response.status }
           );
         }
-        if (shouldFallbackToOtherChannel(response.status, text) && !switchedAccount && captchaParam === void 0 && attempt < this.product.concurrencyRetryMax) {
+        if (false) {
           const current = requestChannel;
           const other = current === "start-plan" ? "coding-plan" : "start-plan";
           const otherReady = describeChannels(credential).find((i) => i.channel === other)?.available === true;
@@ -66442,7 +66433,9 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
       total: result.remaining,
       // ZCode 不在同一响应里区分「已失效包」，故为 0。
       expiredTotal: 0,
-      packages
+      packages,
+      // A preview does not prove current claim eligibility or funded balance.
+      previewStartPlanCount: Array.isArray(result.claimablePlans) ? result.claimablePlans.filter((p) => typeof p?.planId === "string" && /^zcode-v3-start-plan-[a-z0-9-]+$/i.test(p.planId)).length : null
     };
   }
   function codeArtsIdentityOf(credential) {

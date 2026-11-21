@@ -109,32 +109,42 @@ test('single official quota package with explicit remaining balance and unit is 
    balanceRow:{balance:{packages:[{remaining:5,unit:'token'}]}}});
  assert.equal(unsupported.authVerified,false,'unknown channel balance is never proof of login');
 });
-test('ZCode only counts unexpired official named token gifts, never fallback labels or paid packages',()=>{
- const expiry=new Date(Date.now()+86400000).toISOString();
- const facts=sourceAccountFacts({providerId:'zcode',observedAt:Date.now(),
-  balanceRow:{accountId:'safe',balance:{total:90000,packages:[
-   {name:'签到赠送',officialName:'签到赠送',officialUnitType:'token',
-    unit:'token',remaining:2400,active:true,expiredTime:expiry},
-   {name:'购买套餐',officialName:'购买套餐',officialUnitType:'token',
-    unit:'token',remaining:38000,active:true,expiredTime:expiry},
-   {name:'ZCode 免费额度',officialName:null,officialUnitType:'token',
-    unit:'token',remaining:49000,active:true,expiredTime:expiry},
-   {name:'每日赠送过期',officialName:'每日赠送过期',officialUnitType:'token',
-    unit:'token',remaining:600,expiredTime:'2020-01-01T00:00:00Z'},
-  ]}}});
- assert.equal(facts.balance,90000);
- assert.equal(facts.giftedBalance,2400);
- const official=sourceAccountFacts({providerId:'zcode',balanceRow:{balance:{packages:[
-  {name:'ZCode 免费额度',officialName:'ZCode 免费额度',officialUnitType:'token',
-   remaining:1300,expiredTime:expiry}]}}});
- assert.equal(official.giftedBalance,1300,'exact name read from official bucket may be free');
- for(const change of [{officialName:null},{officialUnitType:null},
-   {expiredTime:''},{officialName:'购买的免费订阅'},{remaining:-1}]){
-  const bad=sourceAccountFacts({providerId:'zcode',balanceRow:{balance:{packages:[{
-   name:'ZCode 免费额度',officialName:'ZCode 免费额度',officialUnitType:'token',
-   remaining:1300,expiredTime:expiry,...change}]}}});
-  assert.equal(bad.giftedBalance,undefined,JSON.stringify(change));
+test('ZCode Start Plan gift uses signed plan ID and exact model instead of free-word guesses',()=>{
+ const now=Date.now(),expiry=new Date(now+86400000).toISOString();
+ const start={name:'GLM-5.3-Flash',officialName:'GLM-5.3-Flash',
+  officialPlanId:'zcode-v3-start-plan-trust-1006',officialUnitType:'token',
+  officialMeter:'input+output',unit:'token',remaining:2600,expiredTime:expiry};
+ const paid={name:'Premium Coding',officialName:'GLM-5.3-Flash',
+  officialPlanId:'coding-plan-paid-monthly',officialUnitType:'token',
+  remaining:700000,expiredTime:expiry};
+ const fallback={name:'ZCode 免费额度',officialName:null,
+  officialPlanId:null,officialUnitType:'token',remaining:90000,expiredTime:expiry};
+ const eligible=sourceAccountFacts({providerId:'zcode',observedAt:now,
+  balanceRow:{balance:{total:792600,previewStartPlanCount:2,packages:[start,paid,fallback,{...start,remaining:9000}]}}});
+ assert.equal(eligible.balance,792600);
+ assert.equal(eligible.giftedBalance,2600,
+   'duplicate Start Plan must never inflate a no-charge allowance');
+ assert.equal(eligible.zcodePlanBuckets,2);
+ assert.equal(eligible.zcodeFlashBuckets,2);
+  assert.equal(eligible.zcodePreviewStartPlans,2);
+  for(const change of [
+  {officialPlanId:'coding-plan-premium'},
+  {officialPlanId:null},{officialPlanId:'zcode-v3-paid-plan-123'},
+  {officialName:null},{officialName:'GLM-5.3'},
+  {officialName:'GLM-5.3-Flash paid'},
+  {officialUnitType:'points'},{officialUnitType:null},
+  {expiredTime:''},{expiredTime:new Date(now-200).toISOString()},
+  {expiredTime:new Date(now+60000).toISOString()},
+  {active:false},{remaining:-1},
+ ]){
+   const facts=sourceAccountFacts({providerId:'zcode',observedAt:now,
+    balanceRow:{balance:{packages:[{...start,...change}]}}});
+   assert.equal(facts.giftedBalance,undefined,JSON.stringify(change));
  }
+ const two=sourceAccountFacts({providerId:'zcode',observedAt:now,
+  balanceRow:{balance:{packages:[start,{...start,
+   officialPlanId:'zcode-v3-start-plan-trust-1007',remaining:1700}]}}});
+ assert.equal(two.giftedBalance,4300);
 });
 test('Loomy daily gift is extracted only from the exact official daily bucket, not paid permanent points',()=>{
  const gift=sourceAccountFacts({providerId:'loomy',balanceRow:{balance:{total:9500,packages:[

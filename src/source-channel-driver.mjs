@@ -233,8 +233,9 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
      // source pack: dropping them prevented safe real free-model testing.
      return result.models.filter(row=>row&&typeof row.id==='string')
        .map(row=>({id:row.id,
-         ...(typeof row.name==='string'?{name:row.name}:{}),
-          ...(row.upstreamFreeLabel===true||row.isFree===true||row.free===true
+          ...(typeof row.name==='string'?{name:row.name}:{}),
+          ...(providerId==='codearts'&&row.catalogSource==='codearts-signed-official-model-catalog'
+            ?{catalogSource:row.catalogSource}:{}),          ...(row.upstreamFreeLabel===true||row.isFree===true||row.free===true
             ?{upstreamFreeLabel:true}:{}),
           ...(providerId==='codearts'&&row.priceSource==='codearts-official-credit-ratio'
             &&typeof row.costMultiplier==='number'&&Number.isFinite(row.costMultiplier)

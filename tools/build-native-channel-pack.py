@@ -217,6 +217,8 @@ def build(*, check=False):
     }
   }
   return { id, name: ratio === void 0 ? name2 : `${name2} · ${ratio}`,
+    catalogSource: "codearts-signed-official-model-catalog",
+    catalogObservedAt: Date.now(),
     ...(exactRatio === void 0 ? {} : {
       costMultiplier: exactRatio, priceSource: "codearts-official-credit-ratio"
     }) };''',
@@ -239,6 +241,11 @@ def build(*, check=False):
     # resolveModel, otherwise the owner directory sees 11 priced-unknown rows.
     patches.extend([
         (
+            '      expiredTotal: 0,\n      packages\n    };',
+            '      expiredTotal: 0,\n      packages,\n      // A preview does not prove current claim eligibility or funded balance.\n      previewStartPlanCount: Array.isArray(result.claimablePlans) ?\n        result.claimablePlans.filter(p => typeof p?.planId === "string" &&\n          /^zcode-v3-start-plan-[a-z0-9-]+$/i.test(p.planId)).length : null\n    };',
+            'zcode-preserve-anonymous-start-plan-preview-count',
+        ),
+        (
             '    return source.filter((m) => !/-VL-/i.test(m.id) && !/-VL$/i.test(m.id)).map((m) => ({ id: m.id, name: m.name }));',
             '    return source.filter((m) => !/-VL-/i.test(m.id) && !/-VL$/i.test(m.id)).map((m) => ({ ...m, id: m.id, name: m.name }));',
             'codearts-preserve-credit-in-all-models',
@@ -254,6 +261,16 @@ def build(*, check=False):
             'codearts-preserve-credit-in-resolved-model',
         ),
     ])
+    # A ZCode free Start Plan request MUST NOT silently retry against a
+    # purchased Coding Plan after quota/rate errors. Even one unexpected retry
+    # could consume paid credits while the native route is marked free-only.
+    # Ordinary paid Coding Plan access remains an explicit account/model route;
+    # no implicit cross-rail billing is permitted in this plugin.
+    patches.append((
+        '        if (shouldFallbackToOtherChannel(response.status, text) && !switchedAccount && captchaParam === void 0 && attempt < this.product.concurrencyRetryMax) {',
+        '        if (false /* Native Router forbids implicit Start-to-paid rail fallback */ && shouldFallbackToOtherChannel(response.status, text) && !switchedAccount && captchaParam === void 0 && attempt < this.product.concurrencyRetryMax) {',
+        'zcode-never-silently-fallback-to-paid-coding-plan',
+    ))
     names = []
     for old, new, name in patches:
         count = text.count(old)

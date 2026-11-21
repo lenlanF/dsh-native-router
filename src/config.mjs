@@ -2,6 +2,7 @@ import { readFileSync, existsSync, mkdirSync, writeFileSync, renameSync, unlinkS
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import {randomUUID} from 'node:crypto';
+import {retryAtomicRename} from './retry-atomic-rename.mjs';
 const ID = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
 const NAME = /^[^\u0000-\u001f]{1,120}$/;
 const AUTH = /^(?:env:[A-Z_][A-Z0-9_]*|host:[a-zA-Z0-9._:-]{1,160}|driver:[a-zA-Z][a-zA-Z0-9_-]{0,63}:[a-zA-Z0-9_-]{1,100})$/;
@@ -157,8 +158,7 @@ export function createConfigStore({ path = defaultConfigPath(), initial } = {}) 
        const tmp = path + '.tmp-' + process.pid + '-' + randomUUID();
        try {
          writeFileSync(tmp, body, { mode: 0o600, flag: 'wx' });
-         renameSync(tmp, path);
-       } catch (error) {
+          retryAtomicRename(tmp, path);       } catch (error) {
          try { unlinkSync(tmp) } catch {}
          throw error;
        }

@@ -417,6 +417,62 @@ test('explicit read-only quota audit gathers only safe fee and gift evidence, wi
  assert.equal(report.accounts[1].lowestMultiplier,0.003);
  assert.doesNotMatch(JSON.stringify(report),/c_safe|z_safe|credentialRef|accountId/);
 }));
+test('read-only provider selector survives reordered accounts beyond the first 16 slots',async()=>fixture(async dir=>{
+ const h=rig(dir);h.request();
+ const file=join(dir,'owner-live-smoke-request.json');
+ const req=JSON.parse(readFileSync(file,'utf8'));
+ writeFileSync(file,JSON.stringify({...req,mode:'quota-audit',providers:['codearts','own_zcode']}));
+ const padding=Array.from({length:19},(_,i)=>({id:'pad'+i,providerId:'padding',credentialRef:'driver:padding:pad'+i,enabled:true}));
+ const c={id:'credit_named',providerId:'codearts',enabled:true,credentialRef:'driver:codearts:credit_named'};
+ const z={id:'start_named',providerId:'own_zcode',enabled:true,credentialRef:'driver:own_zcode:start_named'};
+ const accounts=[...padding,c,z];
+ const configStore={path:join(dir,'config.json'),get:()=>({
+  providers:[{id:'padding',enabled:true},{id:'codearts',enabled:true},{id:'own_zcode',enabled:true}],accounts})};
+ let paidCalls=0;
+ const drivers={codearts:{
+  refreshAccountStatus:async()=>({state:'ready',authVerified:true,balanceState:'available',balance:500}),
+  listModels:async()=>[{id:'glm-5.3-flash',catalogSource:'codearts-signed-official-model-catalog'}],
+  generate:async()=>{paidCalls++;throw Error('must not generate')}
+ },own_zcode:{
+  refreshAccountStatus:async()=>({state:'ready',authVerified:true,balanceState:'available',giftedBalance:2000}),
+  listModels:async()=>[{id:'GLM-5.3-Flash'}],
+  generate:async()=>{paidCalls++;throw Error('must not generate')}
+ }};
+ const result=await runOwnerLiveSmoke({configStore,
+  accountCenter:{driverFor:id=>drivers[id],list:()=>({accounts:[]})},
+  env:{DSH_NATIVE_ROUTER_SMOKE_NONCE:nonce}});
+ assert.equal(result.checked,2);assert.equal(result.verified,0);assert.equal(paidCalls,0);
+ const report=JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'));
+ assert.deepEqual(report.accounts.map(row=>row.providerId),['codearts','own_zcode']);
+ assert.deepEqual(report.accounts.map(row=>row.code),['NO_OFFICIAL_RATE','OFFICIAL_GIFT_AND_MODEL']);
+ assert.equal(report.accounts[0].signedCatalogCount,1);
+ assert.doesNotMatch(JSON.stringify(report),/credit_named|start_named|credentialRef/);
+}));
+test('claimable ZCode gift is diagnosed without executing grant claim or model inference',async()=>fixture(async dir=>{
+ const h=rig(dir);h.request();
+ const file=join(dir,'owner-live-smoke-request.json');
+ const row=JSON.parse(readFileSync(file,'utf8'));
+ writeFileSync(file,JSON.stringify({...row,mode:'quota-audit',providers:['own_zcode']}));
+ const a={id:'zg_one',providerId:'own_zcode',enabled:true,
+  credentialRef:'driver:own_zcode:zg_one'};
+ let calls=0;
+ const driver={refreshAccountStatus:async()=>({state:'ready',authVerified:true,
+   balanceState:'available',balance:0,zcodePlanBuckets:0,zcodeFlashBuckets:0,
+   zcodePreviewStartPlans:2}),
+  listModels:async()=>[{id:'GLM-5.3-Flash'}],
+  generate:async()=>{calls++;throw Error('inference forbidden')},
+  checkIn:async()=>{calls++;throw Error('claim not requested')}};
+ const result=await runOwnerLiveSmoke({
+  configStore:{path:join(dir,'config.json'),get:()=>({
+   providers:[{id:'own_zcode',enabled:true}],accounts:[a]})},
+  accountCenter:{list:()=>({accounts:[]}),driverFor:()=>driver},
+  env:{DSH_NATIVE_ROUTER_SMOKE_NONCE:nonce}});
+ const report=JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'));
+ assert.equal(result.checked,1);assert.equal(result.verified,0);
+ assert.equal(report.accounts[0].code,'START_PLAN_PREVIEW_UNVERIFIED');
+ assert.equal(report.accounts[0].zcodePreviewStartPlans,2);
+ assert.equal(calls,0);
+}));
 test('unknown or unavailable price and catalog errors are reported but never billed',async()=>fixture(async dir=>{
  const h=rig(dir,{listModels:()=>{throw Error('model catalog failed') }});
  h.request();

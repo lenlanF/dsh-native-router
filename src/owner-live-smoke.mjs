@@ -5,6 +5,7 @@
 import {readFileSync,writeFileSync,renameSync,existsSync,unlinkSync} from 'node:fs';
 import {dirname,join} from 'node:path';
 
+import {retryAtomicRename} from './retry-atomic-rename.mjs';
 const NONCE=/^[a-f0-9]{32}$/;
 const wait=(ms,signal)=>new Promise(resolve=>{
   if(signal?.aborted)return resolve();
@@ -147,17 +148,24 @@ async function quotaEvidence({account,accountCenter,configStore,signal}){
    const modelFound=models.some(row=>/^glm[-.]5[-.]3[-.]flash$/i.test(row?.id??''));
    const giftConfirmed=status.balanceState==='available'
     &&Number.isFinite(status.giftedBalance)&&status.giftedBalance>=1024;
-   return {state:'observed',code:giftConfirmed&&modelFound
-     ?'OFFICIAL_GIFT_AND_MODEL':'NO_CONFIRMED_GIFT_BALANCE',
-     modelFound,giftConfirmed,advertisedCount:models.length};
-  }
-  const official=models.filter(row=>row?.priceSource==='codearts-official-credit-ratio'
+    const previewOnly=!giftConfirmed&&Number.isInteger(status.zcodePreviewStartPlans)
+      &&status.zcodePreviewStartPlans>0;
+    return {state:'observed',code:giftConfirmed&&modelFound?'OFFICIAL_GIFT_AND_MODEL':
+      previewOnly?'START_PLAN_PREVIEW_UNVERIFIED':'NO_CONFIRMED_GIFT_BALANCE',
+      modelFound,giftConfirmed,advertisedCount:models.length,
+      ...(Number.isInteger(status.zcodePlanBuckets)?{zcodePlanBuckets:status.zcodePlanBuckets}:{}),
+      ...(Number.isInteger(status.zcodeFlashBuckets)?{zcodeFlashBuckets:status.zcodeFlashBuckets}:{}),
+      ...(Number.isInteger(status.zcodePreviewStartPlans)?{zcodePreviewStartPlans:status.zcodePreviewStartPlans}:{})};
+   }  const official=models.filter(row=>row?.priceSource==='codearts-official-credit-ratio'
     &&typeof row.costMultiplier==='number'&&Number.isFinite(row.costMultiplier)
     &&row.costMultiplier>=0&&row.costMultiplier<=100);
   const free=official.filter(row=>row.costMultiplier===0);
+  const signedCatalogCount=models.filter(row=>row.catalogSource===
+    'codearts-signed-official-model-catalog').length;
   return {state:'observed',code:free.length?'OFFICIAL_ZERO_RATE_AVAILABLE':
      official.length?'OFFICIAL_RATE_NONZERO':'NO_OFFICIAL_RATE',
     officialRateCount:official.length,zeroRateCount:free.length,
+    signedCatalogCount,
     ...(official.length?{lowestMultiplier:Math.min(...official.map(row=>row.costMultiplier))}:{}),
     advertisedCount:models.length};
  }catch{return {state:'observed',code:'OFFICIAL_READ_ONLY_UNAVAILABLE'}}
@@ -254,9 +262,14 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
         ||request.freeModelIndex<0||request.freeModelIndex>9))
        ||(request.mode!==undefined&&!['host-route','bounded-priced','quota-audit'].includes(request.mode))
        ||(request.mode==='quota-audit'&&(
-         !Array.isArray(request.slots)||request.slots.length>2||
-         request.slots.some(slot=>![7,8].includes(slot))))
-       ||(request.mode==='bounded-priced'&&(
+         (request.providers===undefined&&!Array.isArray(request.slots))||
+         (request.providers!==undefined&&(
+           request.slots!==undefined||!Array.isArray(request.providers)||
+           request.providers.length<1||request.providers.length>2||
+           request.providers.some(id=>!['own_zcode','codearts'].includes(id))||
+           new Set(request.providers).size!==request.providers.length))||
+         (request.providers===undefined&&(
+           request.slots.length>2||request.slots.some(slot=>![7,8].includes(slot))))))       ||(request.mode==='bounded-priced'&&(
          request.billingConsent!=='single-low-cost-call'||
          !Array.isArray(request.slots)||request.slots.length>3||
          request.slots.some(slot=>![1,7,8].includes(slot)))))     return {state:'invalid_request'};  try{renameSync(requestFile,consumedFile)}catch{return {state:'not_consumed'}}
@@ -267,7 +280,7 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
      maxOutputTokensPerCall:128,accounts:[]};
    function persist(){    const temp=resultFile+'.tmp-'+process.pid;
     try{writeFileSync(temp,JSON.stringify(report,null,2)+'\n',{mode:0o600,flag:'wx'});
-      renameSync(temp,resultFile)}catch(e){
+      retryAtomicRename(temp,resultFile)}catch(e){
        try{unlinkSync(temp)}catch{}
       throw e;
     }
@@ -276,10 +289,11 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
   try{persist()}catch{return {state:'report_unavailable'}}
   const cfg=configStore.get();
   const accounts=cfg.accounts.filter(a=>a.enabled!==false&&cfg.providers.some(p=>p.id===a.providerId&&p.enabled!==false));
-  const maxAccounts=Math.min(accounts.length,16);
-   const selectedIndexes=Array.from({length:maxAccounts},(_,index)=>index)
-     .filter(index=>request.slots===undefined||request.slots.includes(index+1));
-   for(const index of selectedIndexes){
+   const maxAccounts=Math.min(accounts.length,16);
+   const selectedIndexes=request.mode==='quota-audit'&&Array.isArray(request.providers)
+     ?accounts.map((_,index)=>index).filter(index=>request.providers.includes(accounts[index].providerId)).slice(0,16)
+     :Array.from({length:maxAccounts},(_,index)=>index)
+       .filter(index=>request.slots===undefined||request.slots.includes(index+1));   for(const index of selectedIndexes){
      if(signal?.aborted){report.state='interrupted';break}
      const account=accounts[index];
     const result={slot:index+1,providerId:account.providerId,state:'checking',code:null,
@@ -290,7 +304,8 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
       const proof=await quotaEvidence({account,accountCenter,configStore,signal});
       result.state=proof.state;result.code=proof.code;
       for(const key of ['modelFound','giftConfirmed','officialRateCount',
-        'zeroRateCount','lowestMultiplier','advertisedCount']){
+        'zeroRateCount','lowestMultiplier','signedCatalogCount',
+        'zcodePlanBuckets','zcodeFlashBuckets','zcodePreviewStartPlans','advertisedCount']){
         if(Object.hasOwn(proof,key))result[key]=proof[key];
       }
       result.finishedAt=now();persist();continue;

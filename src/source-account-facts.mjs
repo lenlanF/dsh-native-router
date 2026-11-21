@@ -47,25 +47,45 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
     ?packages.filter(pkg=>pkg?.name==='每日赠送'&&pkg.unit==='积分'
       &&pkg.active!==false&&Number.isFinite(pkg.remaining)&&pkg.remaining>=0)
       .reduce((sum,pkg)=>sum+pkg.remaining,0):0;
-  // ZCode billing/balance can contain free and paid buckets together. Our
-  // source-pack derivative now preserves ONLY provider-returned show_name and
-  // unit_type separately from the synthesized display fallback. A label such
-  // as "ZCode 免费额度" is trustworthy only when it came from the official bucket.
-  const giftedBalance=providerId==='zcode'&&!balanceRow?.error
+  // ZCode's signed Start Plan balance names the MODEL (GLM-5.3-Flash),
+  // not "free". The official plan_id is the only trusted discriminator
+  // between that no-charge grant and purchased Coding Plan balances.
+  // Keep exact model and token unit; unknown/expired buckets are not free.
+  const starts=providerId==='zcode'&&!balanceRow?.error
     ?packages.filter(pkg=>{
-       const name=typeof pkg?.officialName==='string'?pkg.officialName.trim():'';
+       const plan=typeof pkg?.officialPlanId==='string'?pkg.officialPlanId.trim():'';
+       const model=typeof pkg?.officialName==='string'?pkg.officialName.trim():'';
        const unit=typeof pkg?.officialUnitType==='string'?pkg.officialUnitType.trim():'';
-       if(!name||name.length>120||!/(赠送|签到|免费|gift|bonus|free)/i.test(name)
-         ||/(购买|付费|收费|订阅|paid|purchased|subscription)/i.test(name)
+       if(!/^zcode-v3-start-plan-[a-z0-9-]+$/i.test(plan)
+         ||!/^glm-5\.3-flash$/i.test(model)
          ||unit.toLowerCase()!=='token')return false;
        const expiry=typeof pkg?.expiredTime==='string'&&pkg.expiredTime.trim()
          ?Date.parse(pkg.expiredTime):NaN;
-       return pkg.active!==false
-         &&Number.isFinite(pkg.remaining)&&pkg.remaining>0
-         &&Number.isFinite(expiry)&&expiry>observedAt;
-     }).reduce((sum,pkg)=>sum+pkg.remaining,0):0;  return {
+       return pkg.active!==false&&Number.isFinite(pkg.remaining)&&pkg.remaining>0
+         &&Number.isFinite(expiry)&&expiry>observedAt+120000;
+     }):[];
+  // Multiple paid buckets may coexist with a Start Plan. Never add them.
+  // Duplicate rows for one plan/meter must not artificially multiply grants.
+  const giftByPlan=new Map();
+  for(const pkg of starts){
+    const key=pkg.officialPlanId+'|'+(pkg.officialMeter??'');
+    const old=giftByPlan.get(key);
+    giftByPlan.set(key,old===undefined?pkg.remaining:Math.min(old,pkg.remaining));
+  }
+  // Only anonymous counters reach read-only reports; no raw plan names or IDs.
+  const zcodePlanRows=providerId==='zcode'&&!balanceRow?.error
+    ?packages.filter(pkg=>typeof pkg?.officialPlanId==='string'
+      &&/^zcode-v3-start-plan-[a-z0-9-]+$/i.test(pkg.officialPlanId)):[];
+  const zcodeFlashRows=zcodePlanRows.filter(pkg=>/^glm-5\.3-flash$/i.test(pkg.officialName??''));
+  const giftedBalance=[...giftByPlan.values()].reduce((sum,value)=>sum+value,0);
+  return {
     ...(nickname?{nickname}:{}),
-      ...(providerId==='loomy'&&loomyDailyGift>0?{loomyDailyGift}:{}),
+    ...(providerId==='loomy'&&loomyDailyGift>0?{loomyDailyGift}:{}),      ...(providerId==='zcode'?{
+        zcodePlanBuckets:zcodePlanRows.length,zcodeFlashBuckets:zcodeFlashRows.length,
+        zcodePreviewStartPlans:Number.isSafeInteger(structured?.previewStartPlanCount)
+          &&structured.previewStartPlanCount>=0
+          ?Math.min(structured.previewStartPlanCount,100):null,
+      }:{}),
       ...(providerId==='zcode'&&giftedBalance>0?{giftedBalance}:{}),
      ...(balanceValue!==null?{balance:balanceValue,
       ...(unit?{balanceUnit:unit}:{}),balanceCheckedAt:observedAt}:{}),

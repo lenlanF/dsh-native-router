@@ -32045,6 +32045,8 @@ function parseModelInfo(m, seen) {
     }
   }
   return { id, name: ratio === void 0 ? name2 : `${name2} · ${ratio}`,
+    catalogSource: "codearts-signed-official-model-catalog",
+    catalogObservedAt: Date.now(),
     ...(exactRatio === void 0 ? {} : {
       costMultiplier: exactRatio, priceSource: "codearts-official-credit-ratio"
     }) };
@@ -56905,7 +56907,7 @@ var ZcodeAdapter = class extends LlmAdapter9 {
             { status: response.status }
           );
         }
-        if (shouldFallbackToOtherChannel(response.status, text) && !switchedAccount && captchaParam === void 0 && attempt < this.product.concurrencyRetryMax) {
+        if (false /* Native Router forbids implicit Start-to-paid rail fallback */ && shouldFallbackToOtherChannel(response.status, text) && !switchedAccount && captchaParam === void 0 && attempt < this.product.concurrencyRetryMax) {
           const current = requestChannel;
           const other = current === "start-plan" ? "coding-plan" : "start-plan";
           const otherReady = describeChannels(credential).find((i) => i.channel === other)?.available === true;
@@ -62701,7 +62703,11 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
       total: result.remaining,
       // ZCode 不在同一响应里区分「已失效包」，故为 0。
       expiredTotal: 0,
-      packages
+      packages,
+      // A preview does not prove current claim eligibility or funded balance.
+      previewStartPlanCount: Array.isArray(result.claimablePlans) ?
+        result.claimablePlans.filter(p => typeof p?.planId === "string" &&
+          /^zcode-v3-start-plan-[a-z0-9-]+$/i.test(p.planId)).length : null
     };
   }
   function codeArtsIdentityOf(credential) {
