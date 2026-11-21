@@ -15,6 +15,21 @@ const safeRow=row=>row&&typeof row==='object'&&!Array.isArray(row)
   &&ACCOUNT_ID.test(row.id)&&/^[a-f0-9]{64}$/.test(row.binding)
   &&STATES.has(row.state)&&goodTime(row.checkedAt)
   &&(row.verifiedAt===null||goodTime(row.verifiedAt));
+// Verification periods are wall-clock timestamps persisted outside the DSH
+// process. Restarting the host NEVER resets the next-due timestamp. This
+// is deliberately separate from any model-catalog or inference cache.
+export function verificationPeriodMs(state,healthyMs=15*60*1000){
+ const interval=Number.isFinite(healthyMs)&&healthyMs>0?healthyMs:15*60*1000;
+ if(state==='error'||state==='pending')return Math.min(interval,3*60*1000);
+ if(state==='expired'||state==='limited')return Math.min(interval,10*60*1000);
+ return interval;
+}
+export function verificationWithinPeriod(row,at=Date.now(),healthyMs=15*60*1000){
+ if(!row||!Number.isSafeInteger(row.checkedAt)||row.checkedAt<=0||!Number.isFinite(at))
+  return false;
+ const elapsed=at-row.checkedAt;
+ return elapsed>=0&&elapsed<verificationPeriodMs(row.state,healthyMs);
+}
 export function createAccountVerificationStore({path}={}){
  let rows={};let damaged=false,writeFailed=false;
  if(path&&existsSync(path)){

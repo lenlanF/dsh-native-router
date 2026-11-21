@@ -112,7 +112,7 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
       installedInventory,privateOwnedAdoption,privatePackAdoption,workbuddyVaultAdoption});
    const checkinCenter=createCheckinCenter({configStore:ownStore,accountCenter,
     store:checkinStore??createCheckinStore({path:ownStore.path?join(dirname(ownStore.path),'checkins.json'):undefined}),
-     sourcePack:embeddedPack,logger:ctx.logger});
+     sourcePack:embeddedPack,logger:ctx.logger,verificationStore});
    const sourceHealth=()=>checkinCenter.sourceSnapshot?.()??[];
    const sourceVerified=(providerId,id)=>sourceHealth().some(a=>
      a.id===id&&a.providerId===providerId&&a.connectionState==='online'&&a.enabled);

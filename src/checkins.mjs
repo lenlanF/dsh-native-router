@@ -51,11 +51,12 @@ export function createCheckinStore({path=join(dirname(defaultConfigPath()),'chec
   };
 }
 export function createCheckinCenter({configStore,accountCenter,store=createCheckinStore(),
-   now=()=>Date.now(),logger,intervalMs=60000,sourcePack}={}){
+   now=()=>Date.now(),logger,intervalMs=60000,sourcePack,verificationStore}={}){
    if(!configStore?.get||!accountCenter?.find)throw Error('Config and account center are required');
    const pending=new Set();
    let timer=null,running=null;
-   const sourceCenter=sourcePack?createSourceCheckinCenter({sourcePack,configStore,store,now,logger}):null;
+   const sourceCenter=sourcePack?createSourceCheckinCenter({sourcePack,configStore,store,now,logger,
+     verificationStore}):null;
   const currentDate=()=>todayKey(now(),configStore.get().checkin.timeZone);
   function latestFor(accountId,date=currentDate()){
     return store.all().filter(x=>x.accountId===accountId&&x.date===date).at(-1)??null;

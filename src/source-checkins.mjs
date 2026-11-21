@@ -2,6 +2,7 @@ import {sourceAccountOpaqueId} from './source-account-ref.mjs';
 import {SOURCE_DAILY_SIGNIN_PROVIDERS,SOURCE_PACK_PROVIDERS} from './embedded-pack.mjs';
 import {todayKey,clockAt} from './checkins.mjs';
 import {publicAccountName,publicBalance,checkinDisplayState,expiredCheckinConfirmation} from './account-facts.mjs';
+import {verificationWithinPeriod} from './account-verification-store.mjs';
 
 const supported=new Set(SOURCE_DAILY_SIGNIN_PROVIDERS);const RETRY_DELAY_MS=60*60*1000;
 const MAX_AUTO_ATTEMPTS=3;
@@ -12,10 +13,14 @@ const safeText=x=>String(x??'').replace(/(?:Bearer\s+|sk-)[A-Za-z0-9._~-]{12,}/g
  * shares the native router history. No external RPC server or timer.
  * The native pack's credits.status/credits.claimAll implementations are reused.
  */
-export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>Date.now(),logger}={}){
+export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>Date.now(),logger,
+ verificationStore}={}){
  const roster=new Map(),pending=new Set(),statusCache=new Map(),statusAttempts=new Map();
  let refreshing=null,stopped=false;
- const STATUS_TTL_MS=5*60*1000;
+ // Status is valid for 15 minutes across runtime restarts. Explicit owner
+ // refresh bypasses this cache. Successful sign-ins still use their durable
+ // per-day confirmation history rather than an auth status alone.
+ const STATUS_TTL_MS=15*60*1000;
  const today=()=>todayKey(now(),'Asia/Shanghai');
  const history=id=>store.all().filter(x=>x.accountId===id&&x.date===today());
  const latest=id=>history(id).at(-1);
@@ -57,6 +62,22 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
     }
     roster.clear();
     for(const [id,row] of next)roster.set(id,row);
+    // When the exact, persisted Native Router credential binding was verified
+    // recently, inherit its account authentication evidence rather than
+    // re-requesting official credits/status merely because DSH restarted.
+    // Dynamically discovered but not imported accounts have no binding proof
+    // and must undergo their own remote validation.
+    for(const row of roster.values()){
+      if(statusCache.has(row.id))continue;
+      const cfg=configStore.get();
+      const account=cfg.accounts.find(a=>a.id===row.id
+        &&(a.providerId===row.providerId||a.providerId==='own_'+row.providerId));
+      const saved=account?verificationStore?.get?.(account):null;
+      if(!verificationWithinPeriod(saved,now(),STATUS_TTL_MS))continue;
+      statusCache.set(row.id,{day:today(),checkedAt:saved.checkedAt,
+        state:saved.state,authVerified:saved.state==='online',todayCheckedIn:null,
+        nickname:row.nickname,active:null});
+    }
     const active=row=>{
       if(!row?.enabled)return false;
       const state=configFor(row);
@@ -83,7 +104,9 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
           // being blocked by the first account's five-minute success cache.
           if(members.every(row=>{
             const cached=statusCache.get(row.id);
-            return cached&&cached.day===today()&&now()-cached.checkedAt<STATUS_TTL_MS;
+            return cached&&cached.day===today()
+              &&verificationWithinPeriod({state:cached.state??(cached.authVerified?'online':'pending'),
+                checkedAt:cached.checkedAt},now(),STATUS_TTL_MS);
           }))return;
           // Preserve bounded retries after failed provider requests.
           if(last&&!last.ok&&now()-last.at<60000)return;
@@ -122,7 +145,7 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
              prior?.day===today()&&prior.todayCheckedIn===true;
            const facts=publicBalance(entry);
            statusCache.set(row.id,{day:today(),checkedAt:now(),nickname,
-             todayCheckedIn:confirmed?true:entry.todayCheckedIn===false?false:null,
+             state:entry.authVerified===true?'online':'pending',todayCheckedIn:confirmed?true:entry.todayCheckedIn===false?false:null,
              active:entry.active===true?true:entry.active===false?false:null,
              authVerified:entry.authVerified===true,
              ...facts,
@@ -146,7 +169,9 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
   return [...roster.values()].filter(row=>!configFor(row).hidden).map(row=>{
    const state=configFor(row),recent=latest(row.id),implemented=supported.has(row.providerId);
    const verified=statusCache.get(row.id);
-   const fresh=verified?.day===today()&&now()-verified.checkedAt<STATUS_TTL_MS*3;
+   const fresh=verified?.day===today()
+     &&verificationWithinPeriod({state:verified.state??(verified.authVerified?'online':'pending'),
+       checkedAt:verified.checkedAt},now(),STATUS_TTL_MS);
    const report=fresh?verified:null;
       const confirmedFromHistory=history(row.id).some(x=>x.state==='success');
       const confirmedUpstream=verified?.day===today()&&verified.todayCheckedIn===true;

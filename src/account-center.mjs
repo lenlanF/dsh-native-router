@@ -2,6 +2,7 @@ import {resolveCredential} from './accounts.mjs';
 import {describeChannels,automaticPools} from './channels.mjs';
 import {publicAccountName,publicBalance} from './account-facts.mjs';
 import {runtimeOwnership} from './account-runtime-ownership.mjs';
+import {verificationWithinPeriod} from './account-verification-store.mjs';
 
 const MAX_PROBE_MS=15000, AUTO_VERIFY_MS=15*60*1000, FRESH_MS=30*60*1000;
 function concise(message){return String(message??'').replace(/(?:Bearer\s+|sk-)[\w.~+-]{12,}/gi,'[REDACTED]').slice(0,160)}
@@ -12,7 +13,7 @@ export function createAccountCenter({
    readOnlyTimeoutMs=8000,readOnlyConcurrency=4,}={}){
   if(!configStore?.get||!configStore?.replace)throw Error('ConfigStore must support get and replace');
   const checks=new Map(),pending=new Set(),discoverCache=new Map(),
-   inferenceProof=new Map(),inferenceFailures=new Map();
+   inferenceProof=new Map(),inferenceFailures=new Map(),readOnlyPending=new Map();
   let automaticTimer=null,initialTimer=null,autoBusy=false,disposed=false;
   const storedFor=account=>verificationStore?.get?.(account)??null;
   function checkFor(account){
@@ -370,16 +371,10 @@ export function createAccountCenter({
     // defer the verification and preserve the last known bound status.
     if(driver?.isSourceBridge===true&&driver.runtimeReady!==true)continue;
     const last=storedFor(account);
-    // Startup can probe before a channel finishes mounting, or a source may
-    // have a temporary transport failure. Healthy logins keep the original
-    // long cooldown. A FAILED read-only verification retries sooner, but
-    // 401/403 and rate-limit results use a slower 10-minute floor to avoid
-    // hammering login and quota endpoints. No model inference is attempted.
-    const cooldown=last?.state==='error'||last?.state==='pending'
-      ?Math.min(autoVerifyMs,3*60*1000)
-      :['expired','limited'].includes(last?.state)
-        ?Math.min(autoVerifyMs,10*60*1000):autoVerifyMs;
-    if(pending.has(account.id)||(last?.checkedAt&&now()-last.checkedAt<cooldown))continue;
+    // Bound persisted timestamps survive a DSH restart. Check the SAME
+    // period used by startup and settings-page read-only health calls.
+    if(pending.has(account.id)||readOnlyPending.get(account.id)?.credentialRef===account.credentialRef
+      ||verificationWithinPeriod(last,now(),autoVerifyMs))continue;
     attempted++;
     try{await verify(account.id)}catch{}
    }
@@ -400,39 +395,60 @@ export function createAccountCenter({
      async function worker(){
        while(cursor<targets.length&&!disposed){
          const at=cursor++,account=targets[at];
-         const controller=new AbortController();
-         let timeout;
-         try{
-           results[at]=await Promise.race([
-             Promise.resolve().then(()=>driverFor(account.providerId)
-               .refreshAccountStatus({account,force,signal:controller.signal})),
-             new Promise(resolve=>{timeout=setTimeout(()=>{
-               controller.abort();resolve({state:'unavailable'});
-              },Math.min(30000,Math.max(10,readOnlyTimeoutMs)));}),
-           ]);
-           const remote=results[at];
-           // A positive, precise official account-status probe is stronger
-           // than a transient failure cached just after DSH startup.
-           // Metadata or model-list success alone is NEVER auth evidence.
-           if(!disposed&&!controller.signal.aborted&&!pending.has(account.id)
-             &&remote?.authVerified===true&&['ready','online'].includes(remote?.state)){
-             const current=configStore.get(),bound=current.accounts.find(x=>x.id===account.id
-               &&x.providerId===account.providerId&&x.credentialRef===account.credentialRef
-               &&x.enabled===true);
-             if(bound&&current.providers.some(x=>x.id===account.providerId&&x.enabled===true)){
-               const previous=checkFor(account);
-               if(previous.state!=='online'||now()-(previous.at??0)>=autoVerifyMs){
-                 const at=now(),proof={state:'online',at,bindingRef:account.credentialRef,
-                   message:'本插件已通过本账号的渠道官方只读接口再次验证授权'};
-                 checks.set(account.id,proof);
-                 try{verificationStore?.set?.(account,proof)}catch{}
-                 if(previous.state!=='online')adapter?.invalidateCatalog?.();
-               }
-             }
-           }
-         }catch{results[at]={state:'unavailable'}}
-         finally{clearTimeout(timeout)}
-       }
+         // Query is account-scoped. A DSH reboot or opening Settings never
+         // starts a new official request while that exact credential binding
+         // has an unexpired persisted result, including a recent failure.
+         const previous=storedFor(account);
+         if(!force&&verificationWithinPeriod(previous,now(),autoVerifyMs)){
+           results[at]={state:previous.state,checkedAt:previous.checkedAt,
+             authVerified:previous.state==='online',cached:true};
+           continue;
+         }
+          const active=readOnlyPending.get(account.id);
+          if(active?.credentialRef===account.credentialRef){
+            results[at]=await active.promise;
+            continue;
+          }
+          const request=(async()=>{
+            const controller=new AbortController();
+            let timeout;
+            try{
+              const remote=await Promise.race([
+                Promise.resolve().then(()=>driverFor(account.providerId)
+                  .refreshAccountStatus({account,force,signal:controller.signal})),
+                new Promise(resolve=>{timeout=setTimeout(()=>{
+                  controller.abort();resolve({state:'unavailable'});
+                },Math.min(30000,Math.max(10,readOnlyTimeoutMs)));}),
+              ]);
+              // A positive, precise official account-status probe is stronger
+              // than a transient failure cached just after DSH startup.
+              // Metadata or model-list success alone is NEVER auth evidence.
+              if(!disposed&&!controller.signal.aborted&&!pending.has(account.id)
+                &&remote?.authVerified===true&&['ready','online'].includes(remote?.state)){
+                const current=configStore.get(),bound=current.accounts.find(x=>x.id===account.id
+                  &&x.providerId===account.providerId&&x.credentialRef===account.credentialRef
+                  &&x.enabled===true);
+                if(bound&&current.providers.some(x=>x.id===account.providerId&&x.enabled===true)){
+                  const previous=checkFor(account);
+                  if(previous.state!=='online'||now()-(previous.at??0)>=autoVerifyMs){
+                    const at=now(),proof={state:'online',at,bindingRef:account.credentialRef,
+                      message:'本插件已通过本账号的渠道官方只读接口再次验证授权'};
+                    checks.set(account.id,proof);
+                    try{verificationStore?.set?.(account,proof)}catch{}
+                    if(previous.state!=='online')adapter?.invalidateCatalog?.();
+                  }
+                }
+              }
+              return remote;
+            }catch{return {state:'unavailable'}}
+            finally{clearTimeout(timeout)}
+          })();
+          readOnlyPending.set(account.id,{credentialRef:account.credentialRef,promise:request});
+          try{results[at]=await request}
+          finally{
+            if(readOnlyPending.get(account.id)?.promise===request)
+              readOnlyPending.delete(account.id);
+          }       }
      }
       await Promise.all(Array.from({length:Math.min(
         Math.max(1,readOnlyConcurrency),12,targets.length)},()=>worker()));
