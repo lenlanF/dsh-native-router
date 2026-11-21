@@ -68,6 +68,44 @@ test('credential reference change invalidates earlier approval, and disable clea
  assert.equal(r.center.list().accounts[0].connectionState,'disabled');
  assert.equal(store.get(account),null);
 });
+test('pending read-only verification cannot reinstate an account disabled before the reply completes',async()=>{
+ const account=makeConfig().accounts[0],store=createAccountVerificationStore();
+ let release,started;
+ const began=new Promise(resolve=>{started=resolve});
+ const hold=new Promise(resolve=>{release=resolve});
+ const h=rig({cfg:makeConfig(),store,now:()=>Date.now(),driver:async()=>{
+   started();await hold;return {state:'online',message:'stale accepted'};
+ }});
+ const pending=h.center.verify(ownedId);
+ await began;
+ h.center.setEnabled(ownedId,false);
+ release();
+ const stale=await pending;
+ assert.notEqual(stale.state,'online');
+ assert.equal(store.get(account),null,'disabled account must not regain persisted verified state');
+ h.center.setEnabled(ownedId,true);
+ assert.notEqual(h.center.list().accounts[0].connectionState,'online');
+ h.center.stop();
+});
+
+test('pending read-only verification cannot commit success after its provider is disabled',async()=>{
+ const account=makeConfig().accounts[0],store=createAccountVerificationStore();
+ let release,started;
+ const began=new Promise(resolve=>{started=resolve});
+ const hold=new Promise(resolve=>{release=resolve});
+ const h=rig({cfg:makeConfig(),store,now:()=>Date.now(),driver:async()=>{
+   started();await hold;return {state:'online',message:'stale accepted'};
+ }});
+ const pending=h.center.verify(ownedId);
+ await began;
+ const cfg=h.configStore.get();
+ h.configStore.replace({...cfg,providers:cfg.providers.map(p=>({...p,enabled:false}))});
+ release();
+ assert.notEqual((await pending).state,'online');
+ assert.equal(store.get(account),null);
+ h.center.stop();
+});
+
 test('unapproved host sources and unrelated generic accounts never start automatic model probes',async()=>{
  let calls=0;
  const cfg=normalizeConfig({

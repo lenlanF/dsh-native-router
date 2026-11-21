@@ -182,9 +182,7 @@ export function createAccountCenter({
    }finally{
      clearTimeout(timeout);signal?.removeEventListener('abort',onAbort);pending.delete(id);
     }
-    const stillBound=configStore.get().accounts.some(a=>a.id===id
-      &&a.providerId===entry.account.providerId
-      &&a.credentialRef===entry.account.credentialRef);
+     const stillBound=stillAuthorizedAccount(entry);
     if(disposed||!stillBound){
       checks.delete(id);
       return {id,state:'error',at:now(),message:'账号绑定已改变，等待重新校验'};
@@ -222,13 +220,16 @@ export function createAccountCenter({
  }
   // Model discovery is not execution permission: check the current owned binding
   // again before real inference and when publishing catalog or replies.
-  function stillAuthorizedTestAccount({account,provider}){
-    const current=configStore.get();
-    return !disposed&&current.accounts.some(row=>row.id===account.id
-      &&row.providerId===account.providerId&&row.credentialRef===account.credentialRef
-      &&row.enabled)&&current.providers.some(row=>row.id===provider.id
-      &&row.enabled&&row.protocol==='native-channel');
-  }
+   function stillAuthorizedAccount({account,provider}){
+     const current=configStore.get();
+     return !disposed&&current.accounts.some(row=>row.id===account.id
+       &&row.providerId===account.providerId&&row.credentialRef===account.credentialRef
+       &&row.enabled)&&current.providers.some(row=>row.id===provider.id
+       &&row.enabled&&row.protocol===provider.protocol);
+   }
+   function stillAuthorizedTestAccount(entry){
+     return stillAuthorizedAccount(entry)&&entry.provider.protocol==='native-channel';
+   }
   async function listTestModels(id,{signal}={}){
    if(pending.has(id)){
      const error=new Error('Account operation already running');error.status=409;throw error;
@@ -271,7 +272,7 @@ export function createAccountCenter({
   }
   pending.add(id);
   const controller=new AbortController();
-  let timedOut=false;
+   let timedOut=false,generationStarted=false;
   const timer=setTimeout(()=>{timedOut=true;controller.abort()},90000);
   const abort=()=>controller.abort();
   if(signal?.aborted)abort();else signal?.addEventListener('abort',abort,{once:true});
@@ -301,7 +302,8 @@ export function createAccountCenter({
     if(!stillAuthorizedTestAccount({account,provider}))
       return {id,state:'skipped',code:'ACCOUNT_CHANGED',at:now(),
         message:'账号已停用或凭据绑定已改变；未发送真实推理请求'};
-    const reply=await Promise.race([driver.generate({account,provider,model:chosen.id,
+     generationStarted=true;
+     const reply=await Promise.race([driver.generate({account,provider,model:chosen.id,
      options:{messages:[{role:'user',content:[{type:'text',text:'请只回复 OK'}]}],
      maxTokens:32,sessionId:'native-router-test-'+id},signal:controller.signal}),cancelled]);
    if(reply?.finishReason!=='stop'||typeof reply?.text!=='string'||!reply.text.trim()
@@ -330,9 +332,15 @@ export function createAccountCenter({
    return {id,state:'verified',modelId:chosen.id,at,evidence,
      responsePreview:reply.text.trim().slice(0,120),usage,
      message:'已通过自有账号真实完成一次最小模型回复（不是模型目录模拟）'};
-  }catch(error){
-   const at=now();
-   inferenceProof.delete(id);
+   }catch(error){
+    const at=now();
+    if(!generationStarted)return {id,state:'skipped',at,
+      code:stillAuthorizedTestAccount({account,provider})?'CATALOG_UNAVAILABLE':'ACCOUNT_CHANGED',
+      message:'本账号只读模型目录不可用或授权已变更；未发送实际生成，保留此前的成功记录'};
+    if(!stillAuthorizedTestAccount({account,provider}))
+      return {id,state:'failed',at,code:'ACCOUNT_CHANGED',
+        message:'实际生成请求已发出但账号授权已变更；旧结果不写入模型验证记录'};
+    inferenceProof.delete(id);
    inferenceFailures.set(id,{at,credentialRef:account.credentialRef});
    try{verificationStore?.setModelTestFailure?.(account,{at})}catch{}
    const code=timedOut?'TIMEOUT':classifyFailure(error,controller.signal).code;
@@ -381,8 +389,8 @@ export function createAccountCenter({
     try{verificationStore?.forget?.(id)}catch{}
     adapter?.invalidateCatalog?.();
    return {id,detached:true,revokedUpstream:outcome?.revokedUpstream===true,
-     message:outcome?.message??(outcome?.revokedUpstream===true?'已撤销渠道授权并解除插件关联':
-       '已解除插件中的账号引用；外部登录态及上游凭据没有被撤销')};
+      message:outcome?.revokedUpstream===true?'已确认撤销渠道授权并解除插件关联':
+        '已解除插件账号引用；外部登录态或上游凭据未确认撤销'};
  }
  async function discover(providerId){
    const cfg=configStore.get(),provider=cfg.providers.find(p=>p.id===providerId);

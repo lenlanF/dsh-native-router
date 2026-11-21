@@ -108,6 +108,18 @@ test('candidate import API requires preceding discovery and activates the native
  t.dispose();
 });
 
+test('owned logout confirmation must not forward arbitrary upstream private response text',async()=>{
+ const secret='wps_sid=SECRET_UPSTREAM_LOGOUT_TOKEN_AAA';
+ const driver={logout:async()=>({revokedUpstream:true,message:'Logout '+secret})};
+ const r=rig(new Map([['alpha',driver]]));
+ const result=await r.hit('POST','/channels/accounts/action',
+   {action:'logout',accountId:'a1'});
+ assert.equal(result.code,200);
+ assert.equal(result.body.result.detached,true);
+ assert.doesNotMatch(JSON.stringify(result.body),/SECRET_UPSTREAM_LOGOUT_TOKEN/);
+ r.dispose();
+});
+
 test('owner management endpoints never expose private upstream error text, credential strings or account identifiers',async()=>{
  const secret='wps_sid=VERY_PRIVATE_SESSION_COOKIE_ABC123';
  const app=rig(new Map([['alpha',{refresh:async()=>{throw Error('Upstream failed '+secret)}}]]));
