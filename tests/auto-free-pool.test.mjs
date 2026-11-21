@@ -201,6 +201,51 @@ test('private logout prevents account resurrection after automatic model rescan 
  assert.equal(restarted.tiers().length,0);
  assert.equal(restarted.effectiveConfig().accounts.length,0);
 });
+test('in-flight AutoFree scan cannot cache an account that was explicitly removed during source discovery',async()=>{
+ const id=sourceAccountOpaqueId('loomy','slow-member-01');
+ let cfg=normalizeConfig({embeddedPack:{enabled:true}}),release,started;
+ const inFlight=new Promise(resolve=>{release=resolve});
+ const sourceStarted=new Promise(resolve=>{started=resolve});
+ let accountReads=0;
+ const ownedPack={status:()=>({state:'mounted',experimentalMultiAccountProviders:[]}),
+  async listAccounts(){
+   accountReads++;if(accountReads===1){started();await inFlight}
+   return {state:'ready',accounts:[{providerId:'loomy',id:'slow-member-01',enabled:true}]};
+  },
+  listModels:async()=>({state:'ready',models:[{id:'free',isFree:true}]})};
+ const pool=createAutoFreePool({getConfig:()=>cfg,ownedPack});
+ const scan=pool.refresh();
+ await sourceStarted;
+ cfg=normalizeConfig({...cfg,sessionReuse:{ignoredIds:[id]}});
+ release();
+ await scan;
+ assert.deepEqual(pool.snapshot().sourceAccounts,[],
+  'a source account removed DURING an async scan must not be advertised');
+ assert.deepEqual(pool.snapshot().models,[],
+  'a free model from a stale private login cannot remain in cache');
+ assert.equal(pool.effectiveConfig().accounts.length,0);
+ assert.equal(pool.tiers().length,0);
+ await pool.refresh();
+ assert.equal(pool.snapshot().sourceAccounts.length,0);
+ assert.ok(accountReads>=2,'the scan must recheck once when owner config changed mid-flight');
+});
+test('rapid owner changes during consecutive scans fail closed rather than publish a stale free account',async()=>{
+ const id=sourceAccountOpaqueId('loomy','flapping-member-01');
+ let cfg=normalizeConfig({embeddedPack:{enabled:true}}),reads=0;
+ const ownedPack={status:()=>({state:'mounted',experimentalMultiAccountProviders:[]}),
+  async listAccounts(){
+   reads++;
+   cfg=normalizeConfig({...cfg,sessionReuse:{ignoredIds:reads%2?[id]:[]}});
+   return {state:'ready',accounts:[{providerId:'loomy',id:'flapping-member-01',enabled:true}]};
+  },
+  listModels:async()=>({state:'ready',models:[{id:'free',isFree:true}]})};
+ const pool=createAutoFreePool({getConfig:()=>cfg,ownedPack});
+ const result=await pool.refresh();
+ assert.equal(result.state,'not_scanned','churning membership cannot be accepted as stable free evidence');
+ assert.equal(result.models.length,0);
+ assert.equal(pool.effectiveConfig().accounts.length,0);
+ assert.equal(reads,2,'limit self-healing to two scans and avoid infinite retries');
+});
 test('multi-account owned-source inventory creates separate enabled account entries with no shadow Host login',async()=>{
  const config=normalizeConfig({embeddedPack:{enabled:true}});
  const own={

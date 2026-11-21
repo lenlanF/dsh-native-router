@@ -1,13 +1,25 @@
+import {SOURCE_PACK_PROVIDERS} from './embedded-pack.mjs';
+
 // Channel model discovery must not depend on a separate daily sign-in
 // status refresh after a self-owned account has passed real authentication.
 // An external/linked account with the same opaque source ID is NEVER allowed
 // to borrow successful health evidence from this plugin's private pack.
 export function privateSourceAccountRoutable(account,live,sourceOnline=false){
  if(!account||typeof account.id!=='string'||typeof account.providerId!=='string'
-   ||account.enabled!==true||!live||live.id!==account.id
-   ||live.providerId!==account.providerId||live.enabled!==true
-   ||live.runtimeMode!=='owned'||live.origin?.kind!=='independent-owned'
+   ||account.enabled!==true
    ||account.credentialRef!=='driver:'+account.providerId+':'+account.id)return false;
+ if(!live){
+   // AutoFree's dynamic private accounts are constructed only from the
+   // mounted embedded pack's account roster. An independently refreshed
+   // source-health row can authorize that exact opaque identity before any
+   // static account record exists. An imported/public/unknown provider never
+   // inherits this privilege merely by sharing a source account ID.
+   return sourceOnline===true&&/^sp_[a-f0-9]{24}$/.test(account.id)
+     &&account.providerId.startsWith('own_')
+     &&SOURCE_PACK_PROVIDERS.includes(account.providerId.slice(4));
+ }
+ if(live.id!==account.id||live.providerId!==account.providerId||live.enabled!==true
+   ||live.runtimeMode!=='owned'||live.origin?.kind!=='independent-owned')return false;
  if(live.connectionState==='online')return true;
  // A recent independently authenticated source may finish before AccountCenter
  // records its parallel probe. Explicit expiration, disablement and failures

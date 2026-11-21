@@ -82,6 +82,46 @@ test('CodeArts private QR login unblocks actual direct model routing only while 
  },/not advertised/);
  assert.equal(invoked.length,1,'expired QR account must not generate another request');
 });
+test('autonomously discovered private member with fresh source auth routes through AutoFree without a duplicate persisted account',async()=>{
+ const id=sourceAccountOpaqueId('loomy','member-standalone-001');
+ let sourceOnline=false,blocked=false;
+ const config=()=>normalizeConfig({embeddedPack:{enabled:true},
+  sessionReuse:{ignoredIds:blocked?[id]:[]}});
+ const ownedPack={status:()=>({state:'mounted',experimentalMultiAccountProviders:[]}),
+  listAccounts:async()=>({state:'ready',accounts:[{providerId:'loomy',id:'member-standalone-001',enabled:true}]}),
+  listModels:async()=>({state:'ready',models:[{id:'private-free',isFree:true}]})};
+ const attempts=[];
+ const driver={isSourceBridge:true,get runtimeReady(){return true},
+  generate:async({provider,account,model})=>{
+   attempts.push([provider.id,account.id,model]);
+   return {text:'private-model-OK',finishReason:'stop',toolCalls:[]};
+  }};
+ const adapter=createNativeRouterAdapter({configStore:{get:config},ownedPack,
+  channelDrivers:new Map([['own_loomy',driver]])});
+ const {privateSourceAccountRoutable}=await import('../src/source-model-eligibility.mjs');
+ adapter.setAccountVerificationResolver(account=>privateSourceAccountRoutable(account,null,
+  sourceOnline&&account.id===id));
+ const choose=async()=>{
+  const output=[];
+  for await(const row of adapter.stream({model:'autofree',sessionId:'auto-1',
+   messages:[{role:'user',content:[{type:'text',text:'ping'}]}]}))output.push(row);
+  return output;
+ };
+ await assert.rejects(choose, /No upstream-confirmed free models|No configured model\/account/,
+  'source-pack directory alone must never authorize inference');
+ assert.deepEqual(attempts,[]);
+ sourceOnline=true;
+ const success=await choose();
+ assert.equal(success.find(x=>x.type==='text-delta')?.text,'private-model-OK');
+ assert.deepEqual(attempts,[['own_loomy',id,'private-free']]);
+ assert.equal(config().accounts.length,0,'AutoFree must not persist another shadow credential');
+ sourceOnline=false;
+ await assert.rejects(choose,/No upstream-confirmed free models|No configured model\/account/);
+ assert.equal(attempts.length,1,'auth expiry must block another request');
+ sourceOnline=true;blocked=true;
+ await assert.rejects(choose,/No upstream-confirmed free models|No configured model\/account/);
+ assert.equal(attempts.length,1,'manual account removal must win over the old source session');
+});
 test('a historical EXTERNAL DSH CodeArts ref never impersonates the private QR source',async()=>{
  const {pool}=accountFixture({origin:'external-dsh-provider'});
  await pool.refresh();

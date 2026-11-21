@@ -36,7 +36,7 @@ const empty=()=>({state:'not_scanned',models:[],catalog:[],sourceAccounts:[],
  scannedAt:null,hostCount:0,sourceCount:0,unknownPricing:0,errors:0});
 export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
  now=()=>Date.now(),ttlMs=90000,timeoutMs=2600}={}){
- let cache=empty(),signatureSaved='',pending=null;
+ let cache=empty(),signatureSaved='',pending=null,revision=0;
  const hostIds=()=>{
   try{return (hostProviderInventory?.status?.().hostProviders??[])
    .map(x=>x.providerId).filter(id=>isId(id)&&id!=='native-router'
@@ -170,7 +170,19 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
   if(pending)return pending;
   if(!force&&cache.state==='ready'&&now()-cache.scannedAt<ttlMs&&signatureSaved===signature())
    return Promise.resolve(snapshot());
-  pending=run().finally(()=>{pending=null});
+  pending=(async()=>{
+   // The user may log out, disable an account or change free/paid markings
+   // while a source is answering an async models/roster request. Never
+   // publish that older roster under the newer config's cache signature.
+   // Retry once against the latest owner state; ongoing churn fails closed.
+   for(let attempt=0;attempt<2;attempt++){
+    const startedSignature=signature(),startedRevision=revision;
+    const result=await run();
+    if(startedRevision===revision&&startedSignature===signature())return result;
+   }
+   cache=empty();signatureSaved='';
+   return snapshot();
+  })().finally(()=>{pending=null});
   return pending;
  }
  function effectiveConfig(raw){
@@ -213,5 +225,7 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
       accountIds:row.kind==='owned-source'&&ids.length===1?ids:[]};
   });
  }
- return {refresh,snapshot,effectiveConfig,tiers,invalidate(){cache=empty();signatureSaved=''}};
+ return {refresh,snapshot,effectiveConfig,tiers,invalidate(){
+  revision++;cache=empty();signatureSaved='';
+ }};
 }

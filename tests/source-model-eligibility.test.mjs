@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {sourceModelEligible,privateSourceAccountRoutable} from '../src/source-model-eligibility.mjs';
+import {SOURCE_PACK_PROVIDERS} from '../src/embedded-pack.mjs';
 
 const row=(override={})=>({id:'sp_'+'a'.repeat(24),providerId:'codearts',
   enabled:true,origin:{kind:'independent-owned'},runtimeMode:'owned',
@@ -71,6 +72,31 @@ test('authenticated source health cannot bypass external-reference ownership or 
  assert.equal(privateSourceAccountRoutable({...account,enabled:false},live,true),false);
  assert.equal(privateSourceAccountRoutable(account,{...live,enabled:false},true),false);
  assert.equal(privateSourceAccountRoutable(account,{...live,id:'another'},true),false);
+});
+test('every independently bundled source adapter uses the same exact-auth owned-account eligibility',()=>{
+ const id='sp_'+'b'.repeat(24);
+ assert.equal(SOURCE_PACK_PROVIDERS.length,13);
+ for(const sourceId of SOURCE_PACK_PROVIDERS){
+  const providerId='own_'+sourceId;
+  const account={id,providerId,credentialRef:'driver:'+providerId+':'+id,enabled:true};
+  assert.equal(privateSourceAccountRoutable(account,null,true),true,providerId);
+  assert.equal(privateSourceAccountRoutable(account,null,false),false,providerId);
+ }
+});
+test('newly auto-discovered private member has a narrow exact-health trust boundary',()=>{
+ const id='sp_'+'a'.repeat(24);
+ const auto={id,providerId:'own_loomy',credentialRef:'driver:own_loomy:'+id,enabled:true};
+ assert.equal(privateSourceAccountRoutable(auto,null,true),true,
+  'unclaimed member can run only if the embedded pack separately authenticated it');
+ for(const invalid of [
+  {...auto,enabled:false},
+  {...auto,providerId:'loomy',credentialRef:'driver:loomy:'+id},
+  {...auto,providerId:'own_unknown',credentialRef:'driver:own_unknown:'+id},
+  {...auto,providerId:'own_loomy',id:'sp_'+'A'.repeat(24),credentialRef:'driver:own_loomy:sp_'+'A'.repeat(24)},
+  {...auto,providerId:'own_loomy',credentialRef:'driver:own_loomy:different'},
+  {...auto,providerId:'own_loomy',id:'nonopaque',credentialRef:'driver:own_loomy:nonopaque'},
+ ])assert.equal(privateSourceAccountRoutable(invalid,null,true),false,JSON.stringify(invalid));
+ assert.equal(privateSourceAccountRoutable(auto,null,false),false);
 });
 test('unrelated account field names and untrusted model directory metadata are never authorization',()=>{
  assert.equal(sourceModelEligible('codearts',{accounts:[{
