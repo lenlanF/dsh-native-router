@@ -16,19 +16,29 @@ export async function resolveCredential(account, { env=process.env, vault } = {}
   throw new Error('Unsupported credential reference');
 }
 export function createAccountPool({now=()=>Date.now()}={}) {
-  const exhausted=new Map(), stickiness=new Map(), cursor=new Map();
+  const exhausted=new Map(), providerExhausted=new Map(),
+   stickiness=new Map(),cursor=new Map();
   const key=(id,model)=>id+'\u0000'+model;
   function mark(account, model, reason) {
     const cooldown=reason.cooldownMs || 30000;
-    exhausted.set(key(account.id,reason.code==='AUTH'||reason.code==='CREDENTIAL'
-      ||reason.scope==='provider'?'*':model),{until:now()+cooldown,code:reason.code});
+    // A Provider outage belongs to the channel, not to whichever account
+    // happened to be selected first. All sibling accounts and models share
+    // the same temporary circuit breaker, including later AutoFree turns.
+    if(reason.scope==='provider')
+      providerExhausted.set(account.providerId,{until:now()+cooldown,code:reason.code});
+    else exhausted.set(key(account.id,reason.code==='AUTH'||reason.code==='CREDENTIAL'
+      ?'*':model),{until:now()+cooldown,code:reason.code});
     // Session stickiness is revoked after a failed account attempt.
     for(const [sid,id] of stickiness)if(id===account.id)stickiness.delete(sid);
   }
-  function isReady(account,model){return (exhausted.get(key(account.id,model))?.until ?? 0)<=now() && (exhausted.get(key(account.id,'*'))?.until ?? 0)<=now()}
+  function providerReady(id){return (providerExhausted.get(id)?.until??0)<=now()}
+  function isReady(account,model){return providerReady(account.providerId)
+    && (exhausted.get(key(account.id,model))?.until ?? 0)<=now()
+    && (exhausted.get(key(account.id,'*'))?.until ?? 0)<=now()}
   function eligible(config,tier,{sessionId,needTools=false}={}) {
     const provider=config.providers.find(p=>p.id===tier.providerId);
-    if(!provider?.enabled || (needTools&&!provider.supportsTools))return [];
+    if(!provider?.enabled||!providerReady(provider.id)
+      ||(needTools&&!provider.supportsTools))return [];
     // Host-managed providers use the ORIGINAL plugin's own account selection.
     // No duplicate token, imported secret or synthetic persisted account exists.
     if(provider.protocol==='dsh-host'){
@@ -55,9 +65,10 @@ export function createAccountPool({now=()=>Date.now()}={}) {
     return preferred?[preferred,...ordered]:ordered;
   }
   return {
-    mark,eligible,isReady,
+    mark,eligible,isReady,providerReady,
     success(sessionId,account){if(sessionId)stickiness.set(sessionId,account.id)},
-    status(){return {exhausted:[...exhausted].map(([key,v])=>({accountId:key.split('\u0000')[0],model:key.split('\u0000')[1],...v}))}},
-    clear(){exhausted.clear();stickiness.clear();cursor.clear()},
+    status(){return {exhausted:[...exhausted].map(([key,v])=>({accountId:key.split('\u0000')[0],model:key.split('\u0000')[1],...v})),
+      providerExhausted:[...providerExhausted].map(([providerId,v])=>({providerId,...v}))}},
+    clear(){exhausted.clear();providerExhausted.clear();stickiness.clear();cursor.clear()},
   };
 }
