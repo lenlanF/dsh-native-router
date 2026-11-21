@@ -90,6 +90,26 @@ test('actual four-record pool taxonomy: two adopted original logins, one CodeArt
  assert.equal(view.channels.filter(x=>x.id==='zcode').length,1);
  assert.equal(view.accounts.filter(x=>x.activeSource==='autonomous').length,2);
 });
+test('CodeArts self-owned QR login uses the public provider ID without duplicate fallback or losing its model-test affordance',()=>{
+ const id=sourceAccountOpaqueId('codearts','qr-user');
+ const view=mergeAccountSources({
+   roster:{channels:[{id:'codearts',name:'CodeArts'}],accounts:[{
+     id,providerId:'codearts',runtimeMode:'owned',modelTestAvailable:true,
+     origin:{kind:'independent-owned'},connectionState:'online',enabled:true,
+   }]},
+   embeddedAccounts:{state:'ready',accounts:[{providerId:'codearts',id:'qr-user',
+     enabled:true,authorizationSource:'autonomous',nickname:'real-name'}]},
+   sourceRows:[{id,providerId:'codearts',sourceAccount:true,
+     connectionState:'online',balance:50,balanceUnit:'积分'}],
+ });
+ assert.equal(view.accounts.length,1);
+ assert.equal(view.accounts[0].sourceKind,'autonomous');
+ assert.equal(view.accounts[0].runtimeMode,'owned');
+ assert.equal(view.accounts[0].routeProviderId,'codearts');
+ assert.equal(view.accounts[0].modelTestAvailable,true);
+ assert.equal(view.accounts[0].backupSources.length,0);
+ assert.equal(view.accounts[0].balance,50);
+});
 test('different account IDs and different channels never merge based on nickname',()=>{
  const sameName='duplicate-nickname';
  const result=mergeAccountSources({

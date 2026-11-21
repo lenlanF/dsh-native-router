@@ -63,12 +63,14 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
      const local=createWorkBuddyDriver({env,fetchImpl,
        manifestPath:join(dirname(ownStore.path??join(process.cwd(),'dsh-native-router-config.json')),'workbuddy-sources.json')});
      builtInCleanup.push(registerNativeChannelDriver('workbuddy',
-       createLocalAndSourceDriver({providerId:'workbuddy',local,sourcePack:sourceFacade})));
+       createLocalAndSourceDriver({providerId:'workbuddy',local,sourcePack:sourceFacade,
+         ownedPack:embeddedPack,getAccountOrigin:account=>ownStore.get().sessionReuse?.linkedOrigins?.[account.id]})));
    }
    if(!channelDrivers&&!drivers.has('codearts')){
      const local=createCodeArtsDriver({env,fetchImpl});
      builtInCleanup.push(registerNativeChannelDriver('codearts',
-       createLocalAndSourceDriver({providerId:'codearts',local,sourcePack:sourceFacade})));
+       createLocalAndSourceDriver({providerId:'codearts',local,sourcePack:sourceFacade,
+         ownedPack:embeddedPack,getAccountOrigin:account=>ownStore.get().sessionReuse?.linkedOrigins?.[account.id]})));
    }
    // If DSH already owns native providers, reuse their existing accountPool
    // and adapters instead of trying to install a duplicate channel pack.
@@ -117,12 +119,17 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
      a.providerId===providerId&&a.connectionState==='online'&&a.enabled));
    ownAdapter.setAccountVerificationResolver?.(account=>{
      if(typeof account?.id!=='string'||typeof account.providerId!=='string')return false;
-     const sourceId=account.providerId.startsWith('own_')?
-       account.providerId.slice(4):account.providerId;
-     if(account.id.startsWith('sp_')&&SOURCE_PACK_PROVIDERS.includes(sourceId))
-       return sourceVerified(sourceId,account.id);
      const local=accountCenter.list().accounts.find(row=>row.id===account.id
        &&row.providerId===account.providerId);
+     const sourceId=account.providerId.startsWith('own_')?
+       account.providerId.slice(4):account.providerId;
+     if(account.id.startsWith('sp_')&&SOURCE_PACK_PROVIDERS.includes(sourceId)){
+       // Private QR accounts should become routable immediately after this
+       // plugin verifies their own remote identity. Source check-in status
+       // refresh is asynchronous and must not remain an extra hidden gate.
+       return (local?.runtimeMode==='owned'&&local.connectionState==='online')
+         ||sourceVerified(sourceId,account.id);
+     }
      return local?.connectionState==='online';
    });
    sourceFacade.setHealthResolver?.(({kind,providerId,sourceAccountId})=>{

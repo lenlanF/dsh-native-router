@@ -45,6 +45,10 @@ export function mergeAccountSources({roster,embeddedAccounts,sourceRows=[],embed
    const localAdopted=item.providerId==='own_lingxi'&&/^pr_[a-f0-9]{28}$/.test(item.id);
    const boundToPack=ownedPool&&(
      item.origin?.kind==='embedded-account-pool'||
+     // An independently QR-signed-in CodeArts account may keep its legacy
+     // public provider ID. Require both the verified private runtime binding
+     // and an exact match in the actual private account pool.
+     item.origin?.kind==='independent-owned'&&item.runtimeMode==='owned'||
      item.providerId==='own_'+id);
    const kind=boundToPack?safeSource(ownedPool.authorizationSource):
      localAdopted?'adopted':

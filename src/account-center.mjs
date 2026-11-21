@@ -35,10 +35,16 @@ export function createAccountCenter({
        '上次连接检查未成功，后台将自动复核'};
    }
  const driverFor=providerId=>drivers instanceof Map?drivers.get(providerId):drivers?.[providerId];
+ // The legacy public CodeArts/WorkBuddy ID can refer to an independently
+ // owned QR account. Only its exact private source driver can establish this;
+ // a configured provenance string alone does not make an account owned.
+ const runtimeMode=account=>runtimeOwnership(account)==='owned'
+   ||driverFor(account?.providerId)?.isPrivateSourceBound?.(account)===true
+     ?'owned':runtimeOwnership(account);
  function originOf(account,cfg){
    const ref=account.credentialRef,linked=cfg.sessionReuse?.linkedIds?.includes(account.id)===true;
    // Once migrated, original-plugin information is provenance only.
-   if(runtimeOwnership(account)==='owned')
+   if(runtimeMode(account)==='owned')
      return {kind:'independent-owned',label:'聚合路由自有账号 · 授权已独立接管',
        sourceAvailable:true,loginVerified:false};  if(ref==='driver:workbuddy:'+account.id&&account.id.startsWith('wb_'))
    return {kind:'desktop-session',label:'WorkBuddy / CodeBuddy 桌面客户端 · 只读会话',loginVerified:false};
@@ -96,14 +102,14 @@ export function createAccountCenter({
             upstreamCheckinOutcome:live.checkinOutcome??null,
             upstreamCheckinSource:live.checkinDate?'own-driver-live':'unknown',
             enabled:account.enabled&&provider.enabled,configuredEnabled:account.enabled,
-            weight:account.weight,runtimeMode:runtimeOwnership(account),
+            weight:account.weight,runtimeMode:runtimeMode(account),
              reusedExistingSession:cfg.sessionReuse?.linkedIds?.includes(account.id)===true,
              origin:originOf(account,cfg),          credentialKind:account.credentialRef.startsWith('env:')?'env':account.credentialRef.startsWith('driver:')?'driver':'host',
          checkedAt:check.at,lastVerifiedAt:check.verifiedAt,
          connectionState:!account.enabled?'disabled':!provider.enabled?'provider_disabled':check.state,
          message:!account.enabled?'此账号已停用':!provider.enabled?'所属渠道已停用':check.message,
          busy:pending.has(account.id),
-         modelTestAvailable:runtimeOwnership(account)==='owned'&&provider.protocol==='native-channel'
+         modelTestAvailable:runtimeMode(account)==='owned'&&provider.protocol==='native-channel'
           &&typeof driver?.listModels==='function'&&typeof driver?.generate==='function',
          loginAvailable:!!driver?.login||['openai-chat','anthropic-messages'].includes(provider.protocol),
          refreshAvailable:!!driver?.refresh||['openai-chat','anthropic-messages'].includes(provider.protocol),
@@ -185,7 +191,7 @@ export function createAccountCenter({
  async function verifyModel(id,{modelId,signal}={}){
   if(pending.has(id)){const error=new Error('Account operation already running');error.status=409;throw error}
   const {account,provider,driver}=find(id);
-  if(!account.enabled||!provider.enabled||runtimeOwnership(account)!=='owned'
+  if(!account.enabled||!provider.enabled||runtimeMode(account)!=='owned'
     ||provider.protocol!=='native-channel'||typeof driver?.listModels!=='function'
     ||typeof driver?.generate!=='function'){
    const error=new Error('仅独立接管并启用的自有模型账号允许真实推理验证');
