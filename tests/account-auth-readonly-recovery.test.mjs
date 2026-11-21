@@ -38,6 +38,45 @@ test('positive official read-only authentication corrects stale post-restart acc
  assert.equal(r.attempts,1,'recovery does not trigger chat inference or extra login refresh');
 });
 
+test('confirmed upstream expiration supersedes old verified-online status at manual check',async()=>{
+ let answer={state:'expired',authVerified:false};
+ const r=rig({refresh:()=>({state:'online'}),read:()=>answer});
+ await r.center.verify(id);
+ const before=r.store.get(original.accounts[0]);
+ assert.equal(before.state,'online');
+ r.advance(60*1000);
+ const reported=await r.center.refreshReadOnly({force:true});
+ assert.equal(reported[0].state,'expired');
+ assert.equal(r.center.list().accounts[0].connectionState,'expired',
+  'definitively rejected credentials must not retain online routing qualification');
+ const after=r.store.get(original.accounts[0]);
+ assert.equal(after.state,'expired');
+ assert.equal(after.verifiedAt,before.verifiedAt,
+  'historical last-success timestamp remains informational, not current authorization');
+ await r.center.refreshReadOnly();
+ assert.equal(r.readCount,1,'10-minute expired cooldown suppresses further automatic status calls');
+});
+test('manual confirmed-online recheck extends the original verification window',async()=>{
+ const r=rig({refresh:()=>({state:'online'}),read:()=>({state:'online',authVerified:true})});
+ await r.center.verify(id);
+ const first=r.store.get(original.accounts[0]).checkedAt;
+ r.advance(12*60*1000);
+ await r.center.refreshReadOnly({force:true});
+ const second=r.store.get(original.accounts[0]).checkedAt;
+ assert.ok(second>first,'manual successful probe must persist the new absolute timestamp');
+ r.advance(5*60*1000);
+ assert.equal((await r.center.autoCheckDue()).attempted,0,
+  'no duplicate refresh should run at old deadline after a new official success');
+ assert.equal(r.attempts,1);
+});
+test('ambiguous read-only transport outage cannot revoke a still-valid verified login',async()=>{
+ const r=rig({refresh:()=>({state:'online'}),
+  read:()=>({state:'unavailable',authVerified:false})});
+ await r.center.verify(id);
+ await r.center.refreshReadOnly({force:true});
+ assert.equal(r.center.list().accounts[0].connectionState,'online');
+ assert.equal(r.store.get(original.accounts[0]).state,'online');
+});
 test('a source merely returning a catalog or account metadata cannot change expired into online',async()=>{
  const r=rig({refresh:()=>({state:'expired'}),
   read:()=>({state:'ready',balance:100,modelCount:6})});

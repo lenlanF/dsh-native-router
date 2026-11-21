@@ -420,22 +420,32 @@ export function createAccountCenter({
                   controller.abort();resolve({state:'unavailable'});
                 },Math.min(30000,Math.max(10,readOnlyTimeoutMs)));}),
               ]);
-              // A positive, precise official account-status probe is stronger
-              // than a transient failure cached just after DSH startup.
-              // Metadata or model-list success alone is NEVER auth evidence.
+              // Only an explicit per-account official authentication decision
+              // updates the durable status: positive auth, or a definitive
+              // credential expiration. Transport outages, catalog metadata and
+              // missing accounts are NOT proof that login was revoked.
+              const positive=remote?.authVerified===true
+                &&['ready','online'].includes(remote?.state);
+              const expired=remote?.authVerified===false&&remote?.state==='expired';
               if(!disposed&&!controller.signal.aborted&&!pending.has(account.id)
-                &&remote?.authVerified===true&&['ready','online'].includes(remote?.state)){
+                &&(positive||expired)){
                 const current=configStore.get(),bound=current.accounts.find(x=>x.id===account.id
                   &&x.providerId===account.providerId&&x.credentialRef===account.credentialRef
                   &&x.enabled===true);
                 if(bound&&current.providers.some(x=>x.id===account.providerId&&x.enabled===true)){
-                  const previous=checkFor(account);
-                  if(previous.state!=='online'||now()-(previous.at??0)>=autoVerifyMs){
-                    const at=now(),proof={state:'online',at,bindingRef:account.credentialRef,
-                      message:'本插件已通过本账号的渠道官方只读接口再次验证授权'};
+                  const previous=checkFor(account),state=positive?'online':'expired';
+                  // A manual successful refresh must start a NEW absolute
+                  // cycle; otherwise the old deadline causes a duplicate
+                  // auto-probe minutes later. Negative status uses its own
+                  // shorter persisted retry period.
+                  if(force||previous.state!==state||
+                    !verificationWithinPeriod(storedFor(account),now(),autoVerifyMs)){
+                    const at=now(),proof={state,at,bindingRef:account.credentialRef,
+                      message:positive?'本账号官方只读接口确认授权仍然有效':
+                        '本账号官方接口明确确认授权已过期'};
                     checks.set(account.id,proof);
                     try{verificationStore?.set?.(account,proof)}catch{}
-                    if(previous.state!=='online')adapter?.invalidateCatalog?.();
+                    if(previous.state!==state)adapter?.invalidateCatalog?.();
                   }
                 }
               }

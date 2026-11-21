@@ -40,6 +40,34 @@ test('an in-flight source auth probe cannot grant online status after logout and
  center.stop();
 });
 
+test('source auth response started with old credential cannot reauthorize same ID after binding is replaced',async()=>{
+ const id=sourceAccountOpaqueId('loomy','rebind-in-flight');
+ const account={id,providerId:'own_loomy',credentialRef:'driver:own_loomy:'+id,enabled:true};
+ let cfg=normalizeConfig({providers:[{id:'own_loomy',protocol:'native-channel'}],accounts:[account]});
+ const configStore={get:()=>structuredClone(cfg),replace:v=>(cfg=normalizeConfig(v))};
+ let resolveStarted,resolveNetwork,requests=0;
+ const started=new Promise(resolve=>{resolveStarted=resolve});
+ const network=new Promise(resolve=>{resolveNetwork=resolve});
+ const pack={listAccounts:async()=>({state:'ready',accounts:[{
+  id:'rebind-in-flight',providerId:'loomy',enabled:true}]}),
+  readSourceStatuses:async()=>{requests++;resolveStarted();
+   if(requests===1)await network;
+   return {state:'ready',accounts:[{accountId:'rebind-in-flight',authVerified:true}]};}};
+ const center=createSourceCheckinCenter({sourcePack:pack,configStore,
+  now:()=>Date.parse('2026-11-21T04:20:00Z'),
+  store:{blocked:false,all:()=>[],append:e=>e}});
+ const inflight=center.refresh();
+ await started;
+ configStore.replace({...cfg,accounts:[{...account,
+  credentialRef:'driver:own_loomy:sp_'+'b'.repeat(24)}]});
+ resolveNetwork();await inflight;
+ assert.notEqual(center.snapshot()[0].connectionState,'online',
+  'the old request cannot confirm credentials added while it was running');
+ await center.refresh();
+ assert.equal(requests,2,'new binding receives its own independent authorization check');
+ assert.equal(center.snapshot()[0].connectionState,'online');
+ center.stop();
+});
 test('a disabled source channel cannot regain auth from a response issued before it was disabled',async()=>{
  const id=sourceAccountOpaqueId('loomy','race-provider-02');
  let cfg=normalizeConfig({embeddedPack:{enabled:true},providers:[{id:'own_loomy',protocol:'native-channel'}]});

@@ -44,6 +44,38 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
      &&(!imported||imported.autoCheckin===true),
   };
  }
+  // Reconcile with the latest precise, persisted account authentication
+  // before answering model-eligibility or deciding whether credits/status
+  // needs a remote call. A newer explicit credential expiration must revoke
+  // a previously hydrated online badge immediately, without extra requests.
+  function boundAccount(row){
+    const cfg=configStore.get();
+    return cfg.accounts.find(a=>a.id===row.id
+      &&(a.providerId===row.providerId||a.providerId==='own_'+row.providerId));
+  }
+  const bindingFor=row=>boundAccount(row)?.credentialRef??null;
+  function currentStatus(row){
+    let cached=statusCache.get(row.id);
+    const account=boundAccount(row),bindingRef=account?.credentialRef??null;
+    // A new account binding is a new authorization identity even if the
+    // visible source ID did not change. Never reuse the old source cache.
+    if(cached&&cached.bindingRef!==bindingRef){
+      statusCache.delete(row.id);cached=null;
+    }
+    const saved=account?verificationStore?.get?.(account):null;
+    if(saved&&(!cached||saved.checkedAt>cached.checkedAt)){
+      // An intermittent request error does not revoke a still-fresh verified
+      // source session. An explicit credential expiration does revoke it.
+      if(cached?.authVerified===true&&['error','pending'].includes(saved.state)
+        &&verificationWithinPeriod(cached,now(),STATUS_TTL_MS))return cached;
+      cached={day:today(),checkedAt:saved.checkedAt,state:saved.state,
+        bindingRef,authVerified:saved.state==='online',
+        todayCheckedIn:cached?.day===today()?cached.todayCheckedIn:null,
+        nickname:cached?.nickname??row.nickname,active:null};
+      statusCache.set(row.id,cached);
+    }
+    return cached;
+  }
   async function refresh({force=false}={}){
   if(stopped||!sourcePack?.listAccounts)return [];
   if(refreshing)return refreshing;
@@ -62,22 +94,9 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
     }
     roster.clear();
     for(const [id,row] of next)roster.set(id,row);
-    // When the exact, persisted Native Router credential binding was verified
-    // recently, inherit its account authentication evidence rather than
-    // re-requesting official credits/status merely because DSH restarted.
-    // Dynamically discovered but not imported accounts have no binding proof
-    // and must undergo their own remote validation.
-    for(const row of roster.values()){
-      if(statusCache.has(row.id))continue;
-      const cfg=configStore.get();
-      const account=cfg.accounts.find(a=>a.id===row.id
-        &&(a.providerId===row.providerId||a.providerId==='own_'+row.providerId));
-      const saved=account?verificationStore?.get?.(account):null;
-      if(!verificationWithinPeriod(saved,now(),STATUS_TTL_MS))continue;
-      statusCache.set(row.id,{day:today(),checkedAt:saved.checkedAt,
-        state:saved.state,authVerified:saved.state==='online',todayCheckedIn:null,
-        nickname:row.nickname,active:null});
-    }
+    // This also hydrates the first state after a DSH restart. A newer
+    // persisted failure/explicit expiration wins over an older source badge.
+    for(const row of roster.values())currentStatus(row);
     const active=row=>{
       if(!row?.enabled)return false;
       const state=configFor(row);
@@ -96,6 +115,7 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
     if(typeof sourcePack.readSourceStatuses==='function'){
       await Promise.all(providers.map(async providerId=>{
         const members=[...roster.values()].filter(row=>row.providerId===providerId&&active(row));
+        const bindings=new Map(members.map(row=>[row.id,bindingFor(row)]));
         const last=statusAttempts.get(providerId);
         if(!force){
           // A provider-level successful probe is not a proof for every
@@ -103,7 +123,7 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
           // their own fresh result must be checked immediately, rather than
           // being blocked by the first account's five-minute success cache.
           if(members.every(row=>{
-            const cached=statusCache.get(row.id);
+            const cached=currentStatus(row);
             return cached&&cached.day===today()
               &&verificationWithinPeriod({state:cached.state??(cached.authVerified?'online':'pending'),
                 checkedAt:cached.checkedAt},now(),STATUS_TTL_MS);
@@ -132,7 +152,7 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
           const matches=members.filter(row=>row.sourceAccountId===entry.accountId);
           if(matches.length!==1)continue;
           const row=matches[0];
-          if(!active(row)){
+          if(!active(row)||bindings.get(row.id)!==bindingFor(row)){
             statusCache.delete(row.id);
             continue;
           }
@@ -145,6 +165,7 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
              prior?.day===today()&&prior.todayCheckedIn===true;
            const facts=publicBalance(entry);
            statusCache.set(row.id,{day:today(),checkedAt:now(),nickname,
+             bindingRef:bindingFor(row),
              state:entry.authVerified===true?'online':'pending',todayCheckedIn:confirmed?true:entry.todayCheckedIn===false?false:null,
              active:entry.active===true?true:entry.active===false?false:null,
              authVerified:entry.authVerified===true,
@@ -168,7 +189,7 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
  function snapshot(){
   return [...roster.values()].filter(row=>!configFor(row).hidden).map(row=>{
    const state=configFor(row),recent=latest(row.id),implemented=supported.has(row.providerId);
-   const verified=statusCache.get(row.id);
+   const verified=currentStatus(row);
    const fresh=verified?.day===today()
      &&verificationWithinPeriod({state:verified.state??(verified.authVerified?'online':'pending'),
        checkedAt:verified.checkedAt},now(),STATUS_TTL_MS);
@@ -185,7 +206,8 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
       nickname:row.nickname,enabled:state.enabled&&state.providerEnabled,
       configuredEnabled:row.enabled,credentialKind:'driver',
       connectionState:!state.enabled||!state.providerEnabled?'disabled':
-        report?.authVerified===true?'online':'not_checked',
+        report?.authVerified===true?'online':
+        ['expired','limited'].includes(report?.state)?report.state:'not_checked',
       sourceAccount:true,autoCheckin:state.autoCheckin,
       autoCheckinEffective:state.autoCheckin&&state.enabled&&state.providerEnabled
         &&configStore.get().checkin.autoEnabled===true,

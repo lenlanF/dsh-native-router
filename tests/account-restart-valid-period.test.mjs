@@ -136,6 +136,54 @@ test('stored negative source auth inherits short retry window, not the full heal
  assert.equal(fresh.snapshot()[0].connectionState,'online');
  fresh.stop();
 });
+test('a newer definitive expired credential proof immediately closes source and model eligibility without extra remote request',async()=>{
+ const cfg=makeConfig(),start=Date.now();let clock=start,remote=0;
+ const store=createAccountVerificationStore(),configStore={get:()=>structuredClone(cfg)};
+ store.set(cfg.accounts[0],{state:'online',at:start});
+ const pack={listAccounts:async()=>({state:'ready',accounts:[{
+  id:rawId,providerId:'loomy',enabled:true}]}),
+  readSourceStatuses:async()=>{remote++;return {state:'ready',accounts:[{
+   accountId:rawId,authVerified:true}]}}};
+ const center=createSourceCheckinCenter({sourcePack:pack,verificationStore:store,configStore,
+  store:{all:()=>[],blocked:false},now:()=>clock});
+ await center.refresh();
+ assert.equal(center.snapshot()[0].connectionState,'online');
+ assert.equal(remote,0);
+ clock+=60*1000;
+ store.set(cfg.accounts[0],{state:'expired',at:clock});
+ assert.equal(center.snapshot()[0].connectionState,'expired',
+  'an upstream-expired account cannot remain an eligible source merely because old source cache is online');
+ await center.refresh();
+ assert.equal(remote,0,'the fresh 10-minute negative proof also stops repeated credits/status requests');
+ clock+=11*60*1000;
+ await center.refresh();
+ assert.equal(remote,1,'expiry period passing allows a new bounded read-only status check');
+ assert.equal(center.snapshot()[0].connectionState,'online');
+ center.stop();
+});
+test('source eligibility never inherits an earlier login when the SAME account ID is rebound to a different credential',async()=>{
+ let cfg=makeConfig(),remote=0;
+ const configStore={get:()=>structuredClone(cfg),replace:next=>(cfg=normalizeConfig(next))};
+ const verificationStore=createAccountVerificationStore();
+ verificationStore.set(cfg.accounts[0],{state:'online',at:Date.now()});
+ const pack={listAccounts:async()=>({state:'ready',accounts:[{
+   providerId:'loomy',id:rawId,enabled:true}]}),
+  readSourceStatuses:async()=>{remote++;return {state:'ready',accounts:[{
+   accountId:rawId,authVerified:true}]}}};
+ const center=createSourceCheckinCenter({sourcePack:pack,configStore,verificationStore,
+  store:{all:()=>[],blocked:false}});
+ await center.refresh();
+ assert.equal(center.snapshot()[0].connectionState,'online');
+ assert.equal(remote,0);
+ const prev=cfg.accounts[0];
+ configStore.replace({...cfg,accounts:[{...prev,credentialRef:'driver:own_loomy:sp_'+ 'b'.repeat(24)}]});
+ assert.equal(verificationStore.get(cfg.accounts[0]),null);
+ assert.notEqual(center.snapshot()[0].connectionState,'online',
+  'cache must be bound to exact credential reference, not merely an account ID');
+ await center.refresh();
+ assert.equal(remote,1,'a changed credential gets its own fresh source confirmation');
+ center.stop();
+});
 test('source status from official channel is reused after restart for a known bound member, no repeated credits/status call',async()=>{
  const cfg=makeConfig(),clock=()=>Date.now(),verificationStore=createAccountVerificationStore();
  verificationStore.set(cfg.accounts[0],{state:'online',at:clock()});
