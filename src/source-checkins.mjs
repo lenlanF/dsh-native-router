@@ -92,11 +92,28 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
         const result=await sourcePack.readSourceStatuses(providerId)
           .catch(()=>({state:'unavailable'}));
         if(stopped||result?.state!=='ready'||!Array.isArray(result.accounts))return;
+        // A logout or channel disable may occur while the remote request is
+        // pending. Never commit its old successful auth proof to a disabled
+        // source: that cached proof would incorrectly authorize a subsequent
+        // re-adoption/re-enable without checking the new binding.
+        if(!members.some(active)){
+          // The request was cancelled by an owner/config change rather than
+          // a source outage. Do not impose the one-minute network-error
+          // backoff on a later explicit re-adoption.
+          statusAttempts.delete(providerId);
+          return;
+        }
         statusAttempts.set(providerId,{at:now(),ok:true});
+        const confirmedMembers=new Set();
         for(const entry of result.accounts){
           const matches=members.filter(row=>row.sourceAccountId===entry.accountId);
           if(matches.length!==1)continue;
           const row=matches[0];
+          if(!active(row)){
+            statusCache.delete(row.id);
+            continue;
+          }
+          confirmedMembers.add(row.id);
            const prior=statusCache.get(row.id);
            const nickname=publicAccountName(entry,prior,row);
            // A same-day authenticated claimed result remains final even if a
@@ -111,7 +128,14 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
              ...facts,
              maskedPhone:typeof entry.maskedPhone==='string'?entry.maskedPhone.slice(0,32):null});
            if(nickname)row.nickname=nickname;
-         }      }));
+         }
+        // A successful provider response is not a successful authentication
+        // for an account missing from its returned roster. Discard stale
+        // per-account proof immediately; otherwise it remains 'online' for
+        // 15 minutes after the provider stopped returning that identity.
+        for(const row of members)if(!confirmedMembers.has(row.id))
+          statusCache.delete(row.id);
+      }));
     }
     return snapshot();
   })().finally(()=>{refreshing=null});
