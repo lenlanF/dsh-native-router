@@ -1,6 +1,17 @@
 # DSH Native Router｜聚合路由
 
-**当前候选版本：1.0.0-rc.59（真实 DSH 模型调用验收持续中，不是正式完成）。** 已生产部署 rc.58 并取得真实 DSH `llm.stream → native-router` 证据：WorkBuddy CN Provider 对零积分 `hy4flash-free` 已完整返回 `text-delta` 和 `finish(stop)`，**正式宿主路由通过**；WorkBuddy global Provider 对 `hy3` 返回 `DSH_STREAM_INCOMPLETE`，尚不能认定通过。此前四个 WorkBuddy 独立账号各曾经完成真实最小模型回复（4/8 历史成功），但 global 一账号之后又有失败记录，因此最新持久通过数为 **3/8**，必须另行复核。Lingxi/Loomy/ZCode/CodeArts 各一账号的真实模型目录可读，但无符合安全阈值的明确免费模型/赠送池，本轮没有贸然发起可能计费请求。
+**当前开发候选：1.0.0-rc.65。** 已完成 WorkBuddy CN/global 四个账号、Loomy 自有账号、Lingxi 自有账号的历史真实完整生成（6/8），以及 Loomy 在 rc.62 的正式 DSH Provider 双路径证明。rc.64 在当前 DSH 上针对 WorkBuddy CN 的零倍率 Host 复验再次遇到 `MAX_TOKENS`（32 输出 token 不够），不把这一失败冒充通过；rc.65 仅将精确已确认的零倍率/赠送模型 Host 验收提高到 128 输出 token。ZCode 无可确证赠送余额、CodeArts 无受信价目，均不做未知收费重试。
+**受控费用验收（rc.63 实际 DSH）：** Lingxi 官方实时目录最低倍率 `x0.1` 的 `mimo-v2.6-pro` 真实完成对话（8输入/73输出），ZCode `GLM-5.3-Flash` 因可信余额不足**不发送生成**，CodeArts `glm-5.3-flash` 单次实际生成13输入/32输出但 `OUTPUT_LIMIT`，不能标记通过。Lingxi 上游没有严格遵守客户端的32输出Token限制（实际73），因此参数是**请求上限，不是可靠收费上限**，此渠道必须严格单次授权，不允许自动循环付费重试。
+
+**rc.64 安全修补：** CodeArts 即使可读取余额，也不得把账号余额误当作可信模型价格；当目录没有可比费率时一律跳过后续收费实测。受控费用验收须一次性Owner nonce、明确低费率单次同意、核验官方额度、限制模型池和账号槽位；任何未真实完整结束的生成都不可登记为成功。
+**rc.64 追加调用前费用边界：** ZCode `GLM-5.3-Flash` 实际大写型号也必须通过官方赠送池（不少于1024 token）复核，不把总余额误认赠送；AutoFree 免费链在生成前复查 Loomy/ZCode 赠送池，即使目录先前显示免费也不误花充值额度；Lingxi 官方最低倍率虽已真实成功，但服务端未严格执行客户端 `maxTokens`，以后非零倍率的自动小额测试先安全跳过，不能承诺无法证明的金额硬上限。所有模型成功证明排除仅达输出截断的回复。
+
+## RC.60：追完 DSH 正式路由后继续验收 Loomy / ZCode 赠送额度
+
+- 实际 rc.59：WorkBuddy global DSH Native Router 的 `hy3` 曾因流未完整停止失败；选择该 Provider 第二款官方实时明确 `x0.00` 的 `deepseek-v4.1-flash` 后，同一真实 `ctx.llm.stream` 全程**成功**。随后只对 global 第一个自有账号使用同一免费模型独立真实调用成功（15输入/1输出），清除了此前较新的失败状态；另三个 WorkBuddy 的已证实成功不重复消耗。
+- 已接管 Loomy 渠道包的官方积分接口把**每日免费赠送积分**与**永久（可能充值）积分**分开，新实测仅允许确切 `每日赠送` + `积分` 余额≥2000、已通过官方鉴权且模型为 `spark-x2.6` 才调用32Token。针对 Loomy 和 ZCode 的免费赠送额度，在真正发起请求之前**再次重新查询官方赠送桶**，防止目录获取后额度变化而消耗永久/付费套餐。已覆盖隔离安全回归；生产中如赠送额度不足必须安全跳过，不能伪造调用成功。
+- 此次还需要在真实 DSH 中逐账号对 Loomy/ZCode 执行官方免费赠送门槛检查，并在满足条件时最小真实调用；Lingxi 11款模型没有零倍率，CodeArts 当前没有已验证免费权益，均继续等待可靠费用条件，不触发官方计费API。
+
 
 ## RC.59：追查 DSH 国际 WorkBuddy Host 正式路由的完整性
 

@@ -44,9 +44,8 @@ test('opt-in source discovery returns stable opaque references; import copies NO
 test('ZCode private Start Plan grants only GLM-5.3 Flash when authenticated gift allowance is sufficient',async()=>{
  const rig=mockSource([{id:'gift-01',providerId:'zcode',enabled:true}]);
  rig.embeddedPack.listModels=async()=>({state:'ready',models:[
-  {id:'glm-5.3-flash',name:'GLM 5.3 Flash'},{id:'glm-5.3',name:'GLM 5.3'}]});
-  let giftedBalance=5000,balance=5000,authenticated=true;
-  rig.embeddedPack.readSourceStatuses=async()=>({state:'ready',accounts:[{
+   {id:'GLM-5.3-Flash',name:'GLM 5.3 Flash'},{id:'glm-5.3',name:'GLM 5.3'}]});
+  let giftedBalance=5000,balance=5000,authenticated=true;  rig.embeddedPack.readSourceStatuses=async()=>({state:'ready',accounts:[{
    accountId:'gift-01',authVerified:authenticated,balanceState:'available',balance,giftedBalance,
  }]});
  const driver=createSourceChannelDriver({providerId:'zcode',accountProviderId:'own_zcode',
@@ -54,9 +53,8 @@ test('ZCode private Start Plan grants only GLM-5.3 Flash when authenticated gift
  const id=sourceAccountOpaqueId('zcode','gift-01');
  const account={id,providerId:'own_zcode',credentialRef:'driver:own_zcode:'+id};
  const rows=await driver.listModels({account});
- assert.match(freeEvidence(rows.find(x=>x.id==='glm-5.3-flash'),'own_zcode')??'',/赠送免费额度/);
- assert.equal(freeEvidence(rows.find(x=>x.id==='glm-5.3'),'own_zcode'),null,
-   'premium Coding Plan must not inherit gifted Start Plan entitlement');
+  assert.match(freeEvidence(rows.find(x=>x.id==='GLM-5.3-Flash'),'own_zcode')??'',/赠送免费额度/);
+  assert.equal(freeEvidence(rows.find(x=>x.id==='glm-5.3'),'own_zcode'),null,   'premium Coding Plan must not inherit gifted Start Plan entitlement');
   balance=1000;giftedBalance=1000;
   assert.equal(freeEvidence((await driver.listModels({account}))[0],'own_zcode'),null);
   balance=5000;giftedBalance=0;
@@ -90,6 +88,41 @@ test('Loomy only grants Spark X2.6 free test from authenticated official daily g
    'no authentic gift evidence, no billing-risk inference');
  assert.equal(src.calls.length,0);
 });
+
+for(const [channel,own,model,giftKey,minGift] of [
+  ['loomy','own_loomy','spark-x2.6','loomyDailyGift',2000],
+  ['zcode','own_zcode','GLM-5.3-Flash','giftedBalance',1024],
+]){
+  test(channel+' native smoke cannot issue a charged request if its gift is spent between catalog and generation',async()=>{
+   const src=mockSource([{id:'safe-gift',providerId:channel,enabled:true}]);  let gift=5000;
+  src.embeddedPack.listModels=async()=>({state:'ready',models:[{id:model,name:'Gift model'}]});
+  src.embeddedPack.readSourceStatuses=async()=>({state:'ready',accounts:[{
+   accountId:'safe-gift',authVerified:true,balanceState:'available',
+   balance:50000,[giftKey]:gift,
+  }]});
+  const driver=createSourceChannelDriver({providerId:channel,accountProviderId:own,embeddedPack:src.embeddedPack});
+  const id=sourceAccountOpaqueId(channel,'safe-gift');
+  const account={id,providerId:own,credentialRef:'driver:'+own+':'+id};
+  const advertised=await driver.listModels({account});
+  assert.ok(freeEvidence(advertised[0],own),channel+' should have a genuine gift first');
+  gift=minGift-1;
+  await assert.rejects(()=>driver.generate({account,model,options:{
+    sessionId:'native-router-test-fake',maxTokens:32,messages:[{role:'user',content:'OK'}]
+  }}),/gift|free/i);
+   assert.equal(src.calls.length,0,'no upstream model generation when gift has expired');
+   await assert.rejects(()=>driver.generate({account,model,options:{
+     sessionId:'ordinary-free-chain',freeOnly:true,maxTokens:32,
+     messages:[{role:'user',content:'OK'}]
+   }}),/gift|free/i);
+   assert.equal(src.calls.length,0,'free-only route must recheck gifts, never spend permanent credits');  gift=5000;
+  const actual=await driver.generate({account,model,options:{
+    sessionId:'native-router-test-fake',maxTokens:32,messages:[{role:'user',content:'OK'}]
+  }});
+  assert.equal(actual.text,'source reply');
+   assert.equal(src.calls.length,1,'only fresh official gift allows actual generation');
+   if(channel==='loomy')assert.equal(src.calls[0].reasoningEffort,'none',
+     'Loomy bounded owner smoke must request no-thinking mode for minimal usage'); });
+}
 
 test('independent Loomy verifier uses only own account pool and authenticated credit status',async()=>{
  const rig=mockSource([{id:'loomy-own-01',providerId:'loomy',nickname:'Loomy 自有',
@@ -156,6 +189,29 @@ test('single enabled source account streams through existing DSH LLM with host t
  assert.deepEqual(rig.calls[0].tools,[{name:'read_file',description:'Read an authorized file',
   parameters:{type:'object',properties:{path:{type:'string'}}}}]);
  assert.doesNotMatch(JSON.stringify(rig.calls[0]),/NO_LEAK|credentialRef|accessToken/);
+});
+test('max-token native output never marks the independent account as model-proven',async()=>{
+ const rig=mockSource([{id:'qoder-bounded',providerId:'qoder',enabled:true}]);
+ let maxTokens=true;
+ rig.embeddedPack.streamNative=async()=>async function*(){
+  yield {type:'block-start',index:0,blockType:'text'};
+  yield {type:'text-delta',index:0,text:'partial'};
+  yield {type:'block-end',index:0,block:{type:'text',text:'partial'}};
+  yield {type:'finish',reason:{kind:maxTokens?'max-tokens':'stop'}};
+ }();
+ const driver=createSourceChannelDriver({providerId:'qoder',embeddedPack:rig.embeddedPack});
+ const id=sourceAccountOpaqueId('qoder','qoder-bounded');
+ const account={id,providerId:'qoder',credentialRef:'driver:qoder:'+id};
+ const first=await driver.generate({account,model:'qoder-chat',
+  options:{messages:[{role:'user',content:'OK'}],maxTokens:32}});
+ assert.equal(first.finishReason,'length');
+ assert.equal(driver.accountSnapshot(account).modelInferenceVerifiedAt,null,
+  'truncated model output is NOT complete account inference proof');
+ maxTokens=false;
+ const second=await driver.generate({account,model:'qoder-chat',
+  options:{messages:[{role:'user',content:'OK'}],maxTokens:32}});
+ assert.equal(second.finishReason,'stop');
+ assert.ok(driver.accountSnapshot(account).modelInferenceVerifiedAt>0);
 });
 test('source bridge refuses ambiguous multiple enabled accounts and disabled/stale references',async()=>{
  const rig=mockSource([{id:'q-a',providerId:'qoder',enabled:true},

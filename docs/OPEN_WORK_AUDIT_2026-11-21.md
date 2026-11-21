@@ -1,6 +1,14 @@
-# DSH Native Router｜全项目未完工横向核查与验收计划（2026-11-21，迭代至 rc.59）
+# DSH Native Router｜全项目未完工横向核查与验收计划（2026-11-21，迭代至 rc.65）> 本文是**核查台账**而不是“所有渠道线上可用”的声明。生产环境绝不通过测试模拟来冒充真实官方模型回复。项目唯一属地：Windows WebCodexTunnel 的 `F:\WebCodex\.webcodex-worktrees\dsh-native-router-690ec4c6`，GitHub `lenlanF/dsh-native-router` 仅推送 `main`。检查本机时未修改登录、签到、开关或模型额度。
 
-> 本文是**核查台账**而不是“所有渠道线上可用”的声明。生产环境绝不通过测试模拟来冒充真实官方模型回复。项目唯一属地：Windows WebCodexTunnel 的 `F:\WebCodex\.webcodex-worktrees\dsh-native-router-690ec4c6`，GitHub `lenlanF/dsh-native-router` 仅推送 `main`。检查本机时未修改登录、签到、开关或模型额度。
+## 最新修正（rc.65）
+
+- rc.64 已安装本机，且曾通过真实 Host 请求到达 WorkBuddy CN `hy4flash-free`，但本次 `finish(max-tokens)` 未成功结束。rc.65 仅对官方确认为零倍率/赠送的指定 Host 验收模型提高小额输出预算到128，其它收费模型不重测。该修复必须经过新版本实际 DSH 的 `finish(stop)` 才能视为完成。
+
+## 最新补充（rc.64，未取代旧版本历史记录）
+
+- 已实机记录 WorkBuddy CN/global 四个账号、Loomy 独立账号、Lingxi 独立账号合计 **6/8** 有完整模型回复；Loomy 同时有真实 DSH Provider 路由完成证明。CodeArts 的 32 Token 输出截断不能计入完成；ZCode 缺少可信赠送额度，未发起推理。
+- Lingxi 官方最低倍率 `x0.1` 曾实际用掉 73 输出 Token（请求上限32）。成本参数**不是官方扣费金额硬限制**，新版本对非零倍率自动收费验收直接拒绝；CodeArts 无可信价格拒绝；ZCode 只准官方 Start Plan 明确赠送包且生成前再次复核。
+- **新增安全缺陷修复**：ZCode `GLM-5.3-Flash` 大小写差异导致独立费控判断不一致；AutoFree 免费模型目录产生后额度可能耗尽；截断模型回复曾被渠道驱动写成内部推理证明。以上均已加代码保护和真实可执行回归，不能据此声称 ZCode/CodeArts 完成了真实回复。
 
 ## 1. 证据分级和验收口径
 
@@ -189,7 +197,25 @@
 
 - 追加 Loomy 全链路费用调查：内置自有渠道包官方只读 `GET /points/records` 返回 `永久积分` 与 `每日赠送` 两种套餐（源码证据在自有 pack），每日赠送明确是免费积分且路由优先消耗。已新增 `loomyDailyGift` 可信字段，只在 exact `每日赠送` + `积分` + 非负余额下成立；新实测仅允许官方认证且每日赠送余额≥2000的 `spark-x2.6`，避免永久购入积分被误用。这需要安装 rc.59 后独立真实验证，不能因为离线测试通过就宣称 Loomy 可用。
 
+## 18. rc.59 实机 DSH 正式路由及独立账号二次完成证据
+
+- 真正安装 rc.59 后，WorkBuddy global 的**第二个官方 x0.00 模型** `deepseek-v4.1-flash` 在运行中的 DSH `ctx.llm.stream` 通路返回完整 `DSH_HOST_ROUTE_COMPLETE`。此前 WorkBuddy CN `hy4flash-free` 已完整通过，现 WorkBuddy CN/global 两个 Provider 均有正式 DSH 路由证据。仍保留国际 `hy3` 之前 `DSH_STREAM_INCOMPLETE` 失败记录，不能把不同模型混同。
+- 精准对国际第一个自有账号单独发起官方已确认为x0.00的 `deepseek-v4.1-flash`，真实完成15输入/1输出，最新 `modelProofAt` 重新有效。因此**当前4个WorkBuddy独立账号全部具有有效完整生成证明**；Lingxi/Loomy/ZCode/CodeArts尚无完成证明，不应将模型目录成功冒充它们也能调用。
+
+## 19. rc.60 其余渠道免费赠送许可与调用时双重验收
+
+- Loomy 官方只读 `/points/records` 响应内 `永久积分` 与 `每日赠送` 严格分池，本机源码验证；已有 `loomyDailyGift` 精确名称、单位及归属判定，只有自有账户今日赠送≥2000积分且 `spark-x2.6` 在实时目录时可以使用日赠送额度进行32 Token 最小调用。ZCode官方 Start Plan 赠送 `giftedBalance`≥1024 token 时可调用 `glm-5.3-flash`。任何免费赠送条件在**真正生成前**需重新通过本插件自有渠道包查询官方当下余额，如果不足，停止调用；不将付费/永久积分误计为免费。
+- 下一步 rc.60 实机对 Loomy、ZCode 做确切赠送资格及调用验收；没有官方免费赠送的渠道必须保留明确“已登录/可列模型/未完成实际调用”的状态，直至取得可信费用资格或明确额外人工授权。
+
 ## 15. rc.57 追加 ZCode 官方 Start Plan 赠送额度与 DSH Provider 路由
 
 - 发现本插件内置 MIT 渠道包有明确且独立的 ZCode Start Plan：官方 `zcode.z.ai/api/v1/zcode-plan/anthropic/v1/messages` 通过已经授权的 `zcode_jwt` 使用**赠送免费额度**，与付费 Coding Plan 的 `api.z.ai/api/anthropic/v1/messages` /订阅 Key 分离。只有在自有账号的官方 `/billing/balance` 确认余额>=1024、确认该账号已登录、目录含确切 `glm-5.3-flash` 时提供该模型 `freeAllowance`；没有赠送额度绝不执行。其他 ZCode 模型不凭名字断言免费。
 - 通过 DSH Host 原生 `ctx.llm.stream({provider:'native-router',model:'direct:...'})` 实测的 `host-route` 是 Provider级验收；多个独立账号同 Provider 时不能据此确认命中哪个账号。先实测 Lingxi #1、ZCode #7、WorkBuddy 国内第2账号 #3，以官方完整回复和持久记录为唯一通过标准，另进行一次已确认零费 Provider 的 Host 路由验收。
+
+### rc.64 实机费率验收与安全边界（2026-11-21 北京时间）
+
+- **Loomy 已双路径真实通过（rc.62）：** 独立自有账号 `spark-x2.6` 返回 `MODEL_REPLY_COMPLETE`，50输出 Token；DSH 宿主 `native-router` 返回 `DSH_HOST_ROUTE_COMPLETE`，无额外插件路由进程。
+- **Lingxi 低费用真实通过（rc.63）：** 官方实时最低倍率 x0.1，模型 `mimo-v2.6-pro`，8输入+73输出 Token，完整 `finish(stop)`。请求了32 max_tokens但服务器返回73输出 Token，参数非可信的费用硬限制；禁止基于该限制反复试错。实际积分扣减量需要官方账单复核，不以Token数捏造金额。
+- **ZCode 安全跳过（rc.63）：** 最低候选 GLM-5.3-Flash，余额/免费赠送未满足安全阈值，0生成。
+- **CodeArts 真实不完整（rc.63）：** Flash候选 glm-5.3-flash，13输入+32输出 Token，因 max-tokens 输出预算终止，不登记可用证明、不循环重试。没有可信模型比较费率。rc.64 加强未知费率一律拒绝的新账单安全门槛，并有定向回归。
+- 本轮未得到外部渠道真实人民币/积分账单结算值；不能宣称零收费，只能报告请求次数与渠道返回的Token计数。正式版仍需三渠道完整的费率/账号授权/服务响应验收，禁止提前宣布正式发布。

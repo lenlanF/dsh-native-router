@@ -23,8 +23,7 @@ test('isolated membership login never sends CDP commands to a foreign debugger p
   'wss://127.0.0.1:38123/devtools/page/abc',
   'ws://127.0.0.1:38123/devtools/browser/abc',
   'ws://127.0.0.1:38123/devtools/page/abc?session=unknown',
-  'ws://127.0.0.1:38123@evil.com/devtools/page/abc',
- ]){
+   'ws://127.0.0.1:38123@evil.example.invalid/devtools/page/abc', ]){
   assert.throws(()=>assertIsolatedCdpEndpoint(endpoint,38123));
  }
 });

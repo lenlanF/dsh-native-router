@@ -112,23 +112,26 @@ export async function collectSourceDshStream(stream,{tools=[],signal}={}){
     break;
    case 'finish':
     if(!item.reason||!['stop','tool-calls','max-tokens'].includes(item.reason.kind)){
-     const facts=safeDshFailureFacts(item.reason?.failure);
-     throw new UpstreamError('Native DSH source did not complete successfully',{
-       status:facts.status,
-       code:item.reason?.kind==='aborted'?'CANCELLED':
-         facts.code==='UPSTREAM'?'STREAM':facts.code,
-       retryAfterMs:facts.retryAfterMs,
-     });
-    }
-    finish=item.reason.kind;
-    break;
+      const facts=safeDshFailureFacts(item.reason?.failure);
+      const failure=new UpstreamError('Native DSH source did not complete successfully',{
+        status:facts.status,
+        code:item.reason?.kind==='aborted'?'CANCELLED':
+          facts.code==='UPSTREAM'?'STREAM':facts.code,
+        retryAfterMs:facts.retryAfterMs,
+      });
+      failure.safeStreamPhase='UPSTREAM_FINISH_ERROR';
+      throw failure;
+     }
+     finish=item.reason.kind;    break;
    default:throw unable('Unsupported native model event type','TOOL_PROTOCOL');
   }
  }
- if(finish===null||closed.size!==blocks.size)
-  throw unable('Native model stream ended before complete finish','TRUNCATED');
- const toolCalls=[...calls].sort((a,b)=>a[0]-b[0]).map(([,x])=>x);
- if(finish==='tool-calls'&&!toolCalls.length)
+  if(finish===null||closed.size!==blocks.size){
+   const error=unable('Native model stream ended before complete finish','TRUNCATED');
+   error.safeStreamPhase=finish===null?'MISSING_NATIVE_FINISH':'UNCLOSED_NATIVE_BLOCK';
+   throw error;
+   }
+  const toolCalls=[...calls].sort((a,b)=>a[0]-b[0]).map(([,x])=>x); if(finish==='tool-calls'&&!toolCalls.length)
   throw unable('Native model declared tool calls but emitted none','TOOL_PROTOCOL');
  if(!text.trim()&&!reasoning.trim()&&!toolCalls.length)
   throw unable('Native model yielded an empty response','EMPTY');
@@ -138,6 +141,7 @@ export async function collectSourceDshStream(stream,{tools=[],signal}={}){
   total_tokens:usage.totalTokens};
  return validateModelCalls(output,tools);
 }
+const zcodeGiftFlash=model=>typeof model==='string'&&/^glm-5\.3-flash$/i.test(model);
 export function createSourceChannelDriver({providerId,embeddedPack,accountProviderId=providerId}={}){
  if(!validSource(providerId)||!embeddedPack
    ||![providerId,'own_'+providerId].includes(accountProviderId))
@@ -209,10 +213,9 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
       // the known GLM-5.3 Flash route and a sufficiently funded gift bucket
       // may be offered. Never label ZCode Coding Plan or other models free.
       let giftedStartPlan=false;
-      if(providerId==='zcode'&&accountProviderId==='own_zcode'
-        &&result.models?.some(row=>row?.id==='glm-5.3-flash')){
-        const facts=await readLiveFacts(account).catch(()=>null);
-        giftedStartPlan=facts?.authVerified===true
+       if(providerId==='zcode'&&accountProviderId==='own_zcode'
+         &&result.models?.some(row=>zcodeGiftFlash(row?.id))){
+         const facts=await readLiveFacts(account).catch(()=>null);        giftedStartPlan=facts?.authVerified===true
           &&facts.balanceState==='available'
           &&Number.isFinite(facts.giftedBalance)&&facts.giftedBalance>=1024;
       }
@@ -234,9 +237,8 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
          ...(row.upstreamFreeLabel===true||row.isFree===true||row.free===true
            ?{upstreamFreeLabel:true}:{}),
           ...(row.pricing?{pricing:{...row.pricing}}:{}),
-           ...(giftedStartPlan&&row.id==='glm-5.3-flash'
-             ?{freeAllowance:'zcode-start-plan-gift'}:{}),
-           ...(giftedLoomy&&row.id==='spark-x2.6'
+           ...(giftedStartPlan&&zcodeGiftFlash(row.id)
+              ?{freeAllowance:'zcode-start-plan-gift'}:{}),           ...(giftedLoomy&&row.id==='spark-x2.6'
              ?{freeAllowance:'loomy-daily-gift'}:{})}));
    },
    // Model directory merely indicates advertised candidates. Account-level
@@ -273,23 +275,47 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
     if(rows.filter(row=>row.enabled).length>1
       &&!embeddedPack.status?.().experimentalMultiAccountProviders?.includes(providerId))
       throw unable('Source provider has multiple enabled accounts; exact account selection is not verified');
-   const request={providerId,sourceAccountId:selected.id,model,
-    messages:toSourceMessages(options,providerId,model),tools:visibleTools(options.tools),
-    signal,...(Number.isInteger(options.maxTokens)&&options.maxTokens>0?{maxTokens:options.maxTokens}:{})};
-   try{
-    const native=await embeddedPack.streamNative(request);
-    const output=await collectSourceDshStream(native,{tools:options.tools,signal});
-    if(embeddedPack.status?.().state!=='mounted')throw unable('Isolated DSH source was disposed before completion');
-     inferenceProof.set(account.id,{at:Date.now(),model});
-     return output;
+     // For a free-only route, the gift must remain valid at the moment of
+     // inference, not just when AutoFree first built the model catalog.
+     // Preserve paid access on ordinary, explicitly paid user routes.
+     const smoke=options.freeOnly===true||typeof options.sessionId==='string'&&(
+       options.sessionId.startsWith('native-router-test-')
+       ||options.sessionId==='native-router-smoke-host'
+        ||options.sessionId==='native-router-bounded-cost');
+      if(smoke&&accountProviderId==='own_loomy'&&providerId==='loomy'       &&model==='spark-x2.6'){
+       const facts=await readLiveFacts(account).catch(()=>null);
+       if(facts?.authVerified!==true||facts.balanceState!=='available'
+         ||!Number.isFinite(facts.loomyDailyGift)||facts.loomyDailyGift<2000)
+         throw unable('Insufficient official Loomy free daily gift at generation time','COST_NOT_CONFIRMED_FREE');
+     }
+     if(smoke&&accountProviderId==='own_zcode'&&providerId==='zcode'
+       &&zcodeGiftFlash(model)){
+       const facts=await readLiveFacts(account).catch(()=>null);
+       if(facts?.authVerified!==true||facts.balanceState!=='available'
+         ||!Number.isFinite(facts.giftedBalance)||facts.giftedBalance<1024)
+         throw unable('Insufficient official ZCode gift at generation time','COST_NOT_CONFIRMED_FREE');
+     }
+     const request={providerId,sourceAccountId:selected.id,model,
+       messages:toSourceMessages(options,providerId,model),tools:visibleTools(options.tools),
+       signal,...(Number.isInteger(options.maxTokens)&&options.maxTokens>0?{maxTokens:options.maxTokens}:{}),
+       ...(smoke&&providerId==='loomy'&&model==='spark-x2.6'?{reasoningEffort:'none'}:{})};
+     try{
+       const native=await embeddedPack.streamNative(request);
+       const output=await collectSourceDshStream(native,{tools:options.tools,signal});
+       if(embeddedPack.status?.().state!=='mounted')
+         throw unable('Isolated DSH source was disposed before completion');
+       if(output.finishReason==='stop'&&typeof output.text==='string'&&output.text.trim())
+         inferenceProof.set(account.id,{at:Date.now(),model});     return output;
    }catch(error){
     // The pack can fail before emitting the first event. Keep only vetted
     // machine failure facts for failover. Never expose arbitrary upstream
     // Error.message, even when the upstream happens to use UpstreamError.
     if(signal?.aborted)throw unable('Isolated source request cancelled','CANCELLED');
-    throw new UpstreamError('Isolated DSH native source request failed',
-      safeDshFailureFacts(error));
-   }
-  },
+     const failure=new UpstreamError('Isolated DSH native source request failed',
+       safeDshFailureFacts(error));
+     if(['UPSTREAM_FINISH_ERROR','MISSING_NATIVE_FINISH','UNCLOSED_NATIVE_BLOCK']
+       .includes(error?.safeStreamPhase))failure.safeStreamPhase=error.safeStreamPhase;
+      throw failure;
+    }  },
  };
 }

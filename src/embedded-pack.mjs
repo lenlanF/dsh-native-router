@@ -388,8 +388,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
   // Single-account requests preserve the Alpha.8 behavior. Experimental
   // multiaccount requests are permitted ONLY for reviewed channel paths,
   // after an isolated-profile flag and request-local credential guard.
-  async function streamNative({providerId,sourceAccountId,model,messages,tools,signal,maxTokens}={}){
-    if(!sourceAllowed(providerId)||typeof sourceAccountId!=='string'      ||!sourceAccountId||sourceAccountId.length>100||typeof model!=='string'||!model.trim()
+   async function streamNative({providerId,sourceAccountId,model,messages,tools,signal,maxTokens,reasoningEffort}={}){    if(!sourceAllowed(providerId)||typeof sourceAccountId!=='string'      ||!sourceAccountId||sourceAccountId.length>100||typeof model!=='string'||!model.trim()
       ||model.length>160||!Array.isArray(messages)||!messages.length)
       throw Error('Invalid isolated source model request');
     const scope=mountedScope();
@@ -421,8 +420,9 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
       throw Error('Upstream source account is not currently available for this model');
     if(nativeOwned&&modelAdapterStates[providerId]!=='ready')
       throw Error('Independent source inference is unavailable; source login remains accessible');
-    const request={provider:sourceAdapter(providerId),model,messages,tools:Array.isArray(tools)?tools:[],signal,      ...(Number.isInteger(maxTokens)&&maxTokens>0?{maxTokens}:{})};
-    if(scope!==mountedScope()||signal?.aborted)throw Error('Source pack disposed before native request');
+     const request={provider:sourceAdapter(providerId),model,messages,tools:Array.isArray(tools)?tools:[],signal,
+       ...(Number.isInteger(maxTokens)&&maxTokens>0?{maxTokens}:{}),
+       ...(providerId==='loomy'&&reasoningEffort==='none'?{reasoningEffort:'none'}:{})};    if(scope!==mountedScope()||signal?.aborted)throw Error('Source pack disposed before native request');
     if(!multi){
       const stream=llm.stream(request);
       if(!stream||typeof stream[Symbol.asyncIterator]!=='function')

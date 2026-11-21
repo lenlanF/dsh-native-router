@@ -305,11 +305,11 @@ export function createAccountCenter({
      generationStarted=true;
      const reply=await Promise.race([driver.generate({account,provider,model:chosen.id,
      options:{messages:[{role:'user',content:[{type:'text',text:'请只回复 OK'}]}],
-     maxTokens:32,sessionId:'native-router-test-'+id},signal:controller.signal}),cancelled]);
-   if(reply?.finishReason!=='stop'||typeof reply?.text!=='string'||!reply.text.trim()
-     ||(Array.isArray(reply.toolCalls)&&reply.toolCalls.length))
-    throw Object.assign(new Error('Model reply was incomplete'),{code:'TRUNCATED'});
-    if(!stillAuthorizedTestAccount({account,provider})
+      maxTokens:provider.id==='own_loomy'&&chosen.id==='spark-x2.6'?128:32,
+      sessionId:'native-router-test-'+id},signal:controller.signal}),cancelled]);    if(reply?.finishReason!=='stop'||typeof reply?.text!=='string'||!reply.text.trim()
+      ||(Array.isArray(reply.toolCalls)&&reply.toolCalls.length))
+     throw Object.assign(new Error('Model reply was incomplete'),{
+       code:'TRUNCATED',safeStreamPhase:reply?.finishReason==='length'?'MAX_TOKENS':'NO_COMPLETE_TEXT'});    if(!stillAuthorizedTestAccount({account,provider})
       ||feePolicy!==JSON.stringify(configStore.get().freePool??{})
       ||!modelTestEvidence(chosen,provider.id))
        return {id,state:'failed',code:'ACCOUNT_OR_FEE_CHANGED',at:now(),
@@ -347,17 +347,16 @@ export function createAccountCenter({
    const meanings={AUTH:'渠道拒绝本账号授权',CREDENTIAL:'自有凭据失效或不可读取',
      QUOTA:'账号额度不足',RATE_LIMIT:'官方接口正在限流',
      PROVIDER_NOT_READY:'渠道模型适配器尚未就绪',
-     TRUNCATED:'模型回复不完整或超出输出限制',
-     TIMEOUT:'模型调用超时',TRANSPORT:'渠道网络连接失败',
+      OUTPUT_LIMIT:'模型触及本次小额验收的输出预算，并非流连接中断',     TIMEOUT:'模型调用超时',TRANSPORT:'渠道网络连接失败',
      SERVER:'渠道服务暂时异常',CANCELLED:'请求被取消',
      INVALID_REQUEST:'模型请求格式不受支持',
      UNKNOWN:'模型没有返回完整的成功回复'};
     return {id,state:'failed',at,code,
-      ...(code==='STREAM_CLOSED'&&['NON_SSE_INCOMPLETE','NO_SSE_FRAMES',
-        'FINISH_FRAME_MISSING_DONE','MISSING_DONE_AND_FINISH',
-        'DONE_MISSING_FINISH','UNCLASSIFIED_SSE'].includes(error?.safeStreamPhase)
-         ?{streamPhase:error.safeStreamPhase}:{}),
-      message:(meanings[code]??meanings.UNKNOWN)+'；没有将该模型标记为实测成功'};
+       ...(['STREAM_CLOSED','OUTPUT_LIMIT'].includes(code)&&['NON_SSE_INCOMPLETE','NO_SSE_FRAMES',         'FINISH_FRAME_MISSING_DONE','MISSING_DONE_AND_FINISH',
+         'DONE_MISSING_FINISH','UNCLASSIFIED_SSE','UPSTREAM_FINISH_ERROR',
+         'MISSING_NATIVE_FINISH','UNCLOSED_NATIVE_BLOCK','MAX_TOKENS','NO_COMPLETE_TEXT']
+         .includes(error?.safeStreamPhase)
+          ?{streamPhase:error.safeStreamPhase}:{}),      message:(meanings[code]??meanings.UNKNOWN)+'；没有将该模型标记为实测成功'};
   }finally{
    clearTimeout(timer);signal?.removeEventListener('abort',abort);pending.delete(id);
   }

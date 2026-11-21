@@ -19,8 +19,7 @@ function zeroPair(row){
 export function freeEvidence(model,providerId=''){
  if(!model||typeof model!=='object'||model.isFree===false||model.free===false)return null;
   if(providerId==='own_zcode'&&model.freeAllowance==='zcode-start-plan-gift'
-     &&model.id==='glm-5.3-flash')
-    return 'ZCode Start Plan 官方赠送免费额度（不使用付费 Coding Plan）';
+      &&typeof model.id==='string'&&/^glm-5\.3-flash$/i.test(model.id))    return 'ZCode Start Plan 官方赠送免费额度（不使用付费 Coding Plan）';
    if(providerId==='own_loomy'&&model.freeAllowance==='loomy-daily-gift'
       &&model.id==='spark-x2.6')
      return 'Loomy 官方每日赠送积分专用 Spark X2.6（永久积分不可用）';

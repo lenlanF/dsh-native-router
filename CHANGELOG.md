@@ -1,5 +1,40 @@
 # Change Log
 
+## 1.0.0-rc.65 — 2026-11-21 — WorkBuddy 零倍率宿主实测输出预算修复
+
+- **rc.64 真机安装后**，WorkBuddy CN `hy4flash-free` 的一次性 DSH Host 路由确实到达上游，返回 `finish(max-tokens)`；因 32 token 用完不满足 `finish(stop)`，按真实失败记录，绝不把它冒称正式路由成功。此前 rc.62 Loomy 双路径和已有四个 WorkBuddy 账号历史完整回复不因此被抹掉。
+- 仅对经 Host 逐账号**实时确认免费/赠送**后且模型精确匹配的 WorkBuddy CN `hy4flash-free`、global `deepseek-v4.1-flash` 和 Loomy `spark-x2.6` 的 Host 最小验收提高输出预算为 128 token，其它收费或未知费率仍保持32或更严格的拒绝策略。费用门槛、nonce 一次消费和完整 `finish(stop)` 验收不变。新增针对零倍率宿主请求预算的回归。
+
+## 1.0.0-rc.64 — 2026-11-21 — 低费率实机结果与 CodeArts 费用安全硬门槛
+
+- **rc.63 实际 DSH 一次性费用受控模型验收：** Lingxi 从官方实时模型目录取最低倍率 `x0.1` 的 `mimo-v2.6-pro`，真实返回完整回复，用量8输入/73输出。上游实际输出超过客户端传递的32 token参数，说明该参数不是渠道侧可靠的成本硬上限；严禁用此值宣称绝对付费金额。ZCode `GLM-5.3-Flash` 因账户可信余额校验不通过，未发送生成。CodeArts `glm-5.3-flash` 实测输出32 token到达上限，返回 `OUTPUT_LIMIT`、不登记成功，不重复付费重试。
+- 修复费用门槛缺陷：CodeArts 来源驱动即使提供在线余额，也不能替代准确的**模型实际费率与权益**。原 `priceUnverified` 流程只在无余额接口时拒绝、可能错误通过余额检查产生小额但未定价的请求；现改成选择模型后独立强制跳过 `PRICE_AND_BALANCE_UNVERIFIED`，新增回归用例证明“充足余额不能绕过费用门槛”。
+- 免费模型已验证的 Loomy 原生调用、WorkBuddy 现有成功证明不受此费用保护修复影响。ZCode 无可靠低费余额时继续安全跳过，绝不拿订阅/充值额度伪造免费证明。
+- 本版追加安全加固：ZCode 官方 `GLM-5.3-Flash` 大小写差异曾导致 `glm-5.3-flash` 的独立调用前赠送额度复核失配。现统一按精确模型、大小写不敏感匹配；`bounded-priced` 和 AutoFree 免费路由都必须在实际调用前读取**官方赠送桶**，不能用总余额/付费积分替代。Lingxi 上游已经真实证明忽略 32 token 请求上限，后续非零倍率自动小额验收一律安全跳过 `UPSTREAM_OUTPUT_CAP_UNVERIFIED`，只允许官方 x0.00 免费模型。CodeArts 未取得可信费率继续跳过。
+- 驱动层仅将 `finish(stop)` 且非空文本视为独立模型完成证明；`max-tokens`、缺失结束帧、上游错误不写成功标记。补充 AutoFree 赠送额度在目录之后失效的拒绝验证，以及 ZCode 仅有付费总额、Lingxi 非零倍率不发送真实推理的隔离测试。收费渠道不会因重启/自动探测重发测试请求。
+
+## 1.0.0-rc.63 — 2026-11-21 — 低费率账号原生单次实测与费控前置校验
+
+- **Loomy rc.62 实际 DSH 已通过双路径：** 独立自有账号的 `spark-x2.6` 真实推理返回 `MODEL_REPLY_COMPLETE`，50 输出 token；同版正式 `ctx.llm.stream` 返回 `DSH_HOST_ROUTE_COMPLETE`。rc.61 精确诊断旧 `STREAM_CLOSED` 是 `MAX_TOKENS`，更正为非重试型 `OUTPUT_LIMIT`，同时补全 DSH 会话标识传递以保证生成前赠送积分复核。
+- 增加宿主内部需二次明确同意的 `bounded-priced` 单次实测模式，只允许当前配置中的 Lingxi/ZCode/CodeArts 各最多一次，限制提示词、输出预算及工具，不以查询模型目录等于可收费推理成功。Lingxi 目录保留官方倍率选最低候选；带入有限 `max_tokens`；ZCode 必须官方账户金额充足、仅 Flash 小模型；CodeArts 当前若缺少可信可比定价与官方余额直接跳过，避免意外高额计费。单次报告不写认证令牌、模型正文与账号唯一标识。
+## 1.0.0-rc.62 — 2026-11-21 — Loomy 实测原因修复与小额输出预算
+
+- **rc.61 真实 DSH 独立账号测试**：`own_loomy/spark-x2.6` 正式模型返回 `finish(max-tokens)`，新的流诊断记录 `MAX_TOKENS`，故此前 `STREAM_CLOSED` 是**错误将输出预算耗尽混同真实断流**。该测试真实发送过模型请求但未完成正常回答；不可记为通过。
+- 仅对确认每日免费赠送足够的 Loomy `spark-x2.6` 单次测试使用 `maxTokens:128`（其他渠道仍为32），并传递官方原生 `reasoning_effort:none` 以减少耗时和思考 Token；仍须确认赠送池、拥有权限及 exact 账号。`max-tokens` 现在单独判 `OUTPUT_LIMIT`，不会被误判为网络流关闭或触发自动重试；只在独立用户明确授权的一次性实机核验中使用更高上限。
+- Loomy 的 DSH Host Provider 与独立账号路径须分别真实发出一次完整回复才验收，且保留真实用量、安全原因枚举及发布回归证明。未知费率/会话创建可能产生的额外消费仍需预先查明，不以最小模型名字替代官方定价。
+
+## 1.0.0-rc.61 — 2026-11-21 — Loomy 正式路由/独立账号差异追踪与费用保护
+
+- 修复真实 DSH `native-router` 正式路由进入路由引擎后丢失 `sessionId`，致使下游独立渠道驱动无法识别 `native-router-smoke-host` 最小测试会话、无法执行生成前最新赠送额度确认。改为下游收到与上游一致的 `sessionId`、`maxTokens`，回归覆盖。
+- 区分真正的原生事件流缺少 `finish`、未闭合消息块、上游显式错误完成与模型达到 `max-tokens` 的独立测试失败原因；只写入固定流阶段枚举，不保存响应正文、凭据、未审查的错误。32 token 限额足以防止无意长文本，但可能导致原生模型长思考 `max-tokens`，不应误认为网络断流。
+- Loomy 双路径本机真实验收与其它三渠道最低费用核查必须以独立现场报告为准；离线测试不构成推理成功证据。无可靠费用上界的模型不允许因“看起来便宜”而自动烧掉付费余额。
+
+## 1.0.0-rc.60 — 2026-11-21 — 双区域 DSH 真实路由通过、赠送额度生成前复核
+
+- **生产真机 rc.59 验收：两个 WorkBuddy Provider 均成功完成正式 DSH LLM native-router 路由**。国内 `hy4flash-free` 与国际 `deepseek-v4.1-flash` 均官方明确零积分，返回非空文本及 DSH `finish(stop)`。国际 `hy3` 第一次路由流不完整的真实失败保留在历史中。国际首个独立账号再次以第二款免费模型完成最小独立模型调用，真实用量15输入/1输出，恢复当前持久有效 **4/8独立账号成功**。
+- Loomy 官方每日免费赠送积分本机渠道包只读获取且与永久/充值积分明确区分。`own_loomy/spark-x2.6` 只在赠送≥2000积分、本人独立官方登录态在线才进入验收；ZCode Start Plan 赠送与订阅付费桶独立。rc.60 增加**正式生成请求前第二次查看该账号官方赠送余额**，目录探测之后额度减少就严格拒绝生成，避免付费积分被使用，不妨碍正常用户自行选用付费模型。
+- 与原生 Host 路由/独立账号调用保持区别：离线模拟即使通过也不等于真实服务。其余四个真实账号需有明确赠送/免费依据与实际完整模型回复，才改为完成。
+
 ## 1.0.0-rc.59 — 2026-11-21 — WorkBuddy 国际 DSH 正式路由诊断与确切免费候选切换
 
 - 实际安装 rc.58 并在**运行中的 DSH 原生 `ctx.llm.stream`** 真正推理：`own_workbuddy-cn/hy4flash-free` 出现非空 `text-delta` 加 `finish(stop)` 完整回合，证实从 DSH LLM→Native Router→自有渠道→官方模型→DSH 的真路由；`own_workbuddy-global/hy3` 流未完整完成，按 `DSH_STREAM_INCOMPLETE` **真实失败**，不能把此前的账号直接生成成功冒充宿主成功。

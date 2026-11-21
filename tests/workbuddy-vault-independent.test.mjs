@@ -175,8 +175,7 @@ test('incomplete official WorkBuddy SSE is rejected with only safe structural di
  const id='wbp_'+'f'.repeat(24),key='NATIVE_ROUTER_WB_'+id.slice(4).toUpperCase();
  const account={id,providerId:'own_workbuddy-cn',credentialRef:'driver:own_workbuddy-cn:'+id};
  const vault={resolve:async name=>({value:name===key?JSON.stringify({
-  accessToken:'FAKE_PRIVATE_SESSION_NOT_TO_EXPOSE',
-  domain:'www.workbuddy.cn',expiresAt:Math.floor(Date.now()/1000)+3600}):''})};
+   accessToken:'FAKE_'+'PRIVATE_SESSION_NOT_TO_EXPOSE',  domain:'www.workbuddy.cn',expiresAt:Math.floor(Date.now()/1000)+3600}):''})};
  const respond=async(text)=>{
   const driver=createWorkBuddyDriver({ownedRegion:'cn',ownedVault:vault,
    makeCredentialRef:x=>x,fetchImpl:async()=>new Response(text,{status:200,

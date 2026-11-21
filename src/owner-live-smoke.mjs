@@ -13,6 +13,108 @@ const wait=(ms,signal)=>new Promise(resolve=>{
   signal?.addEventListener('abort',done,{once:true});
 });
 const safeCode=value=>typeof value==='string'&&/^[A-Z][A-Z_]{0,47}$/.test(value)?value:'UNKNOWN';
+const BOUNDED_MAX_OUTPUT=Object.freeze({own_lingxi:32,own_zcode:64,codearts:32});
+// These exact models have a checked free/gift catalog before Host can route.
+// A larger budget is safe only after every potential Host account is free.
+const verifiedFreeHostBudget=(providerId,modelId)=>
+ (providerId==='own_loomy'&&modelId==='spark-x2.6'
+  ||providerId==='own_workbuddy-cn'&&modelId==='hy4flash-free'
+  ||providerId==='own_workbuddy-global'&&modelId==='deepseek-v4.1-flash')?128:32;
+function boundedModelChoice(providerId,rows){
+ const usable=(Array.isArray(rows)?rows:[]).filter(row=>typeof row?.id==='string'&&row.id.length<=120);
+ if(providerId==='own_lingxi'){
+  const rated=usable.filter(row=>typeof row.costMultiplier==='number'
+   &&Number.isFinite(row.costMultiplier)&&row.costMultiplier>=0)
+    .sort((a,b)=>a.costMultiplier-b.costMultiplier);
+  if(!rated.length)return {code:'NO_OFFICIAL_RATE'};
+  if(rated[0].costMultiplier>1)return {code:'RATE_OVER_LIMIT'};
+  return {modelId:rated[0].id,multiplier:rated[0].costMultiplier};
+ }
+ if(providerId==='own_zcode'){
+  const row=usable.find(x=>/^glm[-.]5[-.]3[-.]flash$/i.test(x.id));
+  return row?{modelId:row.id}:{code:'NO_LOW_COST_MODEL'};
+ }
+ if(providerId==='codearts'){
+  // The current CodeArts model catalog does not return comparable rate metadata.
+  // Restrict charged smoke to explicitly identifiable Flash-class models.
+  const preferred=['qwen3.8-flash','glm-5.3-flash','glm-4.7-flash'];
+  const row=preferred.map(id=>usable.find(x=>x.id.toLowerCase()===id)).find(Boolean);
+  return row?{modelId:row.id,priceUnverified:true}:{code:'NO_LOW_COST_MODEL'};
+ }
+ return {code:'PROVIDER_NOT_ALLOWLISTED'};
+}
+async function boundedPaidProof({account,accountCenter,configStore,now,signal}){
+ const maxTokens=BOUNDED_MAX_OUTPUT[account.providerId];
+ if(!maxTokens)return {state:'skipped',code:'PROVIDER_NOT_ALLOWLISTED'};
+ const driver=accountCenter.driverFor(account.providerId);
+ const binding=account.credentialRef;
+ const authorized=()=>configStore.get().accounts.some(a=>a.id===account.id
+  &&a.providerId===account.providerId&&a.enabled&&a.credentialRef===binding);
+ if(!authorized()||typeof driver?.generate!=='function'||typeof driver?.listModels!=='function')
+  return {state:'skipped',code:'ACCOUNT_NOT_READY'};
+ const controller=new AbortController();
+ const cancel=()=>controller.abort();
+ const timeout=setTimeout(cancel,75000);
+ if(signal?.aborted)cancel();else signal?.addEventListener('abort',cancel,{once:true});
+ let called=false,modelId=null,multiplier=null,priceUnverified=false,before=null;
+ try{
+  if(controller.signal.aborted)return {state:'skipped',code:'CANCELLED'};
+  const rows=await driver.listModels({account,signal:controller.signal});
+  const choice=boundedModelChoice(account.providerId,rows);
+  if(!choice.modelId)return {state:'skipped',code:choice.code};
+  modelId=choice.modelId;multiplier=choice.multiplier??null;
+  priceUnverified=choice.priceUnverified===true;
+  // Price comparisons, not just account balances, must be trusted before
+  // a charged CodeArts request. A balance endpoint cannot waive this gate.
+   if(priceUnverified)
+    return {state:'skipped',code:'PRICE_AND_BALANCE_UNVERIFIED',modelId};
+   // Lingxi returned 73 tokens despite maxTokens=32. This client parameter
+   // is not an enforceable charge cap. No further paid smoke on nonzero rates.
+   if(account.providerId==='own_lingxi'&&multiplier!==0)
+    return {state:'skipped',code:'UPSTREAM_OUTPUT_CAP_UNVERIFIED',modelId,multiplier};
+   if(typeof driver.refreshAccountStatus==='function'){
+    before=await driver.refreshAccountStatus({account,force:true,signal:controller.signal});
+    if(!['ready','online'].includes(before?.state)
+      ||(typeof before?.balance==='number'&&before.balance<128))
+     return {state:'skipped',code:'BALANCE_UNAVAILABLE_OR_LOW',modelId};
+    if(account.providerId==='own_zcode'&&(
+      before.authVerified!==true||before.balanceState!=='available'
+      ||!Number.isFinite(before.giftedBalance)||before.giftedBalance<1024))
+     return {state:'skipped',code:'NO_CONFIRMED_GIFT_BALANCE',modelId};
+    if(account.providerId==='own_lingxi'&&!Number.isFinite(before.balance))
+      return {state:'skipped',code:'BALANCE_UNAVAILABLE_OR_LOW',modelId};
+   } else if(account.providerId==='codearts'){   // CodeArts has no official comparable unit price or bounded balance
+   // response in its current owned driver. Do not risk a hidden charge.
+   return {state:'skipped',code:'PRICE_AND_BALANCE_UNVERIFIED',modelId};
+  }
+  if(!authorized()||controller.signal.aborted)
+   return {state:'skipped',code:'ACCOUNT_CHANGED',modelId};
+  called=true;
+  const reply=await driver.generate({account,model:modelId,
+    options:{messages:[{role:'user',content:[{type:'text',text:'OK'}]}],
+      tools:[],maxTokens,sessionId:'native-router-bounded-cost'},
+    signal:controller.signal});
+  const complete=reply?.finishReason==='stop'&&typeof reply?.text==='string'
+    &&Boolean(reply.text.trim())&&!(reply.toolCalls?.length);
+  const usage=reply?.usage&&typeof reply.usage==='object'
+    ?Object.fromEntries(['prompt_tokens','completion_tokens','total_tokens']
+       .filter(key=>Number.isSafeInteger(reply.usage[key])&&reply.usage[key]>=0)
+       .map(key=>[key,reply.usage[key]])):{};
+  const base={state:complete?'verified':'failed',
+   code:complete?'MODEL_REPLY_COMPLETE':reply?.finishReason==='length'
+     ?'OUTPUT_LIMIT':'INCOMPLETE',modelId,maxTokens,
+   ...(multiplier!==null?{multiplier}:{}),
+   ...(priceUnverified?{priceUnverified:true}:{}),
+   ...(Object.keys(usage).length?{usage}:{})};
+  if(!authorized())return {...base,state:'failed',code:'ACCOUNT_CHANGED'};
+  if(complete)return {...base,proofAt:now()};
+  return base;
+ }catch(error){
+  return {state:called?'failed':'skipped',
+   code:controller.signal.aborted?'CANCELLED':called?safeCode(error?.code):'PRECHECK_FAILED',
+   ...(modelId?{modelId}:{}),maxTokens};
+ }finally{clearTimeout(timeout);signal?.removeEventListener('abort',cancel)}
+}
 // The DSH Host path is distinct from the per-account driver call above: it
 // verifies DSH llm.stream -> registered native-router -> direct channel adapter.
 async function hostRouteProof({llm,adapter,configStore,accountCenter,
@@ -56,9 +158,9 @@ async function hostRouteProof({llm,adapter,configStore,accountCenter,
     if(controller.signal.aborted)return {state:'skipped',code:'CANCELLED'};
     const stream=await llm.stream({provider:'native-router',model:route,
       messages:[{role:'user',content:[{type:'text',text:'请只回复 OK'}]}],
-      maxTokens:32,sessionId:'native-router-smoke-host',signal:controller.signal});
-    if(typeof stream?.[Symbol.asyncIterator]!=='function')
-      return {state:'failed',code:'DSH_STREAM_UNAVAILABLE'};
+       maxTokens:verifiedFreeHostBudget(providerId,modelId),
+       sessionId:'native-router-smoke-host',signal:controller.signal});
+     if(typeof stream?.[Symbol.asyncIterator]!=='function')      return {state:'failed',code:'DSH_STREAM_UNAVAILABLE'};
     for await(const evt of stream){
       events++;
       if(events>4096||controller.signal.aborted)return {state:'failed',code:'DSH_STREAM_INTERRUPTED'};
@@ -103,12 +205,15 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
          ||new Set(request.slots).size!==request.slots.length))
       ||(request.freeModelIndex!==undefined&&(!Number.isInteger(request.freeModelIndex)
         ||request.freeModelIndex<0||request.freeModelIndex>9))
-      ||(request.mode!==undefined&&request.mode!=='host-route'))return {state:'invalid_request'};
-  try{renameSync(requestFile,consumedFile)}catch{return {state:'not_consumed'}}
+      ||(request.mode!==undefined&&!['host-route','bounded-priced'].includes(request.mode))
+      ||(request.mode==='bounded-priced'&&(
+        request.billingConsent!=='single-low-cost-call'||
+        !Array.isArray(request.slots)||request.slots.length>3||
+        request.slots.some(slot=>![1,7,8].includes(slot)))))
+     return {state:'invalid_request'};  try{renameSync(requestFile,consumedFile)}catch{return {state:'not_consumed'}}
   const report={version:1,nonce,state:'running',startedAt:now(),completedAt:null,
-     runtime:request.mode==='host-route'?'dsh-llm-native-router':'dsh-plugin-native',
-     maxOutputTokensPerCall:32,accounts:[]};
-  function persist(){
+     runtime:request.mode==='host-route'?'dsh-llm-native-router':
+       request.mode==='bounded-priced'?'dsh-plugin-native-bounded-priced':'dsh-plugin-native',      maxOutputTokensPerCall:128,accounts:[]};  function persist(){
     const temp=resultFile+'.tmp-'+process.pid;
     try{writeFileSync(temp,JSON.stringify(report,null,2)+'\n',{mode:0o600,flag:'wx'});
       renameSync(temp,resultFile)}catch(e){
@@ -127,14 +232,26 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
      if(signal?.aborted){report.state='interrupted';break}
      const account=accounts[index];
     const result={slot:index+1,providerId:account.providerId,state:'checking',code:null,
-      modelId:null,freeCount:0,advertisedCount:0,startedAt:now(),finishedAt:null};
-    report.accounts.push(result);persist();
+       modelId:null,freeCount:0,advertisedCount:0,
+       maxOutputTokens:account.providerId==='own_loomy'?128:
+         BOUNDED_MAX_OUTPUT[account.providerId]??32,       startedAt:now(),finishedAt:null};    report.accounts.push(result);persist();
     const live=accountCenter.list().accounts.find(a=>a.id===account.id&&a.providerId===account.providerId);
     if(!live?.enabled||!['online','recently_verified'].includes(live.connectionState)){
       result.state='skipped';result.code='LOGIN_NOT_VERIFIED';result.finishedAt=now();persist();continue;
     }
     if(!live.modelTestAvailable){
       result.state='skipped';result.code='NOT_OWNED_INFERENCE';result.finishedAt=now();persist();continue;
+    }
+    if(request.mode==='bounded-priced'){
+      result.state='generating';persist();
+      const proof=await boundedPaidProof({account,accountCenter,configStore,now,signal});
+      result.state=proof.state;result.code=proof.code;
+      result.modelId=proof.modelId??null;
+      if(typeof proof.multiplier==='number')result.multiplier=proof.multiplier;
+      if(proof.priceUnverified===true)result.priceUnverified=true;
+      if(proof.usage)result.usage=proof.usage;
+      if(proof.proofAt)result.proofAt=proof.proofAt;
+      result.finishedAt=now();persist();continue;
     }
     let catalog;
     for(let attempt=0;attempt<4&&!signal?.aborted;attempt++){
@@ -152,8 +269,9 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
      const chosen=request.freeModelIndex??0;
      if(chosen>=free.length){result.state='skipped';result.code='FREE_MODEL_INDEX_UNAVAILABLE';result.finishedAt=now();persist();continue}
      result.modelId=free[chosen].id;
-     result.state='generating';persist();
-     if(request.mode==='host-route'){
+     if(request.mode==='host-route')
+       result.maxOutputTokens=verifiedFreeHostBudget(account.providerId,result.modelId);
+     result.state='generating';persist();     if(request.mode==='host-route'){
        result.scope='provider';
        try{
           const proof=await hostRouteProof({llm,adapter,configStore,accountCenter,
@@ -169,10 +287,11 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
       const attempt=await accountCenter.verifyModel(account.id,{modelId:result.modelId,signal});
       result.state=attempt.state==='verified'?'verified':attempt.state==='skipped'?'skipped':'failed';
        result.code=attempt.code? safeCode(attempt.code):attempt.state==='verified'?'MODEL_REPLY_COMPLETE':'UNKNOWN';
-       if(['NON_SSE_INCOMPLETE','NO_SSE_FRAMES','FINISH_FRAME_MISSING_DONE',
-         'MISSING_DONE_AND_FINISH','DONE_MISSING_FINISH','UNCLASSIFIED_SSE']
-         .includes(attempt.streamPhase))result.streamPhase=attempt.streamPhase;
-      if(attempt.state==='verified'){
+        if(['NON_SSE_INCOMPLETE','NO_SSE_FRAMES','FINISH_FRAME_MISSING_DONE',
+          'MISSING_DONE_AND_FINISH','DONE_MISSING_FINISH','UNCLASSIFIED_SSE',
+          'UPSTREAM_FINISH_ERROR','MISSING_NATIVE_FINISH','UNCLOSED_NATIVE_BLOCK',
+          'MAX_TOKENS','NO_COMPLETE_TEXT']
+          .includes(attempt.streamPhase))result.streamPhase=attempt.streamPhase;      if(attempt.state==='verified'){
         result.proofAt=attempt.at;
         if(attempt.usage&&typeof attempt.usage==='object')result.usage=attempt.usage;
       }

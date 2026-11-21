@@ -35,8 +35,9 @@ export function safeHostFailure(error){
 }
 export function classifyFailure(error, signal) {
   if (signal?.aborted || error?.name === 'AbortError') return {code:'CANCELLED', retryable:false, scope:'request'};
-  if(error?.code === 'TRUNCATED'||error?.code==='STREAM_CLOSED')
-    return {code:'STREAM_CLOSED',retryable:true,scope:'account',cooldownMs:10000};
+   if(error?.safeStreamPhase==='MAX_TOKENS')
+     return {code:'OUTPUT_LIMIT',retryable:false,scope:'request'};
+   if(error?.code === 'TRUNCATED'||error?.code==='STREAM_CLOSED')    return {code:'STREAM_CLOSED',retryable:true,scope:'account',cooldownMs:10000};
   if(error?.code === 'RATE_LIMIT'||error?.code==='ACCOUNT_QUOTA'){
     return error.code==='ACCOUNT_QUOTA'
       ?{code:'QUOTA',retryable:true,scope:'account',cooldownMs:21600000}

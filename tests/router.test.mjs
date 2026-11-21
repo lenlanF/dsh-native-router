@@ -79,6 +79,19 @@ test('a Host Provider registration failure suppresses all its models during one 
  assert.equal((await engine.execute('provider-down')).text,'OK');
  assert.deepEqual(calls,[['missingHost','one'],['backupHost','three']]);
 });
+test('DSH session identity reaches the selected native driver for guarded owner smoke',async()=>{
+ const cfg=normalizeConfig({providers:[{id:'own_loomy',protocol:'native-channel',enabled:true}],
+  accounts:[{id:'sp_'+'a'.repeat(24),providerId:'own_loomy',credentialRef:'driver:own_loomy:sp_'+'a'.repeat(24),enabled:true}],
+  routes:[{id:'guarded',enabled:true,mode:'pinned',tiers:[{providerId:'own_loomy',model:'spark-x2.6'}]}]});
+ const observed=[];
+ const engine=createRoutingEngine({getConfig:()=>cfg,request:async input=>{
+  observed.push(input.options);return {text:'OK',finishReason:'stop'};
+ }});
+ await engine.execute('guarded',{sessionId:'native-router-smoke-host',maxTokens:32});
+ assert.equal(observed.length,1);
+ assert.equal(observed[0].sessionId,'native-router-smoke-host');
+ assert.equal(observed[0].maxTokens,32);
+});
 test('normal route uses first provider and an eligible account',async()=>{
  const {engine}=rig();
  const x=await engine.execute('daily',{sessionId:'s1'});
@@ -91,8 +104,8 @@ test('free mode never silently falls back to paid model',async()=>{
  const engine=createRoutingEngine({getConfig:()=>cfg,request:async row=>{calls.push(row);return{model:row.model}}});
  const x=await engine.execute('daily');
  assert.equal(x.model,'local-model');
- assert.ok(calls.every(row=>row.model!=='gpt-like'));
-});
+  assert.ok(calls.every(row=>row.model!=='gpt-like'));
+  assert.ok(calls.every(row=>row.options.freeOnly===true));});
 test('free mode with zero explicitly free tiers fails closed',async()=>{
  const cfg=normalizeConfig({...sample,routes:[{...sample.routes[0],mode:'free',
    tiers:[{providerId:'alpha',model:'gpt-like',free:false}]}]});

@@ -111,6 +111,24 @@ test('true DSH Host llm.stream path validates a free provider route without repe
  assert.equal(h.report().accounts[0].code,'DSH_HOST_ROUTE_COMPLETE');
  assert.doesNotMatch(JSON.stringify(h.report()),/responsePreview|cookie|FAKE_PRIVATE/);
 }));
+test('real zero-rate WorkBuddy host smoke has a larger bounded reply budget without changing paid channels',async()=>fixture(async dir=>{
+ const h=rig(dir,{listModels:()=>({state:'ready',models:[{id:'hy4flash-free',free:true}]})});
+ h.request();const file=join(dir,'owner-live-smoke-request.json');
+ writeFileSync(file,JSON.stringify({...JSON.parse(readFileSync(file,'utf8')),
+  mode:'host-route',slots:[1]}));
+ const calls=[];
+ const llm={async *stream(request){calls.push(request);
+  yield {type:'text-delta',text:'OK'};
+  yield {type:'finish',reason:{kind:'stop'}};
+ }};
+ const adapter={listModels:async()=>[{id:'direct:own_workbuddy-cn:hy4flash-free'}]};
+ const result=await runOwnerLiveSmoke({...h.input,llm,adapter});
+ assert.equal(result.verified,1);
+ assert.equal(calls.length,1);
+ assert.equal(calls[0].maxTokens,128);
+ assert.equal(h.report().accounts[0].maxOutputTokens,128);
+ assert.equal(h.report().accounts[0].code,'DSH_HOST_ROUTE_COMPLETE');
+}));
 test('host Provider with multiple accounts cannot bill an unverified priced peer',async()=>fixture(async dir=>{
  const h=rig(dir,{listModels:id=>({state:'ready',models:[{id:'official-zero',free:id===validRows[0].id}]})});
  h.request();const file=join(dir,'owner-live-smoke-request.json');
@@ -205,6 +223,113 @@ test('temporary read-only catalog error is retried without generating until free
  assert.equal(result.verified,1);
  assert.equal(h.calls,1);
  assert.ok(h.catalogCalls>=4);
+}));
+test('paid single-shot requires explicit billing acknowledgement and allowlisted slots',async()=>fixture(async dir=>{
+ const h=rig(dir);h.request();
+ const file=join(dir,'owner-live-smoke-request.json');
+ const row=JSON.parse(readFileSync(file,'utf8'));
+ writeFileSync(file,JSON.stringify({...row,mode:'bounded-priced',slots:[1]}));
+ assert.equal((await runOwnerLiveSmoke(h.input)).state,'invalid_request');
+ assert.equal(h.calls,0);
+ writeFileSync(file,JSON.stringify({...row,mode:'bounded-priced',
+   billingConsent:'single-low-cost-call',slots:[2]}));
+ assert.equal((await runOwnerLiveSmoke(h.input)).state,'invalid_request');
+ assert.equal(h.calls,0);
+}));
+test('bounded Lingxi selects official x0.00 model and sends at most one short request',async()=>fixture(async dir=>{ const h=rig(dir);h.request();
+ const file=join(dir,'owner-live-smoke-request.json');
+ const row=JSON.parse(readFileSync(file,'utf8'));
+ writeFileSync(file,JSON.stringify({...row,mode:'bounded-priced',
+   billingConsent:'single-low-cost-call',slots:[1]}));
+ let generated=0,selected;
+ const a={id:'pr_'+'a'.repeat(28),providerId:'own_lingxi',enabled:true,
+  credentialRef:'driver:own_lingxi:pr_'+'a'.repeat(28)};
+ const driver={listModels:async()=>[{id:'costly',costMultiplier:1.7},
+     {id:'cheapest',costMultiplier:0}],   refreshAccountStatus:async()=>({state:'ready',balance:1000}),
+   generate:async req=>{generated++;selected=req;return {text:'PRIVATE_REPLY',
+    finishReason:'stop',toolCalls:[],usage:{completion_tokens:1}}}};
+ const configStore={path:join(dir,'config.json'),get:()=>({
+   accounts:[a],providers:[{id:'own_lingxi',enabled:true}]})};
+ const accountCenter={list:()=>({accounts:[{...a,connectionState:'online',
+   modelTestAvailable:true}]}),driverFor:()=>driver};
+ assert.equal((await runOwnerLiveSmoke({configStore,accountCenter,
+   env:{DSH_NATIVE_ROUTER_SMOKE_NONCE:nonce}})).verified,1);
+ assert.equal(generated,1);assert.equal(selected.model,'cheapest');
+ assert.equal(selected.options.maxTokens,32);
+ const report=JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'));
+  assert.equal(report.accounts[0].multiplier,0); assert.doesNotMatch(JSON.stringify(report),/PRIVATE_REPLY|pr_aaaaaaaa|credentialRef/);
+}));
+test('Lingxi positive multiplier never triggers another paid smoke when upstream ignores token limit',async()=>fixture(async dir=>{
+ const h=rig(dir);h.request();
+ const requestPath=join(dir,'owner-live-smoke-request.json');
+ const request=JSON.parse(readFileSync(requestPath,'utf8'));
+ writeFileSync(requestPath,JSON.stringify({...request,mode:'bounded-priced',
+  billingConsent:'single-low-cost-call',slots:[1]}));
+ const account={id:'pr_'+'b'.repeat(28),providerId:'own_lingxi',enabled:true,
+  credentialRef:'driver:own_lingxi:pr_'+'b'.repeat(28)};
+ let sends=0,checks=0;
+ const driver={listModels:async()=>[{id:'official-low-rate',costMultiplier:0.1}],
+  refreshAccountStatus:async()=>{checks++;return {state:'ready',balance:10000}},
+  generate:async()=>{sends++;throw Error('should not send to uncapped charged model')}};
+ const configStore={path:join(dir,'config.json'),get:()=>({
+  accounts:[account],providers:[{id:'own_lingxi',enabled:true}]})};
+ const accountCenter={list:()=>({accounts:[{...account,connectionState:'online',
+  modelTestAvailable:true}]}),driverFor:()=>driver};
+ const result=await runOwnerLiveSmoke({configStore,accountCenter,
+  env:{DSH_NATIVE_ROUTER_SMOKE_NONCE:nonce}});
+ assert.equal(result.verified,0);
+ assert.equal(sends,0);assert.equal(checks,0);
+ const report=JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'));
+ assert.equal(report.accounts[0].code,'UPSTREAM_OUTPUT_CAP_UNVERIFIED');
+ assert.equal(report.accounts[0].multiplier,0.1);
+}));
+test('ZCode aggregate paid balance cannot substitute for verified Start Plan gifted tokens',async()=>fixture(async dir=>{
+ const h=rig(dir);h.request();
+ const requestPath=join(dir,'owner-live-smoke-request.json');
+ const request=JSON.parse(readFileSync(requestPath,'utf8'));
+ writeFileSync(requestPath,JSON.stringify({...request,mode:'bounded-priced',
+  billingConsent:'single-low-cost-call',slots:[7]}));
+ const account={id:'sp_'+'c'.repeat(24),providerId:'own_zcode',enabled:true,
+  credentialRef:'driver:own_zcode:sp_'+'c'.repeat(24)};
+ let calls=0;
+ const driver={listModels:async()=>[{id:'GLM-5.3-Flash'}],
+  refreshAccountStatus:async()=>({state:'ready',authVerified:true,balanceState:'available',
+    balance:999999,giftedBalance:0}),
+  generate:async()=>{calls++;throw Error('paid fallback forbidden')}};
+  const placeholders=Array.from({length:6},(_,i)=>({id:'pad-'+i,
+   providerId:'padding',enabled:true,credentialRef:'driver:padding:pad-'+i}));
+  const configStore={path:join(dir,'config.json'),get:()=>({
+   accounts:[...placeholders,account],
+   providers:[{id:'padding',enabled:true},{id:'own_zcode',enabled:true}]})};
+  const accountCenter={list:()=>({accounts:[...placeholders,{...account,
+   connectionState:'online',modelTestAvailable:true}]}),driverFor:()=>driver}; const result=await runOwnerLiveSmoke({configStore,accountCenter,
+  env:{DSH_NATIVE_ROUTER_SMOKE_NONCE:nonce}});
+ assert.equal(result.verified,0);assert.equal(calls,0);
+ const report=JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'));
+ assert.equal(report.accounts[0].code,'NO_CONFIRMED_GIFT_BALANCE');
+}));
+test('CodeArts model and positive account balance cannot bypass unknown-rate gate',async()=>fixture(async dir=>{
+ const h=rig(dir);h.request();
+ const file=join(dir,'owner-live-smoke-request.json');
+ const original=JSON.parse(readFileSync(file,'utf8'));
+ writeFileSync(file,JSON.stringify({...original,mode:'bounded-priced',
+  billingConsent:'single-low-cost-call',slots:[1]}));
+ const a={id:'ca_SAMPLE',providerId:'codearts',enabled:true,
+  credentialRef:'driver:codearts:ca_SAMPLE'};
+ let calls=0;
+ const driver={listModels:async()=>[{id:'glm-5.3-flash'}],
+  refreshAccountStatus:async()=>({state:'ready',balance:999999}),
+  generate:async()=>{calls++;throw Error('should not charge')}};
+ const configStore={path:join(dir,'config.json'),get:()=>({
+  accounts:[a],providers:[{id:'codearts',enabled:true}]})};
+ const accountCenter={list:()=>({accounts:[{...a,connectionState:'online',
+  modelTestAvailable:true}]}),driverFor:()=>driver};
+ const result=await runOwnerLiveSmoke({configStore,accountCenter,
+  env:{DSH_NATIVE_ROUTER_SMOKE_NONCE:nonce}});
+ assert.equal(result.verified,0);
+ assert.equal(calls,0);
+ const report=JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'));
+ assert.equal(report.accounts[0].code,'PRICE_AND_BALANCE_UNVERIFIED');
 }));
 test('unknown or unavailable price and catalog errors are reported but never billed',async()=>fixture(async dir=>{
  const h=rig(dir,{listModels:()=>{throw Error('model catalog failed') }});

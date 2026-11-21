@@ -50,15 +50,22 @@ function strictZeroLingxiMultiplier(value){
   return value===0 || typeof value==='string'
     && /^\s*(?:x\s*0(?:\.0+)?|0(?:\.0+)?\s*x)\s*$/i.test(value);
 }
-function planModels(json){
- // Follow the existing Lingxi adapter: data.plans lists client modes,
+function lingxiRate(value){
+  if(typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=100)return value;
+  if(typeof value!=='string')return null;
+  const found=/^\s*(?:x\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*x)\s*$/i.exec(value);
+  if(!found)return null;
+  const n=Number(found[1]??found[2]);
+  return Number.isFinite(n)&&n>=0&&n<=100?n:null;
+}
+function planModels(json){ // Follow the existing Lingxi adapter: data.plans lists client modes,
  // NOT inference models. Model id primarily uses entry.key.
  const candidates=Array.isArray(json?.data?.models)?json.data.models:[];
  const seen=new Set();return candidates.filter(x=>x&&typeof x==='object')
    .map(x=>({id:typeof x.key==='string'&&x.key?x.key:x.id,
      name:typeof x.name==='string'&&x.name?x.name:x.key??x.id,
-     ...(strictZeroLingxiMultiplier(x.multiplier)?{upstreamFreeLabel:true}:{})}))
-  .filter(x=>typeof x.id==='string'&&x.id.length>0&&x.id.length<160
+      ...(strictZeroLingxiMultiplier(x.multiplier)?{upstreamFreeLabel:true}:{}),
+      ...(lingxiRate(x.multiplier)!==null?{costMultiplier:lingxiRate(x.multiplier)}:{})}))  .filter(x=>typeof x.id==='string'&&x.id.length>0&&x.id.length<160
     &&!seen.has(x.id)&&seen.add(x.id))
   .slice(0,100);
 }
@@ -71,8 +78,7 @@ function requireOwnAccount(providerId,account){
  return keyFor(found[2]);
 }
 function lingxiDecode(body){
- let text='',reasoning='',done=false,usage=null,toolCalls=[];
- for(const frame of body.split(/\r?\n\r?\n/)){
+  let text='',reasoning='',done=false,finishReason='stop',usage=null,toolCalls=[]; for(const frame of body.split(/\r?\n\r?\n/)){
   const data=frame.split(/\r?\n/).filter(x=>x.startsWith('data:'))
    .map(x=>x.slice(5).trim()).join('\n');
   if(!data)continue;
@@ -88,14 +94,12 @@ function lingxiDecode(body){
    if(Array.isArray(choice.tool_calls)&&choice.tool_calls.length)
     toolCalls.push(...choice.tool_calls.map(x=>({id:x.id??randomUUID(),name:x.function?.name,
       arguments:x.function?.arguments??'{}'})));
-   if(choice.finish_reason)done=true;
-  }
+    if(choice.finish_reason){done=true;if(choice.finish_reason==='length')finishReason='length';}  }
  }
  if(!done)throw new UpstreamError('Lingxi stream ended before finish_reason',{code:'TRUNCATED'});
  if(!text.trim()&&!reasoning.trim()&&!toolCalls.length)
   throw new UpstreamError('Lingxi returned empty response',{code:'EMPTY'});
- return {text,reasoning,toolCalls,finishReason:toolCalls.length?'tool_calls':'stop',usage};
-}
+  return {text,reasoning,toolCalls,finishReason:toolCalls.length?'tool_calls':finishReason,usage};}
 export function createPrivateOwnedDriver({providerId,vault,makeCredentialRef,
   fetchImpl=fetch,endpointOverride={},timeoutMs=90000,now=()=>Date.now()}={}){
  const metadata=PRIVATE_PROVIDERS[providerId];
@@ -162,8 +166,10 @@ export function createPrivateOwnedDriver({providerId,vault,makeCredentialRef,
    {method:'POST',headers,body:JSON.stringify({
     client_request_id:String(Date.now()),session_id:sessionId,
     model_provider:'lingxi',model_id:model,
-    agent_input:{text:messages.filter(m=>m.role==='user').at(-1)?.content??'',
-      files:[],file_ids:[],refs:[],expect_model:model,permission_mode:'default',
+     agent_input:{...(Number.isInteger(options.maxTokens)&&options.maxTokens>0
+       ?{max_tokens:Math.min(options.maxTokens,16384)}:{}),
+       text:messages.filter(m=>m.role==='user').at(-1)?.content??'',
+       files:[],file_ids:[],refs:[],expect_model:model,permission_mode:'default',
       current_mode:'agent',browser_plugin_enabled:false}})},signal);
   if(!runRes.ok)throw httpFailure(runRes,'Lingxi');
   const run=JSON.parse(await readCapped(runRes,signal)),runId=run?.data?.run_id;
@@ -172,8 +178,9 @@ export function createPrivateOwnedDriver({providerId,vault,makeCredentialRef,
    method:'POST',headers:{...headers,'X-Client-Type':'lingxi_claw','X-Client-Lang':'zh-CN',
     'X-Cc-Agent-Type':'lingxi_claw','X-Request-Id':randomUUID(),
     'X-Cc-Session-ID':sessionId,'X-Cc-Run-ID':runId},
-   body:JSON.stringify({stream:true,model,messages,
-     ...(tools.length?{tools:openAiTools(tools),tool_choice:'auto'}:{})})},signal);
+    body:JSON.stringify({stream:true,model,messages,
+      ...(Number.isInteger(options.maxTokens)&&options.maxTokens>0
+        ?{max_tokens:Math.min(options.maxTokens,16384)}:{}),     ...(tools.length?{tools:openAiTools(tools),tool_choice:'auto'}:{})})},signal);
   if(!completion.ok)throw httpFailure(completion,'Lingxi');
   return lingxiDecode(await readCapped(completion,signal));
  }

@@ -52,6 +52,15 @@ test('live inference stream failure exposes only fixed diagnostic enum',async()=
  assert.equal(h.generates,1);
  h.center.stop();
 });
+test('model budget exhaustion is classified separately from a broken native SSE channel',async()=>{
+ const h=rig({models:[{id:'spark-x2.6',upstreamFreeLabel:true}],
+  onGenerate:async()=>({text:'partial',finishReason:'length',toolCalls:[]})});
+ const result=await h.center.verifyModel(h.id,{modelId:'spark-x2.6'});
+ assert.equal(result.state,'failed');
+ assert.equal(result.code,'OUTPUT_LIMIT'); assert.equal(result.streamPhase,'MAX_TOKENS');
+ assert.equal(h.generates,1);
+ h.center.stop();
+});
 test('unknown-price model does not issue any real generation even with an exact chosen model ID',async()=>{
  const h=rig({models:[{id:'unknown',name:'not clearly rated'}]});
  const result=await h.center.verifyModel(h.id,{modelId:'unknown'});
