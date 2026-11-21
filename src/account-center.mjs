@@ -220,7 +220,16 @@ export function createAccountCenter({
    }
    return found;
  }
- async function listTestModels(id,{signal}={}){
+  // Model discovery is not execution permission: check the current owned binding
+  // again before real inference and when publishing catalog or replies.
+  function stillAuthorizedTestAccount({account,provider}){
+    const current=configStore.get();
+    return !disposed&&current.accounts.some(row=>row.id===account.id
+      &&row.providerId===account.providerId&&row.credentialRef===account.credentialRef
+      &&row.enabled)&&current.providers.some(row=>row.id===provider.id
+      &&row.enabled&&row.protocol==='native-channel');
+  }
+  async function listTestModels(id,{signal}={}){
    if(pending.has(id)){
      const error=new Error('Account operation already running');error.status=409;throw error;
    }
@@ -245,8 +254,12 @@ export function createAccountCenter({
        seen.add(candidate.id);models.push(candidate);
        if(models.length>=60)break;
      }
-     return {state:'ready',models,freeCount:models.filter(x=>x.free).length,
-       message:'仅明确免费模型允许发送最小真实请求；未知价格不测试'};
+      if(!stillAuthorizedTestAccount({account,provider})){
+        const error=new Error('账号授权已改变，旧模型目录已取消');
+        error.status=409;throw error;
+      }
+      return {state:'ready',models,freeCount:models.filter(x=>x.free).length,
+        message:'仅明确免费模型允许发送最小真实请求；未知价格不测试'};
    }finally{clearTimeout(timer);signal?.removeEventListener('abort',stop)}
  }
  async function verifyModel(id,{modelId,signal}={}){
@@ -285,20 +298,21 @@ export function createAccountCenter({
    if(feePolicy!==JSON.stringify(configStore.get().freePool??{}))
      return {id,state:'skipped',code:'FEE_RULE_CHANGED',at:now(),
        message:'免费声明已变化；未发送模型调用'};
-   const reply=await Promise.race([driver.generate({account,provider,model:chosen.id,
-    options:{messages:[{role:'user',content:[{type:'text',text:'请只回复 OK'}]}],
+    if(!stillAuthorizedTestAccount({account,provider}))
+      return {id,state:'skipped',code:'ACCOUNT_CHANGED',at:now(),
+        message:'账号已停用或凭据绑定已改变；未发送真实推理请求'};
+    const reply=await Promise.race([driver.generate({account,provider,model:chosen.id,
+     options:{messages:[{role:'user',content:[{type:'text',text:'请只回复 OK'}]}],
      maxTokens:32,sessionId:'native-router-test-'+id},signal:controller.signal}),cancelled]);
    if(reply?.finishReason!=='stop'||typeof reply?.text!=='string'||!reply.text.trim()
      ||(Array.isArray(reply.toolCalls)&&reply.toolCalls.length))
     throw Object.assign(new Error('Model reply was incomplete'),{code:'TRUNCATED'});
-   const current=configStore.get();
-   const stillBound=!disposed&&current.accounts.some(row=>row.id===id
-     &&row.providerId===account.providerId&&row.credentialRef===account.credentialRef&&row.enabled)
-     &&current.providers.some(row=>row.id===provider.id&&row.enabled);
-   if(!stillBound||feePolicy!==JSON.stringify(current.freePool??{})
-     ||!modelTestEvidence(chosen,provider.id))
-     throw new Error('账号绑定或模型免费资格在实测期间已改变');
-   const at=now(),status={state:'online',at,bindingRef:account.credentialRef,
+    if(!stillAuthorizedTestAccount({account,provider})
+      ||feePolicy!==JSON.stringify(configStore.get().freePool??{})
+      ||!modelTestEvidence(chosen,provider.id))
+       return {id,state:'failed',code:'ACCOUNT_OR_FEE_CHANGED',at:now(),
+        message:'账号授权或免费规则在调用期间已改变；旧回复已丢弃，可能已发生一次请求，但未记录成功'};
+    const at=now(),status={state:'online',at,bindingRef:account.credentialRef,
     message:'本插件自有账号已完成独立真实模型对话验证'};
    inferenceProof.set(id,{at,credentialRef:account.credentialRef,modelId:chosen.id});
    inferenceFailures.delete(id);

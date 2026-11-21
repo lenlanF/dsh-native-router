@@ -3,15 +3,16 @@ import assert from 'node:assert/strict';
 import {normalizeConfig} from '../src/config.mjs';
 import {createAccountCenter} from '../src/account-center.mjs';
 
-function rig({models,providerId='own_workbuddy-cn',onGenerate}={}){
+function rig({models,providerId='own_workbuddy-cn',onGenerate,onListModels}={}){
  const id='wbp_'+'a'.repeat(24);
  let cfg=normalizeConfig({providers:[{id:providerId,protocol:'native-channel',
   name:'Owned member channel',enabled:true}],accounts:[{
   id,providerId,credentialRef:'driver:'+providerId+':'+id,enabled:true,
  }]});
  let generates=0,lists=0;
- const driver={listModels:async()=>{lists++;return structuredClone(models??[])},
-  generate:async args=>{generates++;return onGenerate?.(args)??{
+ const driver={listModels:async args=>{
+  lists++;return onListModels?onListModels(args):structuredClone(models??[])
+ },generate:async args=>{generates++;return onGenerate?.(args)??{
    text:'OK',finishReason:'stop',toolCalls:[],usage:{prompt_tokens:3,completion_tokens:2},
   }}};
  const configStore={get:()=>structuredClone(cfg),replace:x=>(cfg=normalizeConfig(x))};
@@ -90,4 +91,87 @@ test('changing owner free policy before a pending generation returns cannot cert
  assert.notEqual(result.state,'verified');
  assert.equal(h.center.list().accounts[0].modelInferenceVerifiedAt,null);
  h.center.stop();
+});
+
+test('a disabled account during asynchronous model discovery cannot issue a real model request',async()=>{
+  let listed,release;
+  const listing=new Promise(resolve=>{listed=resolve});
+  const wait=new Promise(resolve=>{release=resolve});
+  const h=rig({models:[{id:'free',isFree:true}],onListModels:async()=>{
+    listed();await wait;return [{id:'free',isFree:true}];
+  }});
+  const promise=h.center.verifyModel(h.id);
+  await listing;
+  h.center.setEnabled(h.id,false);
+  release();
+  const result=await promise;
+  assert.equal(result.state,'skipped');
+  assert.equal(h.generates,0,'disabled account must never reach generate');
+  assert.equal(h.center.list().accounts[0].modelInferenceVerifiedAt,null);
+  h.center.stop();
+});
+
+test('replacing an account credential during model discovery cannot generate using its old binding',async()=>{
+  let listed,release;
+  const listing=new Promise(resolve=>{listed=resolve});
+  const wait=new Promise(resolve=>{release=resolve});
+  const h=rig({onListModels:async()=>{
+    listed();await wait;return [{id:'free',isFree:true}];
+  }});
+  const promise=h.center.verifyModel(h.id);
+  await listing;
+  const current=h.configStore.get();
+  h.configStore.replace({...current,accounts:current.accounts.map(row=>({
+    ...row,credentialRef:row.credentialRef+'-replacement',
+  }))});
+  release();
+  const result=await promise;
+  assert.equal(result.state,'skipped');
+  assert.equal(h.generates,0,'stale credential must never reach generate');
+  assert.equal(h.center.list().accounts[0].modelInferenceVerifiedAt,null);
+  h.center.stop();
+});
+
+test('account catalog discards a pending response after account is disabled',async()=>{
+  let listed,release;
+  const listing=new Promise(resolve=>{listed=resolve});
+  const wait=new Promise(resolve=>{release=resolve});
+  const h=rig({onListModels:async()=>{listed();await wait;return [{id:'free',isFree:true}]}});
+  const promise=h.center.listTestModels(h.id);
+  await listing;
+  h.center.setEnabled(h.id,false);
+  release();
+  await assert.rejects(promise,/账号授权已改变/);
+  assert.equal(h.generates,0);
+  h.center.stop();
+});
+
+test('disabling a provider during model discovery cannot invoke a stale owned driver',async()=>{
+  let listed,release;
+  const listing=new Promise(resolve=>{listed=resolve});
+  const wait=new Promise(resolve=>{release=resolve});
+  const h=rig({onListModels:async()=>{listed();await wait;return [{id:'free',isFree:true}]}});
+  const promise=h.center.verifyModel(h.id);
+  await listing;
+  const current=h.configStore.get();
+  h.configStore.replace({...current,providers:current.providers.map(row=>({
+    ...row,enabled:false,
+  }))});
+  release();
+  assert.equal((await promise).state,'skipped');
+  assert.equal(h.generates,0);
+  h.center.stop();
+});
+
+test('the minimal real model test always sends the bounded prompt and token limit',async()=>{
+  let invocation=null;
+  const h=rig({models:[{id:'safe',isFree:true}],onGenerate:async input=>{
+    invocation=input;
+    return {text:'OK',finishReason:'stop',toolCalls:[]};
+  }});
+  assert.equal((await h.center.verifyModel(h.id)).state,'verified');
+  assert.equal(invocation.options.maxTokens,32);
+  assert.equal(invocation.options.messages[0].content[0].text,'请只回复 OK');
+  assert.equal(invocation.model,'safe');
+  h.center.stop();
 });
