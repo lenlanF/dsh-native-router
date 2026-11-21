@@ -299,10 +299,36 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
          ||!Number.isFinite(facts.giftedBalance)||facts.giftedBalance<1024)
          throw unable('Insufficient official ZCode gift at generation time','COST_NOT_CONFIRMED_FREE');
      }
+      if(options.singleLowCostProof===true){
+        if(providerId!=='codearts'||accountProviderId!=='codearts'
+          ||!Number.isFinite(options.approvedRate)||options.approvedRate<0
+          ||options.approvedRate>0.1)
+          throw unable('Nonzero proof missing an approved exact rate','COST_NOT_VERIFIED');
+        // A new official model list immediately before sending must show
+        // the exact same account-specific minimum and price, never a fallback.
+        const checked=await embeddedPack.listModels('codearts');
+        if(checked?.state!=='ready'||!Array.isArray(checked.models))
+          throw unable('Official CodeArts catalog unavailable','COST_NOT_VERIFIED');
+        const verified=checked.models.filter(row=>
+          row.catalogSource==='codearts-signed-official-model-catalog'
+          &&row.priceSource==='codearts-official-credit-ratio'
+          &&typeof row.costMultiplier==='number'&&Number.isFinite(row.costMultiplier)
+          &&row.costMultiplier>=0&&row.costMultiplier<=100)
+          .sort((a,b)=>a.costMultiplier-b.costMultiplier||a.id.localeCompare(b.id));
+        if(!verified.length||verified[0].id!==model
+          ||verified[0].costMultiplier!==options.approvedRate)
+          throw unable('Lowest CodeArts model or price changed','COST_NOT_VERIFIED');
+        const facts=await readLiveFacts(account);
+        if(facts?.authVerified!==true||facts.balanceState!=='available'
+          ||!Number.isFinite(facts.balance)||facts.balance<=0)
+          throw unable('Official CodeArts account balance unavailable','COST_NOT_VERIFIED');
+      }
      const request={providerId,sourceAccountId:selected.id,model,
        messages:toSourceMessages(options,providerId,model),tools:visibleTools(options.tools),
        signal,...(Number.isInteger(options.maxTokens)&&options.maxTokens>0?{maxTokens:options.maxTokens}:{}),
-       ...(smoke&&providerId==='loomy'&&model==='spark-x2.6'?{reasoningEffort:'none'}:{})};
+       ...(smoke&&providerId==='loomy'&&model==='spark-x2.6'?{reasoningEffort:'none'}:{}),
+        ...(providerId==='codearts'&&options.singleLowCostProof===true
+          ?{reasoningEffort:'off',singleShotPriceProof:true}:{})};
      try{
        const native=await embeddedPack.streamNative(request);
        const output=await collectSourceDshStream(native,{tools:options.tools,signal});

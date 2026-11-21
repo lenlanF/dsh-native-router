@@ -1,4 +1,18 @@
-# DSH Native Router｜全项目未完工横向核查与验收计划（更新至 2026-11-22 rc.68）## rc.69：进一步追 CodeArts 模型信息被 DSH 通用目录标准化剥离的问题
+# DSH Native Router｜全项目未完工横向核查与验收计划（更新至 2026-11-22 rc.68）## rc.71 启动前置目录竞态补救
+
+- rc.70 的首次实机完成前置检查但跳过生成（PRECHECK_FAILED、modelId为空），是可重试的只读元数据环节；8次短间隔仅限这项，不能将其解读为多次收费请求。rc.71 全量和真实联网测试后再更新最终状态。
+
+- **rc.71 真实 DSH 已验证 CodeArts 完整最低费率推理（2026-11-22）：** 插件版本1.0.0-rc.71，9230监听正常，用户一次性授权请求已被持久消费；独立自有 CodeArts 渠道成功生成完整非空回复（state=verified, code=MODEL_REPLY_COMPLETE），准确模型 openpangu-2.1-pro，官方精确倍率 x0.07；实际记录 prompt_tokens=15、completion_tokens=12（上游此次未给可靠 total_tokens，不能自行伪造）。本插件严格限定单一 CodeArts 账号、单个上游HTTP POST，不进行额外付费重试。真实完整推理成功的账号数从历史6/8提升到7/8；ZCode仍因赠送额度未获证明暂未执行收费模型。x0.07 是相对倍率，不代表可确认的人民币费用，切勿捏造实际扣费金额。
+
+## rc.70 用户授权的 CodeArts 最低非零倍率验收
+
+- rc.69 已实机确认官方11款模型及精确倍率、最低 x0.07，零倍率为0。用户明确授权使用最小正倍率验收，不应再次以未知绝对收费硬顶为由全盘跳过。
+- 新增极窄的一次性 owner lowest-priced 命令，仅支持独立 CodeArts，需单独同意、单账号、官方最低倍率 <=0.1、当前有效精确来源/余额及强制单 POST；不允许收费自动重试。只有完整结束的回复才算真实通过。
+- 正式结论以真实 DSH 更新后的匿名证据为准，记录模型ID、最低倍率、是否完整、实际token用量或异常码。请求一次性消费，避免重启重复收费。
+
+- rc.70 首次实机报告为PRECHECK_FAILED，模型尚未选定，属于产生费用之前的只读目录检查失败；模型目录与 DSH 启动探测重叠时仅无费用目录检查有界重试，真正生成不重试。
+
+## rc.69：进一步追 CodeArts 模型信息被 DSH 通用目录标准化剥离的问题
 
 - rc.68 实机 CodeArts 11款目录但签名来源0。原生 CodeArtsAdapter 的完整数据经 DSH LLM 通用 listModels 后可能被抹去。引入插件自己私有 Cordis scope 的只读原生目录回调，从实际 CodeArtsAdapter.listModels 直接拿源数据；失败回退仍是不带价格的 DSH 目录，且不改动任何别的插件模型。
 - 下一步仅通过同版本实机只读核查判定 signedCatalogCount / officialRateCount 变化；不根据11款目录猜费率和零费用。ZCode 仍须有真实官方 Start Plan 额度才可执行免费模型验收。

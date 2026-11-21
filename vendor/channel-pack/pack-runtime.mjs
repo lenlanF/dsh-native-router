@@ -38750,6 +38750,7 @@ var CodeArtsAdapter = class extends LlmAdapter {
     });
     const url = `${CHAT_API_BASE}/chat/completions`;
     let response;
+    let sentNativeRouterProofPosts = 0;
     let queueAttempts = 0;
     let transientAttempts = 0;
     let authRefreshed = false;
@@ -38779,6 +38780,9 @@ var CodeArtsAdapter = class extends LlmAdapter {
       headers.set("Chat-Id", this.chatId);
       headers.set("Session-Id", this.sessionId);
       headers.set("lang", "en");
+      if (options.nativeRouterOneShot === true && sentNativeRouterProofPosts++ > 0) {
+        throw new LlmError("CodeArts native-router single POST limit", "ONE_SHOT_LIMIT");
+      }
       response = await this.fetchImpl(url, {
         method: "POST",
         headers,
@@ -72187,7 +72191,8 @@ function apply(ctx, config = {}) {
     accountPool: pool
   });
   config.nativeRouterSourceCatalogReady?.({
-    codearts: () => codearts.listModels("codearts")
+    codearts: () => codearts.listModels("codearts"),
+    codeartsOneShot: (request2) => codearts.stream({ ...request2, nativeRouterOneShot: true })
   });
   const resolveBuddyCredentialByRef = async (refName) => {
     const resolved = await ctx.credentials.resolve(credentialRef(refName));

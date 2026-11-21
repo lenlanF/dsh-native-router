@@ -83,6 +83,28 @@ test('CodeArts model list preserves verified exact official credit ratio and rej
  assert.equal(rows[0].catalogSource,'codearts-signed-official-model-catalog'); assert.equal(rows[2].costMultiplier,undefined,'unsupported price source is ignored');
 });
 
+test('CodeArts one-post proof rechecks official minimum, pins account and blocks rate changes',async()=>{
+ const src=mockSource([{id:'paid-one',providerId:'codearts',enabled:true}]);
+ const official=(id,rate)=>({id,catalogSource:'codearts-signed-official-model-catalog',
+  priceSource:'codearts-official-credit-ratio',costMultiplier:rate});
+ let rates=[official('only-cheapest',0.07),official('other',0.09)];
+ src.embeddedPack.listModels=async()=>({state:'ready',providerId:'codearts',models:rates});
+ src.embeddedPack.readSourceStatuses=async()=>({state:'ready',accounts:[{
+  accountId:'paid-one',authVerified:true,balanceState:'available',balance:10}]});
+ const driver=createSourceChannelDriver({providerId:'codearts',accountProviderId:'codearts',
+   embeddedPack:src.embeddedPack});
+ const id=sourceAccountOpaqueId('codearts','paid-one');
+ const account={id,providerId:'codearts',credentialRef:'driver:codearts:'+id};
+ const options={messages:[{role:'user',content:'OK'}],maxTokens:128,
+   sessionId:'native-router-bounded-cost',singleLowCostProof:true,approvedRate:0.07};
+ const result=await driver.generate({account,model:'only-cheapest',options});
+ assert.equal(result.finishReason,'stop');assert.equal(src.calls.length,1);
+ assert.equal(src.calls[0].singleShotPriceProof,true);
+ assert.equal(src.calls[0].reasoningEffort,'off');
+ rates=[official('other',0.06),official('only-cheapest',0.07)];
+ await assert.rejects(()=>driver.generate({account,model:'only-cheapest',options}),/price|minimum|最低|Lowest|changed/i);
+ assert.equal(src.calls.length,1,'fee change must prevent a second charged request');
+});
 test('Loomy only grants Spark X2.6 free test from authenticated official daily gift bucket',async()=>{
  const src=mockSource([{id:'loomy-gift',providerId:'loomy',enabled:true}]);
  src.embeddedPack.listModels=async()=>({state:'ready',models:[

@@ -276,7 +276,8 @@ def build(*, check=False):
     patches.append((
         '  });\n  const resolveBuddyCredentialByRef = async (refName) => {',
         '  });\n  config.nativeRouterSourceCatalogReady?.({\n'
-        '    codearts: () => codearts.listModels("codearts")\n'
+        '    codearts: () => codearts.listModels("codearts"),\n'
+        '    codeartsOneShot: request => codearts.stream({...request, nativeRouterOneShot: true})\n'
         '  });\n  const resolveBuddyCredentialByRef = async (refName) => {',
         'codearts-private-direct-catalog-metadata',
     ))
@@ -284,6 +285,23 @@ def build(*, check=False):
         '      if (Number.isFinite(value)) return `x${value.toFixed(2)}`;',
         '      if (Number.isFinite(value) && value >= 0 && value <= 100) return `x${value}`;',
         'codearts-display-exact-ratio-without-rounded-false-zero',
+    ))
+    # A paid owner probe is one upstream POST, not one SDK stream that can
+    # silently send multiple POSTs on 401/429/errors or switch billable accounts.
+    # Gate only the explicit private adapter request marker. Ordinary CodeArts
+    # requests retain their original retries and fallback functionality.
+    patches.append((
+        '      headers.set("lang", "en");\n      response = await this.fetchImpl(url, {',
+        '      headers.set("lang", "en");\n      if (options.nativeRouterOneShot === true && sentNativeRouterProofPosts++ > 0) {\n'
+        '        throw new LlmError2("CodeArts native-router single POST limit", "ONE_SHOT_LIMIT");\n'
+        '      }\n'
+        '      response = await this.fetchImpl(url, {',
+        'codearts-nonzero-one-network-post-limit',
+    ))
+    patches.append((
+        '    let response;\n    let queueAttempts = 0;',
+        '    let response;\n    let sentNativeRouterProofPosts = 0;\n    let queueAttempts = 0;',
+        'codearts-track-actual-priced-proof-posts',
     ))
     names = []
     for old, new, name in patches:

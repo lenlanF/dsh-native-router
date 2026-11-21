@@ -21,7 +21,7 @@ const verifiedFreeHostBudget=(providerId,modelId)=>
  (providerId==='own_loomy'&&modelId==='spark-x2.6'
   ||providerId==='own_workbuddy-cn'&&modelId==='hy4flash-free'
   ||providerId==='own_workbuddy-global'&&modelId==='deepseek-v4.1-flash')?128:32;
-function boundedModelChoice(providerId,rows){
+function boundedModelChoice(providerId,rows,{lowestPriced=false}={}){
  const usable=(Array.isArray(rows)?rows:[]).filter(row=>typeof row?.id==='string'&&row.id.length<=120);
  if(providerId==='own_lingxi'){
   const rated=usable.filter(row=>typeof row.costMultiplier==='number'
@@ -35,24 +35,36 @@ function boundedModelChoice(providerId,rows){
   const row=usable.find(x=>/^glm[-.]5[-.]3[-.]flash$/i.test(x.id));
   return row?{modelId:row.id}:{code:'NO_LOW_COST_MODEL'};
  }
-  if(providerId==='codearts'){
-   // The actual numeric rate comes from the authenticated official remote
-   // credit[].ratio_display. The rounded UI label "x0.00" is NEVER a fee proof.
-   const preferred=['qwen3.8-flash','glm-5.3-flash','glm-4.7-flash'];
-   const candidates=usable.filter(x=>preferred.includes(x.id.toLowerCase()));
-   const rated=candidates.filter(x=>x.priceSource==='codearts-official-credit-ratio'
-     &&typeof x.costMultiplier==='number'&&Number.isFinite(x.costMultiplier)
-     &&x.costMultiplier>=0&&x.costMultiplier<=100)
-     .sort((a,b)=>a.costMultiplier-b.costMultiplier);
-   const row=rated[0]??preferred.map(id=>candidates.find(x=>x.id.toLowerCase()===id)).find(Boolean);
-   if(!row)return {code:'NO_LOW_COST_MODEL'};
-   return {modelId:row.id,priceUnverified:row.priceSource!=='codearts-official-credit-ratio'
-     ||row.costMultiplier!==0,
-     ...(typeof row.costMultiplier==='number'&&row.priceSource==='codearts-official-credit-ratio'
-       ?{multiplier:row.costMultiplier}:{})};
-  } return {code:'PROVIDER_NOT_ALLOWLISTED'};
+   if(providerId==='codearts'){
+    if(lowestPriced){
+      // Only signed, fresh, exact official prices survive source catalog.
+      // Never select by display order, name, rounded ratio, or paid balance.
+      const rated=usable.filter(row=>row.catalogSource==='codearts-signed-official-model-catalog'
+        &&row.priceSource==='codearts-official-credit-ratio'
+        &&typeof row.costMultiplier==='number'&&Number.isFinite(row.costMultiplier)
+        &&row.costMultiplier>=0&&row.costMultiplier<=100)
+        .sort((a,b)=>a.costMultiplier-b.costMultiplier||a.id.localeCompare(b.id));
+      if(!rated.length)return {code:'NO_OFFICIAL_RATE'};
+      if(rated[0].costMultiplier>0.1)return {code:'RATE_OVER_LIMIT'};
+      return {modelId:rated[0].id,multiplier:rated[0].costMultiplier,priceUnverified:false};
+    }
+    // Existing zero-only smoke contract remains unchanged.
+    const preferred=['qwen3.8-flash','glm-5.3-flash','glm-4.7-flash'];
+    const candidates=usable.filter(x=>preferred.includes(x.id.toLowerCase()));
+    const rated=candidates.filter(x=>x.priceSource==='codearts-official-credit-ratio'
+      &&typeof x.costMultiplier==='number'&&Number.isFinite(x.costMultiplier)
+      &&x.costMultiplier>=0&&x.costMultiplier<=100)
+      .sort((a,b)=>a.costMultiplier-b.costMultiplier);
+    const row=rated[0]??preferred.map(id=>candidates.find(x=>x.id.toLowerCase()===id)).find(Boolean);
+    if(!row)return {code:'NO_LOW_COST_MODEL'};
+    return {modelId:row.id,priceUnverified:row.priceSource!=='codearts-official-credit-ratio'
+      ||row.costMultiplier!==0,
+      ...(typeof row.costMultiplier==='number'&&row.priceSource==='codearts-official-credit-ratio'
+        ?{multiplier:row.costMultiplier}:{})};
+   }
+   return {code:'PROVIDER_NOT_ALLOWLISTED'};
 }
-async function boundedPaidProof({account,accountCenter,configStore,now,signal}){
+async function boundedPaidProof({account,accountCenter,configStore,now,signal,lowestPriced=false,waitFor=wait}){
   let maxTokens=BOUNDED_MAX_OUTPUT[account.providerId];
   if(!maxTokens)return {state:'skipped',code:'PROVIDER_NOT_ALLOWLISTED'}; const driver=accountCenter.driverFor(account.providerId);
  const binding=account.credentialRef;
@@ -67,27 +79,39 @@ async function boundedPaidProof({account,accountCenter,configStore,now,signal}){
  let called=false,modelId=null,multiplier=null,priceUnverified=false,before=null;
  try{
   if(controller.signal.aborted)return {state:'skipped',code:'CANCELLED'};
-  const rows=await driver.listModels({account,signal:controller.signal});
-  const choice=boundedModelChoice(account.providerId,rows);
-  if(!choice.modelId)return {state:'skipped',code:choice.code};
+   let rows;
+   // DSH startup metadata may race the source model directory. These are
+   // zero-cost reads; no inference is retried once a POST has started.
+   for(let attempt=0;attempt<(lowestPriced?8:1);attempt++){
+     if(controller.signal.aborted)return {state:'skipped',code:'CANCELLED'};
+     try{
+       const observed=await driver.listModels({account,signal:controller.signal});
+       if(Array.isArray(observed)&&observed.length){rows=observed;break}
+     }catch(error){if(!lowestPriced)throw error}
+     if(lowestPriced&&attempt<7)await waitFor(2000,controller.signal);
+   }
+   if(!Array.isArray(rows)||!rows.length)
+     return {state:'skipped',code:'CATALOG_UNAVAILABLE',maxTokens};
+   const choice=boundedModelChoice(account.providerId,rows,{lowestPriced});  if(!choice.modelId)return {state:'skipped',code:choice.code};
   modelId=choice.modelId;multiplier=choice.multiplier??null;
   priceUnverified=choice.priceUnverified===true;
    // A positive numeric multiplier is NOT a hard spending ceiling. A genuinely
    // zero official CodeArts credit ratio can use a larger, single-turn budget.
    if(priceUnverified)return {state:'skipped',code:'PRICE_AND_BALANCE_UNVERIFIED',
      modelId,...(multiplier!==null?{multiplier}:{})};
-   if(account.providerId==='codearts'&&multiplier===0)maxTokens=128;   // Lingxi returned 73 tokens despite maxTokens=32. This client parameter
+   if(account.providerId==='codearts'&&(multiplier===0||lowestPriced))maxTokens=128;   // Lingxi returned 73 tokens despite maxTokens=32. This client parameter
    // is not an enforceable charge cap. No further paid smoke on nonzero rates.
    if(account.providerId==='own_lingxi'&&multiplier!==0)
     return {state:'skipped',code:'UPSTREAM_OUTPUT_CAP_UNVERIFIED',modelId,multiplier};
    if(typeof driver.refreshAccountStatus==='function'){
     before=await driver.refreshAccountStatus({account,force:true,signal:controller.signal});
-    if(!['ready','online'].includes(before?.state)
-      ||(typeof before?.balance==='number'&&before.balance<128
-        &&!(account.providerId==='codearts'&&multiplier===0)))
-     return {state:'skipped',code:'BALANCE_UNAVAILABLE_OR_LOW',modelId};
-    if(account.providerId==='own_zcode'&&(
-      before.authVerified!==true||before.balanceState!=='available'
+     if(!['ready','online'].includes(before?.state)
+       ||(typeof before?.balance==='number'&&before.balance<128
+         &&!(account.providerId==='codearts'&&(multiplier===0||lowestPriced))))
+      return {state:'skipped',code:'BALANCE_UNAVAILABLE_OR_LOW',modelId};
+     if(lowestPriced&&(!Number.isFinite(before.balance)||before.balance<=0))
+       return {state:'skipped',code:'BALANCE_UNAVAILABLE_OR_LOW',modelId};
+     if(account.providerId==='own_zcode'&&(      before.authVerified!==true||before.balanceState!=='available'
       ||!Number.isFinite(before.giftedBalance)||before.giftedBalance<1024))
      return {state:'skipped',code:'NO_CONFIRMED_GIFT_BALANCE',modelId};
     if(account.providerId==='own_lingxi'&&!Number.isFinite(before.balance))
@@ -103,7 +127,8 @@ async function boundedPaidProof({account,accountCenter,configStore,now,signal}){
   called=true;
   const reply=await driver.generate({account,model:modelId,
     options:{messages:[{role:'user',content:[{type:'text',text:'OK'}]}],
-      tools:[],maxTokens,sessionId:'native-router-bounded-cost'},
+      tools:[],maxTokens,sessionId:'native-router-bounded-cost',
+       ...(lowestPriced?{singleLowCostProof:true,approvedRate:multiplier}:{})},
     signal:controller.signal});
   const complete=reply?.finishReason==='stop'&&typeof reply?.text==='string'
     &&Boolean(reply.text.trim())&&!(reply.toolCalls?.length);
@@ -260,23 +285,32 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
          ||new Set(request.slots).size!==request.slots.length))
       ||(request.freeModelIndex!==undefined&&(!Number.isInteger(request.freeModelIndex)
         ||request.freeModelIndex<0||request.freeModelIndex>9))
-       ||(request.mode!==undefined&&!['host-route','bounded-priced','quota-audit'].includes(request.mode))
-       ||(request.mode==='quota-audit'&&(
-         (request.providers===undefined&&!Array.isArray(request.slots))||
-         (request.providers!==undefined&&(
-           request.slots!==undefined||!Array.isArray(request.providers)||
-           request.providers.length<1||request.providers.length>2||
-           request.providers.some(id=>!['own_zcode','codearts'].includes(id))||
-           new Set(request.providers).size!==request.providers.length))||
-         (request.providers===undefined&&(
-           request.slots.length>2||request.slots.some(slot=>![7,8].includes(slot))))))       ||(request.mode==='bounded-priced'&&(
-         request.billingConsent!=='single-low-cost-call'||
-         !Array.isArray(request.slots)||request.slots.length>3||
-         request.slots.some(slot=>![1,7,8].includes(slot)))))     return {state:'invalid_request'};  try{renameSync(requestFile,consumedFile)}catch{return {state:'not_consumed'}}
+      ||(request.mode!==undefined&&!['host-route','bounded-priced','quota-audit','lowest-priced'].includes(request.mode))
+      ||(request.mode==='quota-audit'&&(
+        (request.providers===undefined&&!Array.isArray(request.slots))||
+        (request.providers!==undefined&&(
+          request.slots!==undefined||!Array.isArray(request.providers)||
+          request.providers.length<1||request.providers.length>2||
+          request.providers.some(id=>!['own_zcode','codearts'].includes(id))||
+          new Set(request.providers).size!==request.providers.length))||
+        (request.providers===undefined&&(
+          request.slots.length>2||request.slots.some(slot=>![7,8].includes(slot))))))
+      ||(request.mode==='bounded-priced'&&(
+        request.billingConsent!=='single-low-cost-call'||
+        !Array.isArray(request.slots)||request.slots.length>3||
+        request.slots.some(slot=>![1,7,8].includes(slot))))
+      ||(request.mode==='lowest-priced'&&(
+        request.billingConsent!=='single-minimum-rated-model'||
+        request.slots!==undefined||request.freeModelIndex!==undefined||
+        !Array.isArray(request.providers)||request.providers.length!==1||
+        request.providers[0]!=='codearts'||request.maxMultiplier!==0.1)))
+    return {state:'invalid_request'};
+  try{renameSync(requestFile,consumedFile)}catch{return {state:'not_consumed'}}
   const report={version:1,nonce,state:'running',startedAt:now(),completedAt:null,
      runtime:request.mode==='host-route'?'dsh-llm-native-router':
        request.mode==='bounded-priced'?'dsh-plugin-native-bounded-priced':
-       request.mode==='quota-audit'?'dsh-plugin-official-read-only':'dsh-plugin-native',
+       request.mode==='quota-audit'?'dsh-plugin-official-read-only':
+        request.mode==='lowest-priced'?'dsh-plugin-one-codearts-minimum-rate':'dsh-plugin-native',
      maxOutputTokensPerCall:128,accounts:[]};
    function persist(){    const temp=resultFile+'.tmp-'+process.pid;
     try{writeFileSync(temp,JSON.stringify(report,null,2)+'\n',{mode:0o600,flag:'wx'});
@@ -289,8 +323,13 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
   try{persist()}catch{return {state:'report_unavailable'}}
   const cfg=configStore.get();
   const accounts=cfg.accounts.filter(a=>a.enabled!==false&&cfg.providers.some(p=>p.id===a.providerId&&p.enabled!==false));
+   if(request.mode==='lowest-priced'&&accounts.filter(a=>a.providerId==='codearts').length!==1){
+     report.state='ambiguous_accounts';report.completedAt=now();persist();
+     return {state:'ambiguous_accounts',checked:0,verified:0};
+   }
    const maxAccounts=Math.min(accounts.length,16);
-   const selectedIndexes=request.mode==='quota-audit'&&Array.isArray(request.providers)
+   const selectedIndexes=['quota-audit','lowest-priced'].includes(request.mode)
+      &&Array.isArray(request.providers)
      ?accounts.map((_,index)=>index).filter(index=>request.providers.includes(accounts[index].providerId)).slice(0,16)
      :Array.from({length:maxAccounts},(_,index)=>index)
        .filter(index=>request.slots===undefined||request.slots.includes(index+1));   for(const index of selectedIndexes){
@@ -317,11 +356,11 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
     if(!live.modelTestAvailable){
       result.state='skipped';result.code='NOT_OWNED_INFERENCE';result.finishedAt=now();persist();continue;
     }
-    if(request.mode==='bounded-priced'){
-      result.state='generating';persist();
-      const proof=await boundedPaidProof({account,accountCenter,configStore,now,signal});
-      result.state=proof.state;result.code=proof.code;
-      result.modelId=proof.modelId??null;
+     if(request.mode==='bounded-priced'||request.mode==='lowest-priced'){
+       result.state='generating';persist();
+       const proof=await boundedPaidProof({account,accountCenter,configStore,now,signal,
+         lowestPriced:request.mode==='lowest-priced',waitFor});
+       result.state=proof.state;result.code=proof.code;      result.modelId=proof.modelId??null;
       if(Number.isInteger(proof.maxTokens))result.maxOutputTokens=proof.maxTokens;
       if(typeof proof.multiplier==='number')result.multiplier=proof.multiplier;
       if(proof.priceUnverified===true)result.priceUnverified=true;

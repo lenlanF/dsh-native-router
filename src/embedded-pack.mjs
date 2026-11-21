@@ -170,7 +170,8 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
         options.nativeRouterSourceCatalogReady=catalog=>{
           if(!catalog||typeof catalog.codearts!=='function')
             throw Error('Private CodeArts catalog accessor unavailable');
-          privateSourceCatalog={codearts:catalog.codearts};
+          privateSourceCatalog={codearts:catalog.codearts,
+            codeartsOneShot:typeof catalog.codeartsOneShot==='function'?catalog.codeartsOneShot:null};
         };
         if(nativeOwned){         options.nativeRouterPoolReady=pool=>{
            if(typeof pool?.listAllAccounts!=='function'||typeof pool?.getAvailableAccount!=='function')
@@ -408,7 +409,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
   // Single-account requests preserve the Alpha.8 behavior. Experimental
   // multiaccount requests are permitted ONLY for reviewed channel paths,
   // after an isolated-profile flag and request-local credential guard.
-   async function streamNative({providerId,sourceAccountId,model,messages,tools,signal,maxTokens,reasoningEffort}={}){    if(!sourceAllowed(providerId)||typeof sourceAccountId!=='string'      ||!sourceAccountId||sourceAccountId.length>100||typeof model!=='string'||!model.trim()
+   async function streamNative({providerId,sourceAccountId,model,messages,tools,signal,maxTokens,reasoningEffort,singleShotPriceProof}={}){    if(!sourceAllowed(providerId)||typeof sourceAccountId!=='string'      ||!sourceAccountId||sourceAccountId.length>100||typeof model!=='string'||!model.trim()
       ||model.length>160||!Array.isArray(messages)||!messages.length)
       throw Error('Invalid isolated source model request');
     const scope=mountedScope();
@@ -443,6 +444,19 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
      const request={provider:sourceAdapter(providerId),model,messages,tools:Array.isArray(tools)?tools:[],signal,
        ...(Number.isInteger(maxTokens)&&maxTokens>0?{maxTokens}:{}),
        ...(providerId==='loomy'&&reasoningEffort==='none'?{reasoningEffort:'none'}:{})};    if(scope!==mountedScope()||signal?.aborted)throw Error('Source pack disposed before native request');
+    if(singleShotPriceProof===true){
+      // Paid test must use ONE selected source account and a private adapter
+      // enforcing ONE actual outbound POST. DSH LLM normalization may strip
+      // custom options; do not route this mode through the general model stream.
+      if(providerId!=='codearts'||!nativeOwned||multi||candidates.length!==1
+        ||typeof privateSourceCatalog?.codeartsOneShot!=='function')
+        throw Error('Single-post CodeArts proof requires isolated unique account');
+      const stream=privateSourceCatalog.codeartsOneShot({
+        model,messages,tools:request.tools,signal,maxTokens,reasoningEffort:'off'});
+      if(!stream||typeof stream[Symbol.asyncIterator]!=='function')
+        throw Error('CodeArts one-post stream unavailable');
+      return stream;
+    }
     if(!multi){
       const stream=llm.stream(request);
       if(!stream||typeof stream[Symbol.asyncIterator]!=='function')

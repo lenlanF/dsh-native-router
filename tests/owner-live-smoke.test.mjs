@@ -382,6 +382,69 @@ test('CodeArts official nonzero relative multiplier never bypasses missing absol
  assert.equal(report.accounts[0].code,'PRICE_AND_BALANCE_UNVERIFIED');
  assert.equal(report.accounts[0].multiplier,0.003);
 }));
+test('owner-approved lowest nonzero CodeArts model produces one complete private proof',async()=>fixture(async dir=>{
+ const a={id:'ca_min',providerId:'codearts',enabled:true,credentialRef:'driver:codearts:ca_min'};
+ const req={version:1,nonce,consent:true,mode:'lowest-priced',
+  billingConsent:'single-minimum-rated-model',providers:['codearts'],maxMultiplier:0.1,
+  expiresAt:Date.now()+300000};
+ writeFileSync(join(dir,'owner-live-smoke-request.json'),JSON.stringify(req));
+ const model=(id,rate)=>({id,catalogSource:'codearts-signed-official-model-catalog',
+  priceSource:'codearts-official-credit-ratio',costMultiplier:rate});
+  let sends=0,selected,metadata=0;
+  const driver={listModels:async()=>{
+    metadata++;
+    if(metadata<3)throw Error('source model list busy at startup');
+    return [model('costly',0.3),{id:'invented',priceSource:'guessed',costMultiplier:0},
+      model('lowest',0.07),model('second',0.09)];
+  },  refreshAccountStatus:async()=>({state:'ready',authVerified:true,balanceState:'available',balance:10}),
+  generate:async input=>{sends++;selected=input;return {text:'OK',finishReason:'stop',
+   usage:{prompt_tokens:4,completion_tokens:2,total_tokens:6}}}};
+ const args={configStore:{path:join(dir,'config.json'),get:()=>({
+   accounts:[a],providers:[{id:'codearts',enabled:true}]})},
+  accountCenter:{driverFor:()=>driver,list:()=>({accounts:[{...a,
+   connectionState:'online',modelTestAvailable:true}]})},
+   env:{DSH_NATIVE_ROUTER_SMOKE_NONCE:nonce},waitFor:async()=>{}};
+  const result=await runOwnerLiveSmoke(args);
+  assert.equal(result.verified,1);assert.equal(sends,1);
+  assert.equal(metadata,3); assert.equal(selected.model,'lowest');assert.equal(selected.options.approvedRate,0.07);
+ assert.equal(selected.options.singleLowCostProof,true);
+ assert.equal(selected.options.maxTokens,128);
+ const report=JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'));
+ assert.equal(report.accounts[0].code,'MODEL_REPLY_COMPLETE');
+ assert.equal(report.accounts[0].multiplier,0.07);
+ assert.equal(report.accounts[0].usage.total_tokens,6);
+ assert.doesNotMatch(JSON.stringify(report),/ca_min|credentialRef/);
+ assert.equal((await runOwnerLiveSmoke(args)).state,'already_consumed');
+ assert.equal(sends,1);
+}));
+test('minimum paid CodeArts mode requires exact consent and hard relative-rate gate',async()=>fixture(async dir=>{
+ const a={id:'ca_fake',providerId:'codearts',enabled:true,credentialRef:'driver:codearts:ca_fake'};
+ const path=join(dir,'owner-live-smoke-request.json');
+ const base={version:1,nonce,consent:true,mode:'lowest-priced',
+   billingConsent:'single-minimum-rated-model',providers:['codearts'],maxMultiplier:0.1,
+   expiresAt:Date.now()+300000};
+ let calls=0;
+ const args={configStore:{path:join(dir,'config.json'),get:()=>({
+  accounts:[a],providers:[{id:'codearts',enabled:true}]})},
+  accountCenter:{driverFor:()=>({
+    listModels:async()=>[{id:'too-much',
+      catalogSource:'codearts-signed-official-model-catalog',
+      priceSource:'codearts-official-credit-ratio',costMultiplier:0.2}],
+    refreshAccountStatus:async()=>({state:'ready',authVerified:true,balanceState:'available',balance:500}),
+    generate:async()=>{calls++;throw Error('must not infer')}
+  }),list:()=>({accounts:[{...a,connectionState:'online',modelTestAvailable:true}]})},
+  env:{DSH_NATIVE_ROUTER_SMOKE_NONCE:nonce}};
+ for(const invalid of [{billingConsent:'single-low-cost-call'},
+   {maxMultiplier:0.2},{providers:['own_zcode']},{slots:[8]}]){
+   writeFileSync(path,JSON.stringify({...base,...invalid}));
+   assert.equal((await runOwnerLiveSmoke(args)).state,'invalid_request');
+ }
+ writeFileSync(path,JSON.stringify(base));
+ assert.equal((await runOwnerLiveSmoke(args)).verified,0);
+ const report=JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'));
+ assert.equal(report.accounts[0].code,'RATE_OVER_LIMIT');
+ assert.equal(calls,0);
+}));
 test('explicit read-only quota audit gathers only safe fee and gift evidence, with zero inference',async()=>fixture(async dir=>{
  const h=rig(dir);h.request();
  const file=join(dir,'owner-live-smoke-request.json');
