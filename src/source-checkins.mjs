@@ -178,9 +178,10 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
              bindingRef:bindingFor(row),
              state:entry.authVerified===true?'online':'pending',todayCheckedIn:confirmed?true:entry.todayCheckedIn===false?false:null,
              active:entry.active===true?true:entry.active===false?false:null,
-             authVerified:entry.authVerified===true,
-             ...facts,
-             maskedPhone:typeof entry.maskedPhone==='string'?entry.maskedPhone.slice(0,32):null});
+              authVerified:entry.authVerified===true,
+              ...(typeof entry.claimable==='boolean'?{claimable:entry.claimable}:{}),
+              ...(entry.noClaimablePlans===true?{noClaimablePlans:true}:{}),
+              ...facts,             maskedPhone:typeof entry.maskedPhone==='string'?entry.maskedPhone.slice(0,32):null});
            if(nickname)row.nickname=nickname;
          }
         // A successful provider response is not a successful authentication
@@ -210,9 +211,12 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
       const oldPending=expiredCheckinConfirmation(recent,now());
       // "active" in provider credits.status often means a credit plan, not
       // whether a daily sign-in task exists.
-      const accountState=checkinDisplayState({recent,now:now(),pending:pending.has(row.id),
-        implemented,confirmed,claimable:report?.todayCheckedIn===false});
-    return {id:row.id,providerId:row.providerId,providerName:row.providerId,
+       const accountState=checkinDisplayState({recent,now:now(),pending:pending.has(row.id),
+         implemented,confirmed,
+         noTask:row.providerId==='zcode'&&report?.noClaimablePlans===true,
+         claimable:report?.claimable===true||
+           (report?.claimable===undefined&&report?.todayCheckedIn===false
+             &&report?.noClaimablePlans!==true)});    return {id:row.id,providerId:row.providerId,providerName:row.providerId,
       nickname:row.nickname,enabled:state.enabled&&state.providerEnabled,
       configuredEnabled:row.enabled,credentialKind:'driver',
       connectionState:!state.enabled||!state.providerEnabled?'disabled':
@@ -228,8 +232,10 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
       checkinMessage:confirmedUpstream?'来源服务已核实今日签到完成':
         confirmedFromHistory?'本账号今日已有确认成功记录；来源状态尚未同步':
         oldPending?'上次请求已超过20分钟，尚无服务端签到确认；后续将限次复核':
-        report?.todayCheckedIn===false?'来源服务确认今日尚未签到':
-         recent?publicCheckinMessage(recent.state):(implemented?'今日签到状态暂未核实':
+         row.providerId==='zcode'&&report?.noClaimablePlans===true
+           ?'官方查询当前没有可领取的 Start Plan；未证明今日已领取，后续继续检查':
+         report?.claimable===true?'官方确认当前存在可领取的计划':
+         report?.todayCheckedIn===false?'来源服务确认今日尚未签到':         recent?publicCheckinMessage(recent.state):(implemented?'今日签到状态暂未核实':
            row.providerId==='raccoon'?'该平台每日积分由服务端自动发放':'该渠道不提供每日签到操作'),
     };
   }); }
@@ -304,8 +310,13 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
    const cfg=configFor(row);
    if(!cfg.enabled||!cfg.providerEnabled||!cfg.autoCheckin||!supported.has(row.providerId))continue;
    const records=history(row.id),recent=records.at(-1);
-    if(records.some(x=>x.state==='success')||['no_task','client_required'].includes(recent?.state))continue;
-    if(statusCache.get(row.id)?.day===today()&&statusCache.get(row.id)?.todayCheckedIn===true)continue;
+    // A fresh official ZCode no-plans response prevents unnecessary captcha
+    // and claim POST; it may become available later and is rechecked after TTL.
+    const noPlan=statusCache.get(row.id);
+    if(row.providerId==='zcode'&&noPlan?.day===today()&&noPlan.noClaimablePlans===true
+      &&verificationWithinPeriod({state:noPlan.state,checkedAt:noPlan.checkedAt},
+        now(),STATUS_TTL_MS))continue;
+    if(records.some(x=>x.state==='success')||['no_task','client_required'].includes(recent?.state))continue;    if(statusCache.get(row.id)?.day===today()&&statusCache.get(row.id)?.todayCheckedIn===true)continue;
    if(records.filter(x=>x.source==='auto').length>=MAX_AUTO_ATTEMPTS)continue;
    if(recent&&now()-recent.at<RETRY_DELAY_MS)continue;
    try{results.push(await run(row.id,{source:'auto'}));attempted++}

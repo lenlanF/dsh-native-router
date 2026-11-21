@@ -72,7 +72,7 @@ def build(dependency_root:Path,esbuild_path:Path):
  for name,version in REQUIRED.items():
   obj=json.loads((dependency_root/'node_modules'/name/'package.json').read_text('utf8'))
   if obj.get('version')!=version:raise SystemExit('Dependency version mismatch: '+name)
- compiler=subprocess.run([str(esbuild_path),'--version'],capture_output=True,text=True,timeout=15)
+ compiler=subprocess.run([str(esbuild_path),'--version'],capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=15)
  if compiler.returncode or compiler.stdout.strip()!=ESBUILD_VERSION:
   raise SystemExit('esbuild pinned compiler mismatch')
  native=json.loads(NATIVE_RECEIPT.read_text('utf8'))
@@ -85,8 +85,10 @@ def build(dependency_root:Path,esbuild_path:Path):
   entry.write_bytes(SOURCE.read_bytes())
   args=[str(esbuild_path),str(entry),'--bundle','--platform=node','--format=esm',
         '--target=node22','--legal-comments=inline','--log-level=error','--outfile='+str(outfile)]
-  result=subprocess.run(args,cwd=dependency_root,capture_output=True,text=True,timeout=100)
-  if result.returncode:raise SystemExit('esbuild standalone compilation failed (see local developer output)')
+  result=subprocess.run(args,cwd=dependency_root,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=100)
+  if result.returncode:
+    detail=' | '.join((result.stderr or '').splitlines()[:6])[:600]
+    raise SystemExit('esbuild standalone compilation failed: '+detail)
   rendered=outfile.read_text('utf8')
   if rendered.count(REQUIRE)!=1:raise SystemExit('Pinned DSH package.json read anchor changed')
   rendered=rendered.replace(REQUIRE,REPLACEMENT,1)

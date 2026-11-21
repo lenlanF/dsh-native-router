@@ -28,8 +28,15 @@ test('the DSH-native bundle is deterministically derived from unchanged pinned M
   const crlf=Buffer.from(original.toString('utf8').replace(/\n/g,'\r\n'),'utf8');
   assert.equal(sha(canonicalText(crlf)),sha(original));
  assert.equal(sha(bundled),native.generatedSha256);
-   assert.equal(native.patches.length,45);
+   assert.equal(native.patches.length,51);
    assert.ok(native.patches.includes('codearts-exact-official-credit-ratio'));
+   assert.ok(native.patches.includes('zcode-rename-legacy-preview-for-dual-source'));
+   assert.ok(native.patches.includes('zcode-marketing-touch-dual-source-discovery'));
+   assert.ok(native.patches.includes('zcode-preview-bounded-timeout-for-readonly-status'));
+   assert.ok(native.patches.includes('zcode-activation-readonly-3s-timeout'));   assert.ok(bundled.toString('utf8').includes('marketing/touch?seq='));
+   assert.match(bundled.toString('utf8'),/MONOTONIC REQUEST COUNTER/);
+   assert.doesNotMatch(bundled.toString('utf8'),/for\\(let base=0;base<9;base\\+=3\\)/);   assert.ok(native.patches.includes('zcode-balance-preview-must-preserve-failure'));
+   assert.ok(native.patches.includes('zcode-status-anonymous-start-plan-count'));
    assert.ok(native.patches.includes('zcode-never-silently-fallback-to-paid-coding-plan'));
    assert.match(bundled.toString('utf8'),/Native Router forbids implicit Start-to-paid rail fallback/);
    assert.ok(native.patches.includes('codearts-display-exact-ratio-without-rounded-false-zero'));
@@ -103,7 +110,7 @@ test('release package ships only native in-process bundle with host-provided pee
   assert.equal(pkg.private,false);
   assert.equal(pkg.license,'MIT');
   assert.equal(pkg.engines.node,'>=22.10.0');
-   assert.equal(pkg.version,'1.0.0-rc.71');
+   assert.equal(pkg.version,'1.0.0-rc.74');
    assert.ok(pkg.files.includes('vendor/channel-pack/SOURCE_RECEIPT.json'));
    assert.ok(!pkg.files.includes('vendor/channel-pack'));
   assert.ok(!pkg.files.includes('vendor/channel-pack/pack.js'));

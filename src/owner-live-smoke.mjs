@@ -178,8 +178,11 @@ async function quotaEvidence({account,accountCenter,configStore,signal}){
     return {state:'observed',code:giftConfirmed&&modelFound?'OFFICIAL_GIFT_AND_MODEL':
       previewOnly?'START_PLAN_PREVIEW_UNVERIFIED':'NO_CONFIRMED_GIFT_BALANCE',
       modelFound,giftConfirmed,advertisedCount:models.length,
-      ...(Number.isInteger(status.zcodePlanBuckets)?{zcodePlanBuckets:status.zcodePlanBuckets}:{}),
-      ...(Number.isInteger(status.zcodeFlashBuckets)?{zcodeFlashBuckets:status.zcodeFlashBuckets}:{}),
+       ...(typeof status.zcodeStatusObserved==='boolean'
+         ?{zcodeStatusObserved:status.zcodeStatusObserved}:{}),
+       ...(typeof status.zcodeBalanceObserved==='boolean'
+         ?{zcodeBalanceObserved:status.zcodeBalanceObserved}:{}),
+       ...(Number.isInteger(status.zcodePlanBuckets)?{zcodePlanBuckets:status.zcodePlanBuckets}:{}),      ...(Number.isInteger(status.zcodeFlashBuckets)?{zcodeFlashBuckets:status.zcodeFlashBuckets}:{}),
       ...(Number.isInteger(status.zcodePreviewStartPlans)?{zcodePreviewStartPlans:status.zcodePreviewStartPlans}:{})};
    }  const official=models.filter(row=>row?.priceSource==='codearts-official-credit-ratio'
     &&typeof row.costMultiplier==='number'&&Number.isFinite(row.costMultiplier)
@@ -344,8 +347,8 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
       result.state=proof.state;result.code=proof.code;
       for(const key of ['modelFound','giftConfirmed','officialRateCount',
         'zeroRateCount','lowestMultiplier','signedCatalogCount','misleadingZeroDisplay',
-        'zcodePlanBuckets','zcodeFlashBuckets','zcodePreviewStartPlans','advertisedCount']){
-        if(Object.hasOwn(proof,key))result[key]=proof[key];
+         'zcodePlanBuckets','zcodeFlashBuckets','zcodePreviewStartPlans',
+         'zcodeStatusObserved','zcodeBalanceObserved','advertisedCount']){        if(Object.hasOwn(proof,key))result[key]=proof[key];
       }
       result.finishedAt=now();persist();continue;
     }

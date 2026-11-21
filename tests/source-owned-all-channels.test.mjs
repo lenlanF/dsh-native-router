@@ -146,6 +146,27 @@ test('ZCode Start Plan gift uses signed plan ID and exact model instead of free-
    officialPlanId:'zcode-v3-start-plan-trust-1007',remaining:1700}]}}});
  assert.equal(two.giftedBalance,4300);
 });
+test('ZCode preview from authenticated status is preferred over failed balance preview, never a grant',()=>{
+ const a=sourceAccountFacts({providerId:'zcode',
+   statusRow:{status:{active:true,planCount:3,zcodeStartPlanCount:2}},
+   balanceRow:{balance:{previewStartPlanCount:null,packages:[]}}});
+  assert.equal(a.zcodeStatusObserved,true);
+  assert.equal(a.zcodeBalanceObserved,true);
+  assert.equal(a.zcodePreviewStartPlans,2); assert.equal(a.giftedBalance,undefined);
+ const unknown=sourceAccountFacts({providerId:'zcode',
+   statusRow:{error:'network'},balanceRow:{balance:{previewStartPlanCount:null}}});
+  assert.equal(unknown.zcodeStatusObserved,false);
+  assert.equal(unknown.zcodeBalanceObserved,true);
+  assert.equal(unknown.zcodePreviewStartPlans,null); const empty=sourceAccountFacts({providerId:'zcode',
+   statusRow:{status:{active:true,zcodeStartPlanCount:0}},
+   balanceRow:{balance:{previewStartPlanCount:null}}});
+ assert.equal(empty.zcodePreviewStartPlans,0);
+ const bought=sourceAccountFacts({providerId:'zcode',
+   statusRow:{status:{active:true,zcodeStartPlanCount:1}},
+   balanceRow:{balance:{total:1000000}}});
+ assert.equal(bought.giftedBalance,undefined,
+  'unclaimed Start Plan preview and purchased total must never authorize free inference');
+});
 test('Loomy daily gift is extracted only from the exact official daily bucket, not paid permanent points',()=>{
  const gift=sourceAccountFacts({providerId:'loomy',balanceRow:{balance:{total:9500,packages:[
   {name:'永久积分',unit:'积分',remaining:7500},

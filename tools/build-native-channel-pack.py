@@ -303,6 +303,90 @@ def build(*, check=False):
         '    let response;\n    let sentNativeRouterProofPosts = 0;\n    let queueAttempts = 0;',
         'codearts-track-actual-priced-proof-posts',
     ))
+    # Signed ZCode preview can fail: unknown is NOT an empty claim list.
+    patches.append((
+        '    claimablePlans: await fetchClaimablePlans(credential, fetchImpl)',
+        '    claimablePlans: await fetchZcodeClaimablePlans(credential, fetchImpl)',
+        'zcode-balance-preview-must-preserve-failure',
+    ))
+    patches.append((
+        '  return { active: true, todayCheckedIn: false, todayCredit: 0, claimable: plans.length > 0, planCount: plans.length, noClaimablePlans: plans.length === 0 };',
+        '  return { active: true, todayCheckedIn: false, todayCredit: 0, claimable: plans.length > 0, planCount: plans.length, noClaimablePlans: plans.length === 0,\n'
+        '    zcodeStartPlanCount: plans.filter(p => typeof p.planId === "string" && /^zcode-v3-start-plan-[a-z0-9-]+$/i.test(p.planId)).length };',
+        'zcode-status-anonymous-start-plan-count',
+    ))
+    # 3.17+ delivers some no-charge Start Plan gifts ONLY through the
+    # Marketing Touch banner feed (claim_zcode_plan). Keep the parser pure
+    # and shared with independent fixture tests; inline its source into the
+    # audited self-contained MIT derivative, never touch the upstream file.
+    marketing_parser = (ROOT / "src" / "zcode-marketing-plans.mjs").read_text("utf8")
+    if "import " in marketing_parser or marketing_parser.count("export function ") != 2:
+        raise SystemExit("Unsafe changed marketing plan parser contract")
+    marketing_parser = marketing_parser.replace("export function ", "function ")
+    marketing_runtime = """
+// Only authenticated read-only Marketing Touch discovery; no campaigns or
+// credentials leave this private source pack. No automatic claim is made here.
+let zcodeMarketingTouchSeq=0;
+// Marketing Touch seq is a MONOTONIC REQUEST COUNTER, never a page number.
+// The official 3.17+ client sends exactly ONE GET per refresh.
+async function fetchZcodeMarketingTouchPlans(credential, fetchImpl = sanitizingFetch) {
+  const oldVersion=String(credential.app_version??"");
+  const numbers=oldVersion.split(".").slice(0,3).map(Number);
+  const recent=numbers.length===3&&numbers.every(Number.isInteger)
+    &&(numbers[0]>3||numbers[0]===3&&(
+      numbers[1]>17||numbers[1]===17&&numbers[2]>=2));
+  const context={...credential,app_version:recent?oldVersion:"3.17.2"};
+  try{
+    const seq=zcodeMarketingTouchSeq++;
+    const response=await fetchWithTimeout(fetchImpl,
+      `${ZCODE_ORIGIN2}/api/v1/marketing/touch?seq=${seq}`,{
+      method:"GET",
+      headers:buildZcodeHeaders(context,{json:false,
+        authorization:`Bearer ${credential.zcode_jwt}`})
+    },6500);
+    if(!response.ok)return null;
+    return parseZcodeMarketingPlans(await response.json());
+  }catch{return null}
+}const zcodeGrantReadInFlight=new Map();
+async function fetchZcodeClaimablePlans(credential,fetchImpl=sanitizingFetch){
+  const token=credential?.zcode_jwt;
+  if(typeof token!=="string"||!token)return null;
+  // Concurrent balance/status reads share one discovery request; the token
+  // key is deleted as soon as it settles and is NEVER persisted/logged.
+  const existing=zcodeGrantReadInFlight.get(token);
+  if(existing)return existing;
+  const read=Promise.all([
+    fetchZcodeBillingPreviewPlans(credential,fetchImpl).catch(()=>null),
+    fetchZcodeMarketingTouchPlans(credential,fetchImpl).catch(()=>null)
+  ]).then(([preview,marketing])=>mergeZcodeClaimablePlans(preview,marketing,
+      {marketingAuthoritative:true}));
+  zcodeGrantReadInFlight.set(token,read);
+  try{return await read}
+  finally{if(zcodeGrantReadInFlight.get(token)===read)
+    zcodeGrantReadInFlight.delete(token)}
+}
+"""
+    patches.append((
+        'async function fetchZcodeClaimablePlans(credential, fetchImpl = sanitizingFetch) {',
+        'async function fetchZcodeBillingPreviewPlans(credential, fetchImpl = sanitizingFetch) {',
+        'zcode-rename-legacy-preview-for-dual-source',
+    ))
+    patches.append((
+        'async function claimZcodePlan(credential, planId, captcha, fetchImpl = sanitizingFetch) {',
+        marketing_parser+"\n"+marketing_runtime+"\n"+
+        'async function claimZcodePlan(credential, planId, captcha, fetchImpl = sanitizingFetch) {',        'zcode-marketing-touch-dual-source-discovery',
+    ))
+    patches.append((
+        '  }, 25e3);',
+        '  }, 5e3);',        'zcode-preview-bounded-timeout-for-readonly-status',
+    ))
+    # ZCode activation can block up to 40s while status polls bound at 18s.
+    # Preserve activation but cap each best-effort event at 3 seconds.
+    patches.append((
+        '          app_version: appVersion\n        })\n      }, 2e4);',
+        '          app_version: appVersion\n        })\n      }, 3e3);',
+        'zcode-activation-readonly-3s-timeout',
+    ))
     names = []
     for old, new, name in patches:
         count = text.count(old)

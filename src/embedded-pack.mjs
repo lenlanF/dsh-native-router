@@ -562,7 +562,8 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
          const timeout=Symbol('timeout');
          const reply=await Promise.race([
            Promise.resolve().then(()=>ops[method](providerId)),
-           new Promise(resolve=>{timer=setTimeout(()=>resolve(timeout),8000);timer.unref?.()}),
+           new Promise(resolve=>{timer=setTimeout(()=>resolve(timeout),
+              providerId==='zcode'?18000:8000);timer.unref?.()}),
          ]);
          return reply===timeout||scope!==mountedScope()||reply?.ok!==true
            ||!Array.isArray(reply.value?.accounts)?null:reply.value.accounts.slice(0,200);
@@ -598,9 +599,10 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
           timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'})
           .format(new Date());
         accounts.push({accountId,...facts,nickname:facts.nickname??'',          ...(phone?{maskedPhone:phone}:{}),
-          todayCheckedIn:upstreamCheckedInToday(exact,today),
-          active:typeof exact?.active==='boolean'?exact.active:null});     }
-     return {state:'ready',accounts,checkedAt:Date.now()};
+           todayCheckedIn:upstreamCheckedInToday(exact,today),
+           ...(typeof exact?.claimable==='boolean'?{claimable:exact.claimable}:{}),
+           ...(exact?.noClaimablePlans===true?{noClaimablePlans:true}:{}),
+           active:typeof exact?.active==='boolean'?exact.active:null});     }     return {state:'ready',accounts,checkedAt:Date.now()};
    } function dispose(){    if(disposed)return;
     disposed=true;
     selectionGuard?.restore();selectionGuard=null;

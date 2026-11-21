@@ -126,6 +126,44 @@ test('unknown source credit response never invents a zero balance or successful 
  assert.equal(h.calls.length,0);
  h.center.stop();
 });
+test('ZCode official empty preview is not false signed-in or claimable; rechecks when cache expires',async()=>{
+ let scans=0,available=false;
+ const h=fixture({rows:[row('zcode','zcode-grant')],
+  statusQuery:async()=>{
+   scans++;return {state:'ready',accounts:[{
+    accountId:'zcode-grant',authVerified:true,active:true,
+    todayCheckedIn:false,claimable:available,noClaimablePlans:!available,
+   }]};
+  }});
+ await h.center.refreshSources();
+ let state=h.center.snapshot().accounts[0];
+ assert.equal(state.checkinState,'no_task');
+ assert.match(state.checkinMessage,/当前没有可领取/);
+ assert.notEqual(state.checkinState,'success');
+ assert.equal((await h.center.tick()).attempted,0,
+  'must not request captcha or claim when official preview is empty');
+ assert.equal(h.calls.length,0);
+ available=true;
+ h.setNow(NOW+16*60*1000);
+ assert.equal((await h.center.tick()).attempted,1,
+  'later claimable plan is reconsidered after short status cache expiry');
+ assert.equal(h.calls.length,1);
+ assert.ok(scans>=2);
+ h.center.stop();
+});
+test('ZCode unknown preview does not pretend no-task or completed, and does not invent a balance',async()=>{
+ const h=fixture({enabled:false,rows:[row('zcode','failed-preview')],
+  statusQuery:async()=>({state:'ready',accounts:[{
+    accountId:'failed-preview',authVerified:true,active:true,
+    todayCheckedIn:null,balanceState:'not_returned'}]})});
+ await h.center.refreshSources();
+ const a=h.center.snapshot().accounts[0];
+ assert.notEqual(a.checkinState,'no_task');
+ assert.notEqual(a.checkinState,'success');
+ assert.equal(a.balance,undefined);
+ assert.equal(a.checkinMessage,'今日签到状态暂未核实');
+ h.center.stop();
+});
 test('accepted source claim is immediately followed by a fresh authenticated status read',async()=>{
   let claimed=false,checks=0;
   const h=fixture({enabled:false,rows:[row('loomy','acct-1')],

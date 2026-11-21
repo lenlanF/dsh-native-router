@@ -54082,7 +54082,7 @@ async function fetchZcodeBalance(credential, fetchImpl = sanitizingFetch) {
     total,
     expiresAt,
     planName: buckets[0]?.showName,
-    claimablePlans: await fetchClaimablePlans(credential, fetchImpl)
+    claimablePlans: await fetchZcodeClaimablePlans(credential, fetchImpl)
   };
 }
 async function fetchClaimablePlans(credential, fetchImpl) {
@@ -54128,19 +54128,19 @@ async function reportZcodeActivation(credential, fetchImpl = sanitizingFetch) {
           platform: "win32",
           app_version: appVersion
         })
-      }, 2e4);
+      }, 3e3);
     } catch {
     }
   }
 }
-async function fetchZcodeClaimablePlans(credential, fetchImpl = sanitizingFetch) {
+async function fetchZcodeBillingPreviewPlans(credential, fetchImpl = sanitizingFetch) {
   const appVersion = credential.app_version ?? ZCODE_APP_VERSION_FALLBACK;
   const url = `${ZCODE_BILLING_PREVIEW_URL}?app_version=${encodeURIComponent(appVersion)}&platform=win32`;
   const response = await fetchWithTimeout(fetchImpl, url, {
     method: "GET",
     // 同上：preview 必须带 Bearer，否则 401 → plans 恒空 → 假「今日已领」。
     headers: buildZcodeHeaders(credential, { json: false, authorization: `Bearer ${credential.zcode_jwt}` })
-  }, 25e3);
+  }, 5e3);
   // 查不到 ≠ 今日没有可领额度：原来的 `return []` 把「上游挂了 / 解析失败」和
   // 「今天确实没额度」混成同一个空数组，上层于是把它读成「今天已领」，徽章自己
   // 点亮。失败必须回 null，让调用方知道这条状态不可信。
@@ -54171,6 +54171,112 @@ async function fetchZcodeClaimablePlans(credential, fetchImpl = sanitizingFetch)
   plans.sort((a, b) => b.priority - a.priority);
   return plans;
 }
+// Strict, dependency-free ZCode 3.17+ marketing campaign reader.
+// The server can deliver Start Plan gifts only through marketing/touch;
+// this extracts ONLY explicit claim_zcode_plan buttons and never performs I/O.
+const START_PLAN_ID=/^zcode-v3-start-plan-[a-z0-9-]{1,100}$/i;
+const obj=x=>x&&typeof x==='object'&&!Array.isArray(x)?x:null;
+const safeLabel=x=>typeof x==='string'&&x.trim()&&x.length<=120?x.trim():undefined;
+function parseZcodeMarketingPlans(body){
+  const root=obj(body);
+  if(root?.code!==0||!Array.isArray(root.data?.deliveries)
+    ||root.data.deliveries.length>32)return null;
+  const found=new Map();
+  for(const raw of root.data.deliveries){
+    const delivery=obj(raw),banner=obj(delivery?.banner),popup=obj(delivery?.popup);
+    const contexts=[
+      [banner?.buttons,banner?.background?.args?.zcode_plan],
+      [popup?.buttons,popup?.hero?.args?.zcode_plan],
+    ];
+    for(const [buttons,rawPlan] of contexts){
+      if(!Array.isArray(buttons)||buttons.length>4)continue;
+      const plan=obj(rawPlan);
+      for(const button of buttons){
+        const action=obj(button?.action);
+        if(action?.type!=='claim_zcode_plan')continue;
+        const planId=action?.args?.plan_id;
+        if(typeof planId!=='string'||!START_PLAN_ID.test(planId))continue;
+        // Never mix an action for one plan with another banner's metadata.
+        if(typeof plan?.plan_id==='string'&&plan.plan_id!==planId)continue;
+        if(found.has(planId))continue;
+        const priority=Number.isInteger(plan?.priority)?plan.priority:
+          Number.isInteger(delivery.priority)?delivery.priority:0;
+        const entitlements=Array.isArray(plan?.entitlements)?plan.entitlements:[];
+        const grant=entitlements.find(x=>x?.unit_type==='token'
+          &&/^glm[-.]5[-.]3[-.]flash$/i.test(x?.show_name??''));
+        found.set(planId,{
+          planId,priority,
+          ...(safeLabel(plan?.name)?{name:safeLabel(plan.name)}:{}),
+          ...(Number.isSafeInteger(grant?.grant_units)&&grant.grant_units>0
+            ?{grantUnits:grant.grant_units,unitType:'token'}:{}),
+        });
+      }
+    }
+  }
+  return [...found.values()].sort((a,b)=>b.priority-a.priority);
+}
+function mergeZcodeClaimablePlans(preview,marketing,{marketingAuthoritative=false}={}){
+  if(!Array.isArray(preview)&&!Array.isArray(marketing))return null;
+  const merged=new Map();
+  // Billing preview wins over a banner for the same plan ID.
+  for(const batch of [preview,marketing]){
+    if(!Array.isArray(batch))continue;
+    for(const row of batch){
+      const planId=row?.planId;
+      if(typeof planId!=='string'||!START_PLAN_ID.test(planId)||merged.has(planId))
+        continue;
+      merged.set(planId,row);
+    }
+  }
+  const result=[...merged.values()].sort((a,b)=>(b.priority??0)-(a.priority??0));
+  // One unavailable source cannot justify a definitive "nothing to claim".
+  return result.length||(marketingAuthoritative&&Array.isArray(marketing))
+    ||Array.isArray(preview)&&Array.isArray(marketing)?result:null;
+}
+
+
+// Only authenticated read-only Marketing Touch discovery; no campaigns or
+// credentials leave this private source pack. No automatic claim is made here.
+let zcodeMarketingTouchSeq=0;
+// Marketing Touch seq is a MONOTONIC REQUEST COUNTER, never a page number.
+// The official 3.17+ client sends exactly ONE GET per refresh.
+async function fetchZcodeMarketingTouchPlans(credential, fetchImpl = sanitizingFetch) {
+  const oldVersion=String(credential.app_version??"");
+  const numbers=oldVersion.split(".").slice(0,3).map(Number);
+  const recent=numbers.length===3&&numbers.every(Number.isInteger)
+    &&(numbers[0]>3||numbers[0]===3&&(
+      numbers[1]>17||numbers[1]===17&&numbers[2]>=2));
+  const context={...credential,app_version:recent?oldVersion:"3.17.2"};
+  try{
+    const seq=zcodeMarketingTouchSeq++;
+    const response=await fetchWithTimeout(fetchImpl,
+      `${ZCODE_ORIGIN2}/api/v1/marketing/touch?seq=${seq}`,{
+      method:"GET",
+      headers:buildZcodeHeaders(context,{json:false,
+        authorization:`Bearer ${credential.zcode_jwt}`})
+    },6500);
+    if(!response.ok)return null;
+    return parseZcodeMarketingPlans(await response.json());
+  }catch{return null}
+}const zcodeGrantReadInFlight=new Map();
+async function fetchZcodeClaimablePlans(credential,fetchImpl=sanitizingFetch){
+  const token=credential?.zcode_jwt;
+  if(typeof token!=="string"||!token)return null;
+  // Concurrent balance/status reads share one discovery request; the token
+  // key is deleted as soon as it settles and is NEVER persisted/logged.
+  const existing=zcodeGrantReadInFlight.get(token);
+  if(existing)return existing;
+  const read=Promise.all([
+    fetchZcodeBillingPreviewPlans(credential,fetchImpl).catch(()=>null),
+    fetchZcodeMarketingTouchPlans(credential,fetchImpl).catch(()=>null)
+  ]).then(([preview,marketing])=>mergeZcodeClaimablePlans(preview,marketing,
+      {marketingAuthoritative:true}));
+  zcodeGrantReadInFlight.set(token,read);
+  try{return await read}
+  finally{if(zcodeGrantReadInFlight.get(token)===read)
+    zcodeGrantReadInFlight.delete(token)}
+}
+
 async function claimZcodePlan(credential, planId, captcha, fetchImpl = sanitizingFetch) {
   let response;
   try {
@@ -59134,7 +59240,8 @@ async function fetchZcodeCheckinStatus(credential, fetcher = sanitizingFetch) {
   if (!Array.isArray(plans)) return null;
   // plans 为空不等于「今天已领」：preview 对「已领」和「本来就没有额度」返回同样的
   // 空数组。没有正面证据就不点亮徽章，只把「现在没有可领的」如实报出去。
-  return { active: true, todayCheckedIn: false, todayCredit: 0, claimable: plans.length > 0, planCount: plans.length, noClaimablePlans: plans.length === 0 };
+  return { active: true, todayCheckedIn: false, todayCredit: 0, claimable: plans.length > 0, planCount: plans.length, noClaimablePlans: plans.length === 0,
+    zcodeStartPlanCount: plans.filter(p => typeof p.planId === "string" && /^zcode-v3-start-plan-[a-z0-9-]+$/i.test(p.planId)).length };
 }
 
 // vendor/channel-pack/src/cline-credits.ts

@@ -4147,8 +4147,8 @@ var LlmRuntime = (() => {
         static: false,
         private: false,
         access: {
-          has: (obj) => "listProviders" in obj,
-          get: (obj) => obj.listProviders
+          has: (obj2) => "listProviders" in obj2,
+          get: (obj2) => obj2.listProviders
         },
         metadata: _metadata
       }, null, _instanceExtraInitializers);
@@ -4158,8 +4158,8 @@ var LlmRuntime = (() => {
         static: false,
         private: false,
         access: {
-          has: (obj) => "listConfigurableProviders" in obj,
-          get: (obj) => obj.listConfigurableProviders
+          has: (obj2) => "listConfigurableProviders" in obj2,
+          get: (obj2) => obj2.listConfigurableProviders
         },
         metadata: _metadata
       }, null, _instanceExtraInitializers);
@@ -4169,8 +4169,8 @@ var LlmRuntime = (() => {
         static: false,
         private: false,
         access: {
-          has: (obj) => "remoteDiscoverModels" in obj,
-          get: (obj) => obj.remoteDiscoverModels
+          has: (obj2) => "remoteDiscoverModels" in obj2,
+          get: (obj2) => obj2.remoteDiscoverModels
         },
         metadata: _metadata
       }, null, _instanceExtraInitializers);
@@ -5942,8 +5942,8 @@ var require_util = __commonJS({
         return body;
       }
     }
-    function isStream(obj) {
-      return obj && typeof obj === "object" && typeof obj.pipe === "function" && typeof obj.on === "function";
+    function isStream(obj2) {
+      return obj2 && typeof obj2 === "object" && typeof obj2.pipe === "function" && typeof obj2.on === "function";
     }
     function isBlobLike(object) {
       return object instanceof Blob;
@@ -6042,19 +6042,19 @@ var require_util = __commonJS({
       }
       return servername;
     }
-    function deepClone(obj) {
-      return JSON.parse(JSON.stringify(obj));
+    function deepClone(obj2) {
+      return JSON.parse(JSON.stringify(obj2));
     }
-    function isAsyncIterable(obj) {
-      return !!(obj != null && typeof obj[Symbol.asyncIterator] === "function");
+    function isAsyncIterable(obj2) {
+      return !!(obj2 != null && typeof obj2[Symbol.asyncIterator] === "function");
     }
-    function isIterable(obj) {
-      return !!(obj != null && (typeof obj[Symbol.iterator] === "function" || typeof obj[Symbol.asyncIterator] === "function"));
+    function isIterable(obj2) {
+      return !!(obj2 != null && (typeof obj2[Symbol.iterator] === "function" || typeof obj2[Symbol.asyncIterator] === "function"));
     }
-    function hasSafeIterator(obj) {
-      const prototype = Object.getPrototypeOf(obj);
-      const ownIterator = Object.hasOwn(obj, Symbol.iterator);
-      return ownIterator || prototype != null && prototype !== Object.prototype && typeof obj[Symbol.iterator] === "function";
+    function hasSafeIterator(obj2) {
+      const prototype = Object.getPrototypeOf(obj2);
+      const ownIterator = Object.hasOwn(obj2, Symbol.iterator);
+      return ownIterator || prototype != null && prototype !== Object.prototype && typeof obj2[Symbol.iterator] === "function";
     }
     function bodyLength(body) {
       if (body == null) {
@@ -6104,37 +6104,37 @@ var require_util = __commonJS({
     function bufferToLowerCasedHeaderName(value) {
       return tree.lookup(value) ?? value.toString("latin1").toLowerCase();
     }
-    function parseHeaders(headers, obj) {
-      if (obj === void 0) obj = {};
+    function parseHeaders(headers, obj2) {
+      if (obj2 === void 0) obj2 = {};
       for (let i = 0; i < headers.length; i += 2) {
         const key = headerNameToString(headers[i]);
-        let val = obj[key];
+        let val = obj2[key];
         if (val !== void 0) {
-          if (!Object.hasOwn(obj, key)) {
+          if (!Object.hasOwn(obj2, key)) {
             const headersValue = typeof headers[i + 1] === "string" ? headers[i + 1] : Array.isArray(headers[i + 1]) ? headers[i + 1].map((x) => x.toString("latin1")) : headers[i + 1].toString("latin1");
             if (key === "__proto__") {
-              Object.defineProperty(obj, key, {
+              Object.defineProperty(obj2, key, {
                 value: headersValue,
                 enumerable: true,
                 configurable: true,
                 writable: true
               });
             } else {
-              obj[key] = headersValue;
+              obj2[key] = headersValue;
             }
           } else {
             if (typeof val === "string") {
               val = [val];
-              obj[key] = val;
+              obj2[key] = val;
             }
             val.push(headers[i + 1].toString("latin1"));
           }
         } else {
           const headersValue = typeof headers[i + 1] === "string" ? headers[i + 1] : Array.isArray(headers[i + 1]) ? headers[i + 1].map((x) => x.toString("latin1")) : headers[i + 1].toString("latin1");
-          obj[key] = headersValue;
+          obj2[key] = headersValue;
         }
       }
-      return obj;
+      return obj2;
     }
     function parseRawHeaders(headers) {
       if (headers == null) {
@@ -6553,20 +6553,20 @@ var require_util = __commonJS({
         size: m[3] && m[3] !== "*" ? parseInt(m[3]) : null
       } : null;
     }
-    function addListener(obj, name2, listener) {
-      const listeners = obj[kListeners] ??= [];
+    function addListener(obj2, name2, listener) {
+      const listeners = obj2[kListeners] ??= [];
       listeners.push([name2, listener]);
-      obj.on(name2, listener);
-      return obj;
+      obj2.on(name2, listener);
+      return obj2;
     }
-    function removeAllListeners(obj) {
-      if (obj[kListeners] != null) {
-        for (const [name2, listener] of obj[kListeners]) {
-          obj.removeListener(name2, listener);
+    function removeAllListeners(obj2) {
+      if (obj2[kListeners] != null) {
+        for (const [name2, listener] of obj2[kListeners]) {
+          obj2.removeListener(name2, listener);
         }
-        obj[kListeners] = null;
+        obj2[kListeners] = null;
       }
-      return obj;
+      return obj2;
     }
     function errorRequest(client, request2, err) {
       try {
@@ -7786,10 +7786,10 @@ var require_utils = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.enumToMap = enumToMap;
-    function enumToMap(obj, filter = [], exceptions = []) {
+    function enumToMap(obj2, filter = [], exceptions = []) {
       const emptyFilter = (filter?.length ?? 0) === 0;
       const emptyExceptions = (exceptions?.length ?? 0) === 0;
-      return Object.fromEntries(Object.entries(obj).filter(([, value]) => {
+      return Object.fromEntries(Object.entries(obj2).filter(([, value]) => {
         return typeof value === "number" && (emptyFilter || filter.includes(value)) && (emptyExceptions || !exceptions.includes(value));
       }));
     }
@@ -37335,23 +37335,23 @@ function withDeadModelPruning(providers, adapter) {
     return bound.get(key);
   };
   return new Proxy(adapter, {
-    get(obj, prop, receiver) {
+    get(obj2, prop, receiver) {
       if (prop === "listModels" && typeof target.listModels === "function") {
-        return wrapOnce(prop, () => async (...args) => filterList(ids, await target.listModels.apply(obj, args)));
+        return wrapOnce(prop, () => async (...args) => filterList(ids, await target.listModels.apply(obj2, args)));
       }
       if (prop === "listAllModels" && typeof target.listAllModels === "function") {
-        return wrapOnce(prop, () => (...args) => filterList(ids, target.listAllModels.apply(obj, args)));
+        return wrapOnce(prop, () => (...args) => filterList(ids, target.listAllModels.apply(obj2, args)));
       }
       if (prop === "stream" && typeof target.stream === "function") {
         return wrapOnce(prop, () => (options) => trackStream(
           ownerOf(ids, options?.provider),
-          target.stream.apply(obj, [options]),
+          target.stream.apply(obj2, [options]),
           options?.model
         ));
       }
       if (prop === "prepareCall" && typeof target.prepareCall === "function") {
         return wrapOnce(prop, () => async (...args) => {
-          const call = await target.prepareCall.apply(obj, args);
+          const call = await target.prepareCall.apply(obj2, args);
           if (call === null || typeof call !== "object" || typeof call.stream !== "function") return call;
           return {
             ...call,
@@ -37365,9 +37365,9 @@ function withDeadModelPruning(providers, adapter) {
           };
         });
       }
-      const value = Reflect.get(obj, prop, receiver);
+      const value = Reflect.get(obj2, prop, receiver);
       if (typeof value !== "function") return value;
-      return wrapOnce(prop, () => value.bind(obj));
+      return wrapOnce(prop, () => value.bind(obj2));
     }
   });
 }
@@ -43506,9 +43506,9 @@ function classifyInner(inner) {
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     return "heartbeat";
   }
-  const obj = parsed;
-  if (Array.isArray(obj.choices) || obj.usage !== void 0) return "chunk";
-  if (obj.code !== void 0 || obj.message !== void 0 || obj.error !== void 0 || obj.statusCodeValue !== void 0 || obj.type !== void 0) {
+  const obj2 = parsed;
+  if (Array.isArray(obj2.choices) || obj2.usage !== void 0) return "chunk";
+  if (obj2.code !== void 0 || obj2.message !== void 0 || obj2.error !== void 0 || obj2.statusCodeValue !== void 0 || obj2.type !== void 0) {
     return "error";
   }
   return "heartbeat";
@@ -45449,8 +45449,8 @@ function readReasoningEffortConfig(entry) {
       if (typeof item === "string" && item.trim().length > 0) {
         options.push(item.trim());
       } else if (typeof item === "object" && item !== null) {
-        const obj = item;
-        const wire = readStringField3(obj, "openclawLevel") || readStringField3(obj, "level") || readStringField3(obj, "Level");
+        const obj2 = item;
+        const wire = readStringField3(obj2, "openclawLevel") || readStringField3(obj2, "level") || readStringField3(obj2, "Level");
         if (wire.trim().length > 0) options.push(wire.trim());
       }
     }
@@ -58094,38 +58094,8 @@ async function fetchZcodeBalance(credential, fetchImpl = sanitizingFetch) {
     total,
     expiresAt,
     planName: buckets[0]?.showName,
-    claimablePlans: await fetchClaimablePlans(credential, fetchImpl)
+    claimablePlans: await fetchZcodeClaimablePlans(credential, fetchImpl)
   };
-}
-async function fetchClaimablePlans(credential, fetchImpl) {
-  try {
-    const appVersion = credential.app_version ?? ZCODE_APP_VERSION_FALLBACK;
-    const response = await fetchWithTimeout(
-      fetchImpl,
-      `${ZCODE_BILLING_PREVIEW_URL}?app_version=${encodeURIComponent(appVersion)}&platform=win32`,
-      // 这个接口要 Bearer：不带 token 直接 401，于是「可领计划」永远为空，
-      // 上层再把它读成「今日已领」——ZCode 的假徽章就是这么来的。
-      { method: "GET", headers: buildZcodeHeaders(credential, { json: false, authorization: `Bearer ${credential.zcode_jwt}` }) },
-      15e3
-    );
-    if (!response.ok) return [];
-    const parsed = await response.json();
-    const raw = Array.isArray(parsed.data?.plans) ? parsed.data.plans : [];
-    const out = [];
-    for (const item of raw) {
-      if (typeof item !== "object" || item === null) continue;
-      const planId = item["plan_id"];
-      if (typeof planId !== "string" || planId.length === 0) continue;
-      out.push({
-        planId,
-        ...typeof item["name"] === "string" ? { showName: item["name"] } : {},
-        ...typeof item["amount"] === "number" ? { amount: item["amount"] } : {}
-      });
-    }
-    return out;
-  } catch {
-    return [];
-  }
 }
 async function reportZcodeActivation(credential, fetchImpl = sanitizingFetch) {
   const appVersion = credential.app_version ?? ZCODE_APP_VERSION_FALLBACK;
@@ -58140,19 +58110,19 @@ async function reportZcodeActivation(credential, fetchImpl = sanitizingFetch) {
           platform: "win32",
           app_version: appVersion
         })
-      }, 2e4);
+      }, 3e3);
     } catch {
     }
   }
 }
-async function fetchZcodeClaimablePlans(credential, fetchImpl = sanitizingFetch) {
+async function fetchZcodeBillingPreviewPlans(credential, fetchImpl = sanitizingFetch) {
   const appVersion = credential.app_version ?? ZCODE_APP_VERSION_FALLBACK;
   const url = `${ZCODE_BILLING_PREVIEW_URL}?app_version=${encodeURIComponent(appVersion)}&platform=win32`;
   const response = await fetchWithTimeout(fetchImpl, url, {
     method: "GET",
     // 同上：preview 必须带 Bearer，否则 401 → plans 恒空 → 假「今日已领」。
     headers: buildZcodeHeaders(credential, { json: false, authorization: `Bearer ${credential.zcode_jwt}` })
-  }, 25e3);
+  }, 5e3);
   if (!response.ok) return null;
   let parsed;
   try {
@@ -58179,6 +58149,106 @@ async function fetchZcodeClaimablePlans(credential, fetchImpl = sanitizingFetch)
   }
   plans.sort((a, b) => b.priority - a.priority);
   return plans;
+}
+var START_PLAN_ID = /^zcode-v3-start-plan-[a-z0-9-]{1,100}$/i;
+var obj = (x) => x && typeof x === "object" && !Array.isArray(x) ? x : null;
+var safeLabel = (x) => typeof x === "string" && x.trim() && x.length <= 120 ? x.trim() : void 0;
+function parseZcodeMarketingPlans(body) {
+  const root = obj(body);
+  if (root?.code !== 0 || !Array.isArray(root.data?.deliveries) || root.data.deliveries.length > 32) return null;
+  const found = /* @__PURE__ */ new Map();
+  for (const raw of root.data.deliveries) {
+    const delivery = obj(raw), banner = obj(delivery?.banner), popup = obj(delivery?.popup);
+    const contexts = [
+      [banner?.buttons, banner?.background?.args?.zcode_plan],
+      [popup?.buttons, popup?.hero?.args?.zcode_plan]
+    ];
+    for (const [buttons, rawPlan] of contexts) {
+      if (!Array.isArray(buttons) || buttons.length > 4) continue;
+      const plan = obj(rawPlan);
+      for (const button of buttons) {
+        const action = obj(button?.action);
+        if (action?.type !== "claim_zcode_plan") continue;
+        const planId = action?.args?.plan_id;
+        if (typeof planId !== "string" || !START_PLAN_ID.test(planId)) continue;
+        if (typeof plan?.plan_id === "string" && plan.plan_id !== planId) continue;
+        if (found.has(planId)) continue;
+        const priority = Number.isInteger(plan?.priority) ? plan.priority : Number.isInteger(delivery.priority) ? delivery.priority : 0;
+        const entitlements = Array.isArray(plan?.entitlements) ? plan.entitlements : [];
+        const grant = entitlements.find((x) => x?.unit_type === "token" && /^glm[-.]5[-.]3[-.]flash$/i.test(x?.show_name ?? ""));
+        found.set(planId, {
+          planId,
+          priority,
+          ...safeLabel(plan?.name) ? { name: safeLabel(plan.name) } : {},
+          ...Number.isSafeInteger(grant?.grant_units) && grant.grant_units > 0 ? { grantUnits: grant.grant_units, unitType: "token" } : {}
+        });
+      }
+    }
+  }
+  return [...found.values()].sort((a, b) => b.priority - a.priority);
+}
+function mergeZcodeClaimablePlans(preview, marketing, { marketingAuthoritative = false } = {}) {
+  if (!Array.isArray(preview) && !Array.isArray(marketing)) return null;
+  const merged = /* @__PURE__ */ new Map();
+  for (const batch of [preview, marketing]) {
+    if (!Array.isArray(batch)) continue;
+    for (const row of batch) {
+      const planId = row?.planId;
+      if (typeof planId !== "string" || !START_PLAN_ID.test(planId) || merged.has(planId))
+        continue;
+      merged.set(planId, row);
+    }
+  }
+  const result = [...merged.values()].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+  return result.length || marketingAuthoritative && Array.isArray(marketing) || Array.isArray(preview) && Array.isArray(marketing) ? result : null;
+}
+var zcodeMarketingTouchSeq = 0;
+async function fetchZcodeMarketingTouchPlans(credential, fetchImpl = sanitizingFetch) {
+  const oldVersion = String(credential.app_version ?? "");
+  const numbers = oldVersion.split(".").slice(0, 3).map(Number);
+  const recent = numbers.length === 3 && numbers.every(Number.isInteger) && (numbers[0] > 3 || numbers[0] === 3 && (numbers[1] > 17 || numbers[1] === 17 && numbers[2] >= 2));
+  const context = { ...credential, app_version: recent ? oldVersion : "3.17.2" };
+  try {
+    const seq = zcodeMarketingTouchSeq++;
+    const response = await fetchWithTimeout(
+      fetchImpl,
+      `${ZCODE_ORIGIN2}/api/v1/marketing/touch?seq=${seq}`,
+      {
+        method: "GET",
+        headers: buildZcodeHeaders(context, {
+          json: false,
+          authorization: `Bearer ${credential.zcode_jwt}`
+        })
+      },
+      6500
+    );
+    if (!response.ok) return null;
+    return parseZcodeMarketingPlans(await response.json());
+  } catch {
+    return null;
+  }
+}
+var zcodeGrantReadInFlight = /* @__PURE__ */ new Map();
+async function fetchZcodeClaimablePlans(credential, fetchImpl = sanitizingFetch) {
+  const token = credential?.zcode_jwt;
+  if (typeof token !== "string" || !token) return null;
+  const existing = zcodeGrantReadInFlight.get(token);
+  if (existing) return existing;
+  const read = Promise.all([
+    fetchZcodeBillingPreviewPlans(credential, fetchImpl).catch(() => null),
+    fetchZcodeMarketingTouchPlans(credential, fetchImpl).catch(() => null)
+  ]).then(([preview, marketing]) => mergeZcodeClaimablePlans(
+    preview,
+    marketing,
+    { marketingAuthoritative: true }
+  ));
+  zcodeGrantReadInFlight.set(token, read);
+  try {
+    return await read;
+  } finally {
+    if (zcodeGrantReadInFlight.get(token) === read)
+      zcodeGrantReadInFlight.delete(token);
+  }
 }
 async function claimZcodePlan(credential, planId, captcha, fetchImpl = sanitizingFetch) {
   let response;
@@ -63009,7 +63079,15 @@ async function fetchZcodeCheckinStatus(credential, fetcher = sanitizingFetch) {
   await reportZcodeActivation(credential, fetcher);
   const plans = await fetchZcodeClaimablePlans(credential, fetcher);
   if (!Array.isArray(plans)) return null;
-  return { active: true, todayCheckedIn: false, todayCredit: 0, claimable: plans.length > 0, planCount: plans.length, noClaimablePlans: plans.length === 0 };
+  return {
+    active: true,
+    todayCheckedIn: false,
+    todayCredit: 0,
+    claimable: plans.length > 0,
+    planCount: plans.length,
+    noClaimablePlans: plans.length === 0,
+    zcodeStartPlanCount: plans.filter((p) => typeof p.planId === "string" && /^zcode-v3-start-plan-[a-z0-9-]+$/i.test(p.planId)).length
+  };
 }
 var CLINE_CREDITS_TIMEOUT_MS = 3e4;
 var CLINE_BALANCE_SCALE = 1e5;

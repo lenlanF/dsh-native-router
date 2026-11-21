@@ -81,10 +81,15 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
   return {
     ...(nickname?{nickname}:{}),
     ...(providerId==='loomy'&&loomyDailyGift>0?{loomyDailyGift}:{}),      ...(providerId==='zcode'?{
+        zcodeStatusObserved:status!==null&&!statusRow?.error,
+        zcodeBalanceObserved:structured!==null&&!balanceRow?.error,
         zcodePlanBuckets:zcodePlanRows.length,zcodeFlashBuckets:zcodeFlashRows.length,
-        zcodePreviewStartPlans:Number.isSafeInteger(structured?.previewStartPlanCount)
-          &&structured.previewStartPlanCount>=0
-          ?Math.min(structured.previewStartPlanCount,100):null,
+        zcodePreviewStartPlans:Number.isSafeInteger(status?.zcodeStartPlanCount)
+          &&status.zcodeStartPlanCount>=0
+          ?Math.min(status.zcodeStartPlanCount,100):
+          Number.isSafeInteger(structured?.previewStartPlanCount)
+            &&structured.previewStartPlanCount>=0
+            ?Math.min(structured.previewStartPlanCount,100):null,
       }:{}),
       ...(providerId==='zcode'&&giftedBalance>0?{giftedBalance}:{}),
      ...(balanceValue!==null?{balance:balanceValue,
