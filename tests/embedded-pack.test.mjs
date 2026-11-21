@@ -399,6 +399,27 @@ test('catalog lookup timeout releases the UI and duplicate requests cannot flood
  assert.equal((await bridge.listModels('loomy')).state,'unavailable');
 });
 
+test('CodeArts official exact credit multiplier survives isolated DSH model listing, while untrusted metadata is dropped',async()=>{
+ const scope={get:()=>undefined,llm:{async listModels(){return [
+  {provider:'codearts',id:'glm-5.3-flash',name:'GLM · x0.00',
+   priceSource:'codearts-official-credit-ratio',costMultiplier:0.003},
+  {provider:'codearts',id:'qwen3.8-flash',name:'Qwen',
+   priceSource:'codearts-official-credit-ratio',costMultiplier:0},
+  {provider:'codearts',id:'unknown',name:'Unknown',
+   priceSource:'local-guessed',costMultiplier:0},
+ ]}}};
+ const bridge=createEmbeddedChannelPack({ctx:{inject(_deps,cb){cb(scope)}},
+   getConfig:enabled,env:isolatedEnv,loadPack:async()=>({apply(){}})});
+ bridge.attach();await tick();await tick();
+ const result=await bridge.listModels('codearts');
+ assert.equal(result.state,'ready');
+ assert.equal(result.models[0].costMultiplier,0.003);
+ assert.equal(result.models[1].costMultiplier,0);
+ assert.equal(result.models[2].costMultiplier,undefined);
+ assert.equal(result.models[0].priceSource,'codearts-official-credit-ratio');
+ bridge.dispose();
+});
+
 test('native source facade validates exact source account before invoking host DSH llm stream',async()=>{
  const rows=[{id:'q-a',provider:'qoder',enabled:true,credentialRef:'SECRET_REF'}];
  let livePool,invocations=0,seen;

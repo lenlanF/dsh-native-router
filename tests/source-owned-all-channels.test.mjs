@@ -109,22 +109,33 @@ test('single official quota package with explicit remaining balance and unit is 
    balanceRow:{balance:{packages:[{remaining:5,unit:'token'}]}}});
  assert.equal(unsupported.authVerified,false,'unknown channel balance is never proof of login');
 });
-test('ZCode gift allowance excludes paid buckets and anonymous fallback even when total balance is high',()=>{
+test('ZCode only counts unexpired official named token gifts, never fallback labels or paid packages',()=>{
+ const expiry=new Date(Date.now()+86400000).toISOString();
  const facts=sourceAccountFacts({providerId:'zcode',observedAt:Date.now(),
   balanceRow:{accountId:'safe',balance:{total:90000,packages:[
-   {name:'签到赠送',unit:'token',remaining:2400,active:true},
-   {name:'购买套餐',unit:'token',remaining:38000,active:true},
-   {name:'ZCode 免费额度',unit:'token',remaining:49000,active:true},
-   {name:'每日赠送过期',unit:'token',remaining:600,expiredTime:'2020-01-01T00:00:00Z'},
+   {name:'签到赠送',officialName:'签到赠送',officialUnitType:'token',
+    unit:'token',remaining:2400,active:true,expiredTime:expiry},
+   {name:'购买套餐',officialName:'购买套餐',officialUnitType:'token',
+    unit:'token',remaining:38000,active:true,expiredTime:expiry},
+   {name:'ZCode 免费额度',officialName:null,officialUnitType:'token',
+    unit:'token',remaining:49000,active:true,expiredTime:expiry},
+   {name:'每日赠送过期',officialName:'每日赠送过期',officialUnitType:'token',
+    unit:'token',remaining:600,expiredTime:'2020-01-01T00:00:00Z'},
   ]}}});
- assert.equal(facts.balance,90000,'the display can report official whole-account balance');
- assert.equal(facts.giftedBalance,2400,'only explicitly named nonexpired free gifts may fund the model');
- const boughtOnly=sourceAccountFacts({providerId:'zcode',balanceRow:{balance:{total:99000,
-  packages:[{name:'购买套餐',unit:'token',remaining:99000}]}}});
- assert.equal(boughtOnly.giftedBalance,undefined,
-  'paid quota must never grant fee-free model testing');
+ assert.equal(facts.balance,90000);
+ assert.equal(facts.giftedBalance,2400);
+ const official=sourceAccountFacts({providerId:'zcode',balanceRow:{balance:{packages:[
+  {name:'ZCode 免费额度',officialName:'ZCode 免费额度',officialUnitType:'token',
+   remaining:1300,expiredTime:expiry}]}}});
+ assert.equal(official.giftedBalance,1300,'exact name read from official bucket may be free');
+ for(const change of [{officialName:null},{officialUnitType:null},
+   {expiredTime:''},{officialName:'购买的免费订阅'},{remaining:-1}]){
+  const bad=sourceAccountFacts({providerId:'zcode',balanceRow:{balance:{packages:[{
+   name:'ZCode 免费额度',officialName:'ZCode 免费额度',officialUnitType:'token',
+   remaining:1300,expiredTime:expiry,...change}]}}});
+  assert.equal(bad.giftedBalance,undefined,JSON.stringify(change));
+ }
 });
-
 test('Loomy daily gift is extracted only from the exact official daily bucket, not paid permanent points',()=>{
  const gift=sourceAccountFacts({providerId:'loomy',balanceRow:{balance:{total:9500,packages:[
   {name:'永久积分',unit:'积分',remaining:7500},

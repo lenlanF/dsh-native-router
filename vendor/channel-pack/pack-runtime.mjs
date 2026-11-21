@@ -36540,7 +36540,24 @@ function parseModelInfo(m, seen) {
   if (seen.has(id)) return void 0;
   seen.add(id);
   const ratio = codeArtsRatioLabel(m);
-  return { id, name: ratio === void 0 ? name2 : `${name2} \xB7 ${ratio}` };
+  let exactRatio;
+  for (const item of Array.isArray(m?.credit) ? m.credit : []) {
+    const match = /^(\d+(?:\.\d+)?)\s*x$/i.exec(typeof item?.ratio_display === "string" ? item.ratio_display.trim() : "");
+    if (!match) continue;
+    const number = Number(match[1]);
+    if (Number.isFinite(number) && number >= 0 && number <= 100) {
+      exactRatio = number;
+      break;
+    }
+  }
+  return {
+    id,
+    name: ratio === void 0 ? name2 : `${name2} \xB7 ${ratio}`,
+    ...exactRatio === void 0 ? {} : {
+      costMultiplier: exactRatio,
+      priceSource: "codearts-official-credit-ratio"
+    }
+  };
 }
 function extractJsonArray(text, path2) {
   try {
@@ -38579,7 +38596,7 @@ var CodeArtsAdapter = class extends LlmAdapter {
    */
   listAllModels() {
     const source = this.remoteModels ?? DEFAULT_MODELS.map((id) => ({ id, name: id }));
-    return source.filter((m) => !/-VL-/i.test(m.id) && !/-VL$/i.test(m.id)).map((m) => ({ id: m.id, name: m.name }));
+    return source.filter((m) => !/-VL-/i.test(m.id) && !/-VL$/i.test(m.id)).map((m) => ({ ...m, id: m.id, name: m.name }));
   }
   async listModels(_provider) {
     if (!await providerCatalogVisible(this.options.accountPool, PROVIDER)) return [];
@@ -38587,14 +38604,14 @@ var CodeArtsAdapter = class extends LlmAdapter {
     const visible = this.listAllModels();
     const disabled = this.options.accountPool?.disabledModelsFor(PROVIDER);
     const listed = disabled === void 0 || disabled.size === 0 ? visible : visible.filter((m) => !disabled.has(m.id));
-    return listed.map((m) => ({ provider: PROVIDER, id: m.id, name: m.name, inputModalities: this.inputModalitiesFor(m.id) }));
+    return listed.map((m) => ({ ...m, provider: PROVIDER, id: m.id, name: m.name, inputModalities: this.inputModalitiesFor(m.id) }));
   }
   async resolveModel(provider, model, _signal) {
     await this.ensureRemoteModels();
     const remoteModel = this.remoteModels?.find((m) => m.id === model);
     const name2 = remoteModel?.name ?? model;
     const contextWindow = CONTEXT_WINDOWS.get(model);
-    const resolved = { provider, id: model, name: name2 };
+    const resolved = { ...remoteModel?.priceSource === "codearts-official-credit-ratio" && typeof remoteModel.costMultiplier === "number" ? { costMultiplier: remoteModel.costMultiplier, priceSource: remoteModel.priceSource } : {}, provider, id: model, name: name2 };
     if (contextWindow !== void 0) resolved.context = { contextWindow };
     resolved.reasoning = {
       efforts: [
@@ -66388,6 +66405,10 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
       const total = bucket.totalUnits ?? 0;
       return {
         name: bucket.showName ?? result.planName ?? "ZCode \u514D\u8D39\u989D\u5EA6",
+        officialName: typeof bucket.showName === "string" ? bucket.showName : null,
+        officialPlanId: typeof bucket.planId === "string" ? bucket.planId : null,
+        officialUnitType: typeof bucket.unitType === "string" ? bucket.unitType : null,
+        officialMeter: typeof bucket.meter === "string" ? bucket.meter : null,
         // ⚠ 单位是 **token**（不是 credit）—— 如实标注，
         // 避免用户以为 ZCode 有 1 亿积分。
         unit: "token",

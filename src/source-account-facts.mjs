@@ -47,21 +47,23 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
     ?packages.filter(pkg=>pkg?.name==='每日赠送'&&pkg.unit==='积分'
       &&pkg.active!==false&&Number.isFinite(pkg.remaining)&&pkg.remaining>=0)
       .reduce((sum,pkg)=>sum+pkg.remaining,0):0;
-  // The ZCode Start Plan balance `total` aggregates *all* resource buckets.
-  // It is unsafe to treat paid/purchased tokens as gifted tokens. Keep only
-  // explicitly named official free gifts; reject generic fallback labels.
+  // ZCode billing/balance can contain free and paid buckets together. Our
+  // source-pack derivative now preserves ONLY provider-returned show_name and
+  // unit_type separately from the synthesized display fallback. A label such
+  // as "ZCode 免费额度" is trustworthy only when it came from the official bucket.
   const giftedBalance=providerId==='zcode'&&!balanceRow?.error
     ?packages.filter(pkg=>{
-       const name=typeof pkg?.name==='string'?pkg.name.trim():'';
-       if(!name||name==='ZCode 免费额度'||!/(赠送|签到|免费|gift|bonus|free)/i.test(name)
-         ||/(购买|付费|收费|订阅|paid|purchased|subscription)/i.test(name))return false;
+       const name=typeof pkg?.officialName==='string'?pkg.officialName.trim():'';
+       const unit=typeof pkg?.officialUnitType==='string'?pkg.officialUnitType.trim():'';
+       if(!name||name.length>120||!/(赠送|签到|免费|gift|bonus|free)/i.test(name)
+         ||/(购买|付费|收费|订阅|paid|purchased|subscription)/i.test(name)
+         ||unit.toLowerCase()!=='token')return false;
        const expiry=typeof pkg?.expiredTime==='string'&&pkg.expiredTime.trim()
          ?Date.parse(pkg.expiredTime):NaN;
-       return pkg?.unit==='token'&&pkg.active!==false
-         &&Number.isFinite(pkg.remaining)&&pkg.remaining>=0
-         &&(!Number.isFinite(expiry)||expiry>observedAt);
-     }).reduce((sum,pkg)=>sum+pkg.remaining,0):0;
-  return {
+       return pkg.active!==false
+         &&Number.isFinite(pkg.remaining)&&pkg.remaining>0
+         &&Number.isFinite(expiry)&&expiry>observedAt;
+     }).reduce((sum,pkg)=>sum+pkg.remaining,0):0;  return {
     ...(nickname?{nickname}:{}),
       ...(providerId==='loomy'&&loomyDailyGift>0?{loomyDailyGift}:{}),
       ...(providerId==='zcode'&&giftedBalance>0?{giftedBalance}:{}),

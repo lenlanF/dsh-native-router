@@ -200,6 +200,60 @@ def build(*, check=False):
         '  });'
     )
     patches.append((old_checkins,new_checkins,'private-source-checkins-callback'))
+    # Preserve official provenance, rebuilding from the immutable MIT snapshot.
+    patches.extend([
+        (
+            '  const ratio = codeArtsRatioLabel(m);\n'
+            '  return { id, name: ratio === void 0 ? name2 : `${name2} · ${ratio}` };',
+            r'''  const ratio = codeArtsRatioLabel(m);
+  let exactRatio;
+  for (const item of Array.isArray(m?.credit) ? m.credit : []) {
+    const match = /^(\d+(?:\.\d+)?)\s*x$/i.exec(typeof item?.ratio_display === "string" ? item.ratio_display.trim() : "");
+    if (!match) continue;
+    const number = Number(match[1]);
+    if (Number.isFinite(number) && number >= 0 && number <= 100) {
+      exactRatio = number;
+      break;
+    }
+  }
+  return { id, name: ratio === void 0 ? name2 : `${name2} · ${ratio}`,
+    ...(exactRatio === void 0 ? {} : {
+      costMultiplier: exactRatio, priceSource: "codearts-official-credit-ratio"
+    }) };''',
+            'codearts-exact-official-credit-ratio',
+        ),
+        (
+            '        name: bucket.showName ?? result.planName ?? "ZCode \\u514D\\u8D39\\u989D\\u5EA6",',
+            '        name: bucket.showName ?? result.planName ?? "ZCode \\u514D\\u8D39\\u989D\\u5EA6",\n'
+            '        officialName: typeof bucket.showName === "string" ? bucket.showName : null,\n'
+            '        officialPlanId: typeof bucket.planId === "string" ? bucket.planId : null,\n'
+            '        officialUnitType: typeof bucket.unitType === "string" ? bucket.unitType : null,\n'
+            '        officialMeter: typeof bucket.meter === "string" ? bucket.meter : null,',
+            'zcode-preserve-official-bucket-provenance',
+        ),
+    ])
+
+    # The upstream CodeArts adapter flattens official model data to {id,name}
+    # after our parser extracts the signed response credit rate. Preserve the
+    # vetted metadata all the way through listAllModels, listModels and
+    # resolveModel, otherwise the owner directory sees 11 priced-unknown rows.
+    patches.extend([
+        (
+            '    return source.filter((m) => !/-VL-/i.test(m.id) && !/-VL$/i.test(m.id)).map((m) => ({ id: m.id, name: m.name }));',
+            '    return source.filter((m) => !/-VL-/i.test(m.id) && !/-VL$/i.test(m.id)).map((m) => ({ ...m, id: m.id, name: m.name }));',
+            'codearts-preserve-credit-in-all-models',
+        ),
+        (
+            '    return listed.map((m) => ({ provider: PROVIDER, id: m.id, name: m.name, inputModalities: this.inputModalitiesFor(m.id) }));',
+            '    return listed.map((m) => ({ ...m, provider: PROVIDER, id: m.id, name: m.name, inputModalities: this.inputModalitiesFor(m.id) }));',
+            'codearts-preserve-credit-in-list-models',
+        ),
+        (
+            '    const resolved = { provider, id: model, name: name2 };',
+            '    const resolved = { ...(remoteModel?.priceSource === "codearts-official-credit-ratio" && typeof remoteModel.costMultiplier === "number" ? {costMultiplier:remoteModel.costMultiplier, priceSource:remoteModel.priceSource} : {}), provider, id: model, name: name2 };',
+            'codearts-preserve-credit-in-resolved-model',
+        ),
+    ])
     names = []
     for old, new, name in patches:
         count = text.count(old)

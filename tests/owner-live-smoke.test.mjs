@@ -331,6 +331,92 @@ test('CodeArts model and positive account balance cannot bypass unknown-rate gat
  const report=JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'));
  assert.equal(report.accounts[0].code,'PRICE_AND_BALANCE_UNVERIFIED');
 }));
+test('CodeArts exact official x0 has one native inference, rounded x0.00 with positive rate has none',async()=>fixture(async dir=>{
+ const h=rig(dir);h.request();
+ const file=join(dir,'owner-live-smoke-request.json');
+ const original=JSON.parse(readFileSync(file,'utf8'));
+ writeFileSync(file,JSON.stringify({...original,mode:'bounded-priced',
+   billingConsent:'single-low-cost-call',slots:[1]}));
+ const a={id:'ca_VERIFIED',providerId:'codearts',enabled:true,
+  credentialRef:'driver:codearts:ca_VERIFIED'};
+ let calls=0,selected=null;
+ const driver={listModels:async()=>[
+   {id:'glm-5.3-flash',costMultiplier:0.004,priceSource:'codearts-official-credit-ratio'},
+   {id:'qwen3.8-flash',costMultiplier:0,priceSource:'codearts-official-credit-ratio'}],
+  refreshAccountStatus:async()=>({state:'ready',balanceState:'available',authVerified:true,balance:500}),
+  generate:async request=>{calls++;selected=request;return {text:'ORIGINAL_REPLY',
+    finishReason:'stop',toolCalls:[],usage:{completion_tokens:2}}}};
+ const configStore={path:join(dir,'config.json'),get:()=>({
+   accounts:[a],providers:[{id:'codearts',enabled:true}]})};
+ const accountCenter={list:()=>({accounts:[{...a,connectionState:'online',
+   modelTestAvailable:true}]}),driverFor:()=>driver};
+ const result=await runOwnerLiveSmoke({configStore,accountCenter,
+   env:{DSH_NATIVE_ROUTER_SMOKE_NONCE:nonce}});
+ assert.equal(result.verified,1);assert.equal(calls,1);
+ assert.equal(selected.model,'qwen3.8-flash');
+ assert.equal(selected.options.maxTokens,128);
+ const report=JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'));
+ assert.equal(report.accounts[0].multiplier,0);
+ assert.doesNotMatch(JSON.stringify(report),/ORIGINAL_REPLY|ca_VERIFIED|credentialRef/);
+}));
+test('CodeArts official nonzero relative multiplier never bypasses missing absolute spending cap',async()=>fixture(async dir=>{
+ const h=rig(dir);h.request();const file=join(dir,'owner-live-smoke-request.json');
+ const row=JSON.parse(readFileSync(file,'utf8'));
+ writeFileSync(file,JSON.stringify({...row,mode:'bounded-priced',slots:[1],
+   billingConsent:'single-low-cost-call'}));
+ const a={id:'ca_PAID',providerId:'codearts',enabled:true,
+   credentialRef:'driver:codearts:ca_PAID'};
+ let requests=0;
+ const driver={listModels:async()=>[{id:'glm-5.3-flash',name:'GLM · x0.00',
+   costMultiplier:0.003,priceSource:'codearts-official-credit-ratio'}],
+  refreshAccountStatus:async()=>({state:'ready',balanceState:'available',authVerified:true,balance:999999}),
+  generate:async()=>{requests++;throw Error('unknown billing limit')}};
+ const configStore={path:join(dir,'config.json'),get:()=>({
+  accounts:[a],providers:[{id:'codearts',enabled:true}]})};
+ const accountCenter={list:()=>({accounts:[{...a,connectionState:'online',modelTestAvailable:true}]}),
+   driverFor:()=>driver};
+ const result=await runOwnerLiveSmoke({configStore,accountCenter,
+   env:{DSH_NATIVE_ROUTER_SMOKE_NONCE:nonce}});
+ assert.equal(result.verified,0);assert.equal(requests,0);
+ const report=JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'));
+ assert.equal(report.accounts[0].code,'PRICE_AND_BALANCE_UNVERIFIED');
+ assert.equal(report.accounts[0].multiplier,0.003);
+}));
+test('explicit read-only quota audit gathers only safe fee and gift evidence, with zero inference',async()=>fixture(async dir=>{
+ const h=rig(dir);h.request();
+ const file=join(dir,'owner-live-smoke-request.json');
+ const original=JSON.parse(readFileSync(file,'utf8'));
+ writeFileSync(file,JSON.stringify({...original,mode:'quota-audit',slots:[7,8]}));
+ const padding=Array.from({length:6},(_,i)=>({id:'p'+i,
+  providerId:'padding',credentialRef:'driver:padding:p'+i,enabled:true}));
+ const z={id:'z_safe',providerId:'own_zcode',credentialRef:'driver:own_zcode:z_safe',enabled:true};
+ const c={id:'c_safe',providerId:'codearts',credentialRef:'driver:codearts:c_safe',enabled:true};
+ const accounts=[...padding,z,c];
+ const configStore={path:join(dir,'config.json'),get:()=>({
+  providers:[{id:'padding',enabled:true},{id:'own_zcode',enabled:true},{id:'codearts',enabled:true}],
+  accounts})};
+ let inference=0;
+ const zDriver={refreshAccountStatus:async()=>({state:'ready',authVerified:true,
+   balanceState:'available',giftedBalance:2800,balance:900000}),
+   listModels:async()=>[{id:'GLM-5.3-Flash'}],
+   generate:async()=>{inference++;throw Error('forbidden')}};
+ const cDriver={refreshAccountStatus:async()=>({state:'ready',authVerified:true,
+   balanceState:'available',balance:100}),
+   listModels:async()=>[{id:'glm-5.3-flash',
+    costMultiplier:0.003,priceSource:'codearts-official-credit-ratio'}],
+   generate:async()=>{inference++;throw Error('forbidden')}};
+ const accountCenter={driverFor:id=>id==='own_zcode'?zDriver:cDriver,
+  list:()=>({accounts:accounts.map(row=>({...row,connectionState:'online',modelTestAvailable:true}))})};
+ const result=await runOwnerLiveSmoke({configStore,accountCenter,
+  env:{DSH_NATIVE_ROUTER_SMOKE_NONCE:nonce}});
+ assert.equal(result.verified,0);assert.equal(inference,0);
+ const report=JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'));
+ assert.equal(report.runtime,'dsh-plugin-official-read-only');
+ assert.deepEqual(report.accounts.map(x=>x.code),['OFFICIAL_GIFT_AND_MODEL','OFFICIAL_RATE_NONZERO']);
+ assert.equal(report.accounts[0].giftConfirmed,true);
+ assert.equal(report.accounts[1].lowestMultiplier,0.003);
+ assert.doesNotMatch(JSON.stringify(report),/c_safe|z_safe|credentialRef|accountId/);
+}));
 test('unknown or unavailable price and catalog errors are reported but never billed',async()=>fixture(async dir=>{
  const h=rig(dir,{listModels:()=>{throw Error('model catalog failed') }});
  h.request();

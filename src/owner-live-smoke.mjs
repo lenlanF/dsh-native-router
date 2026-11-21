@@ -34,19 +34,26 @@ function boundedModelChoice(providerId,rows){
   const row=usable.find(x=>/^glm[-.]5[-.]3[-.]flash$/i.test(x.id));
   return row?{modelId:row.id}:{code:'NO_LOW_COST_MODEL'};
  }
- if(providerId==='codearts'){
-  // The current CodeArts model catalog does not return comparable rate metadata.
-  // Restrict charged smoke to explicitly identifiable Flash-class models.
-  const preferred=['qwen3.8-flash','glm-5.3-flash','glm-4.7-flash'];
-  const row=preferred.map(id=>usable.find(x=>x.id.toLowerCase()===id)).find(Boolean);
-  return row?{modelId:row.id,priceUnverified:true}:{code:'NO_LOW_COST_MODEL'};
- }
- return {code:'PROVIDER_NOT_ALLOWLISTED'};
+  if(providerId==='codearts'){
+   // The actual numeric rate comes from the authenticated official remote
+   // credit[].ratio_display. The rounded UI label "x0.00" is NEVER a fee proof.
+   const preferred=['qwen3.8-flash','glm-5.3-flash','glm-4.7-flash'];
+   const candidates=usable.filter(x=>preferred.includes(x.id.toLowerCase()));
+   const rated=candidates.filter(x=>x.priceSource==='codearts-official-credit-ratio'
+     &&typeof x.costMultiplier==='number'&&Number.isFinite(x.costMultiplier)
+     &&x.costMultiplier>=0&&x.costMultiplier<=100)
+     .sort((a,b)=>a.costMultiplier-b.costMultiplier);
+   const row=rated[0]??preferred.map(id=>candidates.find(x=>x.id.toLowerCase()===id)).find(Boolean);
+   if(!row)return {code:'NO_LOW_COST_MODEL'};
+   return {modelId:row.id,priceUnverified:row.priceSource!=='codearts-official-credit-ratio'
+     ||row.costMultiplier!==0,
+     ...(typeof row.costMultiplier==='number'&&row.priceSource==='codearts-official-credit-ratio'
+       ?{multiplier:row.costMultiplier}:{})};
+  } return {code:'PROVIDER_NOT_ALLOWLISTED'};
 }
 async function boundedPaidProof({account,accountCenter,configStore,now,signal}){
- const maxTokens=BOUNDED_MAX_OUTPUT[account.providerId];
- if(!maxTokens)return {state:'skipped',code:'PROVIDER_NOT_ALLOWLISTED'};
- const driver=accountCenter.driverFor(account.providerId);
+  let maxTokens=BOUNDED_MAX_OUTPUT[account.providerId];
+  if(!maxTokens)return {state:'skipped',code:'PROVIDER_NOT_ALLOWLISTED'}; const driver=accountCenter.driverFor(account.providerId);
  const binding=account.credentialRef;
  const authorized=()=>configStore.get().accounts.some(a=>a.id===account.id
   &&a.providerId===account.providerId&&a.enabled&&a.credentialRef===binding);
@@ -64,18 +71,19 @@ async function boundedPaidProof({account,accountCenter,configStore,now,signal}){
   if(!choice.modelId)return {state:'skipped',code:choice.code};
   modelId=choice.modelId;multiplier=choice.multiplier??null;
   priceUnverified=choice.priceUnverified===true;
-  // Price comparisons, not just account balances, must be trusted before
-  // a charged CodeArts request. A balance endpoint cannot waive this gate.
-   if(priceUnverified)
-    return {state:'skipped',code:'PRICE_AND_BALANCE_UNVERIFIED',modelId};
-   // Lingxi returned 73 tokens despite maxTokens=32. This client parameter
+   // A positive numeric multiplier is NOT a hard spending ceiling. A genuinely
+   // zero official CodeArts credit ratio can use a larger, single-turn budget.
+   if(priceUnverified)return {state:'skipped',code:'PRICE_AND_BALANCE_UNVERIFIED',
+     modelId,...(multiplier!==null?{multiplier}:{})};
+   if(account.providerId==='codearts'&&multiplier===0)maxTokens=128;   // Lingxi returned 73 tokens despite maxTokens=32. This client parameter
    // is not an enforceable charge cap. No further paid smoke on nonzero rates.
    if(account.providerId==='own_lingxi'&&multiplier!==0)
     return {state:'skipped',code:'UPSTREAM_OUTPUT_CAP_UNVERIFIED',modelId,multiplier};
    if(typeof driver.refreshAccountStatus==='function'){
     before=await driver.refreshAccountStatus({account,force:true,signal:controller.signal});
     if(!['ready','online'].includes(before?.state)
-      ||(typeof before?.balance==='number'&&before.balance<128))
+      ||(typeof before?.balance==='number'&&before.balance<128
+        &&!(account.providerId==='codearts'&&multiplier===0)))
      return {state:'skipped',code:'BALANCE_UNAVAILABLE_OR_LOW',modelId};
     if(account.providerId==='own_zcode'&&(
       before.authVerified!==true||before.balanceState!=='available'
@@ -83,10 +91,12 @@ async function boundedPaidProof({account,accountCenter,configStore,now,signal}){
      return {state:'skipped',code:'NO_CONFIRMED_GIFT_BALANCE',modelId};
     if(account.providerId==='own_lingxi'&&!Number.isFinite(before.balance))
       return {state:'skipped',code:'BALANCE_UNAVAILABLE_OR_LOW',modelId};
-   } else if(account.providerId==='codearts'){   // CodeArts has no official comparable unit price or bounded balance
-   // response in its current owned driver. Do not risk a hidden charge.
-   return {state:'skipped',code:'PRICE_AND_BALANCE_UNVERIFIED',modelId};
-  }
+    if(account.providerId==='codearts'&&(
+      before.authVerified!==true||before.balanceState!=='available'
+      ||!Number.isFinite(before.balance)))
+      return {state:'skipped',code:'BALANCE_UNAVAILABLE_OR_LOW',modelId};
+   } else if(account.providerId==='codearts'){
+    return {state:'skipped',code:'BALANCE_UNAVAILABLE_OR_LOW',modelId};  }
   if(!authorized()||controller.signal.aborted)
    return {state:'skipped',code:'ACCOUNT_CHANGED',modelId};
   called=true;
@@ -114,6 +124,43 @@ async function boundedPaidProof({account,accountCenter,configStore,now,signal}){
    code:controller.signal.aborted?'CANCELLED':called?safeCode(error?.code):'PRECHECK_FAILED',
    ...(modelId?{modelId}:{}),maxTokens};
  }finally{clearTimeout(timeout);signal?.removeEventListener('abort',cancel)}
+}
+async function quotaEvidence({account,accountCenter,configStore,signal}){
+ if(!['own_zcode','codearts'].includes(account.providerId))
+  return {state:'skipped',code:'PROVIDER_NOT_ALLOWLISTED'};
+ const driver=accountCenter.driverFor?.(account.providerId);
+ if(typeof driver?.refreshAccountStatus!=='function'||typeof driver?.listModels!=='function')
+  return {state:'skipped',code:'OWN_DRIVER_UNAVAILABLE'};
+ const binding=account.credentialRef;
+ const authorized=()=>configStore.get().accounts.some(a=>a.id===account.id
+   &&a.providerId===account.providerId&&a.enabled&&a.credentialRef===binding);
+ if(!authorized()||signal?.aborted)return {state:'skipped',code:'ACCOUNT_CHANGED'};
+ try{
+  const [status,models]=await Promise.all([
+   driver.refreshAccountStatus({account,force:true,signal}),
+   driver.listModels({account,signal})]);
+  if(!authorized()||signal?.aborted)return {state:'skipped',code:'ACCOUNT_CHANGED'};
+  if(status?.authVerified!==true||!['ready','online'].includes(status.state))
+   return {state:'observed',code:'OFFICIAL_AUTH_UNCONFIRMED'};
+  if(!Array.isArray(models))return {state:'observed',code:'CATALOG_UNAVAILABLE'};
+  if(account.providerId==='own_zcode'){
+   const modelFound=models.some(row=>/^glm[-.]5[-.]3[-.]flash$/i.test(row?.id??''));
+   const giftConfirmed=status.balanceState==='available'
+    &&Number.isFinite(status.giftedBalance)&&status.giftedBalance>=1024;
+   return {state:'observed',code:giftConfirmed&&modelFound
+     ?'OFFICIAL_GIFT_AND_MODEL':'NO_CONFIRMED_GIFT_BALANCE',
+     modelFound,giftConfirmed,advertisedCount:models.length};
+  }
+  const official=models.filter(row=>row?.priceSource==='codearts-official-credit-ratio'
+    &&typeof row.costMultiplier==='number'&&Number.isFinite(row.costMultiplier)
+    &&row.costMultiplier>=0&&row.costMultiplier<=100);
+  const free=official.filter(row=>row.costMultiplier===0);
+  return {state:'observed',code:free.length?'OFFICIAL_ZERO_RATE_AVAILABLE':
+     official.length?'OFFICIAL_RATE_NONZERO':'NO_OFFICIAL_RATE',
+    officialRateCount:official.length,zeroRateCount:free.length,
+    ...(official.length?{lowestMultiplier:Math.min(...official.map(row=>row.costMultiplier))}:{}),
+    advertisedCount:models.length};
+ }catch{return {state:'observed',code:'OFFICIAL_READ_ONLY_UNAVAILABLE'}}
 }
 // The DSH Host path is distinct from the per-account driver call above: it
 // verifies DSH llm.stream -> registered native-router -> direct channel adapter.
@@ -205,16 +252,20 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
          ||new Set(request.slots).size!==request.slots.length))
       ||(request.freeModelIndex!==undefined&&(!Number.isInteger(request.freeModelIndex)
         ||request.freeModelIndex<0||request.freeModelIndex>9))
-      ||(request.mode!==undefined&&!['host-route','bounded-priced'].includes(request.mode))
-      ||(request.mode==='bounded-priced'&&(
-        request.billingConsent!=='single-low-cost-call'||
-        !Array.isArray(request.slots)||request.slots.length>3||
-        request.slots.some(slot=>![1,7,8].includes(slot)))))
-     return {state:'invalid_request'};  try{renameSync(requestFile,consumedFile)}catch{return {state:'not_consumed'}}
+       ||(request.mode!==undefined&&!['host-route','bounded-priced','quota-audit'].includes(request.mode))
+       ||(request.mode==='quota-audit'&&(
+         !Array.isArray(request.slots)||request.slots.length>2||
+         request.slots.some(slot=>![7,8].includes(slot))))
+       ||(request.mode==='bounded-priced'&&(
+         request.billingConsent!=='single-low-cost-call'||
+         !Array.isArray(request.slots)||request.slots.length>3||
+         request.slots.some(slot=>![1,7,8].includes(slot)))))     return {state:'invalid_request'};  try{renameSync(requestFile,consumedFile)}catch{return {state:'not_consumed'}}
   const report={version:1,nonce,state:'running',startedAt:now(),completedAt:null,
      runtime:request.mode==='host-route'?'dsh-llm-native-router':
-       request.mode==='bounded-priced'?'dsh-plugin-native-bounded-priced':'dsh-plugin-native',      maxOutputTokensPerCall:128,accounts:[]};  function persist(){
-    const temp=resultFile+'.tmp-'+process.pid;
+       request.mode==='bounded-priced'?'dsh-plugin-native-bounded-priced':
+       request.mode==='quota-audit'?'dsh-plugin-official-read-only':'dsh-plugin-native',
+     maxOutputTokensPerCall:128,accounts:[]};
+   function persist(){    const temp=resultFile+'.tmp-'+process.pid;
     try{writeFileSync(temp,JSON.stringify(report,null,2)+'\n',{mode:0o600,flag:'wx'});
       renameSync(temp,resultFile)}catch(e){
        try{unlinkSync(temp)}catch{}
@@ -235,6 +286,15 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
        modelId:null,freeCount:0,advertisedCount:0,
        maxOutputTokens:account.providerId==='own_loomy'?128:
          BOUNDED_MAX_OUTPUT[account.providerId]??32,       startedAt:now(),finishedAt:null};    report.accounts.push(result);persist();
+    if(request.mode==='quota-audit'){
+      const proof=await quotaEvidence({account,accountCenter,configStore,signal});
+      result.state=proof.state;result.code=proof.code;
+      for(const key of ['modelFound','giftConfirmed','officialRateCount',
+        'zeroRateCount','lowestMultiplier','advertisedCount']){
+        if(Object.hasOwn(proof,key))result[key]=proof[key];
+      }
+      result.finishedAt=now();persist();continue;
+    }
     const live=accountCenter.list().accounts.find(a=>a.id===account.id&&a.providerId===account.providerId);
     if(!live?.enabled||!['online','recently_verified'].includes(live.connectionState)){
       result.state='skipped';result.code='LOGIN_NOT_VERIFIED';result.finishedAt=now();persist();continue;
@@ -247,6 +307,7 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
       const proof=await boundedPaidProof({account,accountCenter,configStore,now,signal});
       result.state=proof.state;result.code=proof.code;
       result.modelId=proof.modelId??null;
+      if(Number.isInteger(proof.maxTokens))result.maxOutputTokens=proof.maxTokens;
       if(typeof proof.multiplier==='number')result.multiplier=proof.multiplier;
       if(proof.priceUnverified===true)result.priceUnverified=true;
       if(proof.usage)result.usage=proof.usage;

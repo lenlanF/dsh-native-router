@@ -1,5 +1,21 @@
 # Change Log
 
+## 1.0.0-rc.67 — 2026-11-21 — CodeArts 官方倍率跨三层模型目录丢失修复
+
+- 在 rc.66 的真实 DSH 只读审计中，CodeArts 可列出11个模型但官方倍率为0个。继续追查发现 CodeArts 上游驱动虽已能读取 `credit[].ratio_display`，却在 `CodeArtsAdapter.listAllModels()`、`listModels()` 和 `resolveModel()` 三次重建模型对象时丢弃了价格来源字段。修复三处真实断点，而不是只修零倍率判定或模型显示名称。
+- 生成渠道包仍通过固定 MIT 源码及可复现的39个差异补丁完成，不能直接手改生成文件。新增 DSH 隔离目录透传测试，保证官方精确非零倍率（例如0.003）不被界面显示 `x0.00` 误当免费，未知来源不能伪造官方零费。
+- rc.67 需再次通过完整回归和实际 DSH 自有账号只读 `quota-audit`；未取得确切官方零倍率和可用授权之前不得发起收费模型推理。
+
+- **rc.67 真实 DSH 只读复测结果：** `own_zcode` 已能取得官方鉴权与2款模型，但 `NO_CONFIRMED_GIFT_BALANCE`，未证明足额免费包；`codearts` 仍有11款模型、`NO_OFFICIAL_RATE`，精确价格0个。即使修复本地透传，官方当前没有给本插件可信费率，不得推测为免费。没有发送收费推理；两渠道不冒称完成。
+
+## 1.0.0-rc.66 — 2026-11-21 — ZCode 官方额度包溯源与 CodeArts 精确费率贯通
+
+- 从固定 MIT 上游 `pack.js` 可重复生成独立自有渠道包：保留 ZCode `/billing/balance` 的原始 `show_name` / `plan_id` / `unit_type` / `meter` 与到期时间，区分官方名称与代码补写的“ZCode 免费额度”展示兜底；只有官方明示免费/赠送、原始 token 单位、有效未过期的赠送桶才会获得免费推理资格，不能从账号总余额推断。
+- CodeArts 从官方 `credit[].ratio_display` 提取未四舍五入的精确倍率，透过内置渠道包、模型目录与自有账号驱动传递；仅真实官方零倍率模型经官方账号余额鉴权可进行一次性受控实测，`x0.00` 显示四舍五入到零但真实倍率大于零仍拒绝计费实测。
+- 新增一次性独立 DSH `quota-audit` 模式，只读核查当前已接管 ZCode/CodeArts 账号权益及官方费率，不调用模型、不保存正文、账号唯一身份或授权值；与模型实际生成严格分开。所有修改有回归，并保留一键原生部署后实机核验口径。
+
+- **rc.66 本机 DSH 实际只读验收：** 已安装 rc.66，并通过本插件内部一次性 `quota-audit` 取得完成报告。ZCode 返回 `OFFICIAL_AUTH_UNCONFIRMED`；CodeArts 从当前目录返回11款模型，但原始精确倍率仍未取得（`NO_OFFICIAL_RATE`、零倍率模型数0）。两渠道均未发起模型生成或产生本轮收费，继续禁止从目录可读或账号总余额推断可调用。
+
 ## 1.0.0-rc.65 — 2026-11-21 — WorkBuddy 零倍率宿主实测输出预算修复
 
 - **rc.64 真机安装后**，WorkBuddy CN `hy4flash-free` 的一次性 DSH Host 路由确实到达上游，返回 `finish(max-tokens)`；因 32 token 用完不满足 `finish(stop)`，按真实失败记录，绝不把它冒称正式路由成功。此前 rc.62 Loomy 双路径和已有四个 WorkBuddy 账号历史完整回复不因此被抹掉。

@@ -234,10 +234,13 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
      return result.models.filter(row=>row&&typeof row.id==='string')
        .map(row=>({id:row.id,
          ...(typeof row.name==='string'?{name:row.name}:{}),
-         ...(row.upstreamFreeLabel===true||row.isFree===true||row.free===true
-           ?{upstreamFreeLabel:true}:{}),
-          ...(row.pricing?{pricing:{...row.pricing}}:{}),
-           ...(giftedStartPlan&&zcodeGiftFlash(row.id)
+          ...(row.upstreamFreeLabel===true||row.isFree===true||row.free===true
+            ?{upstreamFreeLabel:true}:{}),
+          ...(providerId==='codearts'&&row.priceSource==='codearts-official-credit-ratio'
+            &&typeof row.costMultiplier==='number'&&Number.isFinite(row.costMultiplier)
+            &&row.costMultiplier>=0&&row.costMultiplier<=100
+            ?{costMultiplier:row.costMultiplier,priceSource:row.priceSource}:{}),
+          ...(row.pricing?{pricing:{...row.pricing}}:{}),           ...(giftedStartPlan&&zcodeGiftFlash(row.id)
               ?{freeAllowance:'zcode-start-plan-gift'}:{}),           ...(giftedLoomy&&row.id==='spark-x2.6'
              ?{freeAllowance:'loomy-daily-gift'}:{})}));
    },

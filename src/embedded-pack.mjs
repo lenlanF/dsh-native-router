@@ -375,11 +375,14 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
           &&!/[\u0000-\u001f]/.test(row.name)?row.name:id;
         models.push({id,name,
           ...(row?.isFree===true||row?.free===true||row?.upstreamFreeLabel===true?{upstreamFreeLabel:true}:{}),
+          ...(row?.priceSource==='codearts-official-credit-ratio'
+            &&typeof row.costMultiplier==='number'
+            &&Number.isFinite(row.costMultiplier)&&row.costMultiplier>=0&&row.costMultiplier<=100
+            ?{costMultiplier:row.costMultiplier,priceSource:row.priceSource}:{}),
           ...(row?.pricing&&typeof row.pricing==='object'
-           &&['number','string'].includes(typeof row.pricing.input)
-           &&['number','string'].includes(typeof row.pricing.output)
-           ?{pricing:{input:row.pricing.input,output:row.pricing.output}}:{})});
-      }
+            &&['number','string'].includes(typeof row.pricing.input)
+            &&['number','string'].includes(typeof row.pricing.output)
+            ?{pricing:{input:row.pricing.input,output:row.pricing.output}}:{})});      }
       return {state:'ready',providerId,models};
     }catch{return {state:'error',providerId,models:[]}}
     finally{clearTimeout(timer);modelRequests.delete(providerId)}

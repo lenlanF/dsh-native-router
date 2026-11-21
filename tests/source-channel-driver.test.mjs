@@ -64,6 +64,26 @@ test('ZCode private Start Plan grants only GLM-5.3 Flash when authenticated gift
   assert.equal(freeEvidence((await driver.listModels({account}))[0],'own_zcode'),null);
  assert.equal(rig.calls.length,0,'gift check is read-only; no model generation issued');
 });
+test('CodeArts model list preserves verified exact official credit ratio and rejects invented prices',async()=>{
+ const src=mockSource([{id:'official-c',providerId:'codearts',enabled:true}]);
+ src.embeddedPack.listModels=async()=>({state:'ready',models:[
+  {id:'glm-5.3-flash',name:'GLM · x0.00',costMultiplier:0.003,
+    priceSource:'codearts-official-credit-ratio'},
+  {id:'qwen3.8-flash',name:'Qwen · x0.00',costMultiplier:0,
+    priceSource:'codearts-official-credit-ratio'},
+  {id:'fake-free',name:'Fake · x0.00',costMultiplier:0,
+    priceSource:'untrusted-cache'},
+ ]});
+ const driver=createSourceChannelDriver({providerId:'codearts',
+  accountProviderId:'codearts',embeddedPack:src.embeddedPack});
+ const id=sourceAccountOpaqueId('codearts','official-c');
+ const rows=await driver.listModels({account:{id,providerId:'codearts',
+  credentialRef:'driver:codearts:'+id}});
+ assert.equal(rows[0].costMultiplier,0.003,'rounded x0.00 is not a true zero');
+ assert.equal(rows[1].costMultiplier,0);
+ assert.equal(rows[2].costMultiplier,undefined,'unsupported price source is ignored');
+});
+
 test('Loomy only grants Spark X2.6 free test from authenticated official daily gift bucket',async()=>{
  const src=mockSource([{id:'loomy-gift',providerId:'loomy',enabled:true}]);
  src.embeddedPack.listModels=async()=>({state:'ready',models:[
