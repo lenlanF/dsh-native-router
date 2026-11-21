@@ -7,13 +7,14 @@
 export const DEFAULT_PRIORITY = Object.freeze([]);
 
 export const DEFAULT_TRIGGERS = Object.freeze([
-  'QUOTA', 'ACCOUNT_QUOTA', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT', 'STREAM_CLOSED',
+  'QUOTA', 'ACCOUNT_QUOTA', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT',
+  'STREAM_CLOSED', 'PROVIDER_NOT_READY',
 ]);
 
 const BUILTIN_QUALIFYING = new Set(DEFAULT_TRIGGERS);
 const CUSTOM_CODE = /^HTTP_(?:[1-5][0-9][0-9])$/;
 const DENY_CODES = new Set([
-  'AUTH', 'INVALID_REQUEST', 'CONTEXT_WINDOW_EXCEEDED', 'EMPTY_RESPONSE',
+  'INVALID_REQUEST', 'CONTEXT_WINDOW_EXCEEDED', 'EMPTY_RESPONSE',
   'MALFORMED_RESPONSE', 'IMAGE_OFFLOAD_REQUIRED', 'ABORTED', 'CANCELLED',
 ]);
 const QUOTA_WORDING = /(?:\binsufficient[_ -]?(?:quota|balance|credits?)\b|\b(?:quota|usage[_ -]+limit)[_ -]*(?:exceeded|exhausted|reached|depleted)\b|\b(?:balance|credits?)[_ -]*(?:exhausted|depleted)\b|\bout of (?:credits?|budget)\b)/i;
