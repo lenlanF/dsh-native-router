@@ -365,8 +365,21 @@ export function createAccountCenter({
     const driver=driverFor(account.providerId);
     if(typeof driver?.refresh!=='function'
       &&!['openai-chat','anthropic-messages'].includes(provider.protocol))continue;
+    // Cordis native source adapters attach asynchronously after this plugin
+    // starts. A not-yet-mounted PRIVATE pack is not an authentication failure:
+    // defer the verification and preserve the last known bound status.
+    if(driver?.isSourceBridge===true&&driver.runtimeReady!==true)continue;
     const last=storedFor(account);
-    if(pending.has(account.id)||(last?.checkedAt&&now()-last.checkedAt<autoVerifyMs))continue;
+    // Startup can probe before a channel finishes mounting, or a source may
+    // have a temporary transport failure. Healthy logins keep the original
+    // long cooldown. A FAILED read-only verification retries sooner, but
+    // 401/403 and rate-limit results use a slower 10-minute floor to avoid
+    // hammering login and quota endpoints. No model inference is attempted.
+    const cooldown=last?.state==='error'||last?.state==='pending'
+      ?Math.min(autoVerifyMs,3*60*1000)
+      :['expired','limited'].includes(last?.state)
+        ?Math.min(autoVerifyMs,10*60*1000):autoVerifyMs;
+    if(pending.has(account.id)||(last?.checkedAt&&now()-last.checkedAt<cooldown))continue;
     attempted++;
     try{await verify(account.id)}catch{}
    }
@@ -397,6 +410,26 @@ export function createAccountCenter({
                controller.abort();resolve({state:'unavailable'});
               },Math.min(30000,Math.max(10,readOnlyTimeoutMs)));}),
            ]);
+           const remote=results[at];
+           // A positive, precise official account-status probe is stronger
+           // than a transient failure cached just after DSH startup.
+           // Metadata or model-list success alone is NEVER auth evidence.
+           if(!disposed&&!controller.signal.aborted&&!pending.has(account.id)
+             &&remote?.authVerified===true&&['ready','online'].includes(remote?.state)){
+             const current=configStore.get(),bound=current.accounts.find(x=>x.id===account.id
+               &&x.providerId===account.providerId&&x.credentialRef===account.credentialRef
+               &&x.enabled===true);
+             if(bound&&current.providers.some(x=>x.id===account.providerId&&x.enabled===true)){
+               const previous=checkFor(account);
+               if(previous.state!=='online'||now()-(previous.at??0)>=autoVerifyMs){
+                 const at=now(),proof={state:'online',at,bindingRef:account.credentialRef,
+                   message:'本插件已通过本账号的渠道官方只读接口再次验证授权'};
+                 checks.set(account.id,proof);
+                 try{verificationStore?.set?.(account,proof)}catch{}
+                 if(previous.state!=='online')adapter?.invalidateCatalog?.();
+               }
+             }
+           }
          }catch{results[at]={state:'unavailable'}}
          finally{clearTimeout(timeout)}
        }
@@ -518,7 +551,10 @@ export function createAccountCenter({
       // Runtime startup must NEVER consult original-plugin files, metadata or
       // account pools. One-time migration belongs to explicit adoption only.
   if(disposed||automaticTimer)return stop;
-  automaticTimer=setInterval(()=>void autoCheckDue().catch(()=>{}),Math.max(60000,autoVerifyMs));
+  // A cheap local eligibility check each minute allows failed startup probes
+  // to recover at their shorter bounded retry interval. Actual network
+  // requests still obey the per-account cooldown above.
+  automaticTimer=setInterval(()=>void autoCheckDue().catch(()=>{}),60000);
   automaticTimer.unref?.();
    initialTimer=setTimeout(()=>{initialTimer=null;void autoCheckDue().catch(()=>{});
      void refreshReadOnly().catch(()=>{});},5000);
