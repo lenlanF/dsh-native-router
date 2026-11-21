@@ -402,9 +402,8 @@ test('explicit read-only quota audit gathers only safe fee and gift evidence, wi
    generate:async()=>{inference++;throw Error('forbidden')}};
  const cDriver={refreshAccountStatus:async()=>({state:'ready',authVerified:true,
    balanceState:'available',balance:100}),
-   listModels:async()=>[{id:'glm-5.3-flash',
-    costMultiplier:0.003,priceSource:'codearts-official-credit-ratio'}],
-   generate:async()=>{inference++;throw Error('forbidden')}};
+    listModels:async()=>[{id:'glm-5.3-flash',name:'GLM · x0.00',
+     costMultiplier:0.003,priceSource:'codearts-official-credit-ratio'}],   generate:async()=>{inference++;throw Error('forbidden')}};
  const accountCenter={driverFor:id=>id==='own_zcode'?zDriver:cDriver,
   list:()=>({accounts:accounts.map(row=>({...row,connectionState:'online',modelTestAvailable:true}))})};
  const result=await runOwnerLiveSmoke({configStore,accountCenter,
@@ -414,8 +413,8 @@ test('explicit read-only quota audit gathers only safe fee and gift evidence, wi
  assert.equal(report.runtime,'dsh-plugin-official-read-only');
  assert.deepEqual(report.accounts.map(x=>x.code),['OFFICIAL_GIFT_AND_MODEL','OFFICIAL_RATE_NONZERO']);
  assert.equal(report.accounts[0].giftConfirmed,true);
- assert.equal(report.accounts[1].lowestMultiplier,0.003);
- assert.doesNotMatch(JSON.stringify(report),/c_safe|z_safe|credentialRef|accountId/);
+  assert.equal(report.accounts[1].lowestMultiplier,0.003);
+  assert.equal(report.accounts[1].misleadingZeroDisplay,1); assert.doesNotMatch(JSON.stringify(report),/c_safe|z_safe|credentialRef|accountId/);
 }));
 test('read-only provider selector survives reordered accounts beyond the first 16 slots',async()=>fixture(async dir=>{
  const h=rig(dir);h.request();

@@ -32019,7 +32019,7 @@ function codeArtsRatioLabel(m) {
     const match = /^(\d+(?:\.\d+)?)\s*x$/i.exec(raw);
     if (match !== null) {
       const value = Number(match[1]);
-      if (Number.isFinite(value)) return `x${value.toFixed(2)}`;
+      if (Number.isFinite(value) && value >= 0 && value <= 100) return `x${value}`;
     }
   }
   return void 0;
@@ -70459,6 +70459,9 @@ function apply(ctx, config = {}) {
     readImage: makeReadImage(ctx),
     readImageRequest: makeReadImageRequest(ctx),
     accountPool: pool
+  });
+  config.nativeRouterSourceCatalogReady?.({
+    codearts: () => codearts.listModels("codearts")
   });
   const resolveBuddyCredentialByRef = async (refName) => {
     const resolved = await ctx.credentials.resolve(credentialRef16(refName));

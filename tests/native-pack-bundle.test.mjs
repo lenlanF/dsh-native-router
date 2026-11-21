@@ -28,10 +28,12 @@ test('the DSH-native bundle is deterministically derived from unchanged pinned M
   const crlf=Buffer.from(original.toString('utf8').replace(/\n/g,'\r\n'),'utf8');
   assert.equal(sha(canonicalText(crlf)),sha(original));
  assert.equal(sha(bundled),native.generatedSha256);
-   assert.equal(native.patches.length,41);
+   assert.equal(native.patches.length,43);
    assert.ok(native.patches.includes('codearts-exact-official-credit-ratio'));
    assert.ok(native.patches.includes('zcode-never-silently-fallback-to-paid-coding-plan'));
    assert.match(bundled.toString('utf8'),/Native Router forbids implicit Start-to-paid rail fallback/);
+   assert.ok(native.patches.includes('codearts-display-exact-ratio-without-rounded-false-zero'));
+   assert.ok(native.patches.includes('codearts-private-direct-catalog-metadata'));
    assert.ok(native.patches.includes('codearts-preserve-credit-in-all-models'));
    assert.ok(native.patches.includes('codearts-preserve-credit-in-list-models'));
    assert.ok(native.patches.includes('codearts-preserve-credit-in-resolved-model'));
@@ -98,7 +100,7 @@ test('release package ships only native in-process bundle with host-provided pee
   assert.equal(pkg.private,false);
   assert.equal(pkg.license,'MIT');
   assert.equal(pkg.engines.node,'>=22.10.0');
-   assert.equal(pkg.version,'1.0.0-rc.68');
+   assert.equal(pkg.version,'1.0.0-rc.69');
    assert.ok(pkg.files.includes('vendor/channel-pack/SOURCE_RECEIPT.json'));
    assert.ok(!pkg.files.includes('vendor/channel-pack'));
   assert.ok(!pkg.files.includes('vendor/channel-pack/pack.js'));

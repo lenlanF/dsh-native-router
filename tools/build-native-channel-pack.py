@@ -271,6 +271,20 @@ def build(*, check=False):
         '        if (false /* Native Router forbids implicit Start-to-paid rail fallback */ && shouldFallbackToOtherChannel(response.status, text) && !switchedAccount && captchaParam === void 0 && attempt < this.product.concurrencyRetryMax) {',
         'zcode-never-silently-fallback-to-paid-coding-plan',
     ))
+    # The Host normalizes model lists and can remove exact CodeArts
+    # credit rates. Scoped direct adapter catalog preserves official metadata.
+    patches.append((
+        '  });\n  const resolveBuddyCredentialByRef = async (refName) => {',
+        '  });\n  config.nativeRouterSourceCatalogReady?.({\n'
+        '    codearts: () => codearts.listModels("codearts")\n'
+        '  });\n  const resolveBuddyCredentialByRef = async (refName) => {',
+        'codearts-private-direct-catalog-metadata',
+    ))
+    patches.append((
+        '      if (Number.isFinite(value)) return `x${value.toFixed(2)}`;',
+        '      if (Number.isFinite(value) && value >= 0 && value <= 100) return `x${value}`;',
+        'codearts-display-exact-ratio-without-rounded-false-zero',
+    ))
     names = []
     for old, new, name in patches:
         count = text.count(old)

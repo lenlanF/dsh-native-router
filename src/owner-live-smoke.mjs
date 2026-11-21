@@ -160,13 +160,13 @@ async function quotaEvidence({account,accountCenter,configStore,signal}){
     &&typeof row.costMultiplier==='number'&&Number.isFinite(row.costMultiplier)
     &&row.costMultiplier>=0&&row.costMultiplier<=100);
   const free=official.filter(row=>row.costMultiplier===0);
-  const signedCatalogCount=models.filter(row=>row.catalogSource===
-    'codearts-signed-official-model-catalog').length;
-  return {state:'observed',code:free.length?'OFFICIAL_ZERO_RATE_AVAILABLE':
+   const signedCatalogCount=models.filter(row=>row.catalogSource===
+     'codearts-signed-official-model-catalog').length;
+   const misleadingZeroDisplay=official.filter(row=>row.costMultiplier>0
+     &&typeof row.name==='string'&&/x0\.00\s*$/i.test(row.name)).length;  return {state:'observed',code:free.length?'OFFICIAL_ZERO_RATE_AVAILABLE':
      official.length?'OFFICIAL_RATE_NONZERO':'NO_OFFICIAL_RATE',
-    officialRateCount:official.length,zeroRateCount:free.length,
-    signedCatalogCount,
-    ...(official.length?{lowestMultiplier:Math.min(...official.map(row=>row.costMultiplier))}:{}),
+     officialRateCount:official.length,zeroRateCount:free.length,
+     signedCatalogCount,misleadingZeroDisplay,    ...(official.length?{lowestMultiplier:Math.min(...official.map(row=>row.costMultiplier))}:{}),
     advertisedCount:models.length};
  }catch{return {state:'observed',code:'OFFICIAL_READ_ONLY_UNAVAILABLE'}}
 }
@@ -304,7 +304,7 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
       const proof=await quotaEvidence({account,accountCenter,configStore,signal});
       result.state=proof.state;result.code=proof.code;
       for(const key of ['modelFound','giftConfirmed','officialRateCount',
-        'zeroRateCount','lowestMultiplier','signedCatalogCount',
+        'zeroRateCount','lowestMultiplier','signedCatalogCount','misleadingZeroDisplay',
         'zcodePlanBuckets','zcodeFlashBuckets','zcodePreviewStartPlans','advertisedCount']){
         if(Object.hasOwn(proof,key))result[key]=proof[key];
       }

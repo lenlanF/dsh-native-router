@@ -32,7 +32,7 @@ function safetyReason(env){
 }
 export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPack=loadPinnedPack,modelTimeoutMs=20000}){
   let state='disabled',reason='',errorStage='',errorKind='',disposed=false,activeScope=null,injectedCallback=null;
-   let privateSourcePool=null,privateSourceCheckins=null,loadedPack=null;
+   let privateSourcePool=null,privateSourceCheckins=null,privateSourceCatalog=null,loadedPack=null;
     let sourcePhase='',modelAdapterStates={},privateSourceRpcReady=false;
     let modelEligibility=()=>false;
    let sourceErrorType='',sourceErrorLocation='';
@@ -97,8 +97,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
     state='loading';phase='host_provider_inventory';
       scope.effect?.(()=>()=>{
        selectionGuard?.restore();selectionGuard=null;
-       activeScope=null;privateSourcePool=null;privateSourceCheckins=null;loadedPack=null;
-       sourcePhase='';modelAdapterStates={};privateSourceRpcReady=false;
+        activeScope=null;privateSourcePool=null;privateSourceCheckins=null;privateSourceCatalog=null;loadedPack=null;       sourcePhase='';modelAdapterStates={};privateSourceRpcReady=false;
        if(!disposed&&state!=='failed'){state='host_disposed';reason='上游渠道包所属 Host 作用域已释放'}
       });
      void Promise.resolve().then(async()=>{
@@ -166,8 +165,14 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
                SOURCE_PACK_PROVIDERS.includes(id)&&allowed.has(status)));
          };
        }
-       if(nativeOwned){
-         options.nativeRouterPoolReady=pool=>{
+        // DSH model listing may strip upstream-specific signed rates.
+        // Keep a private, read-only direct CodeArts adapter accessor.
+        options.nativeRouterSourceCatalogReady=catalog=>{
+          if(!catalog||typeof catalog.codearts!=='function')
+            throw Error('Private CodeArts catalog accessor unavailable');
+          privateSourceCatalog={codearts:catalog.codearts};
+        };
+        if(nativeOwned){         options.nativeRouterPoolReady=pool=>{
            if(typeof pool?.listAllAccounts!=='function'||typeof pool?.getAvailableAccount!=='function')
              throw Error('Native source pool contract unavailable');
            privateSourcePool=pool;
@@ -199,7 +204,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
      if(disposed||state==='host_disposed')return;
      // Partial registration must not poison the next plugin reload.
      try{loadedPack?.rollbackNativeRouterSourceAdapters?.(scope)}catch{}
-     privateSourcePool=null;privateSourceCheckins=null;privateSourceRpcReady=false;
+     privateSourcePool=null;privateSourceCheckins=null;privateSourceCatalog=null;privateSourceRpcReady=false;
      state='failed';errorStage=phase;
      const code=String(error?.code??'');
      const message=String(error?.message??'').slice(0,300);
@@ -349,7 +354,8 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
     const scope=mountedScope();
     if(!scope)return {state:'unavailable',providerId,models:[]};
     const llm=scope.llm??scope.get?.('llm');
-    if(typeof llm?.listModels!=='function')return {state:'unavailable',providerId,models:[]};
+    if(typeof llm?.listModels!=='function'&&!(providerId==='codearts'&&privateSourceCatalog))
+       return {state:'unavailable',providerId,models:[]};
     if(modelRequests.has(providerId))return {state:'busy',providerId,models:[]};
     modelRequests.add(providerId);
     let timer;
@@ -358,7 +364,14 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
       // upstream llm service fails to settle. The underlying service owns cancellation.
       const timeoutMarker=Symbol('timeout');
       const rows=await Promise.race([
-        Promise.resolve().then(()=>llm.listModels(sourceAdapter(providerId))),        new Promise(resolve=>{timer=setTimeout(()=>resolve(timeoutMarker),modelTimeoutMs)}),
+        Promise.resolve().then(async()=>{
+           if(providerId==='codearts'&&typeof privateSourceCatalog?.codearts==='function'){
+             try{const raw=await privateSourceCatalog.codearts();
+               if(Array.isArray(raw))return raw;
+             }catch{} // Fall back to DSH model list without trusted rates.
+           }
+           return llm.listModels(sourceAdapter(providerId));
+         }),        new Promise(resolve=>{timer=setTimeout(()=>resolve(timeoutMarker),modelTimeoutMs)}),
       ]);
       if(rows===timeoutMarker)return {state:'timeout',providerId,models:[]};
       if(scope!==mountedScope())return {state:'unavailable',providerId,models:[]};
@@ -577,8 +590,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
    } function dispose(){    if(disposed)return;
     disposed=true;
     selectionGuard?.restore();selectionGuard=null;
-    activeScope=null;privateSourcePool=null;privateSourceCheckins=null;loadedPack=null;
-    sourcePhase='';modelAdapterStates={};privateSourceRpcReady=false;
+     activeScope=null;privateSourcePool=null;privateSourceCheckins=null;privateSourceCatalog=null;loadedPack=null;    sourcePhase='';modelAdapterStates={};privateSourceRpcReady=false;
     sourceErrorType='';sourceErrorLocation='';state='disposed';reason='';
     // Cordis inject() allocates a child Fiber. Explicitly remove our callback
     // so its registered adapters, accountPool, timers and effects are disposed

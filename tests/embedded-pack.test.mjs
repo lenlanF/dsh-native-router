@@ -430,6 +430,39 @@ test('CodeArts signed pricing must remain exact and expire; unknown/cached zeros
   assert.equal(result.models[4].costMultiplier,undefined,'unknown rate age cannot be free');
   bridge.dispose();
 });
+test('direct private CodeArts adapter directory bypasses DSH metadata stripping without exposing credentials',async()=>{
+ let hostCalls=0,privateCalls=0;
+ const raw=[{provider:'codearts',id:'glm-5.3-flash',name:'Direct signed',
+   catalogSource:'codearts-signed-official-model-catalog',catalogObservedAt:Date.now(),
+   priceSource:'codearts-official-credit-ratio',costMultiplier:0.003}];
+ const scope={get:()=>undefined,llm:{async listModels(){hostCalls++;return [{provider:'codearts',id:'glm-5.3-flash',name:'Host stripped'}]}}};
+ const bridge=createEmbeddedChannelPack({ctx:{inject(_deps,cb){cb(scope)}},
+   getConfig:enabled,env:isolatedEnv,loadPack:async()=>({apply(_scope,opts){
+     opts.nativeRouterSourceCatalogReady({codearts:async()=>{privateCalls++;return raw}});
+   }})});
+ bridge.attach();await tick();await tick();
+ const result=await bridge.listModels('codearts');
+ assert.equal(result.state,'ready');
+ assert.equal(result.models[0].costMultiplier,0.003);
+ assert.equal(result.models[0].catalogSource,'codearts-signed-official-model-catalog');
+ assert.equal(hostCalls,0);
+ assert.equal(privateCalls,1);
+ bridge.dispose();
+ assert.equal((await bridge.listModels('codearts')).state,'unavailable');
+});
+test('private CodeArts accessor error falls back to DSH with no invented price',async()=>{
+ let hostCalls=0;
+ const scope={get:()=>undefined,llm:{async listModels(){hostCalls++;return [{provider:'codearts',id:'fallback-model',name:'Fallback only'}]}}};
+ const bridge=createEmbeddedChannelPack({ctx:{inject(_deps,cb){cb(scope)}},
+   getConfig:enabled,env:isolatedEnv,loadPack:async()=>({apply(_scope,opts){
+     opts.nativeRouterSourceCatalogReady({codearts:async()=>{throw Error('private read not available')}});
+   }})});
+ bridge.attach();await tick();await tick();
+ const result=await bridge.listModels('codearts');
+ assert.equal(result.state,'ready');assert.equal(hostCalls,1);
+ assert.equal(result.models[0].costMultiplier,undefined);
+ bridge.dispose();
+});
 test('native source facade validates exact source account before invoking host DSH llm stream',async()=>{
  const rows=[{id:'q-a',provider:'qoder',enabled:true,credentialRef:'SECRET_REF'}];
  let livePool,invocations=0,seen;

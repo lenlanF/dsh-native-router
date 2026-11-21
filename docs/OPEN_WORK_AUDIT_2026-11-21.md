@@ -1,4 +1,11 @@
-# DSH Native Router｜全项目未完工横向核查与验收计划（更新至 2026-11-22 rc.68）## rc.68 本轮修复与验收
+# DSH Native Router｜全项目未完工横向核查与验收计划（更新至 2026-11-22 rc.68）## rc.69：进一步追 CodeArts 模型信息被 DSH 通用目录标准化剥离的问题
+
+- rc.68 实机 CodeArts 11款目录但签名来源0。原生 CodeArtsAdapter 的完整数据经 DSH LLM 通用 listModels 后可能被抹去。引入插件自己私有 Cordis scope 的只读原生目录回调，从实际 CodeArtsAdapter.listModels 直接拿源数据；失败回退仍是不带价格的 DSH 目录，且不改动任何别的插件模型。
+- 下一步仅通过同版本实机只读核查判定 signedCatalogCount / officialRateCount 变化；不根据11款目录猜费率和零费用。ZCode 仍须有真实官方 Start Plan 额度才可执行免费模型验收。
+
+- **rc.69 已安装后真实 DSH 只读验收（2026-11-22）：** 9230监听正常，单次nonce已经消费且没有遗留待触发请求。CodeArts 的模型目录11款现在全部有官方签名来源（signedCatalogCount=11）及精确倍率（officialRateCount=11）；零倍率模型0，最低精确倍率 x0.07，修复显示后误导性的“非零显示 x0.00”数量0。ZCode已鉴权但当前 Start Plan 可确认有效免费包0、预览0，模型目录2款。两个渠道均无新生成调用，真实完整推理历史仍是6/8。
+
+## rc.68 本轮修复与验收
 
 - ZCode：官方 Start Plan 计划证据 + 模型 + 单位 + 到期 + 余额足额，不能拿购买额度或合成名字充免费；固定衍生渠道包禁止在赠送限额失败后自动走收费 Coding Plan。
 - CodeArts：官方签名模型目录的来源独立于可信实时费率；只有签名渠道当前15分钟以内返回的精确零倍率模型才可能列入免费候选。福利模式已有下线风险，旧模型列表不是可用权益证据。
