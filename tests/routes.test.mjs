@@ -5,8 +5,9 @@ import {readFileSync} from 'node:fs';
 import {registerRouterRoutes} from '../src/routes.mjs';
 import {normalizeConfig} from '../src/config.mjs';
 import {sample} from './fixtures.mjs';
+import {sourceAccountOpaqueId} from '../src/source-account-ref.mjs';
 
-function harness(embeddedPack){
+function harness(embeddedPack,checkinCenter){
   let state=normalizeConfig(sample),invalidations=0;
   const routes=new Map();
   const ctx={get(name){if(name==='webServer')return{register({path,handler}){routes.set(path,handler);return()=>routes.delete(path)}}}};
@@ -14,7 +15,7 @@ function harness(embeddedPack){
   const cleanup=registerRouterRoutes(ctx,{configStore,adapter:{
     invalidateCatalog(){invalidations++},
     getStatus:()=>({providers:state.providers.length,accounts:state.accounts.length,routes:state.routes.length}),
-  },accountCenter:{list:()=>({channels:[],accounts:[],pools:[]})},embeddedPack});
+  },accountCenter:{list:()=>({channels:[],accounts:[],pools:[]})},embeddedPack,checkinCenter});
   async function hit(method,path,{body,origin='http://localhost',address='127.0.0.1'}={}){
     const req=new EventEmitter();req.method=method;req.socket={remoteAddress:address};req.headers={origin,host:'localhost'};
     const res={statusCode:0,headers:{},setHeader(k,v){this.headers[k]=v},end(raw){this.value=JSON.parse(raw)}};
@@ -74,6 +75,35 @@ test('safe upstream account preview is loopback only and cannot expose credentia
  h.cleanup();
 });
 
+test('actual account API does not re-expose a detached private-source credential in embeddedAccounts',async()=>{
+ const rows=[{providerId:'loomy',id:'old-login',nickname:'Exited owner',enabled:true},
+  {providerId:'loomy',id:'active-login',nickname:'Owner remaining',enabled:true}];
+ const h=harness({status:()=>({state:'mounted'}),listAccounts:async()=>({state:'ready',accounts:rows})});
+ const ignored=sourceAccountOpaqueId('loomy','old-login');
+ h.configStore.replace({...h.configStore.get(),sessionReuse:{ignoredIds:[ignored]}});
+ const response=await h.hit('GET','/channels/accounts');
+ assert.equal(response.statusCode,200);
+ assert.deepEqual(response.value.embeddedAccounts.accounts.map(a=>a.id),['active-login'],
+  'raw upstream account inventory must not bypass owner removal through this API');
+ assert.deepEqual(response.value.accounts.filter(a=>a.providerId==='loomy').map(a=>a.id),
+  [sourceAccountOpaqueId('loomy','active-login')]);
+ h.cleanup();
+});
+test('embedded account inventory and aggregated cards both display owner-disabled private login as disabled',async()=>{
+ const id=sourceAccountOpaqueId('loomy','private-disabled-source');
+ const embeddedPack={status:()=>({state:'mounted'}),listAccounts:async()=>({state:'ready',accounts:[
+  {providerId:'loomy',id:'private-disabled-source',nickname:'Owner',enabled:true}]})};
+ const checkinCenter={snapshot:()=>({accounts:[{id,providerId:'loomy',sourceAccount:true,
+  enabled:false,connectionState:'disabled'}]}),refreshSources:async()=>{}};
+ const h=harness(embeddedPack,checkinCenter);
+ const res=await h.hit('GET','/channels/accounts');
+ assert.equal(res.statusCode,200);
+ assert.equal(res.value.embeddedAccounts.accounts[0].enabled,false,
+  'raw UI inventory must reflect effective disabled Provider, not only the source-pack session flag');
+ assert.equal(res.value.embeddedAccounts.accounts[0].connectionState,'disabled');
+ assert.equal(res.value.accounts[0].enabled,false);
+ h.cleanup();
+});
 test('explicit upstream model query is origin/loopback restricted and does not affect router config',async()=>{
  const calls=[];
  const embeddedPack={

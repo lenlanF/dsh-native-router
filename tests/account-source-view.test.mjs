@@ -110,6 +110,43 @@ test('CodeArts self-owned QR login uses the public provider ID without duplicate
  assert.equal(view.accounts[0].backupSources.length,0);
  assert.equal(view.accounts[0].balance,50);
 });
+test('explicitly removed private source member never returns through channel-account merge or embedded account inventory',()=>{
+ const removed=sourceAccountOpaqueId('loomy','old-owner-session');
+ const remaining=sourceAccountOpaqueId('loomy','other-member');
+ const pool={state:'ready',accounts:[
+  {providerId:'loomy',id:'old-owner-session',enabled:true,nickname:'Old login'},
+  {providerId:'loomy',id:'other-member',enabled:true,nickname:'Current member'},
+ ]};
+ const roster={channels:[{id:'own_loomy',name:'Loomy'}],accounts:[]};
+ const hidden=mergeAccountSources({roster,embeddedAccounts:pool,
+  sourceRows:[{id:remaining,providerId:'loomy',sourceAccount:true,connectionState:'online'}],
+  ignoredIds:[removed]});
+ assert.deepEqual(hidden.accounts.map(x=>x.id),[remaining],
+  'the previously logged-in source is not a new autonomous account after explicit owner removal');
+ assert.equal(hidden.accounts.some(x=>x.nickname==='Old login'),false);
+ const readopt=mergeAccountSources({roster:{...roster,accounts:[{
+  id:removed,providerId:'own_loomy',credentialRef:'driver:own_loomy:'+removed,
+  enabled:true,connectionState:'not_checked',origin:{kind:'independent-owned'},runtimeMode:'owned',
+ }]},embeddedAccounts:pool,ignoredIds:[removed]});
+ assert.equal(readopt.accounts.some(x=>x.id===removed),true,
+  'an explicitly re-imported private member is allowed despite old ignored history');
+ assert.equal(readopt.accounts.length,2);
+});
+test('a stopped native Provider disables its dynamically discovered account card even if private source session still exists',()=>{
+ const id=sourceAccountOpaqueId('zcode','private-session');
+ const result=mergeAccountSources({
+  roster:{channels:[{id:'own_zcode',name:'ZCode',providerEnabled:false}],accounts:[]},
+  embeddedAccounts:{state:'ready',accounts:[{
+    providerId:'zcode',id:'private-session',enabled:true,authorizationSource:'autonomous'}]},
+  sourceRows:[{id,providerId:'zcode',sourceAccount:true,
+    enabled:false,connectionState:'disabled'}],
+ });
+ assert.equal(result.accounts.length,1,
+  'discovered account remains in management UI for owner to re-enable it');
+ assert.equal(result.accounts[0].enabled,false);
+ assert.equal(result.accounts[0].connectionState,'disabled');
+ assert.equal(result.accounts[0].backupSources.length,0);
+});
 test('different account IDs and different channels never merge based on nickname',()=>{
  const sameName='duplicate-nickname';
  const result=mergeAccountSources({

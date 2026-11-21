@@ -14,7 +14,24 @@ const isIndependent=kind=>kind==='autonomous';
 const sourceScore=row=>(row.enabled===true&&row.connectionState==='online'?100:
   row.enabled===true?(rank[row.connectionState]??0)*10:0)+
   (isIndependent(row.sourceKind)?2:row.sourceKind==='adopted'?1:0);
-export function mergeAccountSources({roster,embeddedAccounts,sourceRows=[],embeddedStatus={}}={}){
+// An independent source pack may retain the session after owner detaches the
+// account from Native Router. Both the public embeddedAccounts inventory and
+// the aggregated cards must honor the same persistent ignoredIds guard as
+// AutoFree, source check-ins and the execution layer. Explicit re-adoption of
+// the precise identity is allowed without clearing historical audit markers.
+export function visiblePrivateSourceAccounts(accounts=[],{
+ ignoredIds=[],configuredAccounts=[],
+}={}){
+ const hidden=new Set(ignoredIds);
+ return (Array.isArray(accounts)?accounts:[]).filter(row=>{
+   if(typeof row?.providerId!=='string'||typeof row.id!=='string')return false;
+   const id=sourceAccountOpaqueId(row.providerId,row.id);
+   return !hidden.has(id)||configuredAccounts.some(a=>a?.id===id
+     &&canonical(a.providerId)===row.providerId);
+ });
+}
+export function mergeAccountSources({roster,embeddedAccounts,sourceRows=[],
+ embeddedStatus={},ignoredIds=[],}={}){
  const channelMap=new Map();
  for(const channel of roster?.channels??[]){
    const id=canonical(channel.id),current=channelMap.get(id);
@@ -24,7 +41,9 @@ export function mergeAccountSources({roster,embeddedAccounts,sourceRows=[],embed
  }
  const pool=new Map(),sourceMap=new Map(
    sourceRows.filter(row=>row?.sourceAccount).map(row=>[row.id,row]));
- for(const row of embeddedAccounts?.accounts??[]){
+ for(const row of visiblePrivateSourceAccounts(embeddedAccounts?.accounts,{
+   ignoredIds,configuredAccounts:roster?.accounts??[],
+ })){
    if(typeof row?.providerId!=='string'||typeof row.id!=='string')continue;
    const id=sourceAccountOpaqueId(row.providerId,row.id);
    pool.set(key({providerId:row.providerId,id}),{...row,opaqueId:id,status:sourceMap.get(id)});
@@ -70,11 +89,15 @@ export function mergeAccountSources({roster,embeddedAccounts,sourceRows=[],embed
  for(const [id,source] of pool){
    if(physicalSeen.has(id))continue;
    const row=source.status,kind=safeSource(source.authorizationSource);
+   // The source pack's stored login can remain physically enabled after the
+   // Native Router owner disables the channel/account. The source check-in
+   // health row is the latest effective owner-state, not merely a score tag.
+   const enabled=source.enabled===true&&row?.enabled!==false;
    add({id:source.opaqueId,providerId:source.providerId,routeProviderId:'own_'+source.providerId,
       providerName:source.providerId,sourceKind:kind,managed:false,
        nickname:publicAccountName(row,source),runtimeMode:'owned',
-       ...(row?.maskedPhone?{maskedPhone:row.maskedPhone}:{}),      enabled:source.enabled===true,configuredEnabled:source.enabled===true,weight:1,
-      connectionState:source.enabled!==true?'disabled':
+       ...(row?.maskedPhone?{maskedPhone:row.maskedPhone}:{}),      enabled,configuredEnabled:source.enabled===true,weight:1,
+      connectionState:!enabled?'disabled':
         row?.connectionState==='online'?'online':'not_checked',
       origin:{kind,label:sourceName(kind)},credentialKind:'driver',
       ...publicBalance(row,source),

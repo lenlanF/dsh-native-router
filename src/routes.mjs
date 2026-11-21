@@ -3,7 +3,7 @@ import {freeEvidence} from './auto-free.mjs';
 // Version is read from this installed package, never hardcoded into the UI.
 const PLUGIN_VERSION=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8')).version;
 import {sourceAccountOpaqueId} from './source-account-ref.mjs';
-import {mergeAccountSources} from './account-source-view.mjs';
+import {mergeAccountSources,visiblePrivateSourceAccounts} from './account-source-view.mjs';
 // Owner-authenticated DSH Connection admin APIs; same-origin management writes, loopback-only HTTP.
 const BASE='/plugins/dsh-native-router';
 // Stable owner-facing migration results. Never forward raw upstream failures,
@@ -185,10 +185,17 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
         ({state:'unavailable',accounts:[]})):{state:'unavailable',accounts:[]};
        const sourceRows=(checkinCenter?.snapshot?.().accounts??[]).filter(a=>a.sourceAccount);
        const sourceMap=new Map(sourceRows.map(a=>[a.id,a]));
-       const embeddedAccounts={...rawEmbedded,accounts:(rawEmbedded.accounts??[]).map(row=>{
+       const ownerConfig=configStore.get();
+       const ignoredIds=ownerConfig.sessionReuse?.ignoredIds??[];
+       const embeddedAccounts={...rawEmbedded,accounts:visiblePrivateSourceAccounts(
+         rawEmbedded.accounts,{ignoredIds,configuredAccounts:ownerConfig.accounts??[]}).map(row=>{
          const source=sourceMap.get(sourceAccountOpaqueId(row.providerId,row.id));
-         return {...row,nickname:source?.nickname||row.nickname||'',
-           connectionState:!row.enabled?'disabled':source?.connectionState==='online'?
+         // The source-pack may still retain an enabled login after its Native
+         // Router Provider is disabled. Expose effective owner state on BOTH
+         // public account cards and the raw embeddedAccounts inventory.
+         const enabled=row.enabled===true&&source?.enabled!==false;
+         return {...row,enabled,nickname:source?.nickname||row.nickname||'',
+           connectionState:!enabled?'disabled':source?.connectionState==='online'?
              'online':'not_checked',
            ...(source?.maskedPhone?{maskedPhone:source.maskedPhone}:{}),
            ...(Number.isFinite(source?.balance)?{balance:source.balance,
@@ -205,7 +212,7 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
            autoCheckinEffective:current.autoCheckinEffective===true}:row;
        });
        const {channels,accounts}=mergeAccountSources({roster,embeddedAccounts,sourceRows,
-         embeddedStatus:embeddedPack?.status?.()??{}});
+         ignoredIds,embeddedStatus:embeddedPack?.status?.()??{}});
        return json(res,200,{ok:true,...roster,channels,accounts,embeddedAccounts,
          sessionReuse:sessionReuse?.snapshot?.()??{enabled:false,channels:[]}});
     });    // Explicit login/session reuse is mediated by DSH's authenticated

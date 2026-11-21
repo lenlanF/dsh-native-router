@@ -13,12 +13,17 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
   const status=record(statusRow?.status);
   const raw=balanceRow?.balance,structured=record(raw);
   const packages=Array.isArray(structured?.packages)?structured.packages:[];
-  const firstPackage=packages.find(row=>record(row)&&safeUnit(row.unit));
+  // A single explicitly denominated package represents one remaining
+  // balance. Multiple packages can have different currencies/periods: never
+  // add them together or invent a common unit when no aggregate was given.
+  const single=packages.length===1&&record(packages[0])&&safeUnit(packages[0].unit)
+    ?packages[0]:null;
   const balanceValue=balanceRow?.error?null:
-    numeric(raw)??numeric(structured?.total)??numeric(structured?.remaining)??
-    numeric(structured?.balance)??numeric(structured?.credits);
+    numeric(raw)??numeric(structured?.remaining)??numeric(structured?.balance)??
+    numeric(structured?.credits)??numeric(structured?.total)??
+    numeric(single?.remaining)??numeric(single?.balance);
   const unit=safeUnit(balanceRow?.balanceUnit)??safeUnit(structured?.unit)??
-    safeUnit(firstPackage?.unit);
+    safeUnit(single?.unit);
   const liveStatus=!statusRow?.error&&status!==null&&(
     typeof status.todayCheckedIn==='boolean'||
     Array.isArray(status.checkinDates)||

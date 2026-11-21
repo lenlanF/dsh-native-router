@@ -86,6 +86,29 @@ test('catalog enumeration or account discovery alone cannot prove a logged-in mo
  assert.equal(driver.accountSnapshot(account).modelInferenceVerifiedAt,null);
 });
 
+test('single official quota package with explicit remaining balance and unit is presented without inventing totals',()=>{
+ const result=sourceAccountFacts({providerId:'zcode',observedAt:5566,
+   balanceRow:{accountId:'member-a',balance:{packages:[{
+     remaining:12.5,unit:'token',name:'valid subscription'}]}}});
+ assert.equal(result.balance,12.5);
+ assert.equal(result.balanceUnit,'token');
+ assert.equal(result.balanceCheckedAt,5566);
+ assert.equal(result.authVerified,true);
+ const remainingBeforeTotal=sourceAccountFacts({providerId:'loomy',
+  balanceRow:{balance:{remaining:20,total:100,unit:'积分'}},observedAt:5567});
+ assert.equal(remainingBeforeTotal.balance,20,
+  'show actual remaining quota, not subscription total while remaining exists');
+ const ambiguous=sourceAccountFacts({providerId:'zcode',
+   balanceRow:{balance:{packages:[{remaining:10,unit:'token'},
+     {remaining:20,unit:'points'}]}}});
+ assert.equal(ambiguous.balance,undefined,
+   'multiple different quota packages cannot be combined or treated as one currency');
+ assert.equal(ambiguous.authVerified,false);
+ assert.equal(ambiguous.balanceState,'not_returned');
+ const unsupported=sourceAccountFacts({providerId:'unknown',
+   balanceRow:{balance:{packages:[{remaining:5,unit:'token'}]}}});
+ assert.equal(unsupported.authVerified,false,'unknown channel balance is never proof of login');
+});
 test('all source balance shapes and missing identity are safe, with no synthetic names or zeros',()=>{
  const date=1234;
  for(const [providerId,balance,balanceValue,unit] of [
