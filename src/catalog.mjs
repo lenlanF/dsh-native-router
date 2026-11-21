@@ -26,15 +26,93 @@ export function conciseModelName(providerId,channel,model,sourceName){
     .replace(/[·\s()]+$/u,'').trim()||model;
   return conciseChannelName(providerId,channel)+' · '+plain+' · '+(match?'x'+match[1]:'x?');
 }
-export function createCatalog({getConfig,getEffectiveConfig,fetchImpl=fetch,resolveKey=resolveCredential,credentialOptions={},ttlMs=60000,channelDrivers=new Map(),hostProviderInventory,autoFreePool}){
+export function createCatalog({getConfig,getEffectiveConfig,fetchImpl=fetch,
+ resolveKey=resolveCredential,credentialOptions={},ttlMs=60000,
+ channelDrivers=new Map(),hostProviderInventory,autoFreePool,
+ accountDiscoveryTimeoutMs=2600,providerDiscoveryTimeoutMs=6500,
+ maxConcurrentDiscoveries=3}={}){
   const driverFor=id=>channelDrivers instanceof Map?channelDrivers.get(id):channelDrivers?.[id];
   const hostRegistered=id=>id!=='native-router'&&hostProviderInventory?.status?.()
     .hostProviders?.some(row=>row.providerId===id)===true;
-  let cached=[],updatedAt=0,sourceAvailability='';
+  let cached=[],updatedAt=0,sourceAvailability='',revision=0,inFlight=null;
   const sourceState=()=>[...(channelDrivers instanceof Map?channelDrivers.entries():Object.entries(channelDrivers??{}))]
     .filter(([,driver])=>driver?.isSourceBridge===true)
     .map(([id,driver])=>id+':'+(driver.runtimeReady===true?'mounted':'unavailable')).sort().join('|');
-  async function list(signal){
+  // A slow account must not stall DSH's entire model selector. A small
+  // worker pool asks independently authorized accounts in parallel and each
+  // read-only request receives an abort signal plus a hard waiting deadline.
+  // A source ignoring abort is never given more follow-up work on that worker.
+  const perAccountMs=Math.max(10,Math.min(10000,Number(accountDiscoveryTimeoutMs)||2600));
+  const perProviderMs=Math.max(10,Math.min(20000,Number(providerDiscoveryTimeoutMs)||6500));
+  const discoveryWorkers=Math.max(1,Math.min(6,Number(maxConcurrentDiscoveries)||3));
+  async function boundedDiscovery(provider,account,driver,signal,deadline){
+    const remaining=deadline-Date.now();
+    if(signal?.aborted||remaining<=0)return {rows:[],timedOut:true};
+    const controller=new AbortController();
+    const cancel=()=>controller.abort();
+    signal?.addEventListener('abort',cancel,{once:true});
+    if(signal?.aborted)cancel();
+    let timer;
+    const cancelled=new Promise(resolve=>{
+      const done=()=>resolve({rows:[],timedOut:true});
+      if(controller.signal.aborted)done();
+      else controller.signal.addEventListener('abort',done,{once:true});
+    });
+    timer=setTimeout(cancel,Math.min(perAccountMs,remaining));
+    const request=Promise.resolve().then(async()=>{
+      if(controller.signal.aborted)return [];
+      if(provider.protocol==='native-channel')
+        return typeof driver?.listModels==='function'
+          ?await driver.listModels({provider,account,signal:controller.signal})??[]:[];
+      const token=await resolveKey(account,credentialOptions);
+      if(controller.signal.aborted)return [];
+      const headers=provider.protocol==='anthropic-messages'
+        ?{'x-api-key':token,'anthropic-version':'2023-06-01'}
+        :{authorization:'Bearer '+token};
+      const response=await fetchImpl(provider.baseUrl+'/models',{
+        headers,signal:controller.signal});
+      if(!response.ok)return [];
+      const data=await response.json();
+      return data?.data??[];
+    }).then(rows=>({rows,timedOut:false}),()=>({rows:[],timedOut:false}));
+    try{
+      const result=await Promise.race([request,cancelled]);
+      return controller.signal.aborted?{rows:[],timedOut:true}:result;
+    }finally{
+      clearTimeout(timer);
+      signal?.removeEventListener('abort',cancel);
+    }
+  }
+  async function discoverAccounts(provider,accounts,driver,signal,models,liveNames){
+    let next=0;
+    const deadline=Date.now()+perProviderMs;
+    async function worker(){
+      while(next<accounts.length&&models.size<256&&!signal?.aborted
+        &&Date.now()<deadline){
+        const account=accounts[next++];
+        const result=await boundedDiscovery(provider,account,driver,signal,deadline);
+        // Stop this worker when its source ignores cancellation. Otherwise
+        // repeated hung calls could leak a new pending request per account.
+        if(result.timedOut)return;
+        if(!Array.isArray(result.rows))continue;
+        for(const m of result.rows){
+          const modelId=typeof m==='string'?m:m?.id;
+          if(typeof modelId==='string'&&modelId.trim()&&modelId.length<150
+            &&!/[\u0000-\u001f]/.test(modelId)){
+            const clean=modelId.trim();
+            models.add(clean);
+            if(typeof m?.name==='string'&&m.name.trim()&&m.name.length<=120
+              &&!/[\u0000-\u001f]/.test(m.name)&&!liveNames.has(clean))
+              liveNames.set(clean,m.name.trim());
+          }
+          if(models.size>=256)break;
+        }
+      }
+    }
+    await Promise.all(Array.from({length:Math.min(discoveryWorkers,accounts.length)},
+      ()=>worker()));
+  }
+  async function scan(signal,startedRevision){
     // One bounded, read-only discovery shared with the dynamic AutoFree pool.
     // Host login and independent channel source accounts are NOT copied.
     if(autoFreePool)await autoFreePool.refresh().catch(()=>null);
@@ -79,68 +157,65 @@ export function createCatalog({getConfig,getEffectiveConfig,fetchImpl=fetch,reso
         name:single&&p?conciseModelName(p.id,p.name,single.model,found?.name):
           '聚合路由 · '+r.name+' · x?',
         inputModalities:['text']};
-    }));    for(const p of cfg.providers.filter(p=>p.enabled)){
-      const driver=driverFor(p.id);
-      if(p.protocol==='dsh-host'&&!hostRegistered(p.id))continue;
-       if(p.protocol==='native-channel'&&(typeof driver?.generate!=='function'||
-         (driver?.isSourceBridge===true&&driver.runtimeReady!==true)))continue;
-      const sourceModels=all.filter(row=>row.providerId===p.id);
-      const models=new Set([...p.models,...sourceModels.map(row=>row.model)]);
-      const liveNames=new Map();
-       const accounts=cfg.accounts.filter(a=>a.providerId===p.id&&a.enabled).slice(0,32);
-       // A listed model is not a usable login. The runtime account verifier
-       // excludes pending/unverified native credentials from the effective config.
-       if(p.protocol==='native-channel'&&accounts.length===0)continue;
-      // Static models are configuration, NOT a live upstream directory. Always
-      // discover authenticated native models unless the private source pack
-      // already returned its live catalog during the shared AutoFree scan.
-      // The presence of manually entered IDs must not hide newly added models.
-      const sourceAlreadyScanned=p.protocol==='native-channel'
-        &&sourceModels.some(row=>row.kind==='owned-source');
-      if(accounts.length && (models.size===0||
-         (p.protocol==='native-channel'&&!sourceAlreadyScanned))){
-        // Do not let the first expired account hide working models behind a
-        // second account. Discover independently and union the visible IDs.
-        for(const account of accounts){
-          if(signal?.aborted)break;
-          try{
-            let found=[];
-            if(p.protocol==='native-channel'){
-              if(typeof driver?.listModels==='function')
-                found=await driver.listModels({provider:p,account,signal})??[];
-            }else{
-              const token=await resolveKey(account,credentialOptions);
-              const headers=p.protocol==='anthropic-messages' ?
-                {'x-api-key':token,'anthropic-version':'2023-06-01'}:{authorization:'Bearer '+token};
-              const res=await fetchImpl(p.baseUrl+'/models',{headers,signal});
-              if(res.ok){const data=await res.json();found=data?.data??[]}
-            }
-            if(Array.isArray(found))for(const m of found){
-              const modelId=typeof m==='string'?m:m?.id;
-              if(typeof modelId==='string'&&modelId.trim()&&modelId.length<150
-                 &&!/[\u0000-\u001f]/.test(modelId)){
-                const clean=modelId.trim();
-                models.add(clean);
-                if(typeof m?.name==='string'&&m.name.trim()&&m.name.length<=120
-                   &&!/[\u0000-\u001f]/.test(m.name)&&!liveNames.has(clean))
-                  liveNames.set(clean,m.name.trim());
-              }
-              if(models.size>=256)break;
-            }
-          }catch{ /* One unhealthy account must not hide healthy peers. */ }
-          if(models.size>=256)break;
+    }));
+    // Across providers as well as across accounts, discovery must not be
+    // head-of-line blocked. Limit concurrent channels to two so an installed
+    // DSH with many adapters does not fan out unbounded network requests.
+    // Keep deterministic Provider ordering when merging the final picker.
+    const providers=cfg.providers.filter(p=>p.enabled);
+    const providerResults=new Array(providers.length);
+    let nextProvider=0;
+    async function providerWorker(){
+      while(nextProvider<providers.length&&!signal?.aborted){
+        const index=nextProvider++,p=providers[index],driver=driverFor(p.id);
+        if(p.protocol==='dsh-host'&&!hostRegistered(p.id))continue;
+        if(p.protocol==='native-channel'&&(typeof driver?.generate!=='function'
+          ||(driver?.isSourceBridge===true&&driver.runtimeReady!==true)))continue;
+        const sourceModels=all.filter(row=>row.providerId===p.id);
+        const models=new Set([...p.models,...sourceModels.map(row=>row.model)]);
+        const liveNames=new Map();
+        const accounts=cfg.accounts.filter(a=>a.providerId===p.id&&a.enabled).slice(0,32);
+        if(p.protocol==='native-channel'&&accounts.length===0)continue;
+        // Manual IDs do not hide real models. Skip a second scan only when
+        // the standalone source pack already returned the private catalog.
+        const sourceAlreadyScanned=p.protocol==='native-channel'
+          &&sourceModels.some(row=>row.kind==='owned-source');
+        if(accounts.length&&(models.size===0||
+          (p.protocol==='native-channel'&&!sourceAlreadyScanned)))
+          await discoverAccounts(p,accounts,driver,signal,models,liveNames);
+        const entries=[];
+        for(const model of models){
+          const discovered=sourceModels.find(row=>row.model===model);
+          const name=conciseModelName(p.id,p.name,model,
+            discovered?.name??liveNames.get(model));
+          entries.push({provider:'native-router',id:directModelId(p.id,model),
+            name,inputModalities:['text']});
         }
+        providerResults[index]=entries;
       }
-      for(const model of models){
-        const discovered=all.find(row=>row.providerId===p.id&&row.model===model);
-        const name=conciseModelName(p.id,p.name,model,discovered?.name??liveNames.get(model));
-        result.push({provider:'native-router',id:directModelId(p.id,model),
-          name,inputModalities:['text']});
-      }    }
+    }
+    await Promise.all(Array.from({length:Math.min(2,providers.length)},
+      ()=>providerWorker()));
+    for(const rows of providerResults)if(rows?.length)result.push(...rows);
+    // An owner logout/disable can invalidate this directory while an async
+    // read-only model query is still in flight. Never publish a model that
+    // belonged to the older authorization snapshot.
+    if(startedRevision!==revision)return [];
     cached=result;
-     updatedAt=Date.now();
-     sourceAvailability=currentSourceAvailability;
+    updatedAt=Date.now();
+    sourceAvailability=currentSourceAvailability;
     return result.map(x=>({...x}));
   }
-  return {list,invalidate(){updatedAt=0}};
+  async function list(signal){
+    // Model picker, dashboard and settings may ask in parallel. Share one
+    // in-flight scan instead of recontacting exactly the same source logins.
+    const existing=inFlight;
+    if(existing?.revision===revision)
+      return (await existing.promise).map(row=>({...row}));
+    const entry={revision,promise:scan(signal,revision)};
+    inFlight=entry;
+    try{return (await entry.promise).map(row=>({...row}))}
+    finally{if(inFlight===entry)inFlight=null}
+  }
+  return {list,invalidate(){revision++;updatedAt=0;cached=[];sourceAvailability=''}};
 }
