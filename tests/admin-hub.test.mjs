@@ -107,3 +107,36 @@ test('candidate import API requires preceding discovery and activates the native
  assert.equal((await t.hit('GET','/channels/accounts')).body.accounts[0].configuredEnabled,true);
  t.dispose();
 });
+
+test('owner management endpoints never expose private upstream error text, credential strings or account identifiers',async()=>{
+ const secret='wps_sid=VERY_PRIVATE_SESSION_COOKIE_ABC123';
+ const app=rig(new Map([['alpha',{refresh:async()=>{throw Error('Upstream failed '+secret)}}]]));
+ const refreshed=await app.hit('POST','/channels/accounts/action',{action:'refresh',accountId:'a1'});
+ assert.equal(refreshed.code,200);
+ assert.doesNotMatch(JSON.stringify(refreshed.body),/VERY_PRIVATE_SESSION_COOKIE/);
+ const duplicate={...sample,providers:[...sample.providers,{...sample.providers[0],id:'private_account_reference_123'}]};
+ duplicate.providers[0]={...duplicate.providers[0],id:'private_account_reference_123'};
+ const saved=await app.hit('POST','/config',duplicate);
+ assert.equal(saved.code,400);
+ assert.doesNotMatch(JSON.stringify(saved.body),/private_account_reference_123/);
+ app.dispose();
+
+ const discoverRig=rig(new Map([['workbuddy',{
+  discover:async()=>{throw Error('Discovery denied: '+secret)},
+ }]]),{providers:[{id:'workbuddy',protocol:'native-channel'}],accounts:[]});
+ const discovered=await discoverRig.hit('POST','/channels/discover',{providerId:'workbuddy'});
+ assert.notEqual(discovered.code,200);
+ assert.doesNotMatch(JSON.stringify(discovered.body),/VERY_PRIVATE_SESSION_COOKIE/);
+ discoverRig.dispose();
+
+ const checkinRig=rig(new Map([['alpha',{checkIn:async({date})=>({
+  confirmed:true,date,message:'Successful! '+secret,
+ })}]]));
+ const claimed=await checkinRig.hit('POST','/checkins/action',{action:'run',accountId:'a1'});
+ assert.equal(claimed.code,200);
+ assert.equal(claimed.body.result.record.state,'success');
+ assert.doesNotMatch(JSON.stringify(claimed.body),/VERY_PRIVATE_SESSION_COOKIE/);
+ const history=await checkinRig.hit('GET','/checkins');
+ assert.doesNotMatch(JSON.stringify(history.body),/VERY_PRIVATE_SESSION_COOKIE/);
+ checkinRig.dispose();
+});

@@ -1,5 +1,6 @@
 import {readFileSync} from 'node:fs';
 import {freeEvidence} from './auto-free.mjs';
+import {publicAdministrativeError} from './public-diagnostics.mjs';
 // Version is read from this installed package, never hardcoded into the UI.
 const PLUGIN_VERSION=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8')).version;
 import {sourceAccountOpaqueId} from './source-account-ref.mjs';
@@ -88,7 +89,8 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
       return json(res,200,{ok:true,config:next,restartRequired:true,
         message:'Changes saved. Restart DSH Host to refresh provider and host failover registration.'});
     }catch(error){
-      return json(res,400,{ok:false,error:String(error?.message??error).slice(0,260)});
+      const failure=publicAdministrativeError(error,400);
+      return json(res,failure.status,{ok:false,error:failure.error,...(failure.code?{code:failure.code}:{})});
     }
   });
   mount('/status',(req,res)=>{
@@ -346,7 +348,8 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
       try{
         const body=await readJson(req);
         if(body?.action==='refresh-all')return json(res,200,{ok:true,...await accountCenter.refreshAll()});
-        if(typeof body?.accountId!=='string'||body.accountId.length>80)throw Error('Valid accountId required');
+         if(typeof body?.accountId!=='string'||body.accountId.length>80)
+           return json(res,400,{ok:false,error:'Invalid account ID'});
         let result;
         switch(body.action){
           case 'login':result=await accountCenter.verify(body.accountId,{login:true});break;
@@ -357,7 +360,8 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
           default:{const e=new Error('Unknown account action');e.status=400;throw e}
         }
         return json(res,200,{ok:true,result});
-      }catch(error){return json(res,error.status??400,{ok:false,error:String(error?.message??error).slice(0,200)})}
+      }catch(error){const failure=publicAdministrativeError(error);
+        return json(res,failure.status,{ok:false,error:failure.error,...(failure.code?{code:failure.code}:{})})}
     });
     // Owner-initiated MiMo Desktop membership login. No commercial API Key
     // endpoint, browser session material or original-plugin credentials exposed.
@@ -406,17 +410,21 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
       if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{error:'Access rejected'});
       if(req.method!=='POST')return json(res,405,{error:'Method not allowed'});
       try{const body=await readJson(req);
-        if(typeof body?.providerId!=='string'||typeof body?.candidateId!=='string')throw Error('providerId and candidateId are required');
+         if(typeof body?.providerId!=='string'||typeof body?.candidateId!=='string')
+           return json(res,400,{ok:false,error:'Invalid provider or candidate'});
         return json(res,200,{ok:true,result:await accountCenter.importCandidate(body.providerId,body.candidateId)});
-      }catch(error){return json(res,error.status??400,{ok:false,error:String(error?.message??error).slice(0,200)})}
+       }catch(error){const failure=publicAdministrativeError(error);
+        return json(res,failure.status,{ok:false,error:failure.error,...(failure.code?{code:failure.code}:{})})}
     });
     mount('/channels/discover',async(req,res)=>{
       if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{error:'Access rejected'});
       if(req.method!=='POST')return json(res,405,{error:'Method not allowed'});
       try{const body=await readJson(req);
-        if(typeof body?.providerId!=='string'||body.providerId.length>64)throw Error('Valid providerId required');
+         if(typeof body?.providerId!=='string'||body.providerId.length>64)
+           return json(res,400,{ok:false,error:'Invalid provider ID'});
         return json(res,200,{ok:true,...await accountCenter.discover(body.providerId)});
-      }catch(error){return json(res,error.status??400,{ok:false,error:String(error?.message??error).slice(0,200)})}
+       }catch(error){const failure=publicAdministrativeError(error);
+        return json(res,failure.status,{ok:false,error:failure.error,...(failure.code?{code:failure.code}:{})})}
     });
   }
   if(checkinCenter){
@@ -431,9 +439,11 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
       if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{error:'Access rejected'});
       if(req.method!=='POST')return json(res,405,{error:'Method not allowed'});
       try{const body=await readJson(req);
-        if(body?.action!=='run'||typeof body.accountId!=='string'||body.accountId.length>80)throw Error('Unknown check-in action');
+         if(body?.action!=='run'||typeof body.accountId!=='string'||body.accountId.length>80)
+           return json(res,400,{ok:false,error:'Invalid check-in action'});
         return json(res,200,{ok:true,result:await checkinCenter.run(body.accountId)});
-      }catch(error){return json(res,error.status??400,{ok:false,error:String(error?.message??error).slice(0,200)})}
+       }catch(error){const failure=publicAdministrativeError(error);
+        return json(res,failure.status,{ok:false,error:failure.error,...(failure.code?{code:failure.code}:{})})}
     });
   }
   return ()=>{for(const d of dispose.reverse())try{d()}catch{}};

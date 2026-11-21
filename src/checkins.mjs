@@ -4,10 +4,10 @@ import {defaultConfigPath} from './config.mjs';
 import {createSourceCheckinCenter} from './source-checkins.mjs';
 import {checkinDisplayState,expiredCheckinConfirmation} from './account-facts.mjs';
 import {checkinGroups,latestConfirmedDate} from './checkin-summary.mjs';
+import {publicCheckinMessage,publicAccountFailureMessage} from './public-diagnostics.mjs';
 
 const MAX_HISTORY=500;
 const STATES=new Set(['success','failed','pending_confirmation','no_task','client_required','unsupported']);
-const short=text=>String(text??'').replace(/(?:Bearer\s+|sk-)[A-Za-z0-9._~-]{12,}/gi,'[REDACTED]').slice(0,180);
 export function todayKey(now=Date.now(),timeZone='Asia/Shanghai'){
   const parts=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);
   const val=name=>parts.find(x=>x.type===name).value;
@@ -83,7 +83,8 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
              '本账号今日已有已确认签到记录':sourceName+'确认今日已签到'):
              expiredCheckinConfirmation(recent,now())?'上次请求已超过20分钟，服务端仍未确认；等待限次复核':
              claimable?'上游今日任务仍可领取，尚未确认签到':
-             recent?.message??(implemented?'今日签到状态尚未核实':'未接入本渠道签到执行器'),
+              recent?publicCheckinMessage(recent.state):
+                (implemented?'今日签到状态尚未核实':'未接入本渠道签到执行器'),
          checkinSupported:implemented,
        };
     });
@@ -127,7 +128,8 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
        autoSourceAccounts:cfg.checkin.autoSourceAccounts,
       historyBlocked:store.blocked===true,historyError:store.error??null,
       runAt:cfg.checkin.runAt,groups,accounts,
-       history:history.slice(-80).reverse()};  }
+        history:history.slice(-80).reverse().map(item=>({...item,
+          message:publicCheckinMessage(item.state)}))};  }
    async function run(accountId,{source='manual'}={}){
      if(sourceCenter&&!sourceCenter.has(accountId))await sourceCenter.refresh();
      if(sourceCenter?.has(accountId))return sourceCenter.run(accountId,{source});
@@ -151,18 +153,18 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
     try{
       const reply=await driver.checkIn({account,provider,date,source});
       if(reply?.confirmed===true&&reply?.date===date){
-        state='success';message=short(reply.message??'服务器已确认今日签到');
+         state='success';message=publicCheckinMessage('success');
       }else if(reply?.state==='no_task'){
-        state='no_task';message=short(reply.message??'该账号今日无签到任务');
+         state='no_task';message=publicCheckinMessage('no_task');
       }else if(reply?.state==='client_required'){
-        state='client_required';message=short(reply.message??'需在官方客户端完成');
+         state='client_required';message=publicCheckinMessage('client_required');
       }else if(reply?.state==='pending_confirmation'||reply?.accepted===true){
-        state='pending_confirmation';message=short(reply.message??'上游已受理，尚未确认到账');
+         state='pending_confirmation';message=publicCheckinMessage('pending_confirmation');
       }else{
-        message=short(reply?.message??'签到未完成且没有确认依据');
+         message=publicCheckinMessage('failed');
       }
     }catch(error){
-      state='failed';message=short(error?.message??'渠道签到失败');
+       state='failed';message=publicCheckinMessage('failed')+'；'+publicAccountFailureMessage(error);
     }finally{pending.delete(accountId)}
     // A claim may have completed upstream while its owner disabled the
     // Provider, replaced the login or removed the account. Never attach that
@@ -206,7 +208,7 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
          if(records.filter(x=>x.source==='auto').length>=3)continue;
          if(recent&&now()-recent.at<60*60*1000)continue;
         try{results.push(await run(account.id,{source:'auto'}))}catch(error){
-          logger?.warn?.('native-router checkin skip '+account.id+': '+short(error?.message));
+           logger?.warn?.('native-router checkin skipped: '+publicAccountFailureMessage(error));
         }
       }
        if(sourceCenter){

@@ -5,9 +5,9 @@ import {runtimeOwnership} from './account-runtime-ownership.mjs';
 import {verificationWithinPeriod} from './account-verification-store.mjs';
 import {freeEvidence} from './auto-free.mjs';
 import {classifyFailure} from './failure.mjs';
+import {publicAccountMessage,publicAccountFailureMessage} from './public-diagnostics.mjs';
 
 const MAX_PROBE_MS=15000, AUTO_VERIFY_MS=15*60*1000, FRESH_MS=30*60*1000;
-function concise(message){return String(message??'').replace(/(?:Bearer\s+|sk-)[\w.~+-]{12,}/gi,'[REDACTED]').slice(0,160)}
 function accountNotFound(id){const e=new Error('Account not configured: '+String(id).slice(0,80));e.status=404;return e}
 export function createAccountCenter({
  configStore,adapter,drivers=new Map(),fetchImpl=fetch,env=process.env,vault,now=()=>Date.now(),
@@ -176,9 +176,9 @@ export function createAccountCenter({
       });
       result=await Promise.race([task,aborted]);
      if(!['online','expired','limited','error','client_required','pending'].includes(result?.state))throw Error('Invalid account driver response');
-     result={state:result.state,message:concise(result.message??'操作已返回状态'),at:now()};
+      result={state:result.state,message:publicAccountMessage(result.state),at:now()};
    }catch(error){
-     result={state:'error',message:error?.code==='CREDENTIAL'?'登录凭据不可用':concise(error?.message??'网络检查失败'),at:now()};
+      result={state:'error',message:publicAccountFailureMessage(error),at:now()};
    }finally{
      clearTimeout(timeout);signal?.removeEventListener('abort',onAbort);pending.delete(id);
     }
@@ -451,7 +451,7 @@ export function createAccountCenter({
    const ids=list().accounts.filter(a=>a.enabled&&a.refreshAvailable).map(a=>a.id);
    const results=[];
    // Serial by default: high-concurrency account probing risks rate limits.
-   for(const id of ids){try{results.push(await verify(id))}catch(e){results.push({id,state:'error',message:concise(e.message)})}}
+   for(const id of ids){try{results.push(await verify(id))}catch(e){results.push({id,state:'error',message:publicAccountFailureMessage(e)})}}
    return {attempted:ids.length,results};
  }
 

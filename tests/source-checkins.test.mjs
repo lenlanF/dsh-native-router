@@ -26,6 +26,33 @@ function fixture({rows=[],enabled=true,autoSourceAccounts=true,
  return {center,calls,records,src,setNow:value=>{at=value}};
 }
 const row=(providerId,id='acct-1',enabled=true)=>({id,providerId,nickname:providerId+' account',enabled});
+
+test('source sign-in receipt and persisted history never store upstream credential-looking text',async()=>{
+ const secret='wps_sid=SECRET_SOURCE_COOKIE_VALUE_XYZ';
+ const h=fixture({enabled:false,rows:[row('loomy','acct-1')],
+  handler:async()=>({confirmed:true,message:'Completed '+secret})});
+ await h.center.refreshSources();
+ const id=sourceAccountOpaqueId('loomy','acct-1');
+ const done=await h.center.run(id);
+ assert.equal(done.record.state,'success');
+ assert.doesNotMatch(JSON.stringify(h.records),/SECRET_SOURCE_COOKIE_VALUE/);
+ assert.doesNotMatch(JSON.stringify(h.center.snapshot()),/SECRET_SOURCE_COOKIE_VALUE/);
+ h.center.stop();
+});
+
+test('legacy source history with private upstream text is redacted in every account and history view',async()=>{
+ const h=fixture({enabled:false,rows:[row('loomy','legacy')]});
+ const id=sourceAccountOpaqueId('loomy','legacy');
+ h.records.push({date:'2026-11-17',accountId:id,providerId:'loomy',
+   state:'failed',message:'Authorization wps_sid=LEGACY_PRIVATE_SESSION_XYZ',
+   at:NOW-1000,source:'manual'});
+ await h.center.refreshSources();
+ const publicState=JSON.stringify(h.center.snapshot());
+ assert.doesNotMatch(publicState,/LEGACY_PRIVATE_SESSION_XYZ/);
+ assert.match(publicState,/签到未完成或尚无可靠确认依据/);
+ assert.equal(h.records.length,1,'do not destroy the owner historical file while redacting views');
+ h.center.stop();
+});
 test('a confirmed same-day source check-in survives a later pending record and prevents duplicate claims',async()=>{
   const h=fixture({rows:[row('codearts','valid-source')],
     statusQuery:async()=>({state:'ready',accounts:[{

@@ -1,0 +1,61 @@
+// Public owner-facing diagnostics contain only reviewed states and machine codes.
+// Never turn upstream Error.message, raw response text, URLs, identities or
+// credential-bearing metadata into UI, persistent history or support logs.
+import {safeDshFailureFacts} from './failure.mjs';
+
+const STATUS_MESSAGES=Object.freeze({
+  400:'请求参数无效，请核对操作内容',
+  401:'账号授权不足，请先核对独立登录状态',
+  403:'账号或渠道已拒绝访问',
+  404:'指定账号或渠道不存在',
+  408:'请求超时，稍后可重新核查',
+  409:'账号状态已改变、操作冲突或仍待授权确认',
+  429:'渠道请求次数受限，请稍后再试',
+  501:'该渠道尚未实现此项操作',
+  502:'上游渠道响应异常，请稍后复核',
+  503:'渠道暂不可用，请稍后复核',
+  504:'上游请求超时，请稍后复核',
+});
+export function publicAdministrativeError(error,fallbackStatus=503){
+  const status=Number(error?.status);
+  const allowed=Object.prototype.hasOwnProperty.call(STATUS_MESSAGES,status);
+  const code=safeDshFailureFacts(error).code;
+  const safeStatus=allowed?status:fallbackStatus;
+  return {status:safeStatus,
+    error:STATUS_MESSAGES[safeStatus]??STATUS_MESSAGES[503],
+    ...(code!=='UPSTREAM'?{code}:{})};
+}
+
+export function publicAccountMessage(state){
+  const messages={
+    online:'已通过渠道登录状态核验',
+    expired:'渠道已确认当前授权不可用，请重新登录',
+    limited:'渠道账号当前受限，请核对官方额度',
+    pending:'授权尚未确认，将按周期继续检查',
+    client_required:'该渠道要求在官方客户端完成授权',
+    error:'渠道连接校验未成功，不代表模型推理已失败',
+  };
+  return messages[state]??messages.error;
+}
+export function publicAccountFailureMessage(error){
+  const code=safeDshFailureFacts(error).code;
+  const messages={
+    AUTH:'渠道拒绝当前账号授权',CREDENTIAL:'独立账号凭据不可用',
+    RATE_LIMIT:'渠道请求频率受限',QUOTA:'渠道账户额度不足',
+    TIMEOUT:'渠道登录状态检查超时',TRANSPORT:'渠道网络连接失败',
+    SERVER:'渠道服务暂时异常',CANCELLED:'请求已取消',
+    PROVIDER_NOT_READY:'渠道适配器尚未准备好',
+  };
+  return messages[code]??'渠道状态检查未成功，稍后可复核';
+}
+export function publicCheckinMessage(state){
+  const messages={
+    success:'官方已确认今日签到完成',
+    no_task:'该账号今日暂无签到任务',
+    client_required:'需在官方客户端完成今日签到',
+    pending_confirmation:'上游已受理签到，尚未确认到账',
+    failed:'签到未完成或尚无可靠确认依据',
+    unsupported:'该渠道未提供每日签到操作',
+  };
+  return messages[state]??messages.failed;
+}

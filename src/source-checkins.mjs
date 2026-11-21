@@ -3,10 +3,10 @@ import {SOURCE_DAILY_SIGNIN_PROVIDERS,SOURCE_PACK_PROVIDERS} from './embedded-pa
 import {todayKey,clockAt} from './checkins.mjs';
 import {publicAccountName,publicBalance,checkinDisplayState,expiredCheckinConfirmation} from './account-facts.mjs';
 import {verificationWithinPeriod} from './account-verification-store.mjs';
+import {publicCheckinMessage,publicAccountFailureMessage} from './public-diagnostics.mjs';
 
 const supported=new Set(SOURCE_DAILY_SIGNIN_PROVIDERS);const RETRY_DELAY_MS=60*60*1000;
 const MAX_AUTO_ATTEMPTS=3;
-const safeText=x=>String(x??'').replace(/(?:Bearer\s+|sk-)[A-Za-z0-9._~-]{12,}/gi,'[REDACTED]').slice(0,160);
 
 /**
  * Source-channel check-in is account-scoped, runs only inside DSH, and
@@ -229,8 +229,8 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
         confirmedFromHistory?'本账号今日已有确认成功记录；来源状态尚未同步':
         oldPending?'上次请求已超过20分钟，尚无服务端签到确认；后续将限次复核':
         report?.todayCheckedIn===false?'来源服务确认今日尚未签到':
-        recent?.message??(implemented?'今日签到状态暂未核实':
-          row.providerId==='raccoon'?'该平台每日积分由服务端自动发放':'该渠道不提供每日签到操作'),
+         recent?publicCheckinMessage(recent.state):(implemented?'今日签到状态暂未核实':
+           row.providerId==='raccoon'?'该平台每日积分由服务端自动发放':'该渠道不提供每日签到操作'),
     };
   }); }
  async function run(id,{source='manual'}={}){
@@ -273,15 +273,15 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
     if(reply?.state==='unavailable'){const e=Error('来源服务尚未就绪');e.status=503;throw e}
     if(stopped){const e=Error('插件已卸载，禁止写回签到历史');e.status=503;throw e}
     assertAuthorized();
-     if(reply?.confirmed===true){state='success';message=safeText(reply.message??'今日签到已确认')}
-     else if(reply?.state==='no_task'){state='no_task';message=safeText(reply.message??'今日无签到活动')}
+     if(reply?.confirmed===true){state='success';message=publicCheckinMessage('success')}
+     else if(reply?.state==='no_task'){state='no_task';message=publicCheckinMessage('no_task')}
      else if(reply?.state==='pending_confirmation'&&reply?.accepted===true){
        // Read-only confirmation must follow a confirmed acceptance response.
        await refresh({force:true,onlyProviderId:row.providerId});
        if(statusCache.get(id)?.day===today()&&statusCache.get(id)?.todayCheckedIn===true){
          state='success';message='上游签到状态已回查确认';
        }else{state='pending_confirmation';message='请求已受理，服务端仍未确认；自动回查和限次重试';}
-     }else{message=safeText(reply?.message??'签到未确认或未发送')}
+     }else{message=publicCheckinMessage('failed')}
    assertAuthorized();
    const record=store.append({date:today(),accountId:id,providerId:row.providerId,
     state,message,at:now(),source});
@@ -309,7 +309,7 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
    if(records.filter(x=>x.source==='auto').length>=MAX_AUTO_ATTEMPTS)continue;
    if(recent&&now()-recent.at<RETRY_DELAY_MS)continue;
    try{results.push(await run(row.id,{source:'auto'}));attempted++}
-   catch(error){logger?.warn?.('source sign-in skipped '+row.providerId+': '+safeText(error?.message))}
+   catch(error){logger?.warn?.('source sign-in skipped '+row.providerId+': '+publicAccountFailureMessage(error))}
   }
   return {attempted,results};
  }
