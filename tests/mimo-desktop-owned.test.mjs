@@ -9,7 +9,8 @@ import {normalizeConfig} from '../src/config.mjs';
 
 const loggedIn={region:'cn',passToken:'synthetic-pass-token-from-mi-desktop-12345',
  userId:'test-user-22',cUserId:'user-c-22'};
-function harness({rejectReplace=false,authVerified=true}={}){
+function harness({rejectReplace=false,authVerified=true,
+ chatResult={text:'mimo desktop reply',reasoning:'',finishReason:'stop',toolCalls:[]}}={}){
  const records=new Map(),calls=[];
  const vault={
   async resolve(ref){return records.get(ref)},
@@ -25,7 +26,7 @@ function harness({rejectReplace=false,authVerified=true}={}){
   },
   async generate({session,model,options}){
    calls.push({kind:'chat',session,model,options});
-   return {text:'mimo desktop reply',reasoning:'',finishReason:'stop',toolCalls:[]};
+   return chatResult;
   },
  };
  const driver=createMimoDesktopDriver({vault,transport,
@@ -59,20 +60,38 @@ test('own MiMo Desktop is discovered read-only and imported into plugin vault on
  assert.doesNotMatch(JSON.stringify(h.cfg),/synthetic-pass-token/);
  assert.equal((await h.center.verify(imported.id)).state,'online');
  assert.deepEqual(await h.driver.listModels({account:h.cfg.accounts[0]}),[
-  {id:'mimo-x-pro-preview'},{id:'mimo-x-flash-preview'}]);
+  {id:'mimo-v2.6-pro'},{id:'mimo-v2.6-flash'},{id:'mimo-v2.6-pro-ultraspeed'}]);
  const previousReads=h.readerCalls;
  h.stopDesktop();
  const adapter=createNativeRouterAdapter({configStore:h.configStore,
   channelDrivers:new Map([[MIMO_DESKTOP_ID,h.driver]])});
  const events=[];
- for await(const event of adapter.stream({model:'direct:own_mimo_desktop:mimo-x-pro-preview',
+ for await(const event of adapter.stream({model:'direct:own_mimo_desktop:mimo-v2.6-pro',
   messages:[{role:'user',content:'hello'}]}))events.push(event);
  assert.equal(events.find(e=>e.type==='text-delta').text,'mimo desktop reply');
  assert.equal(h.readerCalls,previousReads,'runtime must not read original Desktop after import');
  assert.equal(h.calls.at(-1).kind,'chat');
+ assert.ok(h.driver.accountSnapshot(h.cfg.accounts[0]).modelInferenceVerifiedAt>0,
+  'complete text reply may update the exact account inference proof');
  await h.center.logout(imported.id);
  assert.equal(h.records.size,0);
  assert.equal(h.cfg.accounts.length,0);
+});
+test('MiMo driver does not mark partial, empty or incomplete model replies as successful real inference',async()=>{
+ for(const result of [
+  {text:'partial content',finishReason:'length',toolCalls:[]},
+  {text:' ',finishReason:'stop',toolCalls:[]},
+  {text:'',finishReason:'tool_calls',toolCalls:[]},
+ ]){
+  const h=harness({chatResult:result});
+  const scan=await h.center.discover(MIMO_DESKTOP_ID);
+  await h.center.importCandidate(MIMO_DESKTOP_ID,scan.candidates[0].id);
+  const account=h.cfg.accounts[0];
+  await h.driver.generate({account,model:'mimo-v2.6-pro',options:{}});
+  assert.equal(h.driver.accountSnapshot(account).modelInferenceVerifiedAt,null,
+   'model success badge must require a fully completed useful response');
+  h.center.stop();
+ }
 });
 test('failed account metadata persistence rolls back newly owned MiMo secret',async()=>{
  const h=harness({rejectReplace:true});
@@ -113,7 +132,7 @@ test('identical MiMo membership can be imported in distinct regions and routed w
  h.stopDesktop();
  for(const account of h.cfg.accounts){
   assert.equal((await h.driver.refresh({account})).state,'online');
-  await h.driver.generate({account,model:'mimo-x-pro-preview',options:{}});
+  await h.driver.generate({account,model:'mimo-v2.6-pro',options:{}});
  }
  assert.deepEqual(h.calls.filter(x=>x.kind==='chat').map(x=>x.session.region),
   ['cn','sgp','ams','ru','in']);

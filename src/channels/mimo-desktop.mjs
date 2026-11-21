@@ -6,12 +6,15 @@ import {createHash,randomBytes} from 'node:crypto';
 import {copyFileSync,existsSync,unlinkSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
-import {createMimoDesktopSessionTransport} from './mimo-desktop-session.mjs';
+import {createMimoDesktopSessionTransport,MIMO_DESKTOP_ACCOUNT_MODELS}
+ from './mimo-desktop-session.mjs';
 import {createMimoDesktopLoginFlow} from './mimo-desktop-login.mjs';
 import {UpstreamError} from '../failure.mjs';
 
 export const MIMO_DESKTOP_ID='own_mimo_desktop';
-const models=Object.freeze(['mimo-x-pro-preview','mimo-x-flash-preview']);
+// Candidates are upstream account-route model IDs, not an entitlement or
+// zero-cost claim. The transport uses this very same guarded allowlist.
+const models=MIMO_DESKTOP_ACCOUNT_MODELS;
 const TOKEN=/^sp_[a-f0-9]{24}$/;
 const inFlight=new Set();
 // RC.28/29 assigned the same ID to every region. New accounts always have
@@ -201,7 +204,11 @@ export function createMimoDesktopDriver({
   async generate({account,model,options={},signal}={}){
    const session=await ownedSession(account);
    const output=await transport.generate({session,model,options,signal});
-   inferenceProof.set(account.id,{at:now(),model});
+   // A transport that returns a truncated, empty or tool-incomplete response
+   // is not a successful member-model round trip. Only full useful text can
+   // qualify as independent production inference evidence in AccountCenter.
+   if(output?.finishReason==='stop'&&typeof output.text==='string'&&output.text.trim())
+     inferenceProof.set(account.id,{at:now(),model});
    return output;
   },
   async logout({account}={}){

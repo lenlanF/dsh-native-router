@@ -10,6 +10,14 @@ import {openAiTools,visibleTools} from '../host-tools.mjs';
 import {decodeOpenAIResponse,validateModelCalls} from '../provider/openai.mjs';
 import {publicAccountName} from '../account-facts.mjs';
 
+// Account-session-only models, never cloud API / commercial API-key models.
+// Upstream MIT decolua/9router open-sse/executors/xiaomi-mimo.js declares
+// the same three v2.6 account-route IDs. One allowlist serves the picker
+// AND transport; retaining expired Preview IDs as defaults causes 400s.
+export const MIMO_DESKTOP_ACCOUNT_MODELS=Object.freeze([
+ 'mimo-v2.6-pro','mimo-v2.6-flash','mimo-v2.6-pro-ultraspeed',
+]);
+
 const REGIONS=Object.freeze({
  cn:['mimopc','https://mimo-server-cn.xiaomimimo.com'],
  sgp:['mimosgp','https://mimo-server-sgp.xiaomimimo.com'],
@@ -170,7 +178,7 @@ export function createMimoDesktopSessionTransport({
   },
   async generate({session,model,options={},signal}={}){
    validate(session);
-   if(typeof model!=='string'||!/^mimo-[a-zA-Z0-9-]{1,90}$/.test(model))
+   if(typeof model!=='string'||!MIMO_DESKTOP_ACCOUNT_MODELS.includes(model))
     throw fail('MODEL');
    const tools=visibleTools(options.tools);
    const body={model:'xiaomi/'+model,messages:toChatMessages(options),stream:true,
