@@ -26,11 +26,20 @@ ctx.provide('credentials',{
 });
 ctx.provide('commands',{register(){return ()=>{}}});
 ctx.provide('llm',{
- async listProviders(){return ['native-router']},
+ listProviders(){return ['native-router']},
  registerAdapter(ids){observed.adapters.push(ids);return ()=>{}},
  registerModelDiscovery(){return ()=>{}},
  registerConfigurableProviders(){return ()=>{}},
 });
+// New native source login requires the Host's in-process Connection RPC.
+// A local no-network route registry proves registration without a listener.
+const routes=[];
+ctx.provide('connection',{fetch:{register(route){
+ if(typeof route?.path!=='string'||typeof route?.fetch!=='function')
+  throw Error('Invalid private connection route');
+ routes.push(route);
+ return ()=>{const index=routes.indexOf(route);if(index>=0)routes.splice(index,1)};
+}}});
 const bridge=createEmbeddedChannelPack({ctx,env:process.env,
  getConfig:()=>({embeddedPack:{enabled:true}})});
 let outcome;
@@ -45,9 +54,13 @@ try{
   await new Promise(resolve=>setTimeout(resolve,25));
  }
  assert.equal(snapshot?.state,'mounted',JSON.stringify(snapshot));
- assert.equal(observed.adapters.length,13);
- const upstreamPool=ctx.get('accountPool',false);
- assert.equal(typeof upstreamPool?.listAllAccounts,'function');
+ assert.equal(observed.adapters.length,13,'all 13 private model adapters must register');
+ assert.equal(new Set(observed.adapters.flat()).size,13,'model aliases must be unique');
+ assert.equal(snapshot.rpcReady,true,'Owner login RPC must be ready');
+ assert.ok(routes.length>=2,'Native pack must register its private RPC endpoints');
+ assert.equal(snapshot.modelAdapterReady.length,13,'all private model adapters should report ready');
+ // Self-owned source pool remains scoped and must never become the host pool.
+ assert.equal(ctx.get('accountPool',false),undefined);
  const preview=await bridge.listAccounts();
  assert.equal(preview.state,'ready');
  assert.deepEqual(preview.accounts,[]);

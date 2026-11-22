@@ -20,10 +20,10 @@ $toolDir=Join-Path $root 'tools'
 $vendor=Join-Path $root 'vendor\channel-pack'
 New-Item -Path $src,$toolDir,$vendor -ItemType Directory -Force|Out-Null
 $project=Resolve-Path (Join-Path $PSScriptRoot '..')
-foreach($file in @('embedded-pack.mjs','channel-pack-isolation.mjs','source-account-ref.mjs','source-account-selection.mjs')){
+foreach($file in @('embedded-pack.mjs','channel-pack-isolation.mjs','source-account-ref.mjs','source-account-selection.mjs','account-facts.mjs','source-account-facts.mjs')){
  Copy-Item -LiteralPath (Join-Path $project ('src\'+$file)) -Destination (Join-Path $src $file) -Force
 }
-foreach($file in @('pack.js','pack-native.js','qoder-auth-wasm.wasm')){
+foreach($file in @('pack-runtime.mjs','pack-native.js','qoder-auth-wasm.wasm')){
  Copy-Item -LiteralPath (Join-Path $project ('vendor\channel-pack\'+$file)) -Destination (Join-Path $vendor $file) -Force
 }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-isolated-cordis-host.mjs') -Destination (Join-Path $toolDir 'verify-isolated-cordis-host.mjs') -Force
