@@ -300,7 +300,11 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
      }else{message=publicCheckinMessage('failed')}
    assertAuthorized();
    const record=store.append({date:today(),accountId:id,providerId:row.providerId,
-    state,message,at:now(),source});
+    state,message,at:now(),source,
+    // Persist explicit read-only provenance across restarts. Older no_task
+    // records and any claim POST result must still consume the attempt budget.
+    ...(row.providerId==='zcode'&&state==='no_task'&&reply?.claimPosted===false
+      ?{readOnlyNoTask:true}:{})});
    logger?.info?.('native-router source sign-in '+row.providerId+'/'+id+': '+state);
    return {alreadyConfirmed:false,record};
   }finally{pending.delete(id)}
@@ -322,7 +326,8 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
     if(row.providerId==='zcode'&&clockAt(now(),'Asia/Shanghai')<ZCODE_PROMO_START)
       continue; // preserve all claim retries until promotional cards arrive
     const records=history(row.id),recent=records.at(-1);
-    const zcodeEmpty=row.providerId==='zcode'&&recent?.state==='no_task';
+    const zcodeEmpty=row.providerId==='zcode'&&recent?.state==='no_task'
+      &&recent?.readOnlyNoTask===true;
     const zcodeEmptyRecheck=zcodeEmpty&&(
       clockAt(recent.at,'Asia/Shanghai')<ZCODE_PROMO_START
       ||now()-recent.at>=ZCODE_CARD_RECHECK_MS);
@@ -337,10 +342,11 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
     // A ZCode receipt accepted earlier tonight must not trigger more captchas.
     if(row.providerId==='zcode'&&recent?.state==='pending_confirmation')continue;
     if(recent?.state==='no_task'&&!zcodeEmptyRecheck)continue;
-    if(statusCache.get(row.id)?.day===today()&&statusCache.get(row.id)?.todayCheckedIn===true)continue;   // A ZCode empty-card observation never sent a claim POST, so it cannot
-    // consume the three real claim attempts for a later card drop.
+    if(statusCache.get(row.id)?.day===today()&&statusCache.get(row.id)?.todayCheckedIn===true)continue;   // Only proven read-only ZCode empty cards do not count as claim POSTs.
+    // Unknown/older no_task outcomes still consume the three-attempt budget.
     if(records.filter(x=>x.source==='auto'
-      &&!(row.providerId==='zcode'&&x.state==='no_task')).length>=MAX_AUTO_ATTEMPTS)continue;
+      &&!(row.providerId==='zcode'&&x.state==='no_task'
+        &&x.readOnlyNoTask===true)).length>=MAX_AUTO_ATTEMPTS)continue;
    if(recent&&now()-recent.at<RETRY_DELAY_MS&&!zcodeEmptyRecheck)continue;
    try{results.push(await run(row.id,{source:'auto'}));attempted++}
    catch(error){logger?.warn?.('source sign-in skipped '+row.providerId+': '+publicAccountFailureMessage(error))}
