@@ -59,6 +59,31 @@ try{
  assert.equal(snapshot.rpcReady,true,'Owner login RPC must be ready');
  assert.ok(routes.length>=2,'Native pack must register its private RPC endpoints');
  assert.equal(snapshot.modelAdapterReady.length,13,'all private model adapters should report ready');
+ // Exercise the actual private Connection fetch handler, not a mock route.
+ // Account listing is read-only; no login, SMS, claim, generation or secrets.
+ const rpc=routes.find(route=>route.path==='/api/dsh-native-router/channel-pack');
+ assert.ok(rpc,'Private account management endpoint must be registered');
+ const nativeIds=['codearts','buddy','workbuddy','lobsterai','qoder','qodercn',
+   'trae','cline','loomy','raccoon','minimax','zcode','gemini'];
+ const results=await Promise.all(nativeIds.map(async(provider,i)=>{
+   const rpcId='isolated-owned-list-'+i;
+   const request=new Request('http://127.0.0.1'+rpc.path,{
+     method:'POST',headers:{'content-type':'application/json'},
+     body:JSON.stringify({type:'client-request',rpcId,method:'native-router-channel-pack',
+       payload:{method:'account.list',payload:{provider}}}),
+   });
+   const response=await rpc.fetch(request);
+   assert.equal(response.status,200,'native account RPC accepted');
+   const body=await response.json();
+   assert.equal(body.type,'server-response');
+   assert.equal(body.rpcId,rpcId,'exact RPC correlation');
+   assert.equal(body.result?.ok,true,'source list is available: '+provider);
+   assert.deepEqual(body.result.value?.accounts,[],
+     'empty independent sandbox must not borrow production accounts');
+   return provider;
+ }));
+ assert.equal(new Set(results).size,13,'all owned source RPCs must respond');
+
  // Self-owned source pool remains scoped and must never become the host pool.
  assert.equal(ctx.get('accountPool',false),undefined);
  const preview=await bridge.listAccounts();
@@ -69,6 +94,7 @@ try{
  if(process.env.DSH_NATIVE_ROUTER_SOURCE_MULTIACCOUNT_EXPERIMENT==='1')
   assert.ok(snapshot.experimentalMultiAccountProviders.includes('lobsterai'));
  outcome={node:process.version,providers:observed.adapters.length,
+  readOnlyRpcSources:results.length,
   accountCount:preview.accounts.length,credentialReads:observed.credentialReads,
   credentialWrites:observed.credentialWrites,
   experimentalMultiAccount:process.env.DSH_NATIVE_ROUTER_SOURCE_MULTIACCOUNT_EXPERIMENT==='1'};
