@@ -527,10 +527,17 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
     const outcomes=claim?.ok===true&&Array.isArray(claim.value?.results)
       ?claim.value.results.filter(row=>row?.accountId===sourceAccountId):[];
     if(outcomes.length===0)return {state:'failed',message:'上游未提供指定账号的签到回执'};
+    // ZCode may demand the app's security challenge (vendor code 3007).
+    // That is NOT a submitted or accepted plan. Never retry the POST until
+    // the exact account completes its own authorized verification.
+    if(outcomes.some(row=>row?.outcome?.kind==='captcha'))
+      return {state:'client_required',message:'ZCode 官方要求在客户端完成验证码；未证明赠送到账'};
     if(outcomes.some(row=>row?.outcome?.kind==='failed'))
       return {state:'failed',message:'上游签到未成功，等待下次人工或定时重试'};
-    if(outcomes.every(row=>row?.outcome?.kind==='inactive'))
-      return {state:'no_task',message:'来源签到活动暂未开放'};
+    if(outcomes.every(row=>['inactive','ineligible'].includes(row?.outcome?.kind)))
+      return {state:'no_task',message:'来源活动当前无可领取的赠送计划；可稍后再查'};
+    if(outcomes.some(row=>!['claimed','done','already'].includes(row?.outcome?.kind)))
+      return {state:'failed',message:'上游领取状态未知，不能冒称已受理'};
     // Claim response is NOT success: some upstream APIs report a successful
     // request without actually checking in. A fresh same-day status is required.
     const after=exactStatus(await ops.status(providerId,sourceAccountId));
