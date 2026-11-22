@@ -611,7 +611,8 @@ export function createAccountCenter({
     }
     async function startMimoLogin({region='cn'}={}){
       const driver=driverFor('own_mimo_desktop');
-      if(driver?.independentProvider!=='own_mimo_desktop'||typeof driver.startLogin!=='function')
+       if(driver?.independentProvider!=='own_mimo_desktop'||driver.runtimeReady!==true
+         ||typeof driver.startLogin!=='function')
         throw Error('MiMo membership browser login unavailable');
       return driver.startLogin({region});
     }
@@ -673,9 +674,11 @@ export function createAccountCenter({
       return await commitDoubaoAccount(await driver.addCookie({cookie}));
     }
     async function startDoubaoLogin(){
-      if(typeof driverFor('own_doubao')?.startLogin!=='function')throw Error('Doubao browser login unavailable');
+      const driver=driverFor('own_doubao');
+      if(driver?.runtimeReady!==true||typeof driver.startLogin!=='function')
+        throw Error('Doubao browser login unavailable without its owned credentials');
       // Do not create a configured account/provider merely because a login window opened.
-      return driverFor('own_doubao').startLogin();
+      return driver.startLogin();
     }
     async function pollDoubaoLogin(){
       const status=driverFor('own_doubao')?.loginStatus?.();

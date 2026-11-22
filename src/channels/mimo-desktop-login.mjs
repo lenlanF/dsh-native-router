@@ -4,12 +4,14 @@
 // Protocol informed by MIT decolua/9router src/lib/mimoLoginSession.js.
 import {createBrowserLoginFlow} from './browser-login.mjs';
 
+// Every region authenticates the member at the human-facing Xiaomi Account
+// sign-in origin. The selected cluster is verified separately by the owned
+// membership transport; opening `/api/user/xiaomi/me` only shows a JSON API
+// response and cannot start an interactive account login.
+const XIAOMI_SIGN_IN='https://account.xiaomi.com/';
 export const MIMO_LOGIN_REGIONS=Object.freeze({
- cn:'https://mimo-server-cn.xiaomimimo.com/api/user/xiaomi/me',
- sgp:'https://mimo-server-sgp.xiaomimimo.com/api/user/xiaomi/me',
- ams:'https://mimo-server-ams.xiaomimimo.com/api/user/xiaomi/me',
- ru:'https://mimo-server-ru.xiaomimimo.com/api/user/xiaomi/me',
- in:'https://mimo-server-in.xiaomimimo.com/api/user/xiaomi/me',
+ cn:XIAOMI_SIGN_IN,sgp:XIAOMI_SIGN_IN,ams:XIAOMI_SIGN_IN,
+ ru:XIAOMI_SIGN_IN,in:XIAOMI_SIGN_IN,
 });
 function sessionField(value){
  return typeof value==='string'&&value.length>0&&value.length<=4096
