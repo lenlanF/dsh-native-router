@@ -53,9 +53,10 @@ jobs:
         run: |
           # GitHub's E: is a temporary SUBST mapping; realpathSync.native()
           # resolves to D:, so it MUST fail the strict physical E: source gate.
-          # Only two hardware-bound integration suites require a real E: disk.
-          # Run those on the project-bound workstation, never relax the gate.
-          $hardwareBound = @('embedded-pack.test.mjs', 'source-checkin-bridge.test.mjs')
+          # Three hardware-bound integration suites require a physical E: disk.
+          # Keep exact-account pinning and channel isolation on the bound workstation;
+          # never weaken the canonical-path security gate for hosted CI.
+          $hardwareBound = @('embedded-pack.test.mjs', 'source-checkin-bridge.test.mjs', 'all-channels-pinning.test.mjs')
           $tests = @(Get-ChildItem -LiteralPath 'tests' -Filter '*.test.mjs' -File |
             Where-Object { $_.Name -notin $hardwareBound } |
             ForEach-Object { $_.FullName })
