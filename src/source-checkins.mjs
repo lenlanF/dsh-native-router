@@ -7,6 +7,9 @@ import {publicCheckinMessage,publicAccountFailureMessage} from './public-diagnos
 
 const supported=new Set(SOURCE_DAILY_SIGNIN_PROVIDERS);const RETRY_DELAY_MS=60*60*1000;
 const MAX_AUTO_ATTEMPTS=3;
+// An empty ZCode banner is a time-limited observation, not a day-long
+// refusal. The official marketing feed can deliver a second card at 19:30.
+const ZCODE_CARD_RECHECK_MS=30*60*1000;
 // ZCode promotional Start Plan GLOBAL/WEEKEND cards drop at 19:00 Beijing.
 // The other channel daily activities may already run from 10:05.
 const ZCODE_PROMO_START='19:00';
@@ -283,6 +286,11 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
     assertAuthorized();
      if(reply?.confirmed===true){state='success';message=publicCheckinMessage('success')}
      else if(reply?.state==='no_task'){state='no_task';message=publicCheckinMessage('no_task')}
+     else if(reply?.state==='client_required'){
+       // A vendor CAPTCHA is NOT a successful/accepted claim; stop auto POST
+       // until the owner completes the vendor's own verification flow.
+       state='client_required';message=publicCheckinMessage('client_required');
+     }
      else if(reply?.state==='pending_confirmation'&&reply?.accepted===true){
        // Read-only confirmation must follow a confirmed acceptance response.
        await refresh({force:true,onlyProviderId:row.providerId});
@@ -313,7 +321,12 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
     if(!cfg.enabled||!cfg.providerEnabled||!cfg.autoCheckin||!supported.has(row.providerId))continue;
     if(row.providerId==='zcode'&&clockAt(now(),'Asia/Shanghai')<ZCODE_PROMO_START)
       continue; // preserve all claim retries until promotional cards arrive
-    const records=history(row.id),recent=records.at(-1);    // A fresh official ZCode no-plans response prevents unnecessary captcha
+    const records=history(row.id),recent=records.at(-1);
+    const zcodeEmpty=row.providerId==='zcode'&&recent?.state==='no_task';
+    const zcodeEmptyRecheck=zcodeEmpty&&(
+      clockAt(recent.at,'Asia/Shanghai')<ZCODE_PROMO_START
+      ||now()-recent.at>=ZCODE_CARD_RECHECK_MS);
+    // A fresh official ZCode no-plans response prevents unnecessary captcha
     // and claim POST; it may become available later and is rechecked after TTL.
     const noPlan=statusCache.get(row.id);
     if(row.providerId==='zcode'&&noPlan?.day===today()&&noPlan.noClaimablePlans===true
@@ -323,10 +336,12 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
     // A morning manual no-task is not evidence that no evening card will drop.
     // A ZCode receipt accepted earlier tonight must not trigger more captchas.
     if(row.providerId==='zcode'&&recent?.state==='pending_confirmation')continue;
-    if(recent?.state==='no_task'&&!(row.providerId==='zcode'
-      &&clockAt(recent.at,'Asia/Shanghai')<ZCODE_PROMO_START))continue;
-    if(statusCache.get(row.id)?.day===today()&&statusCache.get(row.id)?.todayCheckedIn===true)continue;   if(records.filter(x=>x.source==='auto').length>=MAX_AUTO_ATTEMPTS)continue;
-   if(recent&&now()-recent.at<RETRY_DELAY_MS)continue;
+    if(recent?.state==='no_task'&&!zcodeEmptyRecheck)continue;
+    if(statusCache.get(row.id)?.day===today()&&statusCache.get(row.id)?.todayCheckedIn===true)continue;   // A ZCode empty-card observation never sent a claim POST, so it cannot
+    // consume the three real claim attempts for a later card drop.
+    if(records.filter(x=>x.source==='auto'
+      &&!(row.providerId==='zcode'&&x.state==='no_task')).length>=MAX_AUTO_ATTEMPTS)continue;
+   if(recent&&now()-recent.at<RETRY_DELAY_MS&&!zcodeEmptyRecheck)continue;
    try{results.push(await run(row.id,{source:'auto'}));attempted++}
    catch(error){logger?.warn?.('source sign-in skipped '+row.providerId+': '+publicAccountFailureMessage(error))}
   }
