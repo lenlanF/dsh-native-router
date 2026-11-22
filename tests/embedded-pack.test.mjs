@@ -41,7 +41,8 @@ test('ZCode signed claimable plan can enter exact-account claim without legacy a
   assert.equal(called,1,'one exact-account claim only');
   eligible=false;
   const blocked=await bridge.checkinAccount({providerId:'zcode',sourceAccountId:'zc-b'});
-  assert.equal(blocked.state,'failed');
+  assert.equal(blocked.state,'no_task');
+  assert.equal(blocked.claimPosted,false,'signed empty plan is read-only');
   assert.equal(called,1,'do not claim without official eligibility');
   const missing=await bridge.checkinAccount({providerId:'zcode',sourceAccountId:'absent'});
   assert.equal(missing.state,'unavailable');
@@ -55,6 +56,7 @@ test('ZCode signed claimable plan can enter exact-account claim without legacy a
   kind='ineligible';
   const ineligible=await bridge.checkinAccount({providerId:'zcode',sourceAccountId:'zc-b'});
   assert.equal(ineligible.state,'no_task','current ineligibility is not a confirmed grant');
+  assert.equal(ineligible.claimPosted,true,'ineligible reply followed a real claim POST');
   kind='unexpected-upstream-kind';
   const unknown=await bridge.checkinAccount({providerId:'zcode',sourceAccountId:'zc-b'});
   assert.equal(unknown.state,'failed','unknown upstream outcome fails closed');
