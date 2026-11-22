@@ -219,6 +219,57 @@ test('global DSH opt-in signs in every supported source channel; four unsupporte
  assert.equal(h.calls.length,supported.length,'manual repeat of success is idempotent');
  h.center.stop();
 });
+test('late ZCode 19:30 banner is reconsidered after 30min without exhausting claim limit',async()=>{
+ let tries=0;
+ const h=fixture({rows:[row('zcode','late-card')],
+   handler:async()=>++tries<3?{state:'no_task',claimPosted:false}:{confirmed:true}});
+ h.setNow(Date.parse('2026-11-17T11:05:00Z')); // Beijing 19:05, empty
+ assert.equal((await h.center.tick()).attempted,1);
+ assert.equal(h.records.at(-1).state,'no_task');
+ h.setNow(Date.parse('2026-11-17T11:20:00Z')); // 15min, still empty
+ assert.equal((await h.center.tick()).attempted,0);
+ h.setNow(Date.parse('2026-11-17T11:36:00Z')); // 31min, new banner can appear
+ assert.equal((await h.center.tick()).attempted,1);
+ assert.equal(h.records.at(-1).state,'no_task');
+ h.setNow(Date.parse('2026-11-17T12:07:00Z')); // another 31min
+ assert.equal((await h.center.tick()).attempted,1);
+ assert.equal(h.records.at(-1).state,'success');
+ assert.equal(tries,3,'two empty marketing reads are not three claim POST attempts');
+ assert.equal((await h.center.tick()).attempted,0,'claimed plan must not be requested again');
+ h.center.stop();
+});
+test('ZCode claim POST that returned ineligible is never mistaken for a read-only empty banner',async()=>{
+ let posts=0;
+ const h=fixture({rows:[row('zcode','posted-ineligible')],
+   handler:async()=>{posts++;return {state:'no_task',claimPosted:true}}});
+ h.setNow(Date.parse('2026-11-17T11:05:00Z'));
+ assert.equal((await h.center.tick()).attempted,1);
+ assert.equal(h.records.at(-1).state,'no_task');
+ assert.equal(h.records.at(-1).readOnlyNoTask,undefined,
+   'a submitted claim cannot acquire the persisted read-only exemption');
+ h.setNow(Date.parse('2026-11-17T11:36:00Z'));
+ assert.equal((await h.center.tick()).attempted,0,
+   '30-minute free recheck must only apply before a claim POST');
+ h.setNow(Date.parse('2026-11-17T13:07:00Z'));
+ assert.equal((await h.center.tick()).attempted,0,
+   'server ineligibility after a real POST must not create a claim loop');
+ assert.equal(posts,1);
+ h.center.stop();
+});
+test('ZCode real CAPTCHA status is client-required and never auto-retried as accepted',async()=>{
+ const h=fixture({rows:[row('zcode','captcha-account')],
+   handler:async()=>({state:'client_required',message:'must verify in ZCode app'})});
+ h.setNow(Date.parse('2026-11-17T11:10:00Z'));
+ await h.center.refreshSources();
+ const id=sourceAccountOpaqueId('zcode','captcha-account');
+ const result=await h.center.run(id);
+ assert.equal(result.record.state,'client_required');
+ h.setNow(Date.parse('2026-11-17T12:50:00Z'));
+ assert.equal((await h.center.tick()).attempted,0);
+ assert.equal(h.calls.length,1,'CAPTCHA must never be silently repeated');
+ assert.doesNotMatch(JSON.stringify(h.records),/must verify in ZCode app/);
+ h.center.stop();
+});
 test('ZCode evening window does not exhaust attempts in the morning',async()=>{
  const h=fixture({rows:[row('zcode','zc'),row('qoder','qd')]});
  h.setNow(Date.parse('2026-11-17T02:06:00Z'));
