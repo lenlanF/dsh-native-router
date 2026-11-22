@@ -326,11 +326,13 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
     if(row.providerId==='zcode'&&clockAt(now(),'Asia/Shanghai')<ZCODE_PROMO_START)
       continue; // preserve all claim retries until promotional cards arrive
     const records=history(row.id),recent=records.at(-1);
-    const zcodeEmpty=row.providerId==='zcode'&&recent?.state==='no_task'
-      &&recent?.readOnlyNoTask===true;
+    const zcodeEmpty=row.providerId==='zcode'&&recent?.state==='no_task';
     const zcodeEmptyRecheck=zcodeEmpty&&(
+      // Legacy morning no_task may precede the evening window, but still
+      // counts as a potential POST unless read-only provenance is proven.
       clockAt(recent.at,'Asia/Shanghai')<ZCODE_PROMO_START
-      ||now()-recent.at>=ZCODE_CARD_RECHECK_MS);
+      ||(recent?.readOnlyNoTask===true
+        &&now()-recent.at>=ZCODE_CARD_RECHECK_MS));
     // A fresh official ZCode no-plans response prevents unnecessary captcha
     // and claim POST; it may become available later and is rechecked after TTL.
     const noPlan=statusCache.get(row.id);
