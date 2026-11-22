@@ -161,3 +161,16 @@ test('cancelled read-only model catalogue never persists a successful account pr
  assert.equal(result.code,'CANCELLED');
  assert.equal(result.state,'skipped');
 });
+test('conflicting signed official rates never mark one model as free',async()=>{
+ const driver={refreshAccountStatus:async()=>({state:'ready',authVerified:true}),
+  listModels:async()=>[
+    {id:'conflict',costMultiplier:0,priceSource:'codearts-official-credit-ratio'},
+    {id:'conflict',costMultiplier:0.07,priceSource:'codearts-official-credit-ratio'},
+    {id:'valid-zero',costMultiplier:0,priceSource:'codearts-official-credit-ratio'},
+  ]};
+ const result=await ownerReadOnlyInventory({account:{providerId:'codearts'},driver});
+ assert.equal(result.advertisedCount,2);
+ assert.equal(result.exactOfficialRateCount,2);
+ assert.equal(result.exactOfficialZeroRateCount,1);
+ assert.equal(result.officialFreeCandidates,1);
+});
