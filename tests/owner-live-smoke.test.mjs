@@ -176,7 +176,7 @@ test('a hung official Provider is timed out without blocking other channels or w
  report=JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'));
  assert.equal(report.accounts[0].code,'OFFICIAL_READ_TIMEOUT');
  assert.equal(lateCatalog,0,'timed-out read must not proceed to model catalog');
-});
+}));
 
 test('inventory-audit prohibits billing permissions, arbitrary provider selectors and model selection',async()=>fixture(async dir=>{
  const h=rig(dir);h.request();
