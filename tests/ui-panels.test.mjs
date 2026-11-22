@@ -509,6 +509,28 @@ test('other independent source logins never show the Loomy-only backup option',a
  await rig.find(rig.render(),'button','发起扫码/网页登录')[0].props.onClick();
  assert.equal(rig.find(rig.render(),'button','发送官方短信验证码').length,0);
 });
+test('Loomy can reauthorize an existing owned account without creating a duplicate',async()=>{
+ const preview={state:'ready',accounts:[{id:'loomy-owned-existing',providerId:'loomy',
+   nickname:'Loomy Test',enabled:true,refreshable:false,connectionState:'expired'}]};
+ const status={state:'mounted',rpcReady:true,channelCount:13,channels:['loomy']};
+ const rig=createUiRig(new Map(),preview,status);await rig.init();
+ rig.find(rig.render(),'button','复用管理')[0].props.onClick();
+ rig.find(rig.render(),'button','自主登录')[0].props.onClick();
+ let page=rig.render();
+ const action=rig.find(page,'button','短信重新授权现有账号')[0];
+ assert.ok(action,'existing Loomy account must offer reauthentication even without refresh tokens');
+ assert.equal(action.props.disabled,false);
+ assert.equal(rig.mutations.filter(row=>row.kind==='source-rpc').length,0);
+ await action.props.onClick();
+ page=rig.render();
+ const summary=rig.flatten(page).join(' ');
+ assert.match(summary,/现有 Loomy 账号 · 原账号重新授权/);
+ assert.equal(rig.find(page,'button','发送官方短信验证码').length,1);
+ assert.equal(rig.find(page,'button','检查登录结果').length,0);
+ assert.equal(rig.mutations.filter(row=>row.kind==='source-rpc').length,0,
+  'switching reauthentication mode must not create an account or send a message');
+ assert.equal(rig.cfg.accounts.length,3);
+});
 test('source checkin reads per-account status; bulk claim requires explicit choice and fresh recheck',async()=>{
  const source={state:'mounted',rpcReady:true,channelCount:13,channels:['qoder','workbuddy']};
  const rig=createUiRig(new Map(),{state:'ready',accounts:[]},source);await rig.init(); rig.find(rig.render(),'button','每日签到')[0].props.onClick();
