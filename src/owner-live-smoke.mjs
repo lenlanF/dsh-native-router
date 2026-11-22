@@ -265,6 +265,77 @@ async function hostRouteProof({llm,adapter,configStore,accountCenter,
   }finally{clearTimeout(timer);signal?.removeEventListener('abort',cancel)}
 }
 
+
+// Official account inventory is strictly read-only. Work across independent
+// Providers in parallel (at most four), serializing accounts from one Provider
+// to avoid hammering a shared login/refresh endpoint. The result array and
+// report file always remain in the original configured account-slot order.
+async function parallelReadOnlyInventory({accounts,indexes,accountCenter,configStore,
+  signal,now,report,persist}){
+ const groups=new Map();
+ for(const index of indexes){
+   const account=accounts[index];
+   const result={slot:index+1,providerId:account.providerId,state:'checking',code:null,
+     modelId:null,freeCount:0,advertisedCount:0,
+     maxOutputTokens:account.providerId==='own_loomy'?128:
+       BOUNDED_MAX_OUTPUT[account.providerId]??32,
+     startedAt:now(),finishedAt:null};
+   report.accounts.push(result);
+   if(!groups.has(account.providerId))groups.set(account.providerId,[]);
+   groups.get(account.providerId).push({account,result});
+ }
+ persist(); // Record every selected slot before any official network read.
+ const allowed=account=>{
+   try{
+     const cfg=configStore.get();
+     return cfg.providers.some(p=>p.id===account.providerId&&p.enabled!==false)
+       &&cfg.accounts.some(a=>a.id===account.id&&a.providerId===account.providerId
+         &&a.credentialRef===account.credentialRef&&a.enabled!==false);
+   }catch{return false}
+ };
+ const groupsInOrder=[...groups.values()];
+ let nextGroup=0;
+ const worker=async()=>{
+   while(nextGroup<groupsInOrder.length&&!signal?.aborted){
+     const group=groupsInOrder[nextGroup++];
+     for(const {account,result} of group){
+       if(signal?.aborted)break;
+       if(!allowed(account)){
+         result.state='skipped';result.code='ACCOUNT_CHANGED';
+       }else{
+         let driver;
+         try{driver=accountCenter.driverFor?.(account.providerId)}catch{}
+         let proof;
+         try{proof=await ownerReadOnlyInventory({account,driver,signal})}
+         catch{proof={state:'observed',code:'OFFICIAL_STATUS_UNAVAILABLE'}}
+         if(!allowed(account)){
+           result.state='skipped';result.code='ACCOUNT_CHANGED';
+         }else{
+           result.state=proof.state;result.code=proof.code;
+           for(const key of ['authVerified','authProofType','advertisedCount',
+             'officialFreeCandidates','exactOfficialZeroRateCount',
+             'exactOfficialRateCount','balanceObserved','zcodePreviewStartPlans',
+             'zcodeGiftConfirmed']){
+             if(Object.hasOwn(proof,key))result[key]=proof[key];
+           }
+         }
+       }
+       result.finishedAt=now();
+       persist();
+     }
+   }
+ };
+ await Promise.all(Array.from({length:Math.min(4,groupsInOrder.length)},()=>worker()));
+ if(signal?.aborted){
+   report.state='interrupted';
+   for(const row of report.accounts){
+     if(row.finishedAt!==null)continue;
+     row.state='skipped';row.code='CANCELLED';row.finishedAt=now();
+   }
+   persist();
+ }
+}
+
 export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,env=process.env,
   now=()=>Date.now(),signal,waitFor=wait,logger}={}){
   const nonce=env.DSH_NATIVE_ROUTER_SMOKE_NONCE;
@@ -337,25 +408,17 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
       &&Array.isArray(request.providers)
      ?accounts.map((_,index)=>index).filter(index=>request.providers.includes(accounts[index].providerId)).slice(0,16)
      :Array.from({length:maxAccounts},(_,index)=>index)
-       .filter(index=>request.slots===undefined||request.slots.includes(index+1));   for(const index of selectedIndexes){
+       .filter(index=>request.slots===undefined||request.slots.includes(index+1));
+   if(request.mode==='inventory-audit'){
+     await parallelReadOnlyInventory({accounts,indexes:selectedIndexes,accountCenter,
+       configStore,signal,now,report,persist});
+   }else for(const index of selectedIndexes){
      if(signal?.aborted){report.state='interrupted';break}
      const account=accounts[index];
     const result={slot:index+1,providerId:account.providerId,state:'checking',code:null,
        modelId:null,freeCount:0,advertisedCount:0,
        maxOutputTokens:account.providerId==='own_loomy'?128:
          BOUNDED_MAX_OUTPUT[account.providerId]??32,       startedAt:now(),finishedAt:null};    report.accounts.push(result);persist();
-     if(request.mode==='inventory-audit'){
-       // One-shot official account/catalog reads, no generate or claim.
-       const driver=accountCenter.driverFor?.(account.providerId);
-       const proof=await ownerReadOnlyInventory({account,driver,signal});
-       result.state=proof.state;result.code=proof.code;
-       for(const key of ['authVerified','authProofType','advertisedCount','officialFreeCandidates',
-         'exactOfficialZeroRateCount','exactOfficialRateCount','balanceObserved',
-         'zcodePreviewStartPlans','zcodeGiftConfirmed']){
-         if(Object.hasOwn(proof,key))result[key]=proof[key];
-       }
-       result.finishedAt=now();persist();continue;
-     }
      if(request.mode==='quota-audit'){      const proof=await quotaEvidence({account,accountCenter,configStore,signal});
       result.state=proof.state;result.code=proof.code;
       for(const key of ['modelFound','giftConfirmed','officialRateCount',
