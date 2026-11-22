@@ -145,6 +145,39 @@ test('parallel inventory cancellation marks unvisited slots without launching ge
  assert.doesNotMatch(JSON.stringify(report),/credentialRef/);
 }));
 
+test('a hung official Provider is timed out without blocking other channels or writing a late proof',async()=>fixture(async dir=>{
+ const accounts=['own_loomy','own_lingxi'].map((providerId,i)=>({
+  id:'acc-'+i,providerId,credentialRef:'driver:'+providerId+':acc-'+i,enabled:true}));
+ const configStore={path:join(dir,'config.json'),get:()=>({
+  accounts,providers:accounts.map(a=>({id:a.providerId,enabled:true}))})};
+ writeFileSync(join(dir,'owner-live-smoke-request.json'),JSON.stringify({
+  version:1,nonce,mode:'inventory-audit',consent:true,expiresAt:Date.now()+300000}));
+ let release,lateCatalog=0,goodCatalog=0;
+ const accountCenter={driverFor:providerId=>({
+   refreshAccountStatus:providerId==='own_loomy'
+    ?()=>new Promise(resolve=>{release=resolve})
+    :async()=>({state:'ready',authVerified:true,balanceState:'available'}),
+   listModels:async()=>{
+     if(providerId==='own_loomy')lateCatalog++;
+     else goodCatalog++;
+     return [{id:'model',upstreamFreeLabel:true}];
+   },
+ })};
+ const state=await runOwnerLiveSmoke({configStore,accountCenter,
+  inventoryReadTimeoutMs:60,env:{DSH_NATIVE_ROUTER_SMOKE_NONCE:nonce}});
+ assert.equal(state.state,'complete');assert.equal(state.checked,2);
+ let report=JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'));
+ assert.deepEqual(report.accounts.map(row=>row.code),
+  ['OFFICIAL_READ_TIMEOUT','OFFICIAL_ACCOUNT_AND_CATALOG']);
+ assert.equal(report.accounts[0].authVerified,false);
+ assert.equal(goodCatalog,1);
+ release?.({state:'ready',authVerified:true,balanceState:'available'});
+ await new Promise(resolve=>setImmediate(resolve));
+ report=JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'));
+ assert.equal(report.accounts[0].code,'OFFICIAL_READ_TIMEOUT');
+ assert.equal(lateCatalog,0,'timed-out read must not proceed to model catalog');
+});
+
 test('inventory-audit prohibits billing permissions, arbitrary provider selectors and model selection',async()=>fixture(async dir=>{
  const h=rig(dir);h.request();
  const file=join(dir,'owner-live-smoke-request.json');
