@@ -168,7 +168,7 @@ window.__ModuleLoader__.load({
         color:good?'#38b87a':warn?'#c29d44':'inherit',whiteSpace:'nowrap'}},
         kind==='checkin'?(checkinLabels[value]||value):(accountLabels[value]||value));
     }
-    function EmbeddedPackConsole({pack,upstream,run,busy,modelProvider,setModelProvider,onModels,modelBusy,models,onSourceLogin,onSourcePoll,pendingLogin,onSourceRefresh,sourceBusy}){
+    function EmbeddedPackConsole({pack,upstream,channelCatalog,run,busy,modelProvider,setModelProvider,onModels,modelBusy,models,onSourceLogin,onSourcePoll,pendingLogin,onSourceRefresh,sourceBusy,loomySmsPhone,onLoomySmsPhone,loomySmsCode,onLoomySmsCode,loomySmsSent,onLoomySmsSend,onLoomySmsSubmit}){
       const rows=upstream?.accounts||[],live=pack?.state==='mounted'&&pack?.rpcReady===true;
        const sourceChannels=pack?.channels||[],selectedSource=sourceChannels.includes(modelProvider)
          ?modelProvider:sourceChannels[0]||'';
@@ -195,7 +195,8 @@ window.__ModuleLoader__.load({
            h('p',{style:css.small},pack.skippedProviders.join('、')+'：原插件可继续复用，此处可自主登录到独立账号池，模型调用不会覆盖原插件。')):null,        live?h('div',null,
           h('div',{style:css.line},
             h(Select,{label:'来源渠道',value:selectedSource,onChange:setModelProvider,
-              options:sourceChannels.map(id=>({value:id,label:id}))}),
+              options:sourceChannels.map(id=>({value:id,label:
+                (channelCatalog?.find(c=>c.id===id)?.name||id)+' · '+id}))}),
             h(Button,{disabled:!selectedSource||!!busy||!!modelBusy||!!sourceBusy,onClick:()=>onModels(selectedSource)},
               modelBusy?'模型查询中…':'查询模型'),
             h(Button,{disabled:!selectedSource||!!busy||!!sourceBusy,onClick:()=>onSourceLogin(selectedSource)},'发起扫码/网页登录')),
@@ -205,6 +206,20 @@ window.__ModuleLoader__.load({
               h('a',{href:pendingLogin.loginUrl,target:'_blank',rel:'noopener noreferrer'},
                 '打开授权链接（先核对域名）')):h('p',{style:css.small},'来源未提供安全授权链接，不能自动打开'),
             h(Button,{disabled:!!sourceBusy,onClick:onSourcePoll},'检查登录结果')):null,
+          pendingLogin?.providerId==='loomy'?h('div',{style:{...css.card,padding:10}},
+            h('p',{style:css.small},'微信扫码不可用时，可使用 Loomy 官方短信验证码备用登录；短信仅用于这次账号授权。'),
+            h('div',{style:css.line},
+              h('input',{type:'tel',inputMode:'numeric',autoComplete:'tel',maxLength:11,
+                'aria-label':'Loomy 手机号',placeholder:'11 位手机号',style:css.input,
+                value:loomySmsPhone,onChange:e=>onLoomySmsPhone(e.target.value)}),
+              h(Button,{disabled:!!sourceBusy||!/^1[3-9]\d{9}$/.test(loomySmsPhone),
+                onClick:onLoomySmsSend},'发送官方短信验证码')),
+            h('div',{style:css.line},
+              h('input',{type:'text',inputMode:'numeric',autoComplete:'one-time-code',maxLength:8,
+                'aria-label':'Loomy 短信验证码',placeholder:'短信验证码',style:css.input,
+                value:loomySmsCode,onChange:e=>onLoomySmsCode(e.target.value)}),
+              h(Button,{disabled:!!sourceBusy||!loomySmsSent||!/^\d{4,8}$/.test(loomySmsCode),
+                onClick:onLoomySmsSubmit},'核验短信并完成登录'))):null,
           models?.state==='ready'&&models.providerId===selectedSource?h('div',{style:{...css.card,maxHeight:300,overflowY:'auto'}},
             h('p',{style:css.small},'模型 '+models.models.length+' 项；免费标记未经核实，需用户自行审核导入账号并配置模型链。'),
             models.models.map(m=>h('div',{key:m.id,style:{...css.line,marginBottom:5}},
@@ -262,12 +277,14 @@ window.__ModuleLoader__.load({
     }
     function ReuseConsole({data,cfg,onReuseSettings,run,busy,onRefresh,subtab,onSubtab,
       embeddedPack,modelProvider,setModelProvider,onModels,modelBusy,models,
-      onSourceLogin,onSourcePoll,pendingLogin,onSourceRefresh,sourceBusy,
-      hostModels,hostModelBusy,hostSelectedModel,onSelectHostModel,onHostModels,
+       onSourceLogin,onSourcePoll,pendingLogin,onSourceRefresh,sourceBusy,
+       loomySmsPhone,onLoomySmsPhone,loomySmsCode,onLoomySmsCode,loomySmsSent,onLoomySmsSend,onLoomySmsSubmit,
+       hostModels,hostModelBusy,hostSelectedModel,onSelectHostModel,onHostModels,
       hostCatalog,onRefreshHostCatalog,
       manualHostModel,onManualHostModel,
       adoptionPreview,adoptionBusy,adoptionResults,credentialService,onPreviewAdoption,onAdoptAccount,
-      verifyResults,verifyBusy,onVerifyAdopted}){      const reuse=data?.sessionReuse||{hostProviders:[],channels:[],results:[]};
+       verifyResults,verifyBusy,onVerifyAdopted}){
+       const reuse=data?.sessionReuse||{hostProviders:[],channels:[],results:[]};
       const hosts=reuse.hostProviders||[],available=(reuse.channels||[]).filter(x=>x.available);
       const accountLabels={online:'本次鉴权通过',recently_verified:'上次鉴权通过 · 自动复核中',not_checked:'首次鉴权排队中',expired:'授权已失效',pending:'等待确认',checking:'自动检查中',error:'连接检查异常',limited:'限流中',client_required:'需要原客户端操作'};
       const checkedAccounts=data?.accounts||[];
@@ -431,9 +448,11 @@ window.__ModuleLoader__.load({
             embeddedPack?.errorStage?h('p',{style:css.small},
               '安全诊断阶段：'+embeddedPack.errorStage+
               '；仅反映本插件状态，原插件及原账号未被修改'):null),
-          h(EmbeddedPackConsole,{pack:embeddedPack,upstream:data?.embeddedAccounts,run,busy,
+          h(EmbeddedPackConsole,{pack:embeddedPack,upstream:data?.embeddedAccounts,
+            channelCatalog:data?.channels,run,busy,
             modelProvider,setModelProvider,onModels,modelBusy,models,
-            onSourceLogin,onSourcePoll,pendingLogin,onSourceRefresh,sourceBusy})):null);
+             onSourceLogin,onSourcePoll,pendingLogin,onSourceRefresh,sourceBusy,
+              loomySmsPhone,onLoomySmsPhone,loomySmsCode,onLoomySmsCode,loomySmsSent,onLoomySmsSend,onLoomySmsSubmit})):null);
     }
     function AutoFreeConsole({pool,cfg,hostProviders,onRefresh,busy,
       freeProvider,setFreeProvider,freeModel,setFreeModel,manualModel,setManualModel,
@@ -926,8 +945,10 @@ window.__ModuleLoader__.load({
         [modelProvider,setModelProvider]=useState('workbuddy'),[modelBusy,setModelBusy]=useState(false),
         [embeddedModels,setEmbeddedModels]=useState(null),
         [sourceRpcBusy,setSourceRpcBusy]=useState(''),
-        [pendingSourceLogin,setPendingSourceLogin]=useState(null),
-        [sourceCreditsProvider,setSourceCreditsProvider]=useState('qoder'),
+         [pendingSourceLogin,setPendingSourceLogin]=useState(null),
+         [loomySmsPhone,setLoomySmsPhone]=useState(''),[loomySmsCode,setLoomySmsCode]=useState(''),
+         [loomySmsSent,setLoomySmsSent]=useState(false),
+         [sourceCreditsProvider,setSourceCreditsProvider]=useState('qoder'),
         [sourceCredits,setSourceCredits]=useState(null),
         [sourceClaims,setSourceClaims]=useState(null),
         [hostModels,setHostModels]=useState(null),[hostModelBusy,setHostModelBusy]=useState(''),
@@ -1194,10 +1215,44 @@ window.__ModuleLoader__.load({
             throw Error('上游未返回有效的待授权账号 ID');
           const loginUrl=safeSourceLoginUrl(result.loginUrl);
           setPendingSourceLogin({providerId,accountId:result.accountId,loginUrl});
+          setLoomySmsPhone('');setLoomySmsCode('');setLoomySmsSent(false);
           setNotice(loginUrl?'已创建来源授权流程。请核对链接域名，打开授权后手动点击检查登录结果。':
             '来源授权流程已建立，但返回的授权链接不符合安全要求，未自动打开。');
            await refreshRuntime();
         }catch(error){setError(String(error?.message??error))}
+        finally{setSourceRpcBusy('')}
+      }
+      async function sourceSendLoomySms(){
+        const pending=pendingSourceLogin;
+        if(pending?.providerId!=='loomy'||!/^1[3-9]\d{9}$/.test(loomySmsPhone)){
+          setError('请先创建 Loomy 授权并填写有效手机号');return;
+        }
+        setSourceRpcBusy('sms-send');setError('');setNotice('');
+        try{
+          const result=await callSourceRpc('login.sendSms',{
+            provider:'loomy',accountId:pending.accountId,phone:loomySmsPhone});
+          if(typeof result.msgid!=='string'||!result.msgid||result.msgid.length>256)
+            throw Error('官方短信请求尚未取得有效回执');
+          setLoomySmsSent(true);
+          setNotice('已申请官方短信验证码。收到后填写验证码完成独立登录。');
+        }catch{setError('Loomy 官方短信请求未成功；没有标记登录成功。');}
+        finally{setSourceRpcBusy('')}
+      }
+      async function sourceSubmitLoomySms(){
+        const pending=pendingSourceLogin;
+        if(pending?.providerId!=='loomy'||!loomySmsSent||!/^\d{4,8}$/.test(loomySmsCode)){
+          setError('请先获取官方短信验证码并填写有效数字验证码');return;
+        }
+        setSourceRpcBusy('sms-submit');setError('');setNotice('');
+        try{
+          const result=await callSourceRpc('login.submitSms',{
+            provider:'loomy',accountId:pending.accountId,code:loomySmsCode});
+          if(result.done!==true)throw Error('官方未确认验证码');
+          setLoomySmsCode('');setLoomySmsPhone('');setLoomySmsSent(false);
+          setPendingSourceLogin(null);
+          setNotice('Loomy 官方短信认证已成功保存；模型调用仍须另外验收。');
+          await refreshRuntime();await refreshAutoFree();
+        }catch{setLoomySmsCode('');setError('Loomy 验证码未通过或授权未完成。');}
         finally{setSourceRpcBusy('')}
       }
       async function sourcePollLogin(){
@@ -1211,6 +1266,7 @@ window.__ModuleLoader__.load({
           }
           if(result.success!==true)throw Error('来源账号未能完成授权，请从原渠道确认');
           setPendingSourceLogin(null);
+          setLoomySmsCode('');setLoomySmsPhone('');setLoomySmsSent(false);
           setNotice('来源端确认已保存登录凭据，新账号已经成为独立来源；在线推理和签到仍需核验。');
            await refreshRuntime();
           await refreshAutoFree();
@@ -1513,9 +1569,13 @@ h(AccountConsole,{data:channelsView,
          setModelProvider:value=>{setModelProvider(value);setEmbeddedModels(null)},
          onModels:loadUpstreamModels,modelBusy,models:embeddedModels,
          onSourceLogin:sourceLogin,onSourcePoll:sourcePollLogin,pendingLogin:pendingSourceLogin,
-         onSourceRefresh:sourceRefreshAccount,sourceBusy:sourceRpcBusy,
-         hostModels,hostModelBusy,hostSelectedModel,onSelectHostModel:setHostSelectedModel,
-          onHostModels:loadHostModels,hostCatalog,onRefreshHostCatalog:loadHostCatalog,manualHostModel:hostManualModel,         onManualHostModel:setHostManualModel,adoptionPreview,adoptionBusy,adoptionResults,
+          onSourceRefresh:sourceRefreshAccount,sourceBusy:sourceRpcBusy,
+          loomySmsPhone,onLoomySmsPhone:value=>{setLoomySmsPhone(value.replace(/\D/g,'').slice(0,11));setLoomySmsCode('');setLoomySmsSent(false)},
+          loomySmsCode,onLoomySmsCode:value=>setLoomySmsCode(value.replace(/\D/g,'').slice(0,8)),
+          loomySmsSent,onLoomySmsSend:sourceSendLoomySms,onLoomySmsSubmit:sourceSubmitLoomySms,
+          hostModels,hostModelBusy,hostSelectedModel,onSelectHostModel:setHostSelectedModel,
+          onHostModels:loadHostModels,hostCatalog,onRefreshHostCatalog:loadHostCatalog,manualHostModel:hostManualModel,
+          onManualHostModel:setHostManualModel,adoptionPreview,adoptionBusy,adoptionResults,
           verifyResults,verifyBusy,onVerifyAdopted:verifyAdopted,
           onPreviewAdoption:loadAdoptionPreview,onAdoptAccount:adoptOriginalAccount});
        if(tab==='checkins')content=h(CheckinConsole,{data:checkinsView,cfg,onSettings:setCheckinSettings,

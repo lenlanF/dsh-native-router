@@ -35,9 +35,10 @@ function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={stat
       mutations.push({kind:'source-rpc',method,payload:input.payload?.payload});
       let value={};
       if(method==='account.create')value={accountId:'qoder-new',loginUrl:'https://login.example.test/authorize'};
+      else if(method==='login.sendSms')value={msgid:'simulated-message'};
+      else if(method==='login.submitSms')value={done:true};
       else if(method==='login.poll')value={done:true,success:true};
-      else if(method==='account.refresh')value={success:true};
-      else if(method==='credits.status')value={accounts:[{accountId:'qoder-01',
+      else if(method==='account.refresh')value={success:true};      else if(method==='credits.status')value={accounts:[{accountId:'qoder-01',
         status:{active:true,todayCheckedIn:false}}]};
       else if(method==='credits.claimAll')value={results:[{accountId:'qoder-01',outcome:{kind:'claimed'}}]};
       else throw Error('Unexpected upstream method '+method);
@@ -458,10 +459,59 @@ test('isolated source account console explicitly runs upstream login, poll, refr
  assert.equal(rig.mutations.filter(row=>row.kind==='upstream-delete')[0].acknowledgedSourceCredentialDeletion,true);
  assert.equal(rig.mutations.filter(row=>row.kind==='source-rpc').some(row=>row.method==='account.delete'),false);
 });
+test('Loomy login offers an explicit backup route, never silently sends a message',async()=>{
+ const status={state:'mounted',rpcReady:true,channelCount:13,channels:['loomy']};
+ const rig=createUiRig(new Map(),{state:'ready',accounts:[]},status);
+ await rig.init();
+ rig.find(rig.render(),'button','复用管理')[0].props.onClick();
+ rig.find(rig.render(),'button','自主登录')[0].props.onClick();
+ assert.equal(rig.find(rig.render(),'button','发送官方短信验证码').length,0);
+ await rig.find(rig.render(),'button','发起扫码/网页登录')[0].props.onClick();
+ const page=rig.render();
+ const action=rig.find(page,'button','发送官方短信验证码')[0];
+ assert.ok(action);
+ assert.equal(action.props.disabled,true);
+ assert.equal(rig.find(page,'button','核验短信并完成登录')[0].props.disabled,true);
+ assert.deepEqual(rig.mutations.filter(row=>row.kind==='source-rpc').map(row=>row.method),
+  ['account.create']);
+ const phone='139'+'0'.repeat(8),code='7'.repeat(6);
+ const findInput=(tree,label)=>{
+   let found;
+   const scan=node=>{
+     if(Array.isArray(node)){node.forEach(scan);return}
+     if(!node||typeof node!=='object')return;
+     if(node.type==='input'&&node.props['aria-label']===label)found=node;
+     scan(node.children);
+   };
+   scan(tree);return found;
+ };
+ findInput(rig.render(),'Loomy 手机号').props.onChange({target:{value:phone}});
+ let ready=rig.render();
+ assert.equal(rig.find(ready,'button','发送官方短信验证码')[0].props.disabled,false);
+ await rig.find(ready,'button','发送官方短信验证码')[0].props.onClick();
+ assert.equal(rig.mutations.at(-1).method,'login.sendSms');
+ assert.equal(rig.mutations.at(-1).payload.phone,phone);
+ findInput(rig.render(),'Loomy 短信验证码').props.onChange({target:{value:code}});
+ ready=rig.render();
+ assert.equal(rig.find(ready,'button','核验短信并完成登录')[0].props.disabled,false);
+ await rig.find(ready,'button','核验短信并完成登录')[0].props.onClick();
+ assert.equal(rig.mutations.filter(row=>row.kind==='source-rpc').at(-1).method,'login.submitSms');
+  assert.equal(rig.mutations.filter(row=>row.kind==='source-rpc').at(-1).payload.code,code);
+  assert.equal(rig.find(rig.render(),'button','核验短信并完成登录').length,0);
+ assert.equal(rig.cfg.accounts.length,3,'model account configuration must not be forged by source login');
+});
+test('other independent source logins never show the Loomy-only backup option',async()=>{
+ const status={state:'mounted',rpcReady:true,channelCount:13,channels:['qoder']};
+ const rig=createUiRig(new Map(),{state:'ready',accounts:[]},status);
+ await rig.init();
+ rig.find(rig.render(),'button','复用管理')[0].props.onClick();
+ rig.find(rig.render(),'button','自主登录')[0].props.onClick();
+ await rig.find(rig.render(),'button','发起扫码/网页登录')[0].props.onClick();
+ assert.equal(rig.find(rig.render(),'button','发送官方短信验证码').length,0);
+});
 test('source checkin reads per-account status; bulk claim requires explicit choice and fresh recheck',async()=>{
  const source={state:'mounted',rpcReady:true,channelCount:13,channels:['qoder','workbuddy']};
- const rig=createUiRig(new Map(),{state:'ready',accounts:[]},source);await rig.init();
- rig.find(rig.render(),'button','每日签到')[0].props.onClick();
+ const rig=createUiRig(new Map(),{state:'ready',accounts:[]},source);await rig.init(); rig.find(rig.render(),'button','每日签到')[0].props.onClick();
  let page=rig.render();
  assert.equal(rig.mutations.filter(row=>row.kind==='source-rpc').length,0);
  const claimButton=rig.find(page,'button','批量领取（该渠道所有账号）')[0];
