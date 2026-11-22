@@ -1,4 +1,8 @@
-# DSH Native Router（聚合路由）— 1.0.0-rc.78 MiMo/豆包登录专项
+# DSH Native Router（聚合路由）— 1.0.0-rc.79 秒悟 Web / 千问办公原生驱动
+
+- 新增两个可原生接管会员授权的独立渠道：秒悟从官方远端 UID 接管登录并解析 UI SSE；千问办公独立 PKCE 设备码与 COSY 签名、真实用户/组织与额度/倍率、专用模型 SSE。均保留真实账户能力等级门禁；没有已授权账号的模拟端到端不等于生产真实模型回复。
+- 开发/验证仅使用原绑定 Windows WebCodexTunnel 项目工作区和物理 E: 临时隔离路径，原生产 8 个账号、用户登录态、DSH 安装和签到设置不改。发布条件包括 npm test、真实 DSH Cordis Host、物理 tgz 哈希与隐私审计、DSH 托管 Node 安装验证以及 GitHub Windows/Linux CI。
+
 
 - 验证来源：原绑定 Windows WebCodexTunnel 项目工作区、当前 DSH 托管 Node `v24.21.0`、DSH 宿主 `0.2.2-rc.5`、用户已手动升级并运行中的路由插件 `1.0.0-rc.77`；主分支包与生产安装的94个文件已逐一核对（4个文本文件只有 CRLF/LF 换行区别），现有8个账号状态未改。
 - 原版 MiMo 自主登录入口实质是会员身份 JSON API，不能让用户交互登录；此版改为官方 Xiaomi Account 网页入口，继续通过所选地区会员服务判断会话是否真正有效。原机拥有普通 Chromium 和 DSH Node WebSocket，官方网页登录入口只读检查返回 HTTP 200，但由于当前机器上没有 MiMo/Desktop 或豆包可复用授权，尚不能宣称成功登录、完成实际模型调用或签到了。

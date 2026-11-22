@@ -7,7 +7,7 @@ import {normalizeConfig} from '../src/config.mjs';
 import {sample} from './fixtures.mjs';
 import {sourceAccountOpaqueId} from '../src/source-account-ref.mjs';
 
-function harness(embeddedPack,checkinCenter){
+function harness(embeddedPack,checkinCenter,accountCenter={list:()=>({channels:[],accounts:[],pools:[]})}){
   let state=normalizeConfig(sample),invalidations=0;
   const routes=new Map();
   const ctx={get(name){if(name==='webServer')return{register({path,handler}){routes.set(path,handler);return()=>routes.delete(path)}}}};
@@ -15,7 +15,7 @@ function harness(embeddedPack,checkinCenter){
   const cleanup=registerRouterRoutes(ctx,{configStore,adapter:{
     invalidateCatalog(){invalidations++},
     getStatus:()=>({providers:state.providers.length,accounts:state.accounts.length,routes:state.routes.length}),
-  },accountCenter:{list:()=>({channels:[],accounts:[],pools:[]})},embeddedPack,checkinCenter});
+   },accountCenter,embeddedPack,checkinCenter});
   async function hit(method,path,{body,origin='http://localhost',address='127.0.0.1'}={}){
     const req=new EventEmitter();req.method=method;req.socket={remoteAddress:address};req.headers={origin,host:'localhost'};
     const res={statusCode:0,headers:{},setHeader(k,v){this.headers[k]=v},end(raw){this.value=JSON.parse(raw)}};
@@ -186,4 +186,40 @@ test('settings frontend registers as a native DSH settings section',()=>{
  const ctx={slots:{inject(_name,fn){fn();return()=>{}},register(_options,_component){created=true;return()=>{}}},effect(){}};
  plugin.apply(ctx);
  assert.equal(created,true);
+});
+test('new Meoo and Qwen native login routes redact secrets and reject remote callers',async()=>{
+ let called=0;
+ const center={
+  list:()=>({channels:[],accounts:[],pools:[]}),
+  async addMeooCookie(){called++;return {id:'mw_'+ 'a'.repeat(28),providerId:'own_meoo_web',
+    stored:true,credentialRef:'PRIVATE_CREDENTIAL',token:'PRIVATE_TOKEN'}},
+  async startMeooLogin(){called++;return {status:'waiting'}},
+  async pollMeooLogin(){called++;return {status:'done',account:{
+    id:'mw_'+'b'.repeat(28),credentialRef:'PRIVATE_MEMBER_REF'}}},
+  cancelMeooLogin(){called++;return {status:'canceled'}},
+  startQwenLogin(){called++;return {status:'waiting',at:1,
+    loginUrl:'https://gateway.qwenwork.cn/device/selectAccounts?challenge=PUBLIC',
+    verifier:'PRIVATE_PKCE_VERIFIER',token:'PRIVATE_TOKEN'}},
+  async pollQwenLogin(){called++;return {status:'done',account:{
+    id:'qw_'+'a'.repeat(28),credentialRef:'PRIVATE_QWEN_REF'}}},
+  async cancelQwenLogin(){called++;return {status:'canceled'}},
+ };
+ const h=harness(null,null,center);
+ for(const route of ['/channels/meoo/cookie','/channels/meoo/login','/channels/qwenwork/login']){
+  assert.equal((await h.hit('POST',route,{body:{action:'start',cookie:'abc'},address:'192.168.1.8'})).statusCode,403);
+  assert.equal((await h.hit('POST',route,{body:{action:'start',cookie:'abc'},origin:'https://attacker.invalid'})).statusCode,403);
+ }
+ assert.equal(called,0);
+ for(const [route,body] of [['/channels/meoo/cookie',{cookie:'user-cookie'}],
+   ['/channels/meoo/login',{action:'poll'}],
+   ['/channels/qwenwork/login',{action:'start'}],
+   ['/channels/qwenwork/login',{action:'poll'}]]){
+  const result=await h.hit('POST',route,{body});
+  assert.equal(result.statusCode,200);
+  assert.doesNotMatch(JSON.stringify(result.value),/PRIVATE_|credentialRef|refresh_token/);
+  if(route==='/channels/qwenwork/login'&&body.action==='start')
+   assert.match(result.value.result.loginUrl,/^https:\/\/gateway\.qwenwork\.cn\/device\/selectAccounts\?/);
+ }
+ assert.equal(called,4);
+ h.cleanup();
 });

@@ -10,6 +10,8 @@ import {createInstalledPluginInventory} from './installed-plugin-inventory.mjs';
 import {createPrivateOwnedDriver,PRIVATE_PROVIDERS} from './channels/private-owned.mjs';
 import {createMimoDesktopDriver,MIMO_DESKTOP_ID} from './channels/mimo-desktop.mjs';
 import {createDoubaoDriver} from './channels/doubao.mjs';
+import {createMeooWebDriver,MEOO_WEB_ID} from './channels/meoo-web.mjs';
+import {createQwenWorkDriver,QWENWORK_ID} from './channels/qwenwork.mjs';
 import {createPrivateOwnedAdoption} from './private-owned-adoption.mjs';
 import {createPrivatePackAdoption} from './private-pack-adoption.mjs';
 import {createWorkbuddyVaultAdoption} from './workbuddy-vault-adoption.mjs';
@@ -46,11 +48,19 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
    if(!channelDrivers&&!drivers.has(MIMO_DESKTOP_ID))
      builtInCleanup.push(registerNativeChannelDriver(MIMO_DESKTOP_ID,
        createMimoDesktopDriver({vault:ownedVault})));
-   if(!channelDrivers&&!drivers.has('own_doubao'))
-     builtInCleanup.push(registerNativeChannelDriver('own_doubao',
-       createDoubaoDriver({vault:ownedVault,fetchImpl,logger:ctx.logger,
-        getAccounts:()=>ownStore.get().accounts})));
-   if(!channelDrivers)for(const region of ['cn','global']){
+    if(!channelDrivers&&!drivers.has('own_doubao'))
+      builtInCleanup.push(registerNativeChannelDriver('own_doubao',
+        createDoubaoDriver({vault:ownedVault,fetchImpl,logger:ctx.logger,
+         getAccounts:()=>ownStore.get().accounts})));
+    if(!channelDrivers&&!drivers.has(MEOO_WEB_ID))
+      builtInCleanup.push(registerNativeChannelDriver(MEOO_WEB_ID,
+        createMeooWebDriver({vault:ownedVault,fetchImpl,logger:ctx.logger,
+         getAccounts:()=>ownStore.get().accounts})));
+    if(!channelDrivers&&!drivers.has(QWENWORK_ID))
+      builtInCleanup.push(registerNativeChannelDriver(QWENWORK_ID,
+        createQwenWorkDriver({vault:ownedVault,fetchImpl,
+          getAccounts:()=>ownStore.get().accounts})));
+    if(!channelDrivers)for(const region of ['cn','global']){
      const owner='own_workbuddy-'+region;
      if(!drivers.has(owner))builtInCleanup.push(registerNativeChannelDriver(owner,
        createWorkBuddyDriver({env,fetchImpl,ownedRegion:region,ownedVault})));

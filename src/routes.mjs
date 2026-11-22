@@ -406,6 +406,53 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
         return json(res,200,{ok:true,result:publicStatus});
       }catch{return json(res,409,{ok:false,error:'豆包独立扫码登录暂不可用'})}
     });
+    mount('/channels/meoo/cookie',async(req,res)=>{
+      if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
+      if(req.method!=='POST')return json(res,405,{ok:false,error:'Method not allowed'});
+      try{
+        const body=await readJson(req);
+        if(typeof body?.cookie!=='string'||body.cookie.length>32768)
+          return json(res,400,{ok:false,error:'Invalid Meoo cookie'});
+        const result=await accountCenter.addMeooCookie({cookie:body.cookie});
+        return json(res,200,{ok:true,result:{id:result.id,providerId:'own_meoo_web',
+          alreadyOwned:result.alreadyOwned===true,stored:result.stored===true}});
+      }catch{return json(res,400,{ok:false,error:'秒悟会员身份未获远端验证；未保存授权'})}
+    });
+    mount('/channels/meoo/login',async(req,res)=>{
+      if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
+      if(req.method!=='POST')return json(res,405,{ok:false,error:'Method not allowed'});
+      try{
+        const body=await readJson(req);
+        if(!['start','poll','cancel'].includes(body?.action))
+          return json(res,400,{ok:false,error:'Invalid Meoo login action'});
+        const status=body.action==='start'?await accountCenter.startMeooLogin():
+          body.action==='poll'?await accountCenter.pollMeooLogin():accountCenter.cancelMeooLogin();
+        return json(res,200,{ok:true,result:{status:status?.status??'error',
+          at:status?.at??0,
+          account:status?.account?.id?{id:status.account.id,providerId:'own_meoo_web'}:null,
+          error:status?.status==='error'?'秒悟网页登录未完成':null}});
+      }catch{return json(res,409,{ok:false,error:'秒悟独立浏览器授权暂不可用'})}
+    });
+    // Owner-authenticated device grant; never send verifier/token to UI.
+    mount('/channels/qwenwork/login',async(req,res)=>{
+      if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
+      if(req.method!=='POST')return json(res,405,{ok:false,error:'Method not allowed'});
+      try{
+        const body=await readJson(req);
+        if(!['start','poll','cancel'].includes(body?.action))
+          return json(res,400,{ok:false,error:'Invalid device action'});
+        const result=body.action==='start'?accountCenter.startQwenLogin():
+          body.action==='poll'?await accountCenter.pollQwenLogin():
+            await accountCenter.cancelQwenLogin();
+        const url=result?.status==='waiting'?result.loginUrl:'';
+        if(url&&!/^https:\/\/gateway\.qwenwork\.cn\/device\/selectAccounts\?/.test(url))
+          return json(res,503,{ok:false,error:'Invalid upstream authorization origin'});
+        return json(res,200,{ok:true,result:{status:result?.status??'error',
+          at:result?.at??0,...(url?{loginUrl:url}:{}),
+          account:result?.account?.id?{id:result.account.id,providerId:'own_qwenwork'}:null,
+          error:result?.status==='error'?'千问办公设备码授权未完成':null}});
+      }catch{return json(res,409,{ok:false,error:'千问办公自有授权暂不可用'})}
+    });
     mount('/channels/import',async(req,res)=>{
       if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{error:'Access rejected'});
       if(req.method!=='POST')return json(res,405,{error:'Method not allowed'});
