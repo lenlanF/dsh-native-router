@@ -319,5 +319,12 @@ export function createBrowserLoginFlow({ logger, addAccount, rollbackAccount,
     return snapshot()
   }
 
-  return { start, status: snapshot, cancel, get busy() { return running !== null } }
+  function dismissCompleted() {
+    // A receipt is never reusable after caller rejects the vault/config commit.
+    // This method only updates login tracking, not a persisted account.
+    if (state.status === 'done')
+      state = { status:'canceled',at:state.at,account:null,error:null,browser:'',steps:[] }
+    return snapshot()
+  }
+  return { start, status: snapshot, cancel, dismissCompleted, get busy() { return running !== null } }
 }

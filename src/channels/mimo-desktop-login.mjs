@@ -69,6 +69,7 @@ export function createMimoDesktopLoginFlow({
    return active.start();
   },
   status,
-  cancel:()=>active?.cancel()??status(),
+   cancel:()=>active?.cancel()??status(),
+   dismissCompleted:()=>active?.dismissCompleted?.()??status(),
  };
 }

@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createDoubaoDriver} from '../src/channels/doubao.mjs';
 import {createAccountCenter} from '../src/account-center.mjs';
-import {createConfigStore} from '../src/config.mjs';
+import {createConfigStore,normalizeConfig} from '../src/config.mjs';
 const COOKIE_A='sessionid=unit-testing-session-account-A-abcdefghijklmn; uid_tt=123456789; sessionid_ss=other123';
 const COOKIE_B='sessionid=unit-testing-session-account-B-abcdefghijklmn; uid_tt=987654321; sessionid_ss=other456';
 
@@ -88,6 +88,46 @@ test('Doubao independent account provisioning never writes cookies to config',as
   assert.equal(center.list().accounts.length,1);
   center.stop();
  }finally{rmSync(dir,{recursive:true,force:true})}
+});
+test('Doubao direct Cookie import has transaction-bound rollback on config write failure',async()=>{
+ let cfg=normalizeConfig({});
+ const configStore={get:()=>structuredClone(cfg),replace(){throw Error('Simulated failed metadata write')}};
+ const h=mock(),center=createAccountCenter({configStore,drivers:new Map([['own_doubao',h.driver]])});
+ await assert.rejects(()=>center.addDoubaoCookie({cookie:COOKIE_A}),/Simulated failed metadata write/);
+ assert.equal(h.stored.size,0,'no orphaned private credential after failed metadata commit');
+ assert.equal(cfg.accounts.length,0);
+ center.stop();
+});
+test('Doubao stale cancel and unrelated receipt cannot delete committed account',async()=>{
+ let cfg=normalizeConfig({});
+ const configStore={get:()=>structuredClone(cfg),replace(value){cfg=normalizeConfig(value);return structuredClone(cfg)}};
+ const h=mock(),center=createAccountCenter({configStore,drivers:new Map([['own_doubao',h.driver]])});
+ const saved=await center.addDoubaoCookie({cookie:COOKIE_A}),key=[...h.stored.keys()][0];
+ const original=h.stored.get(key);
+ await h.driver.rollbackCandidate({account:{id:saved.id,providerId:'own_doubao',
+  credentialRef:'driver:own_doubao:'+saved.id}});
+ assert.equal(h.stored.get(key),original);
+ const modified=COOKIE_A.replace('account-A-abcdefghijklmn','account-A-rotated-abcdefghijklmn');
+ const staged=await h.driver.addCookie({cookie:modified,stageRollback:true});
+ assert.equal(staged.id,saved.id);
+ assert.notEqual(h.stored.get(key),original);
+ await h.driver.rollbackCandidate({account:staged});
+ assert.equal(h.stored.get(key),original,'exact rollback journal restores the old committed credential');
+ assert.equal(center.list().accounts.length,1);
+ center.stop();
+});
+test('Doubao Provider identity collision never leaves orphaned self-owned credential',async()=>{
+ const state=normalizeConfig({});
+ state.providers.push({id:'own_doubao',protocol:'openai-chat',name:'Foreign conflicting owner',
+  baseUrl:'https://foreign.invalid/v1',models:[],enabled:true});
+ const configStore={get:()=>structuredClone(state),
+  replace(){throw Error('must not replace a foreign Provider')}};
+ const h=mock(),center=createAccountCenter({configStore,
+  drivers:new Map([['own_doubao',h.driver]])});
+ await assert.rejects(()=>center.addDoubaoCookie({cookie:COOKIE_A}),/provider ID conflict/);
+ assert.equal(h.stored.size,0);
+ assert.equal(state.accounts.length,0);
+ center.stop();
 });
 test('Doubao cookie injection and fake sessions fail closed',async()=>{
  const {driver}=mock();

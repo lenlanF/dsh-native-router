@@ -1,4 +1,6 @@
 import test from 'node:test';
+import {sseEvents} from '../src/channels/meoo-sse.mjs';
+import {createBrowserLoginFlow} from '../src/channels/browser-login.mjs';
 import assert from 'node:assert/strict';
 import {createMeooWebDriver,meooCookieFromCdp,meooModels,meooQuota,MEOO_WEB_ID}
  from '../src/channels/meoo-web.mjs';
@@ -14,9 +16,12 @@ const streamOf=(text='秒悟回答')=>new Response(
  'data: '+JSON.stringify({type:'ui_event',data:{type:'ui:add_agent_message',data:{content:text}}})+'\n\n'+
  'data: '+JSON.stringify({type:'task_complete',text})+'\n\n',
  {headers:{'content-type':'text/event-stream'}});
-function fixture({anonymous=false,broken=false,failConfig=false,foreignMember=false,changed=false}={}){
+function fixture({anonymous=false,broken=false,failConfig=false,foreignMember=false,changed=false,
+  browserSimulation=false,providerConflict=false,failedTerminal=false}={}){
  const records=new Map(),calls=[];
- let cfg=normalizeConfig({});
+  let cfg=normalizeConfig({});
+  if(providerConflict)cfg.providers.push({id:'own_meoo_web',protocol:'openai-chat',
+   name:'Another owner',baseUrl:'https://foreign.invalid/v1',enabled:true,models:[]});
  const vault={
   async resolve(key){return records.get(key)},
   async set(key,value){records.set(key,{value})},
@@ -41,9 +46,12 @@ function fixture({anonymous=false,broken=false,failConfig=false,foreignMember=fa
     {id:'meoo-think',name:'秒悟 深思'}]}}));
   if(url.pathname==='/api/v1/project/list')return new Response(JSON.stringify({data:{list:[]}}));
   if(url.pathname==='/api/v1/project')return new Response(JSON.stringify({data:{url_id:'project-owned-123'}}));
-  if(url.pathname==='/api/agent/query')return broken?new Response(
-    'data: '+JSON.stringify({type:'ui_event',data:{type:'ui:agent_message_update',data:{text:'只有半截'}}})+'\n\n',
-    {headers:{'content-type':'text/event-stream'}}):streamOf();
+   if(url.pathname==='/api/agent/query')return broken?new Response(
+     'data: '+JSON.stringify({type:'ui_event',data:{type:'ui:agent_message_update',data:{text:'只有半截'}}})+'\n\n',
+     {headers:{'content-type':'text/event-stream'}}):failedTerminal?new Response(
+     'data: '+JSON.stringify({type:'ui_event',data:{type:'ui:add_agent_message',data:{content:'看似完整文本'}}})+'\n\n'+
+     'data: '+JSON.stringify({type:'task_complete',status:'failed',data:{success:false}})+'\n\n',
+     {headers:{'content-type':'text/event-stream'}}):streamOf();
   if(url.pathname==='/api/agent/start'){
    const body=JSON.parse(opts.body??'{}');
    assert.equal(body.projectId,'project-owned-123');
@@ -56,11 +64,12 @@ function fixture({anonymous=false,broken=false,failConfig=false,foreignMember=fa
   throw Error('Unexpected upstream request path');
  };
  const driver=createMeooWebDriver({vault,fetchImpl,getAccounts:()=>cfg.accounts,
-  loginFactory:options=>({
-   busy:false,async start(){return {status:'waiting',at:1}},
-   status(){return {status:'idle'}},cancel(){return {status:'canceled'}},
-   options,
-  })});
+   loginFactory:options=>browserSimulation?
+    createBrowserLoginFlow({...options,browserRuntime:{start:async()=>COOKIE_A,stop:async()=>{}}}):({
+     busy:false,async start(){return {status:'waiting',at:1}},
+     status(){return {status:'idle'}},cancel(){return {status:'canceled'}},
+     options,
+    })});
  const configStore={get:()=>structuredClone(cfg),replace:value=>{
   if(failConfig)throw Error('Simulated DSH config persistence failure');
   cfg=normalizeConfig(value);return structuredClone(cfg);
@@ -189,6 +198,73 @@ test('Meoo incomplete SSE never marks real model success and refuses tool calls'
    tools:[{name:'danger',description:'do not call',parameters:{type:'object'}}]}}),/Meoo Web/);
  assert.equal(h.calls.filter(x=>x.path==='/api/agent/start').length,1,
   'rejected tool calls must never incur another metered request');
+ h.center.stop();
+});
+test('Meoo SSE decoder accepts CRLF frames, mixed line endings and split UTF-8 boundaries',async()=>{
+ const event1={type:'ui_event',data:{type:'ui:add_agent_message',data:{content:'跨段中文'}}};
+ const event2={type:'task_complete',data:{success:true}};
+ const bytes=new TextEncoder().encode('data: '+JSON.stringify(event1)+'\r\n\r\n'+
+   ': heartbeat\n\n'+'data: '+JSON.stringify(event2)+'\r\n\r\n');
+ const split=Math.floor(bytes.length/3);
+ const body=new ReadableStream({start(controller){
+  controller.enqueue(bytes.subarray(0,split));
+  controller.enqueue(bytes.subarray(split,split+1));
+  controller.enqueue(bytes.subarray(split+1));
+  controller.close();
+ }});
+ const events=[];
+ for await(const event of sseEvents(body))events.push(event);
+ assert.equal(events.length,2);
+ assert.equal(events[0].data.data.content,'跨段中文');
+ assert.equal(events[1].type,'task_complete');
+});
+test('Meoo SSE decoder bounds untrusted never-terminated remote frame before growing DSH memory',async()=>{
+ const body=new ReadableStream({start(controller){
+  controller.enqueue(new Uint8Array(1024*1024+3).fill(65));controller.close();
+ }});
+ await assert.rejects(async()=>{for await(const event of sseEvents(body))void event},
+  /exceeded one-megabyte/);
+});
+test('Meoo browser canceled after authenticated capture but before config commit revokes only uncommitted vault record',async()=>{
+ const h=fixture({browserSimulation:true});
+ await h.center.startMeooLogin();
+ for(let i=0;i<15&&h.driver.loginStatus().status!=='done';i++)
+  await new Promise(resolve=>setTimeout(resolve,2));
+ assert.equal(h.driver.loginStatus().status,'done');
+ assert.equal(h.records.size,1);
+ assert.equal((await h.center.cancelMeooLogin()).status,'canceled');
+ assert.equal(h.records.size,0);
+ assert.equal(h.cfg.accounts.length,0);
+ assert.equal((await h.center.pollMeooLogin()).status,'canceled');
+ h.center.stop();
+});
+test('Meoo browser config save failure revokes captured session and invalidates stale done receipt',async()=>{
+ const h=fixture({browserSimulation:true,failConfig:true});
+ await h.center.startMeooLogin();
+ for(let i=0;i<15&&h.driver.loginStatus().status!=='done';i++)
+  await new Promise(resolve=>setTimeout(resolve,2));
+ assert.equal(h.driver.loginStatus().status,'done');
+ await assert.rejects(()=>h.center.pollMeooLogin(),/Simulated DSH config/);
+ assert.equal(h.driver.loginStatus().status,'canceled');
+ assert.equal(h.records.size,0);
+ assert.equal(h.cfg.accounts.length,0);
+ assert.equal((await h.center.pollMeooLogin()).status,'canceled');
+ h.center.stop();
+});
+test('Meoo Provider identity collision rolls back new private Cookie before config save',async()=>{
+ const h=fixture({providerConflict:true});
+ await assert.rejects(()=>h.center.addMeooCookie({cookie:COOKIE_A}),/another adapter/);
+ assert.equal(h.records.size,0);
+ assert.equal(h.cfg.accounts.length,0);
+ h.center.stop();
+});
+test('Meoo terminal failure flag never produces successful DSH model proof',async()=>{
+ const h=fixture({failedTerminal:true});
+ await h.center.addMeooCookie({cookie:COOKIE_A});
+ const account=h.cfg.accounts[0];
+ await assert.rejects(()=>h.driver.generate({account,model:'meoo-quick',
+  options:{messages:[{role:'user',content:'你好'}]}}),/Meoo Web/);
+ assert.equal(h.driver.accountSnapshot(account).modelInferenceVerifiedAt,null);
  h.center.stop();
 });
 test('Meoo model rows and points never manufacture free credits or treat a public catalog as authentication',()=>{

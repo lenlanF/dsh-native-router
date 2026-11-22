@@ -375,7 +375,7 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
         if(body.action==='start'&&!['cn','sgp','ams','ru','in'].includes(body.region??'cn'))
           return json(res,400,{ok:false,error:'Invalid MiMo account region'});
         const result=body.action==='start'?await accountCenter.startMimoLogin({region:body.region??'cn'}):
-          body.action==='poll'?await accountCenter.pollMimoLogin():accountCenter.cancelMimoLogin();
+          body.action==='poll'?await accountCenter.pollMimoLogin():await accountCenter.cancelMimoLogin();
         const publicStatus={status:result?.status??'error',at:result?.at??0,
           account:result?.account?.id?{id:result.account.id,providerId:'own_mimo_desktop'}:null,
           error:result?.status==='error'?'MiMo Desktop 会员授权未完成':null};
@@ -399,7 +399,7 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
         const body=await readJson(req);
         if(!['start','poll','cancel'].includes(body?.action))return json(res,400,{ok:false,error:'Invalid login action'});
         const status=body.action==='start'?await accountCenter.startDoubaoLogin():
-          body.action==='poll'?await accountCenter.pollDoubaoLogin():accountCenter.cancelDoubaoLogin();
+          body.action==='poll'?await accountCenter.pollDoubaoLogin():await accountCenter.cancelDoubaoLogin();
         const publicStatus={status:status?.status??'error',at:status?.at??0,
           account:status?.account?.id?{id:status.account.id,providerId:'own_doubao'}:null,
           error:status?.status==='error'?'登录未完成，请重新尝试':null};
@@ -426,7 +426,7 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
         if(!['start','poll','cancel'].includes(body?.action))
           return json(res,400,{ok:false,error:'Invalid Meoo login action'});
         const status=body.action==='start'?await accountCenter.startMeooLogin():
-          body.action==='poll'?await accountCenter.pollMeooLogin():accountCenter.cancelMeooLogin();
+           body.action==='poll'?await accountCenter.pollMeooLogin():await accountCenter.cancelMeooLogin();
         return json(res,200,{ok:true,result:{status:status?.status??'error',
           at:status?.at??0,
           account:status?.account?.id?{id:status.account.id,providerId:'own_meoo_web'}:null,

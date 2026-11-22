@@ -616,18 +616,19 @@ export function createAccountCenter({
         throw Error('MiMo membership browser login unavailable');
       return driver.startLogin({region});
     }
-    async function pollMimoLogin(){
-      const driver=driverFor('own_mimo_desktop'),status=driver?.loginStatus?.();
-      if(!status)throw Error('MiMo browser login status unavailable');
-      if(status.status==='done'&&status.account){
-        const account=await commitMimoDesktopAccount(status.account);
-        return {...status,account};
-      }
-      return status;
-    }
-    function cancelMimoLogin(){
-      return driverFor('own_mimo_desktop')?.cancelLogin?.()??{status:'idle'};
-    }
+     async function pollMimoLogin(){
+       const driver=driverFor('own_mimo_desktop'),status=driver?.loginStatus?.();
+       if(!status)throw Error('MiMo browser login status unavailable');
+       if(status.status!=='done'||!status.account)return status;
+       try{return {...status,account:await commitMimoDesktopAccount(status.account)}}
+       catch(error){
+         try{await driver.cancelLogin?.()}catch{}
+         throw error;
+       }
+     }
+     async function cancelMimoLogin(){
+       return await driverFor('own_mimo_desktop')?.cancelLogin?.()??{status:'idle'};
+     }
     function ensureDoubaoProvider(){
       const cfg=configStore.get(),provider=cfg.providers.find(p=>p.id==='own_doubao');
       if(provider){
@@ -661,18 +662,28 @@ export function createAccountCenter({
           protocol:'native-channel',baseUrl:'',models:[],enabled:true,supportsTools:false}];
       const account={id:result.id,providerId:'own_doubao',credentialRef:result.credentialRef,
         enabled:true,autoCheckin:false,weight:1};
-      try{configStore.replace({...cfg,providers,accounts:[...cfg.accounts,account]})}
-      catch(error){if(result.alreadyOwned!==true)
-        await driverFor('own_doubao')?.rollbackCandidate?.({account});throw error}
+       try{configStore.replace({...cfg,providers,accounts:[...cfg.accounts,account]})}
+       catch(error){
+         await driverFor('own_doubao')?.rollbackCandidate?.({account:{
+           ...account,alreadyOwned:result.alreadyOwned===true,
+           ...(result.rollbackToken?{rollbackToken:result.rollbackToken}:{})}});
+         throw error;
+       }
       driverFor('own_doubao')?.completeCandidate?.({account:result});
       adapter?.invalidateCatalog?.();
       return {id:result.id,providerId:'own_doubao',stored:true};
     }
-    async function addDoubaoCookie({cookie}={}){
-      const driver=driverFor('own_doubao');
-      if(typeof driver?.addCookie!=='function')throw Error('Doubao native adapter unavailable');
-      return await commitDoubaoAccount(await driver.addCookie({cookie}));
-    }
+     async function addDoubaoCookie({cookie}={}){
+       const driver=driverFor('own_doubao');
+       if(typeof driver?.addCookie!=='function')throw Error('Doubao native adapter unavailable');
+       const receipt=await driver.addCookie({cookie,stageRollback:true});
+       try{return await commitDoubaoAccount(receipt)}
+       catch(error){
+         // Includes collisions rejected before configStore.replace() was called.
+         try{await driver.rollbackCandidate?.({account:receipt})}catch{}
+         throw error;
+       }
+     }
     async function startDoubaoLogin(){
       const driver=driverFor('own_doubao');
       if(driver?.runtimeReady!==true||typeof driver.startLogin!=='function')
@@ -680,18 +691,20 @@ export function createAccountCenter({
       // Do not create a configured account/provider merely because a login window opened.
       return driver.startLogin();
     }
-    async function pollDoubaoLogin(){
-      const status=driverFor('own_doubao')?.loginStatus?.();
-      if(!status)throw Error('Doubao login service unavailable');
-      if(status.status==='done'&&status.account){
-        const receipt=await commitDoubaoAccount(status.account);
-        return {...status,account:receipt};
-      }
-      return status;
-    }
-    function cancelDoubaoLogin(){
-      return driverFor('own_doubao')?.cancelLogin?.()??{status:'idle'};
-    }
+     async function pollDoubaoLogin(){
+       const driver=driverFor('own_doubao');
+       const status=driver?.loginStatus?.();
+       if(!status)throw Error('Doubao login service unavailable');
+       if(status.status!=='done'||!status.account)return status;
+       try{return {...status,account:await commitDoubaoAccount(status.account)}}
+       catch(error){
+         try{await driver.cancelLogin?.()}catch{}
+         throw error;
+       }
+     }
+     async function cancelDoubaoLogin(){
+       return await driverFor('own_doubao')?.cancelLogin?.()??{status:'idle'};
+     }
     async function commitMeooAccount(result){
       if(result?.providerId!=='own_meoo_web'||typeof result.id!=='string'
         ||!/^mw_[a-f0-9]{28}$/.test(result.id)
@@ -723,28 +736,41 @@ export function createAccountCenter({
       adapter?.invalidateCatalog?.();
       return {id:account.id,providerId:'own_meoo_web',stored:true};
     }
-    async function addMeooCookie({cookie}={}){
-      const driver=driverFor('own_meoo_web');
-      if(driver?.runtimeReady!==true||typeof driver.addCookie!=='function')
-        throw Error('Meoo persistent credential vault unavailable');
-      return commitMeooAccount(await driver.addCookie({cookie,stageRollback:true}));
-    }
+     async function addMeooCookie({cookie}={}){
+       const driver=driverFor('own_meoo_web');
+       if(driver?.runtimeReady!==true||typeof driver.addCookie!=='function')
+         throw Error('Meoo persistent credential vault unavailable');
+       const receipt=await driver.addCookie({cookie,stageRollback:true});
+       try{return await commitMeooAccount(receipt)}
+       catch(error){
+         // Never leave an unconfigured private cookie after a Provider conflict.
+         try{await driver.rollbackCandidate?.({account:receipt})}catch{}
+         throw error;
+       }
+     }
     async function startMeooLogin(){
       const driver=driverFor('own_meoo_web');
       if(driver?.runtimeReady!==true||typeof driver.startLogin!=='function')
         throw Error('Meoo member browser login unavailable');
       return driver.startLogin();
     }
-    async function pollMeooLogin(){
-      const status=driverFor('own_meoo_web')?.loginStatus?.();
-      if(!status)throw Error('Meoo login status unavailable');
-      if(status.status==='done'&&status.account)
-        return {...status,account:await commitMeooAccount(status.account)};
-      return status;
-    }
-    function cancelMeooLogin(){
-      return driverFor('own_meoo_web')?.cancelLogin?.()??{status:'idle'};
-    }
+     async function pollMeooLogin(){
+       const driver=driverFor('own_meoo_web');
+       const status=driver?.loginStatus?.();
+       if(!status)throw Error('Meoo login status unavailable');
+       if(status.status!=='done'||!status.account)return status;
+       try{return {...status,account:await commitMeooAccount(status.account)}}
+       catch(error){
+         // A failed config write already rolled back the staged vault record.
+         // Invalidate the cached "done" receipt so polling cannot recreate an
+         // account row whose secret has been removed.
+         try{await driver.cancelLogin?.()}catch{}
+         throw error;
+       }
+     }
+     async function cancelMeooLogin(){
+       return await driverFor('own_meoo_web')?.cancelLogin?.()??{status:'idle'};
+     }
     async function commitQwenAccount(receipt){
       if(receipt?.providerId!=='own_qwenwork'||!/^qw_[a-f0-9]{28}$/.test(String(receipt.id??''))
         ||receipt.credentialRef!=='driver:own_qwenwork:'+receipt.id)
@@ -780,13 +806,18 @@ export function createAccountCenter({
         throw Error('QwenWork PKCE device grant unavailable');
       return driver.startLogin();
     }
-    async function pollQwenLogin(){
-      const driver=driverFor('own_qwenwork');
-      if(typeof driver?.pollLogin!=='function')throw Error('QwenWork device polling unavailable');
-      const status=await driver.pollLogin();
-      return status.status==='done'&&status.account?
-        {...status,account:await commitQwenAccount(status.account)}:status;
-    }
+     async function pollQwenLogin(){
+       const driver=driverFor('own_qwenwork');
+       if(typeof driver?.pollLogin!=='function')throw Error('QwenWork device polling unavailable');
+       const status=await driver.pollLogin();
+       if(status.status!=='done'||!status.account)return status;
+       try{return {...status,account:await commitQwenAccount(status.account)}}
+       catch(error){
+         // Never expose a stale completed OAuth receipt after rollback.
+         try{await driver.cancelLogin?.()}catch{}
+         throw error;
+       }
+     }
     async function cancelQwenLogin(){
       return await driverFor('own_qwenwork')?.cancelLogin?.()??{status:'idle'};
     }
