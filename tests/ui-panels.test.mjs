@@ -786,8 +786,53 @@ test('channels default to all and can switch to one channel without losing other
  screen=rig.render();lines=rig.flatten(screen).join(' ');
  assert.match(lines,/alpha.*内部账号：a1/);
  assert.match(lines,/local.*内部账号：l1/);
-});test('source account actions are grouped and unsafe operations remain guarded',async()=>{
- const preview={state:'ready',accounts:[{id:'q-01',providerId:'qoder',nickname:'A long source account label',
+});
+test('all 13 owned sources show truthful per-channel readiness and allow direct manual login',async()=>{
+ const ids=['codearts','buddy','workbuddy','lobsterai','qoder','qodercn',
+  'trae','cline','loomy','raccoon','minimax','zcode','gemini'];
+ const preview={state:'ready',accounts:[
+  {id:'ca-one',providerId:'codearts',enabled:true,connectionState:'online'},
+  {id:'ca-two',providerId:'codearts',enabled:true,connectionState:'not_checked'},
+  {id:'qo-one',providerId:'qoder',enabled:false,connectionState:'online'}]};
+ const status={state:'mounted',rpcReady:true,channelCount:13,channels:ids,
+  modelAdapterReady:['codearts','qodercn'],modelAdapterUnready:['gemini']};
+ const rig=createUiRig(new Map(),preview,status);await rig.init();
+ rig.find(rig.render(),'button','复用管理')[0].props.onClick();
+ rig.find(rig.render(),'button','自主登录')[0].props.onClick();
+ const page=rig.render();
+ const all=uiNodes(page,node=>typeof node.props?.['data-source-provider']==='string');
+ assert.equal(all.length,13,'the owned pool must show all available channels, even with no accounts');
+ const get=id=>all.find(node=>node.props['data-source-provider']===id);
+ assert.ok(get('qodercn')&&get('gemini')&&get('buddy'));
+ assert.match(rig.flatten(get('codearts')).join(' '),/登记 2 个 \/ 官方鉴权 1 个/);
+ assert.match(rig.flatten(get('qoder')).join(' '),/官方鉴权 0 个/);
+ assert.match(rig.flatten(get('gemini')).join(' '),/尚无独立账号.*适配器异常/);
+ assert.equal(rig.mutations.filter(x=>x.kind==='source-rpc').length,0,
+  'opening the channel matrix must not create or poll an account');
+ const authorize=uiNodes(get('qodercn'),node=>node.type==='button')
+  .find(node=>rig.flatten(node).join('')==='自主登录');
+ assert.ok(authorize&&!authorize.props.disabled);
+ await authorize.props.onClick();
+ const calls=rig.mutations.filter(x=>x.kind==='source-rpc');
+ assert.deepEqual(calls.map(x=>x.method),['account.create']);
+ assert.equal(calls[0].payload.provider,'qodercn');
+  const pendingPage=rig.render();
+  const pendingRows=uiNodes(pendingPage,node=>typeof node.props?.['data-source-provider']==='string');
+  assert.equal(pendingRows.length,13);
+  for(const row of pendingRows){
+   const login=uiNodes(row,node=>node.type==='button')
+    .find(node=>rig.flatten(node).join('')==='自主登录');
+   assert.ok(login.props.disabled,'in-flight authorization cannot be overwritten');
+  }
+  assert.equal(rig.find(pendingPage,'button','发起扫码/网页登录')[0].props.disabled,true);
+  const dismiss=rig.find(pendingPage,'button','结束本次授权跟踪')[0];
+  assert.ok(dismiss&&!dismiss.props.disabled);
+  await dismiss.props.onClick();
+  assert.equal(rig.mutations.filter(x=>x.kind==='source-rpc').length,1,
+    'dismissing only clears UI tracking; it does not delete an account');
+  assert.equal(rig.find(rig.render(),'button','发起扫码/网页登录')[0].props.disabled,false);
+});
+test('source account actions are grouped and unsafe operations remain guarded',async()=>{ const preview={state:'ready',accounts:[{id:'q-01',providerId:'qoder',nickname:'A long source account label',
    enabled:true,refreshable:true,connectionState:'not_checked'}]};
  const source={state:'mounted',rpcReady:true,channelCount:13,channels:['qoder','workbuddy']};
  const rig=createUiRig(new Map(),preview,source);await rig.init();

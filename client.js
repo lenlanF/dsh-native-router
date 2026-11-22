@@ -168,10 +168,19 @@ window.__ModuleLoader__.load({
         color:good?'#38b87a':warn?'#c29d44':'inherit',whiteSpace:'nowrap'}},
         kind==='checkin'?(checkinLabels[value]||value):(accountLabels[value]||value));
     }
-    function EmbeddedPackConsole({pack,upstream,channelCatalog,run,busy,modelProvider,setModelProvider,onModels,modelBusy,models,onSourceLogin,onSourcePoll,pendingLogin,onSourceRefresh,onSourceReuseLoomy,sourceBusy,loomySmsPhone,onLoomySmsPhone,loomySmsCode,onLoomySmsCode,loomySmsSent,onLoomySmsSend,onLoomySmsSubmit}){
+    function EmbeddedPackConsole({pack,upstream,channelCatalog,run,busy,modelProvider,setModelProvider,onModels,modelBusy,models,onSourceLogin,onSourcePoll,onSourceDismissLogin,pendingLogin,onSourceRefresh,onSourceReuseLoomy,sourceBusy,loomySmsPhone,onLoomySmsPhone,loomySmsCode,onLoomySmsCode,loomySmsSent,onLoomySmsSend,onLoomySmsSubmit}){
       const rows=upstream?.accounts||[],live=pack?.state==='mounted'&&pack?.rpcReady===true;
        const sourceChannels=pack?.channels||[],selectedSource=sourceChannels.includes(modelProvider)
-         ?modelProvider:sourceChannels[0]||'';
+          ?modelProvider:sourceChannels[0]||'';
+      const visibleSources=sourceChannels.map(id=>{
+        const linked=rows.filter(account=>account.providerId===id);
+        return {id,name:channelCatalog?.find(c=>c.id===id)?.name||id,
+          count:linked.length,
+          verified:linked.filter(account=>account.enabled===true&&account.connectionState==='online').length,
+          ready:pack?.modelAdapterReady?.includes(id)===true,
+          blocked:pack?.modelAdapterUnready?.includes(id)===true,
+          pending:pendingLogin?.providerId===id};
+      }).sort((a,b)=>(b.count>0)-(a.count>0)||a.name.localeCompare(b.name,'zh-CN'));
       const packLabel={disabled:'默认关闭',blocked:'安全门禁阻止',waiting_host_services:'等待宿主',loading:'加载中',mounted:live?'自主登录已就绪':'渠道已挂载，登录接口等待中',failed:'挂载失败',host_disposed:'宿主已释放',disposed:'已释放',unavailable:'不可用'}[pack?.state]||'状态未知';
        return h(Panel,{title:'渠道授权池 · 自主登录与原授权接管'},
         h('div',{style:css.line},
@@ -188,7 +197,31 @@ window.__ModuleLoader__.load({
              '模型适配器 '+pack.modelAdapterUnready.length+' 个未就绪；自主扫码/网页登录仍可继续'),
            pack.modelAdapterUnready.map(id=>h('div',{key:id,style:css.small},
              id+' · '+(pack?.modelAdapterUnreadyReasons?.[id]||'unknown')))):null,
-         h('p',{style:css.small},'自主扫码或网页授权新账号，原渠道插件与本插件互不覆盖。'),
+          h('p',{style:css.small},'自主扫码或网页授权新账号，原渠道插件与本插件互不覆盖。'),
+          sourceChannels.length?h('div',{style:{...css.card,padding:10}},
+            h('div',{style:{...css.line,justifyContent:'space-between'}},
+              h('strong',null,'全部独立来源 · '+sourceChannels.length+' 渠道'),
+              h('span',{style:css.small},'已登记账号和已鉴权账号分开计数，空渠道不代表授权成功')),
+            h('div',{style:{maxHeight:390,overflowY:'auto',scrollbarWidth:'thin'}},
+              visibleSources.map(item=>h('div',{key:item.id,'data-source-provider':item.id,
+                style:{...css.itemRow,gap:9}},
+                h('div',{style:{flex:'1 1 170px',minWidth:0}},
+                  h('div',{style:{...css.line,marginBottom:2}},
+                    h('strong',null,item.name),
+                    h('span',{style:css.small},item.id)),
+                  h('div',{style:{...css.line,marginBottom:0}},
+                    h('span',{style:css.mutedTag},upstream?.state!=='ready'?'账号池尚未读取':
+                      item.count===0?'尚无独立账号':'登记 '+item.count+' 个 / 官方鉴权 '+item.verified+' 个'),
+                    h('span',{style:css.mutedTag},item.ready?'适配器已就绪':
+                      item.blocked?'适配器异常':'模型适配器待确认'),
+                    item.pending?h('span',{style:css.mutedTag},'授权待确认'):null)),
+                h('div',{className:'dnr-source-login-actions',style:{...css.line,marginBottom:0}},
+                  h(Button,{disabled:!live||!!busy||!!sourceBusy,
+                    title:'选择 '+item.name+' 查询模型',
+                    onClick:()=>setModelProvider(item.id)},'选择'),
+                  h(Button,{disabled:!live||!!busy||!!sourceBusy||!!pendingLogin,
+                    title:'在本插件自有来源池授权 '+item.name,
+                    onClick:()=>onSourceLogin(item.id)},'自主登录')))))):null,
          pack?.skippedProviders?.length?h('details',null,
            h('summary',{style:{cursor:'pointer',fontSize:12}},
              '宿主已有 '+pack.skippedProviders.length+' 个同名原渠道 · 自主登录仍可用'),
@@ -199,7 +232,7 @@ window.__ModuleLoader__.load({
                 (channelCatalog?.find(c=>c.id===id)?.name||id)+' · '+id}))}),
             h(Button,{disabled:!selectedSource||!!busy||!!modelBusy||!!sourceBusy,onClick:()=>onModels(selectedSource)},
               modelBusy?'模型查询中…':'查询模型'),
-            h(Button,{disabled:!selectedSource||!!busy||!!sourceBusy,onClick:()=>onSourceLogin(selectedSource)},'发起扫码/网页登录')),
+             h(Button,{disabled:!selectedSource||!!busy||!!sourceBusy||!!pendingLogin,onClick:()=>onSourceLogin(selectedSource)},'发起扫码/网页登录')),
           pendingLogin?h('div',{style:{...css.card,padding:10}},
             h('span',{style:css.small},pendingLogin.mode==='sms-reauth'
               ?'现有 Loomy 账号 · 原账号重新授权，不会创建重复账号'
@@ -207,7 +240,9 @@ window.__ModuleLoader__.load({
             pendingLogin.mode==='sms-reauth'?null:pendingLogin.loginUrl?h('div',{style:css.line},
               h('a',{href:pendingLogin.loginUrl,target:'_blank',rel:'noopener noreferrer'},
                 '打开授权链接（先核对域名）')):h('p',{style:css.small},'来源未提供安全授权链接，不能自动打开'),
-            pendingLogin.mode==='sms-reauth'?null:h(Button,{disabled:!!sourceBusy,onClick:onSourcePoll},'检查登录结果')):null,
+             pendingLogin.mode==='sms-reauth'?null:h(Button,{disabled:!!sourceBusy,onClick:onSourcePoll},'检查登录结果'),
+             h(Button,{disabled:!!sourceBusy,onClick:onSourceDismissLogin,
+               title:'只结束本页面的授权跟踪，不移除或退出渠道账号'},'结束本次授权跟踪')):null,
           pendingLogin?.providerId==='loomy'?h('div',{style:{...css.card,padding:10}},
             h('p',{style:css.small},'微信扫码不可用时，可使用 Loomy 官方短信验证码备用登录；短信仅用于这次账号授权。'),
             h('div',{style:css.line},
@@ -282,7 +317,7 @@ window.__ModuleLoader__.load({
     }
     function ReuseConsole({data,cfg,onReuseSettings,run,busy,onRefresh,subtab,onSubtab,
       embeddedPack,modelProvider,setModelProvider,onModels,modelBusy,models,
-       onSourceLogin,onSourcePoll,pendingLogin,onSourceRefresh,onSourceReuseLoomy,sourceBusy,
+       onSourceLogin,onSourcePoll,onSourceDismissLogin,pendingLogin,onSourceRefresh,onSourceReuseLoomy,sourceBusy,
        loomySmsPhone,onLoomySmsPhone,loomySmsCode,onLoomySmsCode,loomySmsSent,onLoomySmsSend,onLoomySmsSubmit,
        hostModels,hostModelBusy,hostSelectedModel,onSelectHostModel,onHostModels,
       hostCatalog,onRefreshHostCatalog,
@@ -456,7 +491,7 @@ window.__ModuleLoader__.load({
           h(EmbeddedPackConsole,{pack:embeddedPack,upstream:data?.embeddedAccounts,
             channelCatalog:data?.channels,run,busy,
             modelProvider,setModelProvider,onModels,modelBusy,models,
-             onSourceLogin,onSourcePoll,pendingLogin,onSourceRefresh,onSourceReuseLoomy,sourceBusy,
+             onSourceLogin,onSourcePoll,onSourceDismissLogin,pendingLogin,onSourceRefresh,onSourceReuseLoomy,sourceBusy,
               loomySmsPhone,onLoomySmsPhone,loomySmsCode,onLoomySmsCode,loomySmsSent,onLoomySmsSend,onLoomySmsSubmit})):null);
     }
     function AutoFreeConsole({pool,cfg,hostProviders,onRefresh,busy,
@@ -1212,6 +1247,7 @@ window.__ModuleLoader__.load({
         return envelope.result.value??{};
       }
       async function sourceLogin(providerId){
+        if(pendingSourceLogin){setError('已有渠道授权待确认，请先完成或结束本次跟踪');return}
         if(!window.confirm('确认在隔离来源渠道包中为 '+providerId+' 创建新的授权流程？授权链接只供你手动核对并打开，不会自动跳转。'))return;
         setSourceRpcBusy('login');setError('');setNotice('');
         try{
@@ -1227,9 +1263,17 @@ window.__ModuleLoader__.load({
         }catch(error){setError(String(error?.message??error))}
         finally{setSourceRpcBusy('')}
       }
+      function sourceDismissLogin(){
+        if(!pendingSourceLogin)return;
+        if(!window.confirm('确定结束当前页面的授权跟踪？仅清除界面待确认状态，不会删除来源账号或凭据；已建账号仍可在来源账号池管理。'))return;
+        setPendingSourceLogin(null);
+        setLoomySmsPhone('');setLoomySmsCode('');setLoomySmsSent(false);
+        setNotice('已结束本页授权跟踪，来源账号池未修改。');
+      }
       function sourceReuseLoomyAccount(account){
         if(account?.providerId!=='loomy'||account.enabled!==true
           ||typeof account.id!=='string'||!/^[-_a-zA-Z0-9]{1,100}$/.test(account.id))return;
+        if(pendingSourceLogin){setError('已有授权待确认，不能覆盖另一账号的待授权状态');return;}
         setPendingSourceLogin({providerId:'loomy',accountId:account.id,mode:'sms-reauth'});
         setLoomySmsPhone('');setLoomySmsCode('');setLoomySmsSent(false);
         setNotice('准备为现有 Loomy 账号重新授权，未自动申请短信，也未创建新账号。');
@@ -1580,7 +1624,8 @@ h(AccountConsole,{data:channelsView,
          embeddedPack:status?.embeddedPack,credentialService:status?.credentialService,modelProvider,
          setModelProvider:value=>{setModelProvider(value);setEmbeddedModels(null)},
          onModels:loadUpstreamModels,modelBusy,models:embeddedModels,
-         onSourceLogin:sourceLogin,onSourcePoll:sourcePollLogin,pendingLogin:pendingSourceLogin,
+          onSourceLogin:sourceLogin,onSourcePoll:sourcePollLogin,
+          onSourceDismissLogin:sourceDismissLogin,pendingLogin:pendingSourceLogin,
           onSourceRefresh:sourceRefreshAccount,onSourceReuseLoomy:sourceReuseLoomyAccount,sourceBusy:sourceRpcBusy,
           loomySmsPhone,onLoomySmsPhone:value=>{setLoomySmsPhone(value.replace(/\D/g,'').slice(0,11));setLoomySmsCode('');setLoomySmsSent(false)},
           loomySmsCode,onLoomySmsCode:value=>setLoomySmsCode(value.replace(/\D/g,'').slice(0,8)),
