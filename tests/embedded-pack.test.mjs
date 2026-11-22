@@ -61,7 +61,8 @@ test('real pinned source pack ESM import is refused on incompatible Node runtime
 });
 test('pinned MIT channel pack is a verified upstream distribution snapshot, including WASM',()=>{
  const receipt=JSON.parse(readFileSync(join(root,'vendor','channel-pack','SOURCE_RECEIPT.json'),'utf8'));
- assert.equal(receipt.sourceCommit,'6daa5bc344feac44763af25c674e8882c292a728');
+  assert.equal(receipt.sourceCommit,'114b4a516ab32e6f318a53cab4ac7f83ef8dd0b0');
+  assert.equal(receipt.upstreamVersion,'3.5.4');
  assert.equal(receipt.sourceLicense,'MIT');
  assert.equal(receipt.referenceFiles.length,4);
  for(const item of receipt.referenceFiles){

@@ -27,7 +27,7 @@ ctx.provide('credentials',{
 ctx.provide('commands',{register(){return ()=>{}}});
 ctx.provide('llm',{
  listProviders(){return ['native-router']},
- registerAdapter(ids){observed.adapters.push(ids);return ()=>{}},
+ registerAdapter(ids,adapter){observed.adapters.push({ids,adapter});return ()=>{}},
  registerModelDiscovery(){return ()=>{}},
  registerConfigurableProviders(){return ()=>{}},
 });
@@ -55,7 +55,7 @@ try{
  }
  assert.equal(snapshot?.state,'mounted',JSON.stringify(snapshot));
  assert.equal(observed.adapters.length,13,'all 13 private model adapters must register');
- assert.equal(new Set(observed.adapters.flat()).size,13,'model aliases must be unique');
+ assert.equal(new Set(observed.adapters.flatMap(row=>row.ids)).size,13,'model aliases must be unique');
  assert.equal(snapshot.rpcReady,true,'Owner login RPC must be ready');
  assert.ok(routes.length>=2,'Native pack must register its private RPC endpoints');
  assert.equal(snapshot.modelAdapterReady.length,13,'all private model adapters should report ready');
@@ -83,6 +83,17 @@ try{
    return provider;
  }));
  assert.equal(new Set(results).size,13,'all owned source RPCs must respond');
+ // An adapter mount is not an authenticated account. Every private alias
+ // must publish ZERO models and refuse explicit resolution until verified.
+ for(const {ids,adapter} of observed.adapters){
+   for(const providerId of ids){
+     assert.deepEqual(await adapter.listModels(providerId),[],
+       'unverified private source leaked models: '+providerId);
+     await assert.rejects(async()=>adapter.resolveModel(providerId,'unverified'),
+       /Independent source account not verified/,
+       'unverified source unexpectedly resolved model: '+providerId);
+   }
+ }
 
  // Self-owned source pool remains scoped and must never become the host pool.
  assert.equal(ctx.get('accountPool',false),undefined);
