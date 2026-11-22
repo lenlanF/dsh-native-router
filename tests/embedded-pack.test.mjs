@@ -20,13 +20,13 @@ const enabled=()=>({embeddedPack:{enabled:true}});
 test('ZCode signed claimable plan can enter exact-account claim without legacy available field',async()=>{
  const rows=[{id:'zc-a',provider:'zcode',enabled:true,credentialRef:'ZA'},
              {id:'zc-b',provider:'zcode',enabled:true,credentialRef:'ZB'}];
- let eligible=true,called=0;
+ let eligible=true,kind='claimed',called=0;
  const pool={listAllAccounts:async()=>rows};
  const ops={
   status:async(p,id)=>({ok:true,value:{accounts:[{accountId:id,status:{
     active:true,claimable:eligible,planCount:eligible?1:0,todayCheckedIn:false}}]}}),
   claim:async(p,id)=>{assert.equal(p,'zcode');assert.equal(id,'zc-b');called++;
-    return {ok:true,value:{results:[{accountId:'zc-b',outcome:{kind:'claimed'}},
+    return {ok:true,value:{results:[{accountId:'zc-b',outcome:{kind}},
       {accountId:'zc-a',outcome:{kind:'failed'}}]}}}
  };
   let livePool;
@@ -46,6 +46,19 @@ test('ZCode signed claimable plan can enter exact-account claim without legacy a
   const missing=await bridge.checkinAccount({providerId:'zcode',sourceAccountId:'absent'});
   assert.equal(missing.state,'unavailable');
   assert.equal(called,1);
+  eligible=true;
+  kind='captcha';
+  const challenge=await bridge.checkinAccount({providerId:'zcode',sourceAccountId:'zc-b'});
+  assert.equal(challenge.state,'client_required');
+  assert.equal(challenge.accepted,undefined,
+    'captcha is not accepted and cannot be marked as a claimed gift');
+  kind='ineligible';
+  const ineligible=await bridge.checkinAccount({providerId:'zcode',sourceAccountId:'zc-b'});
+  assert.equal(ineligible.state,'no_task','current ineligibility is not a confirmed grant');
+  kind='unexpected-upstream-kind';
+  const unknown=await bridge.checkinAccount({providerId:'zcode',sourceAccountId:'zc-b'});
+  assert.equal(unknown.state,'failed','unknown upstream outcome fails closed');
+  assert.equal(called,4);
  }finally{bridge.dispose()}
 });
 test('real pinned source pack ESM import is refused on incompatible Node runtimes before loading its embedded Undici',()=>{
