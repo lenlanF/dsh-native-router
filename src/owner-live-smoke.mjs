@@ -266,12 +266,43 @@ async function hostRouteProof({llm,adapter,configStore,accountCenter,
 }
 
 
+// Bound each official read. A misbehaving Provider may ignore AbortSignal,
+// so Promise.race prevents it from stalling unrelated channel acceptance.
+// A timed-out read cannot subsequently commit an account proof or a claim.
+async function boundedInventoryRead({account,driver,signal,timeoutMs}){
+ const controller=new AbortController();
+ let timer;
+ let cancel;
+ const cancelled=new Promise(resolve=>{
+   cancel=()=>{controller.abort();resolve({state:'skipped',code:'CANCELLED'})};
+ });
+ if(signal?.aborted)cancel();
+ else signal?.addEventListener('abort',cancel,{once:true});
+ const deadline=new Promise(resolve=>{
+   timer=setTimeout(()=>{
+     controller.abort();
+     resolve({state:'observed',code:'OFFICIAL_READ_TIMEOUT',authVerified:false});
+   },timeoutMs);
+ });
+ try{
+   if(controller.signal.aborted)return {state:'skipped',code:'CANCELLED'};
+   return await Promise.race([
+     ownerReadOnlyInventory({account,driver,signal:controller.signal}),
+     cancelled,deadline,
+   ]);
+ }finally{
+   clearTimeout(timer);
+   signal?.removeEventListener('abort',cancel);
+   controller.abort();
+ }
+}
+
 // Official account inventory is strictly read-only. Work across independent
 // Providers in parallel (at most four), serializing accounts from one Provider
 // to avoid hammering a shared login/refresh endpoint. The result array and
 // report file always remain in the original configured account-slot order.
 async function parallelReadOnlyInventory({accounts,indexes,accountCenter,configStore,
-  signal,now,report,persist}){
+  signal,now,report,persist,timeoutMs}){
  const groups=new Map();
  for(const index of indexes){
    const account=accounts[index];
@@ -306,7 +337,7 @@ async function parallelReadOnlyInventory({accounts,indexes,accountCenter,configS
          let driver;
          try{driver=accountCenter.driverFor?.(account.providerId)}catch{}
          let proof;
-         try{proof=await ownerReadOnlyInventory({account,driver,signal})}
+         try{proof=await boundedInventoryRead({account,driver,signal,timeoutMs})}
          catch{proof={state:'observed',code:'OFFICIAL_STATUS_UNAVAILABLE'}}
          if(!allowed(account)){
            result.state='skipped';result.code='ACCOUNT_CHANGED';
@@ -337,7 +368,7 @@ async function parallelReadOnlyInventory({accounts,indexes,accountCenter,configS
 }
 
 export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,env=process.env,
-  now=()=>Date.now(),signal,waitFor=wait,logger}={}){
+  now=()=>Date.now(),signal,waitFor=wait,logger,inventoryReadTimeoutMs=15000}={}){
   const nonce=env.DSH_NATIVE_ROUTER_SMOKE_NONCE;
   if(typeof nonce!=='string'||!NONCE.test(nonce)||!configStore?.path)return {state:'disabled'};
   const directory=dirname(configStore.path);
@@ -411,7 +442,8 @@ export async function runOwnerLiveSmoke({configStore,accountCenter,adapter,llm,e
        .filter(index=>request.slots===undefined||request.slots.includes(index+1));
    if(request.mode==='inventory-audit'){
      await parallelReadOnlyInventory({accounts,indexes:selectedIndexes,accountCenter,
-       configStore,signal,now,report,persist});
+       configStore,signal,now,report,persist,
+       timeoutMs:inventoryReadTimeoutMs});
    }else for(const index of selectedIndexes){
      if(signal?.aborted){report.state='interrupted';break}
      const account=accounts[index];
