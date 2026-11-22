@@ -53,17 +53,20 @@ export async function ownerReadOnlyInventory({account,driver,signal}={}){
     const free=zero||row.freeAllowance==='zcode-start-plan-gift'
       ||row.freeAllowance==='loomy-daily-gift'
       ||row.upstreamFreeLabel===true||row.isFree===true||row.free===true;
-    const entry=unique.get(id)??{official:false,zero:false,free:false};
+    const entry=unique.get(id)??{official:false,zero:false,free:false,positive:false};
     entry.official||=official;
     entry.zero||=zero;
     entry.free||=free;
+    // A conflicting signed positive ratio for this same model ID must win
+    // over a stale zero/label. Never advertise an ambiguous model as free.
+    entry.positive||=official&&row.costMultiplier>0;
     unique.set(id,entry);
   }
   // These are catalogue candidates only; they do not prove a completed model
   // response and never grant authority to bill or auto-claim.
   const entries=[...unique.values()];
-  const exactZero=entries.filter(entry=>entry.zero).length;
-  const distinctFree=entries.filter(entry=>entry.free).length;
+  const exactZero=entries.filter(entry=>entry.zero&&!entry.positive).length;
+  const distinctFree=entries.filter(entry=>entry.free&&!entry.positive).length;
   const result={state:'observed',code:authVerified?'OFFICIAL_ACCOUNT_AND_CATALOG':
     'OFFICIAL_ACCOUNT_UNCONFIRMED',authVerified,authProofType,
     advertisedCount:unique.size,
