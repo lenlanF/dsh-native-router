@@ -128,5 +128,5 @@ test('damaged verification records are refused without overwriting existing cont
   assert.equal(store.get(makeConfig().accounts[0]),null);
   store.set(makeConfig().accounts[0],{state:'online',at:Date.now()});
   assert.equal(readFileSync(path,'utf8'),'{damaged evidence');
- }finally{rmSync(home,{recursive:true,force:true})}
+  }finally{rmSync(home,{recursive:true,force:true,maxRetries:20,retryDelay:100})}
 });

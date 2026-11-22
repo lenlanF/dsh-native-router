@@ -277,12 +277,10 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
    publicStatus.delete(account.id);cache.delete(account.id);
    return;
   }
-  // A canceled duplicate login without a rollback journal must NEVER remove
-  // a credential that predates this authorization attempt.
-  if(account?.alreadyOwned===true)return;
-  await vault?.unset?.(keyFor(account.id));
-  publicStatus.delete(account.id);cache.delete(account.id);
- }
+   // Without a matching in-flight receipt, deletion is NEVER authorized.
+   // Direct Cookie imports and browser logins stage an exact rollback token.
+   return;
+  }
  function completeCandidate({account}={}){
   const pending=pendingRollbacks.get(account?.rollbackToken);
   if(pending?.id===account?.id)pendingRollbacks.delete(account.rollbackToken);
@@ -308,9 +306,18 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
    alreadyOwned:status.account.alreadyOwned===true,
    ...(status.account.rollbackToken?{rollbackToken:status.account.rollbackToken}:{})}:null};
  }
- function accountSnapshot(account){return publicStatus.get(account?.id)??{}}
+  function accountSnapshot(account){return publicStatus.get(account?.id)??{}}
+   async function cancelLogin(){
+    const state=browser.status();
+    if(state.status==='done'){
+     if(state.account?.rollbackToken)
+      await rollbackCandidate({account:state.account});
+     return browser.dismissCompleted?.()??{status:'canceled',at:now()};
+    }
+    return browser.cancel();
+   }
   return {authMethod:'独立浏览器扫码登录 / Cookie',
     get runtimeReady(){return typeof vault?.resolve==='function'&&typeof vault?.set==='function'},
-   addCookie,rollbackCandidate,completeCandidate,loginStatus,startLogin:()=>browser.start(),cancelLogin:()=>browser.cancel(),
+   addCookie,rollbackCandidate,completeCandidate,loginStatus,startLogin:()=>browser.start(),cancelLogin,
    listModels,generate,refresh,login:refresh,logout,checkIn,accountSnapshot};
-}
+ }

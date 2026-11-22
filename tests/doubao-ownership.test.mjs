@@ -183,12 +183,12 @@ test('Doubao login polling commits a true private receipt and cannot leak Cookie
 });
 test('Doubao login polling rolls back newly captured Cookie after config failure',async()=>{
  const h=rig({rejectSave:true});
- const receipt=await h.driver.addCookie({cookie:COOKIE});
+  const receipt=await h.driver.addCookie({cookie:COOKIE,stageRollback:true});
  const wrapper={...h.driver,loginStatus:()=>({status:'done',account:receipt})};
  const center=createAccountCenter({configStore:{
   get:()=>structuredClone(h.config),replace:()=>{throw Error('Simulated config persistence failure')}},
   drivers:new Map([['own_doubao',wrapper]])});
  await assert.rejects(()=>center.pollDoubaoLogin(),/Simulated config persistence failure/);
- assert.equal(h.stored.size,0);
+  assert.equal(h.stored.size,0,'exact browser-staged receipt must be rolled back');
  center.stop();h.center.stop();
 });

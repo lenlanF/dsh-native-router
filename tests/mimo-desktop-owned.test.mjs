@@ -9,8 +9,8 @@ import {normalizeConfig} from '../src/config.mjs';
 
 const loggedIn={region:'cn',passToken:'synthetic-pass-token-from-mi-desktop-12345',
  userId:'test-user-22',cUserId:'user-c-22'};
-function harness({rejectReplace=false,authVerified=true,
- chatResult={text:'mimo desktop reply',reasoning:'',finishReason:'stop',toolCalls:[]}}={}){
+function harness({rejectReplace=false,authVerified=true,loginFactory,
+  chatResult={text:'mimo desktop reply',reasoning:'',finishReason:'stop',toolCalls:[]}}={}){
  const records=new Map(),calls=[];
  const vault={
   async resolve(ref){return records.get(ref)},
@@ -29,9 +29,10 @@ function harness({rejectReplace=false,authVerified=true,
    return chatResult;
   },
  };
- const driver=createMimoDesktopDriver({vault,transport,
-  readCurrentSession:async()=>{readerCalls++;return local}});
- let cfg=normalizeConfig({});
+  let cfg=normalizeConfig({});
+  const driver=createMimoDesktopDriver({vault,transport,
+   ...(loginFactory?{loginFactory}:{}),getAccounts:()=>cfg.accounts,
+   readCurrentSession:async()=>{readerCalls++;return local}});
  const configStore={get:()=>structuredClone(cfg),replace:value=>{
   if(rejectReplace)throw Error('Simulated disk write failure');
   cfg=normalizeConfig(value);return structuredClone(cfg);
@@ -76,6 +77,44 @@ test('own MiMo Desktop is discovered read-only and imported into plugin vault on
  await h.center.logout(imported.id);
  assert.equal(h.records.size,0);
  assert.equal(h.cfg.accounts.length,0);
+});
+test('MiMo late browser cancellation cannot erase an already committed independent session',async()=>{
+ const h=harness();
+ const discovered=await h.center.discover(MIMO_DESKTOP_ID);
+ const receipt=await h.center.importCandidate(MIMO_DESKTOP_ID,discovered.candidates[0].id);
+ const account=h.cfg.accounts[0],key=[...h.records.keys()][0];
+ const previous=h.records.get(key).value;
+ await h.driver.rollbackCandidate({account});
+ assert.equal(h.records.get(key).value,previous);
+ assert.equal((await h.driver.refresh({account})).state,'online');
+ await h.driver.rollbackCandidate({account:{...account,
+  credentialRef:'driver:own_mimo_desktop:sp_'+'f'.repeat(24)}});
+ assert.equal(h.records.get(key).value,previous);
+ const existing={...account,alreadyOwned:true};
+ await h.driver.rollbackCandidate({account:existing});
+ assert.equal(h.records.size,1);
+ assert.equal(receipt.id,account.id);
+ h.center.stop();
+});
+test('MiMo staged browser membership is canceled without leaving an uncommitted vault secret',async()=>{
+ const loginFactory=({onSession})=>{
+  let state={status:'idle',at:0,account:null};
+  return {
+   async start(){state={status:'done',at:1,account:await onSession(loggedIn)};return state},
+   status(){return state},
+   cancel(){state={status:'canceled',at:1,account:null};return state},
+   dismissCompleted(){state={status:'canceled',at:1,account:null};return state},
+  };
+ };
+ const h=harness({loginFactory});
+ const initial=await h.center.startMimoLogin({region:'cn'});
+ assert.equal(initial.status,'done');
+ assert.equal(h.records.size,1,'simulated browser must really stage owned credentials');
+ assert.equal(h.cfg.accounts.length,0);
+ assert.equal((await h.center.cancelMimoLogin()).status,'canceled');
+ assert.equal(h.records.size,0,'cancel must roll back the actual staged MiMo vault record');
+ assert.equal((await h.center.pollMimoLogin()).status,'canceled');
+ h.center.stop();
 });
 test('MiMo driver does not mark partial, empty or incomplete model replies as successful real inference',async()=>{
  for(const result of [

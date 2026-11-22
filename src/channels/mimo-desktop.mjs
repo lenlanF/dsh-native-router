@@ -70,8 +70,8 @@ export async function readMimoDesktopSession({
 }
 export function createMimoDesktopDriver({
  vault,readCurrentSession=readMimoDesktopSession,
- transport=createMimoDesktopSessionTransport(),loginFactory=createMimoDesktopLoginFlow,
- now=()=>Date.now(),
+  transport=createMimoDesktopSessionTransport(),loginFactory=createMimoDesktopLoginFlow,
+  getAccounts=()=>[],now=()=>Date.now(),
 }={}){
  const discovered=new Map(),snapshots=new Map(),inferenceProof=new Map();
  const supportedModels=[...models];
@@ -129,11 +129,17 @@ export function createMimoDesktopDriver({
     credentialRef:'driver:'+MIMO_DESKTOP_ID+':'+id};
   }finally{inFlight.delete(regionalKey)}
  }
- async function rollbackCandidate({account}={}){
-  const id=account?.id;
-  if(!TOKEN.test(String(id??''))||account?.providerId!==MIMO_DESKTOP_ID)return;
-  try{await vault?.unset?.(credentialKey(id))}catch{}
- }
+  async function rollbackCandidate({account}={}){
+   const id=String(account?.id??''),ref='driver:'+MIMO_DESKTOP_ID+':'+id;
+   if(!TOKEN.test(id)||account?.providerId!==MIMO_DESKTOP_ID
+     ||account.credentialRef!==ref||account.alreadyOwned===true)return;
+   // A late cancel from a browser window must never delete an account that
+   // has already been committed to DSH config (or belongs to another owner).
+   const saved=typeof getAccounts==='function'?getAccounts():[];
+   if(Array.isArray(saved)&&saved.some(x=>x.id===id&&
+     x.providerId===MIMO_DESKTOP_ID&&x.credentialRef===ref))return;
+   await vault?.unset?.(credentialKey(id));
+  }
  async function verifyMembership(session){
   try{return (await transport.probe({session})).authVerified===true}
   catch{return false}
@@ -153,7 +159,14 @@ export function createMimoDesktopDriver({
   authMethod:'本插件独立浏览器登录 / 可选原 MiMo Desktop 会话接管；无需客户端进程',
   startLogin:options=>browser.start(options),
   loginStatus:()=>browser.status(),
-  cancelLogin:()=>browser.cancel(),
+   cancelLogin:async()=>{
+    const state=browser.status();
+    if(state?.status==='done'){
+     if(state.account)await rollbackCandidate({account:state.account});
+     return browser.dismissCompleted?.()??{status:'canceled',at:now()};
+    }
+    return browser.cancel();
+   },
   get runtimeReady(){return typeof vault?.resolve==='function'&&typeof vault?.set==='function'},
   accountSnapshot(account){return {
    ...(snapshots.get(account?.id)??{}),

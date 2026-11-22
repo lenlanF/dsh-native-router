@@ -1,4 +1,9 @@
-# DSH Native Router（聚合路由）— 1.0.0-rc.79 秒悟 Web / 千问办公原生驱动
+# DSH Native Router（聚合路由）— 1.0.0-rc.80 多渠道账号安全与真实调用路径回归
+
+- 以用户刚升级的 rc.79 为生产基线：主要安装代码哈希经换行规范化后与 GitHub main 一致，原 6 Provider / 8 账号身份缓存最近均 online；无模型链条、自动签到和宿主故障切换均未被改动。
+- 修复 MiMo / 豆包 / 秒悟 / 千问办公的成员身份串号、事务回滚、异步取消、临时扫码请求失败和 SSE 误判；所有 Provider 必须在合法账号实际完成登录后才进行收费确认下的线上真实模型测试。详见 docs/RC80_CROSS_CHANNEL_AUDIT.md。
+- 发行检查仍包含完整 Node 回归、原生内置 13 源独立 Cordis Host 与 DSH 托管 Node 24 物理隔离验证、MIT 安全快照、53 项补丁确定性构建、所有文件 SHA 与隐私审计及 GitHub Windows/Linux CI；生产更新由用户自行从 main 执行。
+
 
 - 新增两个可原生接管会员授权的独立渠道：秒悟从官方远端 UID 接管登录并解析 UI SSE；千问办公独立 PKCE 设备码与 COSY 签名、真实用户/组织与额度/倍率、专用模型 SSE。均保留真实账户能力等级门禁；没有已授权账号的模拟端到端不等于生产真实模型回复。
 - 开发/验证仅使用原绑定 Windows WebCodexTunnel 项目工作区和物理 E: 临时隔离路径，原生产 8 个账号、用户登录态、DSH 安装和签到设置不改。发布条件包括 npm test、真实 DSH Cordis Host、物理 tgz 哈希与隐私审计、DSH 托管 Node 安装验证以及 GitHub Windows/Linux CI。

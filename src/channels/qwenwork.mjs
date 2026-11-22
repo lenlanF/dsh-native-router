@@ -41,6 +41,12 @@ function remoteUid(user){
  }
  return '';
 }
+function organizationOf(user){
+ const raw=user?.organization_id??user?.organizationId??user?.biz_org_id??user?.orgId??'';
+ const text=typeof raw==='number'&&Number.isSafeInteger(raw)?String(raw):
+   typeof raw==='string'?raw.trim():'';
+ return ID.test(text)?text:'';
+}
 const parseBody=async response=>{
  const text=await response.text();
  if(text.length>2*1024*1024)throw err('RESPONSE_SIZE');
@@ -112,11 +118,12 @@ export function createQwenWorkDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
    '/api/v1/adapter/user/account-context?include=user,plan,quota,page,data_sharing',
    {token:credential.token,headers:{accept:'application/json',
      'user-agent':'qoderwork/1.0.5'},signal});
-  const result=contextOf(await parseBody(response));
-  if(!result.uid)throw err('CREDENTIAL');
-  if(remoteUid(credential.user)!==result.uid)throw err('CREDENTIAL');
-  return result;
- }
+   const result=contextOf(await parseBody(response));
+   if(!result.uid||remoteUid(credential.user)!==result.uid)throw err('CREDENTIAL');
+   const storedOrg=organizationOf(credential.user),remoteOrg=organizationOf(result.user);
+   if(storedOrg&&remoteOrg&&storedOrg!==remoteOrg)throw err('CREDENTIAL');
+   return {...result,organizationId:remoteOrg||storedOrg};
+  }
  async function ownedCredential(account){
   const match=REF.exec(String(account?.credentialRef??''));
   if(account?.providerId!==QWENWORK_ID||!match||match[1]!==account?.id||!runtimeReady())
@@ -140,7 +147,12 @@ export function createQwenWorkDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
     method:'POST',body:{refresh_token:old.refreshToken},
     headers:{accept:'application/json','content-type':'application/json'},signal}));
    const newToken=body?.device_token??body?.deviceToken??body?.token;
-   if(!safeToken(newToken))throw err('CREDENTIAL');
+    if(!safeToken(newToken))throw err('CREDENTIAL');
+    const claim=unpackJwt(newToken);
+    const claimedId=claim.user_id??claim.sub;
+    if(claimedId!==undefined&&String(claimedId)!==remoteUid(old.user))throw err('CREDENTIAL');
+    const claimedOrg=organizationOf({organization_id:claim.biz_org_id});
+    if(claimedOrg&&claimedOrg!==organizationOf(old.user))throw err('CREDENTIAL');
    const refresh=body?.refresh_token??body?.refreshToken??old.refreshToken;
    const parsed=tokenFields({...body,token:newToken,refresh_token:refresh,
     user_id:remoteUid(old.user),machineId:old.loginDeviceId});
@@ -157,7 +169,8 @@ export function createQwenWorkDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
   if(!runtimeReady())throw err('CREDENTIAL');
   const token=tokenFields(payload);
   const confirmed=await remoteContext(token);
-   const id=idFor(confirmed.uid,confirmed.user?.organization_id??''),key=KEY(id);
+    const organization=confirmed.organizationId;
+    const id=idFor(confirmed.uid,organization),key=KEY(id);
   if(locks.has(id))throw err('BUSY');
   locks.add(id);
   try{
@@ -167,9 +180,10 @@ export function createQwenWorkDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
    const previous=typeof raw==='string'?raw:raw?.value;
    let prior;try{if(previous)prior=JSON.parse(previous)}catch{}
    if(previous&&(remoteUid(prior?.user)!==confirmed.uid||
-      String(prior?.user?.organization_id??'')!==String(confirmed.user?.organization_id??'')))
+       String(prior?.user?.organization_id??'')!==organization))
      throw err('CREDENTIAL');
-   const actual={...token,user:{...token.user,...confirmed.user,id:confirmed.uid}};
+    const actual={...token,user:{...token.user,...confirmed.user,
+     id:confirmed.uid,organization_id:organization}};
    const replacement=JSON.stringify(actual);
    let rollbackToken;
    if(previous!==replacement){
@@ -273,15 +287,11 @@ export function createQwenWorkDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
      throw err('UPSTREAM');
     const parser=new SseParser(),parts=[],thoughts=[];
     let finish=false,total=0,frames=0;
-    for await(const chunk of response.body){
-     if(streamAbort.signal.aborted)throw err(signal?.aborted?'CANCELLED':'TIMEOUT');
-     total+=chunk.byteLength;
-     if(total>16*1024*1024)throw err('RESPONSE_SIZE');
-     for(const data of parser.push(chunk)){
+     const handleFrame=data=>{
       if(++frames>8000)throw err('RESPONSE_SIZE');
       const event=parseQwenWorkFrame(data);
       if(event.kind==='error')throw err('UPSTREAM');
-      if(event.kind!=='chunk')continue;
+      if(event.kind!=='chunk')return;
       if(Array.isArray(event.delta?.tool_calls)&&event.delta.tool_calls.length)
        throw err('TOOL_PROTOCOL');
       if(event.delta?.content)parts.push(event.delta.content);
@@ -290,8 +300,15 @@ export function createQwenWorkDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
        throw err('RESPONSE_SIZE');
       if(event.finishReason==='stop')finish=true;
       if(event.finishReason==='length')throw err('INCOMPLETE_STREAM');
+     };
+     for await(const chunk of response.body){
+      if(streamAbort.signal.aborted)throw err(signal?.aborted?'CANCELLED':'TIMEOUT');
+      total+=chunk.byteLength;
+      if(total>16*1024*1024)throw err('RESPONSE_SIZE');
+      for(const data of parser.push(chunk))handleFrame(data);
      }
-    }
+     // The last valid SSE record need not have a trailing newline.
+     for(const data of parser.flush())handleFrame(data);
     if(streamAbort.signal.aborted)throw err(signal?.aborted?'CANCELLED':'TIMEOUT');
     if(!finish||!parts.join('').trim())throw err('INCOMPLETE_STREAM');
     proof.set(account.id,{at:now(),model});
@@ -330,33 +347,49 @@ export function createQwenWorkDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
    verifier,machineId,account:null};
   return status();
  }
- async function pollLogin(){
-  const flow=pending;
-  if(!flow)return {status:'idle'};
-  if(flow.status!=='waiting')return status();
-  if(now()-flow.at>=5*60*1000){
-   pending={status:'expired',at:flow.at};return status();
-  }
-  const qs=new URLSearchParams({nonce:flow.nonce,verifier:flow.verifier,
-    challenge_method:'S256'});
-  try{
-   const result=await fetchImpl(QWENWORK_GATEWAY+'/api/v1/deviceToken/poll?'+qs,{
-    method:'GET',redirect:'manual',
-    headers:{accept:'application/json'},signal:AbortSignal.timeout(12000)});
-   if(pending!==flow)return status();
-   if(result.status===404)return status();
-   if(!result.ok)throw err('UPSTREAM',result.status);
-   const body=await parseBody(result);
-   if(!safeToken(body?.token))throw err('CREDENTIAL');
-   const receipt=await storeCredential({...body,machineId:flow.machineId},{stageRollback:true});
-   if(pending!==flow){
-    await rollbackCandidate({account:receipt});return status();
+  async function pollLogin(){
+   const flow=pending;
+   if(!flow)return {status:'idle'};
+   if(flow.status!=='waiting')return status();
+   if(now()-flow.at>=5*60*1000){
+    pending={status:'expired',at:flow.at};return status();
    }
-   pending={status:'done',at:flow.at,account:receipt};
-   return status();
-  }catch{if(pending===flow)pending={status:'error',at:flow.at};
-   return status();}
- }
+   if(flow.polling||Number(flow.retryAfter??0)>now())return status();
+   flow.polling=true;
+   const qs=new URLSearchParams({nonce:flow.nonce,verifier:flow.verifier,
+    challenge_method:'S256'});
+   try{
+    const result=await fetchImpl(QWENWORK_GATEWAY+'/api/v1/deviceToken/poll?'+qs,{
+     method:'GET',redirect:'manual',
+     headers:{accept:'application/json'},signal:AbortSignal.timeout(12000)});
+    if(pending!==flow)return status();
+    if(result.status===404){
+     flow.failures=0;flow.retryAfter=0;return status();
+    }
+    if(result.status===401||result.status===403||result.status===400)
+     throw err('CREDENTIAL',result.status);
+    if(!result.ok||result.status>=300)throw err('UPSTREAM',result.status);
+    const body=await parseBody(result);
+    if(!safeToken(body?.token))throw err('CREDENTIAL');
+    const receipt=await storeCredential({...body,machineId:flow.machineId},{stageRollback:true});
+    if(pending!==flow){
+     await rollbackCandidate({account:receipt});return status();
+    }
+    pending={status:'done',at:flow.at,account:receipt};
+    return status();
+   }catch(error){
+    if(pending===flow){
+     if(error?.code==='CREDENTIAL')pending={status:'error',at:flow.at};
+     else{
+      // Temporary network errors, 429 and 5xx must not force a new QR login.
+      // Keep the original challenge until its five-minute official deadline.
+      flow.failures=(flow.failures??0)+1;
+      flow.retryAfter=now()+Math.min(16000,2000*2**Math.min(flow.failures-1,3));
+     }
+    }
+    return status();
+   }finally{flow.polling=false;}
+  }
  async function cancelLogin(){
   const flow=pending;
   pending={status:'canceled',at:now()};

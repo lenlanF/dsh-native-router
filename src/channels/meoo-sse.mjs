@@ -328,21 +328,30 @@ export async function* sseEvents(body, signal) {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  // Bound an unfinished SSE frame as well as the number of frames. A remote
+  // server must not be able to grow our DSH Host process without limit.
+  const MAX_PENDING_FRAME = 1024 * 1024
   try {
     for (;;) {
       if (signal?.aborted === true) return
       const { value, done } = await reader.read()
       if (done === true) break
       buffer += decoder.decode(value, { stream: true })
-      let cut = buffer.indexOf('\n\n')
-      while (cut !== -1) {
-        const frame = buffer.slice(0, cut)
-        buffer = buffer.slice(cut + 2)
+      // SSE permits CRLF and LF; TCP can split \r and \n across chunks.
+      let separator = /\r?\n\r?\n/.exec(buffer)
+      while (separator !== null) {
+        const frame = buffer.slice(0, separator.index)
+        buffer = buffer.slice(separator.index + separator[0].length)
         const payload = parseFrame(frame)
         if (payload !== undefined) yield payload
-        cut = buffer.indexOf('\n\n')
+        separator = /\r?\n\r?\n/.exec(buffer)
       }
+      if (buffer.length > MAX_PENDING_FRAME)
+        throw new Error('Meoo SSE frame exceeded one-megabyte limit')
     }
+    buffer += decoder.decode()
+    if (buffer.length > MAX_PENDING_FRAME)
+      throw new Error('Meoo SSE trailing frame exceeded one-megabyte limit')
     const tail = parseFrame(buffer)
     if (tail !== undefined) yield tail
   } finally {

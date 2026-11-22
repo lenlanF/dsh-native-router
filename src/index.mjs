@@ -45,9 +45,10 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
    }
    // One-time consent imports a Desktop membership session into our own vault.
    // No commercial MiMo API-Key or dependency on an upstream DSH plugin.
-   if(!channelDrivers&&!drivers.has(MIMO_DESKTOP_ID))
-     builtInCleanup.push(registerNativeChannelDriver(MIMO_DESKTOP_ID,
-       createMimoDesktopDriver({vault:ownedVault})));
+    if(!channelDrivers&&!drivers.has(MIMO_DESKTOP_ID))
+      builtInCleanup.push(registerNativeChannelDriver(MIMO_DESKTOP_ID,
+        createMimoDesktopDriver({vault:ownedVault,
+         getAccounts:()=>ownStore.get().accounts})));
     if(!channelDrivers&&!drivers.has('own_doubao'))
       builtInCleanup.push(registerNativeChannelDriver('own_doubao',
         createDoubaoDriver({vault:ownedVault,fetchImpl,logger:ctx.logger,

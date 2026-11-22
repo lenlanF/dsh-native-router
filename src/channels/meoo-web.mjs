@@ -348,7 +348,12 @@ export function createMeooWebDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
     if(event?.type==='error'||event?.type==='server_error')throw fail('UPSTREAM');
     translator.handle(event);
     if(translator.text.length>1048576)throw fail('RESPONSE_SIZE');
-    if(event?.type==='task_complete'){finished=true;break}
+    if(event?.type==='task_complete'){
+     const terminal=String(event?.status??event?.data?.status??'').toLowerCase();
+     if(event?.success===false||event?.data?.success===false||
+        ['failed','error','cancelled','canceled'].includes(terminal))throw fail('UPSTREAM');
+     finished=true;break;
+    }
    }
    if(!finished||!translator.text.trim())throw fail('INCOMPLETE_STREAM');
    modelProof.set(account.id,{at:now(),model});
@@ -394,7 +399,15 @@ export function createMeooWebDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
   accountSnapshot:account=>({...snapshots.get(account?.id),
    modelInferenceVerifiedAt:modelProof.get(account?.id)?.at??null}),
   addCookie,rollbackCandidate,completeCandidate,
-  startLogin:()=>browser.start(),loginStatus,cancelLogin:()=>browser.cancel(),
+   startLogin:()=>browser.start(),loginStatus,
+   cancelLogin:async()=>{
+    const state=browser.status();
+    if(state.status==='done'){
+     if(state.account?.rollbackToken)await rollbackCandidate({account:state.account});
+     return browser.dismissCompleted?.()??{status:'canceled',at:now()};
+    }
+    return browser.cancel();
+   },
   refresh,login:refresh,listModels,generate,logout,
  };
 }
