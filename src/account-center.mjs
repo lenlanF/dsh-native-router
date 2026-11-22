@@ -692,6 +692,104 @@ export function createAccountCenter({
     function cancelDoubaoLogin(){
       return driverFor('own_doubao')?.cancelLogin?.()??{status:'idle'};
     }
+    async function commitMeooAccount(result){
+      if(result?.providerId!=='own_meoo_web'||typeof result.id!=='string'
+        ||!/^mw_[a-f0-9]{28}$/.test(result.id)
+        ||result.credentialRef!=='driver:own_meoo_web:'+result.id)
+        throw Error('Invalid Meoo-owned account receipt');
+      const cfg=configStore.get(),prior=cfg.accounts.find(x=>x.id===result.id),
+        driver=driverFor('own_meoo_web');
+      if(prior){
+        if(prior.providerId!=='own_meoo_web'||prior.credentialRef!==result.credentialRef)
+          throw Error('Meoo account ownership conflict');
+        driver?.completeCandidate?.({account:result});
+        return {id:prior.id,providerId:'own_meoo_web',alreadyOwned:true};
+      }
+      if(cfg.providers.some(x=>x.id==='own_meoo_web'&&x.protocol!=='native-channel'))
+        throw Error('Meoo provider ID is owned by another adapter');
+      const providers=cfg.providers.some(x=>x.id==='own_meoo_web')?cfg.providers:
+        [...cfg.providers,{id:'own_meoo_web',name:'秒悟网页版 · 独立会员',
+          protocol:'native-channel',baseUrl:'',models:[],enabled:true,supportsTools:false}];
+      const account={id:result.id,providerId:'own_meoo_web',
+        credentialRef:result.credentialRef,enabled:true,autoCheckin:false,weight:1};
+      try{configStore.replace({...cfg,providers,accounts:[...cfg.accounts,account]})}
+      catch(error){
+        await driver?.rollbackCandidate?.({account:{...account,
+          alreadyOwned:result.alreadyOwned===true,
+          ...(result.rollbackToken?{rollbackToken:result.rollbackToken}:{})}});
+        throw error;
+      }
+      driver?.completeCandidate?.({account:result});
+      adapter?.invalidateCatalog?.();
+      return {id:account.id,providerId:'own_meoo_web',stored:true};
+    }
+    async function addMeooCookie({cookie}={}){
+      const driver=driverFor('own_meoo_web');
+      if(driver?.runtimeReady!==true||typeof driver.addCookie!=='function')
+        throw Error('Meoo persistent credential vault unavailable');
+      return commitMeooAccount(await driver.addCookie({cookie,stageRollback:true}));
+    }
+    async function startMeooLogin(){
+      const driver=driverFor('own_meoo_web');
+      if(driver?.runtimeReady!==true||typeof driver.startLogin!=='function')
+        throw Error('Meoo member browser login unavailable');
+      return driver.startLogin();
+    }
+    async function pollMeooLogin(){
+      const status=driverFor('own_meoo_web')?.loginStatus?.();
+      if(!status)throw Error('Meoo login status unavailable');
+      if(status.status==='done'&&status.account)
+        return {...status,account:await commitMeooAccount(status.account)};
+      return status;
+    }
+    function cancelMeooLogin(){
+      return driverFor('own_meoo_web')?.cancelLogin?.()??{status:'idle'};
+    }
+    async function commitQwenAccount(receipt){
+      if(receipt?.providerId!=='own_qwenwork'||!/^qw_[a-f0-9]{28}$/.test(String(receipt.id??''))
+        ||receipt.credentialRef!=='driver:own_qwenwork:'+receipt.id)
+        throw Error('Invalid QwenWork member receipt');
+      const cfg=configStore.get(),previous=cfg.accounts.find(a=>a.id===receipt.id),
+        driver=driverFor('own_qwenwork');
+      if(previous){
+        if(previous.providerId!=='own_qwenwork'||previous.credentialRef!==receipt.credentialRef)
+          throw Error('QwenWork member identity conflict');
+        driver?.completeCandidate?.({account:receipt});
+        return {id:previous.id,providerId:'own_qwenwork',alreadyOwned:true};
+      }
+      if(cfg.providers.some(x=>x.id==='own_qwenwork'&&x.protocol!=='native-channel'))
+        throw Error('QwenWork provider is foreign');
+      const providers=cfg.providers.some(x=>x.id==='own_qwenwork')?cfg.providers:
+        [...cfg.providers,{id:'own_qwenwork',name:'千问办公 · 独立自有账号',
+          protocol:'native-channel',baseUrl:'',models:[],enabled:true,supportsTools:false}];
+      const account={id:receipt.id,providerId:'own_qwenwork',
+        credentialRef:receipt.credentialRef,enabled:true,autoCheckin:false,weight:1};
+      try{configStore.replace({...cfg,providers,accounts:[...cfg.accounts,account]})}
+      catch(error){
+        await driver?.rollbackCandidate?.({account:{...account,
+          ...(receipt.rollbackToken?{rollbackToken:receipt.rollbackToken}:{})}});
+        throw error;
+      }
+      driver?.completeCandidate?.({account:receipt});
+      adapter?.invalidateCatalog?.();
+      return {id:account.id,providerId:'own_qwenwork',stored:true};
+    }
+    function startQwenLogin(){
+      const driver=driverFor('own_qwenwork');
+      if(driver?.runtimeReady!==true||typeof driver.startLogin!=='function')
+        throw Error('QwenWork PKCE device grant unavailable');
+      return driver.startLogin();
+    }
+    async function pollQwenLogin(){
+      const driver=driverFor('own_qwenwork');
+      if(typeof driver?.pollLogin!=='function')throw Error('QwenWork device polling unavailable');
+      const status=await driver.pollLogin();
+      return status.status==='done'&&status.account?
+        {...status,account:await commitQwenAccount(status.account)}:status;
+    }
+    async function cancelQwenLogin(){
+      return await driverFor('own_qwenwork')?.cancelLogin?.()??{status:'idle'};
+    }
     function start(){
       // Runtime startup must NEVER consult original-plugin files, metadata or
       // account pools. One-time migration belongs to explicit adoption only.
@@ -712,5 +810,5 @@ export function createAccountCenter({
   if(initialTimer)clearTimeout(initialTimer);
   automaticTimer=null;initialTimer=null;
  }
-  return {list,verify,verifyModel,listTestModels,setEnabled,logout,discover,importCandidate,refreshAll,refreshReadOnly,autoCheckDue,start,stop,drivers,driverFor,find,commitMimoDesktopAccount,startMimoLogin,pollMimoLogin,cancelMimoLogin,ensureDoubaoProvider,addDoubaoCookie,startDoubaoLogin,pollDoubaoLogin,cancelDoubaoLogin};
+  return {list,verify,verifyModel,listTestModels,setEnabled,logout,discover,importCandidate,refreshAll,refreshReadOnly,autoCheckDue,start,stop,drivers,driverFor,find,commitMimoDesktopAccount,startMimoLogin,pollMimoLogin,cancelMimoLogin,ensureDoubaoProvider,addDoubaoCookie,startDoubaoLogin,pollDoubaoLogin,cancelDoubaoLogin,commitMeooAccount,addMeooCookie,startMeooLogin,pollMeooLogin,cancelMeooLogin,commitQwenAccount,startQwenLogin,pollQwenLogin,cancelQwenLogin};
 }

@@ -111,7 +111,14 @@ if(key==='/host/catalog'){
       return response({ok:true,result:{state:'updated',changed:true,enabled:input.enabled}});
     }
     if(key==='/checkins')return response({ok:true,...checkinCenter.snapshot()});
-    if(key==='/channels/accounts/models'){
+     if(key==='/channels/qwenwork/login'){
+       const action=JSON.parse(options.body)?.action;
+       mutations.push({kind:'qwen-device',action});
+       return response({ok:true,result:action==='start'?{status:'waiting',at:1000,
+         loginUrl:'https://gateway.qwenwork.cn/device/selectAccounts?challenge=TEST_PUBLIC_CHALLENGE'}:
+         action==='cancel'?{status:'canceled'}:{status:'waiting'}});
+     }
+     if(key==='/channels/accounts/models'){
       const input=JSON.parse(options.body);mutations.push({action:'model-catalog',accountId:input.accountId});
       return response({ok:true,result:{state:'ready',freeCount:1,models:[{
         id:'free-model',name:'Hy4 flash x0.00',free:true,evidence:'WorkBuddy 目录标记 x0.00',
@@ -889,6 +896,28 @@ test('compact mobile navigation selects every major page while desktop sidebar r
  page=rig.render();
  assert.match(rig.flatten(page).join(' '),/AutoFree · 动态免费模型池/);
  assert.equal(uiNodes(page,node=>node.type==='select'&&node.props?.['aria-label']==='选择设置页面')[0].props.value,'pool');
+});
+test('Meoo and Qwen native login panels expose user-initiated actions without leaking device secrets',async()=>{
+  const rig=createUiRig();await rig.init();
+  rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
+  let screen=rig.render();
+  const labels=rig.flatten(screen).join(' ');
+  assert.match(labels,/秒悟网页版 · 独立会员账号/);
+  assert.match(labels,/千问办公 · 设备码 PKCE 独立账号/);
+  assert.equal(rig.find(screen,'button','验证并导入').length,1);
+  assert.equal(rig.find(screen,'button','申请独立设备授权').length,1);
+  assert.equal(uiNodes(screen,node=>node.type==='a'&&String(node.props?.href||'').includes('qwenwork.cn')).length,0);
+  await rig.find(screen,'button','申请独立设备授权')[0].props.onClick();
+  assert.deepEqual(rig.mutations.filter(item=>item.kind==='qwen-device').map(item=>item.action),['start']);
+  screen=rig.render();
+  const link=uiNodes(screen,node=>node.type==='a'&&String(node.props?.href||'').includes('qwenwork.cn'))[0];
+  assert.ok(link);
+  assert.match(link.props.href,/^https:\/\/gateway\.qwenwork\.cn\/device\/selectAccounts\?/);
+  assert.equal(link.props.target,'_blank');
+  assert.equal(link.props.rel,'noopener noreferrer');
+  assert.doesNotMatch(JSON.stringify(screen),/device_token|refresh_token|private-verifier/);
+  await rig.find(screen,'button','取消授权')[0].props.onClick();
+  assert.deepEqual(rig.mutations.filter(item=>item.kind==='qwen-device').map(item=>item.action),['start','cancel']);
 });
 test('overview uses complete deduplicated source chips ordered verified connected pending',async()=>{
  const hosts=[{providerId:'workbuddy',loginVerified:false},{providerId:'workbuddy-global',loginVerified:false}];

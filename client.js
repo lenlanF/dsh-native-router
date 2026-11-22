@@ -1010,8 +1010,11 @@ window.__ModuleLoader__.load({
           [mimoRegion,setMimoRegion]=useState('cn'),
           [mimoLogin,setMimoLogin]=useState(null),
           [doubaoCookie,setDoubaoCookie]=useState(''),[doubaoBusy,setDoubaoBusy]=useState(false),
-          [doubaoLogin,setDoubaoLogin]=useState(null),
-          [providerQuery,setProviderQuery]=useState('');
+           [doubaoLogin,setDoubaoLogin]=useState(null),
+           [meooCookie,setMeooCookie]=useState(''),[meooBusy,setMeooBusy]=useState(false),
+           [meooLogin,setMeooLogin]=useState(null),
+           [qwenBusy,setQwenBusy]=useState(false),[qwenLogin,setQwenLogin]=useState(null),
+           [providerQuery,setProviderQuery]=useState('');
        const refreshRuntime=useCallback(async()=>{
          const response=await fetch(URL+'/status',{cache:'no-store'});
          if(response.ok)setStatus(await response.json());
@@ -1089,7 +1092,51 @@ window.__ModuleLoader__.load({
             }catch{/* Transient polling error: retry next interval. */}
           },1800);
           return ()=>{disposed=true;clearInterval(timer)};
-        },[doubaoLogin?.status,refresh]);
+         },[doubaoLogin?.status,refresh]);
+         useEffect(()=>{
+           if(meooLogin?.status!=='waiting')return;
+           let disposed=false;
+           const timer=setInterval(async()=>{
+             try{
+               const response=await fetch(URL+'/channels/meoo/login',{method:'POST',
+                 headers:{'content-type':'application/json'},body:JSON.stringify({action:'poll'})});
+               const data=await response.json();
+               if(disposed||!response.ok||!data.ok)return;
+               const next=data.result;
+               if(next.status==='done'){
+                 setMeooLogin(next);
+                 setNotice('秒悟会员身份已通过远端确认，独立授权已保存；模型可用性还需完整推理验收。');
+                 await refresh();
+               }else if(next.status==='error'||next.status==='canceled'){
+                 setMeooLogin(next);setError('秒悟浏览器授权未完成，可重新扫码或通过 Cookie 导入。');
+               }
+             }catch{/* Transient lookup error; do not fabricate login success. */}
+           },1800);
+           return ()=>{disposed=true;clearInterval(timer)};
+         },[meooLogin?.status,refresh]);
+         useEffect(()=>{
+           if(qwenLogin?.status!=='waiting')return;
+           let disposed=false,active=false;
+           const timer=setInterval(async()=>{
+             if(active)return;active=true;
+             try{
+               const response=await fetch(URL+'/channels/qwenwork/login',{method:'POST',
+                 headers:{'content-type':'application/json'},body:JSON.stringify({action:'poll'})});
+               const data=await response.json();
+               if(disposed||!response.ok||!data.ok)return;
+               const next=data.result;
+               if(next.status==='done'){
+                 setQwenLogin(next);
+                 setNotice('千问办公已确认官方身份，私有授权已提交；请按实际积分和模型倍率使用。');
+                 await refresh();
+               }else if(['error','expired','canceled'].includes(next.status)){
+                 setQwenLogin(next);setError('千问办公授权未完成或已过期；可以重新发起设备码授权。');
+               }
+             }catch{/* Temporary network failure is not a failed member grant. */}
+             finally{active=false}
+           },1800);
+           return ()=>{disposed=true;clearInterval(timer)};
+         },[qwenLogin?.status,refresh]);
         useEffect(()=>{
           if(tab!=='reuse'||reuseSubtab!=='host')return;
           const first=hostModels?.providerId||
@@ -1537,7 +1584,65 @@ window.__ModuleLoader__.load({
            headers:{'content-type':'application/json'},body:JSON.stringify({action:'cancel'})}).catch(()=>{});
          setDoubaoLogin(null);
        }
-async function save(){
+       async function addMeooCookie(){
+         if(meooBusy)return;
+         if(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig)){
+           setError('请先保存配置草稿再接管秒悟账号。');return;
+         }
+         setMeooBusy(true);setError('');setNotice('');
+         try{
+           const response=await fetch(URL+'/channels/meoo/cookie',{method:'POST',
+             headers:{'content-type':'application/json'},body:JSON.stringify({cookie:meooCookie})});
+           const data=await response.json();
+           if(!response.ok||!data.ok)throw Error(data.error||'秒悟会员授权未验证成功');
+           setMeooCookie('');await refresh();
+           setNotice('秒悟自有会员已验证并保存，模型列表和积分将从对应会员账号读取。');
+         }catch(error){setError(String(error?.message??error))}
+         finally{setMeooBusy(false)}
+       }
+       async function startMeooBrowser(){
+         if(meooBusy)return;
+         if(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig)){
+           setError('请先保存配置草稿再开始秒悟网页授权。');return;
+         }
+         setMeooBusy(true);setError('');setNotice('');
+         try{
+           const response=await fetch(URL+'/channels/meoo/login',{method:'POST',
+             headers:{'content-type':'application/json'},body:JSON.stringify({action:'start'})});
+           const data=await response.json();
+           if(!response.ok||!data.ok)throw Error(data.error||'秒悟浏览器登录无法启动');
+           setMeooLogin(data.result);
+           setNotice('已打开秒悟独立登录窗口；账户身份由秒悟官方接口确认后才保存。');
+         }catch(error){setError(String(error?.message??error))}
+         finally{setMeooBusy(false)}
+       }
+       async function cancelMeooBrowser(){
+         await fetch(URL+'/channels/meoo/login',{method:'POST',
+           headers:{'content-type':'application/json'},body:JSON.stringify({action:'cancel'})}).catch(()=>{});
+         setMeooLogin(null);
+       }
+       async function startQwenDevice(){
+         if(qwenBusy)return;
+         if(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig)){
+           setError('请先保存配置草稿，再申请千问办公设备授权。');return;
+         }
+         setQwenBusy(true);setError('');setNotice('');
+         try{
+           const response=await fetch(URL+'/channels/qwenwork/login',{method:'POST',
+             headers:{'content-type':'application/json'},body:JSON.stringify({action:'start'})});
+           const data=await response.json();
+           if(!response.ok||!data.ok)throw Error(data.error||'千问办公设备授权未能发起');
+           setQwenLogin(data.result);
+           setNotice('已创建本插件专属设备码，请通过下方官方授权链接登录并确认账号。');
+         }catch(error){setError(String(error?.message??error))}
+         finally{setQwenBusy(false)}
+       }
+       async function cancelQwenDevice(){
+         await fetch(URL+'/channels/qwenwork/login',{method:'POST',
+           headers:{'content-type':'application/json'},body:JSON.stringify({action:'cancel'})}).catch(()=>{});
+         setQwenLogin(null);
+       }
+  async function save(){
         setBusy(true);setError('');setNotice('');
         try{
           const value=tab==='advanced'?JSON.parse(raw):cfg;
@@ -1610,6 +1715,32 @@ async function save(){
                 style:css.input,value:doubaoCookie,onChange:e=>setDoubaoCookie(e.target.value)}),
               h(Button,{disabled:doubaoBusy||doubaoCookie.length<12,
                 onClick:addDoubaoCookie},doubaoBusy?'处理中…':'导入 Cookie'))),
+          h(Panel,{title:'秒悟网页版 · 独立会员账号'},
+            h('p',{style:css.small},'独立浏览器登录或显式接管自己的网页 Cookie。官方身份核验成功后存入本插件私有凭据库，动态模型与真实积分均从秒悟会员接口读取；不复用原插件进程，不提供 API Key 计费通道，也不虚报免费模型。'),
+            h('div',{style:css.line},
+              h(Button,{kind:'primary',disabled:meooBusy||meooLogin?.status==='waiting',
+                onClick:startMeooBrowser},meooLogin?.status==='waiting'?'等待秒悟网页登录…':'秒悟浏览器登录'),
+              meooLogin?.status==='waiting'
+                ?h(Button,{onClick:cancelMeooBrowser},'取消授权'):null,
+              h('input',{type:'password',autoComplete:'off','aria-label':'秒悟独立 Cookie',
+                placeholder:'或粘贴秒悟 Cookie（必须包含会话票据）',
+                style:css.input,value:meooCookie,onChange:e=>setMeooCookie(e.target.value)}),
+              h(Button,{disabled:meooBusy||meooCookie.length<24,
+                onClick:addMeooCookie},meooBusy?'校验中…':'验证并导入'))),
+          h(Panel,{title:'千问办公 · 设备码 PKCE 独立账号'},
+            h('p',{style:css.small},'无需安装千问办公客户端：生成本插件专属设备授权链接，通过官方网页选择账号及团队。授权后保存到 DSH 私有凭据，模型经 COSY 签名直连官方服务，不启动额外本地网关。模型倍率从账号实时目录读取，未知费率不视为免费。'),
+            h('div',{style:css.line},
+              h(Button,{kind:'primary',disabled:qwenBusy||qwenLogin?.status==='waiting',
+                onClick:startQwenDevice},
+                qwenLogin?.status==='waiting'?'等待官方账号确认…':'申请独立设备授权'),
+              qwenLogin?.status==='waiting'?
+                h(Button,{onClick:cancelQwenDevice},'取消授权'):null),
+            qwenLogin?.status==='waiting'&&typeof qwenLogin.loginUrl==='string'&&
+              /^https:\/\/gateway\.qwenwork\.cn\/device\/selectAccounts\?/.test(qwenLogin.loginUrl)?
+              h('div',{style:{...css.line,marginTop:8}},
+                h('a',{href:qwenLogin.loginUrl,target:'_blank',rel:'noopener noreferrer',
+                  style:{fontWeight:600,wordBreak:'break-all'}},'打开千问办公官方账号授权页'),
+                h('span',{style:css.small},'必须在官方网页完成选择；本插件只显示公开授权地址')):null),
 h(AccountConsole,{data:channelsView,
           query:channelQuery,onQuery:setChannelQuery,run:runAction,setTab,
           busy:actionBusy,discovered,onAddProvider:addNativeProvider,
