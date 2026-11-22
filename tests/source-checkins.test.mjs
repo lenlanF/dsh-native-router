@@ -222,7 +222,7 @@ test('global DSH opt-in signs in every supported source channel; four unsupporte
 test('late ZCode 19:30 banner is reconsidered after 30min without exhausting claim limit',async()=>{
  let tries=0;
  const h=fixture({rows:[row('zcode','late-card')],
-   handler:async()=>++tries<3?{state:'no_task'}:{confirmed:true}});
+   handler:async()=>++tries<3?{state:'no_task',claimPosted:false}:{confirmed:true}});
  h.setNow(Date.parse('2026-11-17T11:05:00Z')); // Beijing 19:05, empty
  assert.equal((await h.center.tick()).attempted,1);
  assert.equal(h.records.at(-1).state,'no_task');
@@ -236,6 +236,24 @@ test('late ZCode 19:30 banner is reconsidered after 30min without exhausting cla
  assert.equal(h.records.at(-1).state,'success');
  assert.equal(tries,3,'two empty marketing reads are not three claim POST attempts');
  assert.equal((await h.center.tick()).attempted,0,'claimed plan must not be requested again');
+ h.center.stop();
+});
+test('ZCode claim POST that returned ineligible is never mistaken for a read-only empty banner',async()=>{
+ let posts=0;
+ const h=fixture({rows:[row('zcode','posted-ineligible')],
+   handler:async()=>{posts++;return {state:'no_task',claimPosted:true}}});
+ h.setNow(Date.parse('2026-11-17T11:05:00Z'));
+ assert.equal((await h.center.tick()).attempted,1);
+ assert.equal(h.records.at(-1).state,'no_task');
+ assert.equal(h.records.at(-1).readOnlyNoTask,undefined,
+   'a submitted claim cannot acquire the persisted read-only exemption');
+ h.setNow(Date.parse('2026-11-17T11:36:00Z'));
+ assert.equal((await h.center.tick()).attempted,0,
+   '30-minute free recheck must only apply before a claim POST');
+ h.setNow(Date.parse('2026-11-17T13:07:00Z'));
+ assert.equal((await h.center.tick()).attempted,0,
+   'server ineligibility after a real POST must not create a claim loop');
+ assert.equal(posts,1);
  h.center.stop();
 });
 test('ZCode real CAPTCHA status is client-required and never auto-retried as accepted',async()=>{
