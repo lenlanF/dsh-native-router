@@ -17,10 +17,15 @@ export const REFERENCE_CHANNELS=Object.freeze([
   {id:'own_doubao',name:'豆包工作会员 · 自有会话',auth:'本插件独立浏览器扫码 / Cookie；无需豆包客户端进程',referenceCheckin:true},
 ]);
 export const referenceChannel=(id)=>REFERENCE_CHANNELS.find(c=>c.id===id)??null;
+// A registered route is not an available login when its private vault or
+// in-process source bridge is unavailable. Never render a usable channel by
+// inference from a constructor method alone.
+const driverReady=driver=>driver?.runtimeReady!==false&&
+ (driver?.isSourceBridge!==true||driver.runtimeReady===true);
 export function publicChannelMeta(provider,driver){
   const reference=referenceChannel(provider.id);
   const generic=['openai-chat','anthropic-messages'].includes(provider.protocol);
-  const sourceReady=driver?.isSourceBridge!==true||driver.runtimeReady===true;
+   const sourceReady=driverReady(driver);
   return {
     id:provider.id,name:provider.name,protocol:provider.protocol,
     authMethod:provider.protocol==='dsh-host'?'沿用宿主原插件登录态（本插件不保存凭据）':
@@ -30,7 +35,8 @@ export function publicChannelMeta(provider,driver){
     // implemented by this plugin.
     checkinAvailable:typeof driver?.checkIn==='function',
     discoveryAvailable:typeof driver?.discover==='function'&&sourceReady,
-    loginAvailable:typeof driver?.login==='function'||generic,
+    loginAvailable:sourceReady&&(typeof driver?.login==='function'||
+      typeof driver?.startLogin==='function')||generic,
     refreshAvailable:typeof driver?.refresh==='function'||generic,
     logoutAvailable:typeof driver?.logout==='function'||generic,
     referenceCheckin:reference?.referenceCheckin??false,
@@ -44,14 +50,14 @@ export function describeChannels(config,drivers=new Map()){
     ...configured,
     ...REFERENCE_CHANNELS.filter(c=>!present.has(c.id)).map(c=>({
       id:c.id,name:c.name,protocol:null,authMethod:c.auth,
-      adapterReady:typeof drivers.get(c.id)?.generate==='function'
-        &&(drivers.get(c.id)?.isSourceBridge!==true||drivers.get(c.id)?.runtimeReady===true),
-      loginAvailable:typeof drivers.get(c.id)?.login==='function',
+       adapterReady:typeof drivers.get(c.id)?.generate==='function'&&driverReady(drivers.get(c.id)),
+       loginAvailable:driverReady(drivers.get(c.id))&&(
+         typeof drivers.get(c.id)?.login==='function'||
+         typeof drivers.get(c.id)?.startLogin==='function'),
       refreshAvailable:typeof drivers.get(c.id)?.refresh==='function',
       logoutAvailable:typeof drivers.get(c.id)?.logout==='function',
       checkinAvailable:typeof drivers.get(c.id)?.checkIn==='function',
-      discoveryAvailable:typeof drivers.get(c.id)?.discover==='function'
-        &&(drivers.get(c.id)?.isSourceBridge!==true||drivers.get(c.id)?.runtimeReady===true),
+       discoveryAvailable:typeof drivers.get(c.id)?.discover==='function'&&driverReady(drivers.get(c.id)),
       referenceCheckin:c.referenceCheckin,referenceOnly:true,
     })),
   ];

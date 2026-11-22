@@ -27,13 +27,15 @@ test('isolated membership login never sends CDP commands to a foreign debugger p
   assert.throws(()=>assertIsolatedCdpEndpoint(endpoint,38123));
  }
 });
-test('MiMo regions only open Xiaomi-owned HTTPS URLs, never local client endpoints',async()=>{
- for(const url of Object.values(MIMO_LOGIN_REGIONS)){
-  const target=new URL(url);
-  assert.equal(target.protocol,'https:');
-  assert.match(target.hostname,/^mimo-server-(cn|sgp|ams|ru|in)\.xiaomimimo\.com$/);
-  assert.equal(target.port,'');
- }
+test('MiMo regions open interactive first-party Xiaomi account sign-in, not raw membership JSON APIs',async()=>{
+  for(const [region,url] of Object.entries(MIMO_LOGIN_REGIONS)){
+   const target=new URL(url);
+   assert.equal(target.protocol,'https:',region);
+   assert.equal(target.hostname,'account.xiaomi.com',region);
+   assert.equal(target.pathname,'/',region);
+   assert.equal(target.port,'');
+   assert.doesNotMatch(url,/\/api\/|localhost|token-plan|:20128/i);
+  }
  const flow=createMimoDesktopLoginFlow({onSession:async()=>({id:'sp_test'}),
   flowFactory:({loginUrl,addAccount})=>({
    busy:false,

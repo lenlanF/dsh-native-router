@@ -8,6 +8,8 @@
 
 1. **复用现有桌面登录**：主动发现本机 MiMo Desktop Cookie 记录中的明文 `passToken`；对 AppBound 加密数据不绕过 Windows 保护，无法读取时明确为空。
 2. **本插件自主浏览器登录**：用隔离 Chromium 打开所选区域的 MiMo 会员账号页面，捕获来自 `account.xiaomi.com` 的会话 Cookie；登录完成后独立存入 DSH Credentials。隔离 profile 保存在 `E:\\Temp` 并清理；不启动网关。
+   - rc.78：网页登录实际打开 `https://account.xiaomi.com/` 交互表单，**不**打开会员 `/api/user/xiaomi/me` JSON API。用户选定的 `cn/sgp/ams/ru/in` 区域只控制后台该地区的会员服务验证与推理；没有远端身份确认的 Cookie 不生成 Provider 或账号。
+
 3. **统一独立运行**：基于自有 `passToken` 直接与小米账号服务换取 `serviceToken`，发生 401 时限次刷新；在自身服务上执行模型推理和完整 SSE/工具协议校验。
 4. **配置一致性**：仅在有确切授权回执后创建 `own_mimo_desktop` Provider/Account，配置写入失败撤销新凭据；不自动建立自选模型链。
 

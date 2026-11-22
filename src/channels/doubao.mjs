@@ -309,7 +309,8 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
    ...(status.account.rollbackToken?{rollbackToken:status.account.rollbackToken}:{})}:null};
  }
  function accountSnapshot(account){return publicStatus.get(account?.id)??{}}
- return {authMethod:'独立浏览器扫码登录 / Cookie',
+  return {authMethod:'独立浏览器扫码登录 / Cookie',
+    get runtimeReady(){return typeof vault?.resolve==='function'&&typeof vault?.set==='function'},
    addCookie,rollbackCandidate,completeCandidate,loginStatus,startLogin:()=>browser.start(),cancelLogin:()=>browser.cancel(),
    listModels,generate,refresh,login:refresh,logout,checkIn,accountSnapshot};
 }
