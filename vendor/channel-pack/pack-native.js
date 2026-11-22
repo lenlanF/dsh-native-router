@@ -63683,6 +63683,10 @@ async function handleMethod(method, payload, signal) {
         if (req.provider !== LOOMY.id) {
           return { ok: false, error: { code: "bad-request", message: `unsupported provider: ${req.provider}` } };
         }
+        const smsAccount = pool.findAccount(req.accountId);
+        if (!smsAccount || smsAccount.provider !== LOOMY.id || smsAccount.enabled !== true) {
+          return { ok: false, error: { code: "loomy-account-mismatch", message: "The Loomy account must exist and be enabled" } };
+        }
         const phone = typeof req.phone === "string" ? req.phone.trim() : "";
         if (!/^1[3-9]\d{9}$/.test(phone)) {
           return { ok: false, error: { code: "bad-request", message: "\u9700\u8981 11 \u4F4D\u6709\u6548\u624B\u673A\u53F7\uFF08phone\uFF09" } };
@@ -63700,6 +63704,10 @@ async function handleMethod(method, payload, signal) {
         const req = payload;
         if (req.provider !== LOOMY.id) {
           return { ok: false, error: { code: "bad-request", message: `unsupported provider: ${req.provider}` } };
+        }
+        const smsAccount = pool.findAccount(req.accountId);
+        if (!smsAccount || smsAccount.provider !== LOOMY.id || smsAccount.enabled !== true) {
+          return { ok: false, error: { code: "loomy-account-mismatch", message: "The Loomy account must exist and be enabled" } };
         }
         const pending = pendingSmsMsgid.get(req.accountId);
         if (pending === void 0 || pending.msgid.length === 0) {

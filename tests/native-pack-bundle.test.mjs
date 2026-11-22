@@ -28,7 +28,9 @@ test('the DSH-native bundle is deterministically derived from unchanged pinned M
   const crlf=Buffer.from(original.toString('utf8').replace(/\n/g,'\r\n'),'utf8');
   assert.equal(sha(canonicalText(crlf)),sha(original));
  assert.equal(sha(bundled),native.generatedSha256);
-   assert.equal(native.patches.length,51);
+    assert.equal(native.patches.length,53);
+    assert.ok(native.patches.includes('loomy-sms-sender-requires-existing-owned-account'));
+    assert.ok(native.patches.includes('loomy-sms-submit-refuses-cross-provider-credential-overwrite'));
    assert.ok(native.patches.includes('codearts-exact-official-credit-ratio'));
    assert.ok(native.patches.includes('zcode-rename-legacy-preview-for-dual-source'));
    assert.ok(native.patches.includes('zcode-marketing-touch-dual-source-discovery'));

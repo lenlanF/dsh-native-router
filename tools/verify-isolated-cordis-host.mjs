@@ -82,7 +82,26 @@ try{
      'empty independent sandbox must not borrow production accounts');
    return provider;
  }));
- assert.equal(new Set(results).size,13,'all owned source RPCs must respond');
+  assert.equal(new Set(results).size,13,'all owned source RPCs must respond');
+  // The SMS fallback must never operate on a missing, disabled or foreign account.
+  // In this empty real Cordis sandbox the request MUST stop before any
+  // upstream SMS network access or DSH Credentials reads/writes.
+  for(const method of ['login.sendSms','login.submitSms']){
+    const id='isolated-cross-provider-'+method;
+    const request=new Request('http://127.0.0.1'+rpc.path,{
+      method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({type:'client-request',rpcId:id,
+        method:'native-router-channel-pack',payload:{method,
+          payload:{provider:'loomy',accountId:'not-an-owned-account',
+            phone:'13900000000',code:'123456'}}}),
+    });
+    const result=await (await rpc.fetch(request)).json();
+    assert.equal(result.rpcId,id);
+    assert.equal(result.result?.ok,false,'unsafe fallback request must be rejected');
+    assert.equal(result.result?.error?.code,'loomy-account-mismatch');
+  }
+  assert.equal(observed.credentialReads,0,'refused SMS cannot read credentials');
+  assert.equal(observed.credentialWrites,0,'refused SMS cannot overwrite credentials');
  // An adapter mount is not an authenticated account. Every private alias
  // must publish ZERO models and refuse explicit resolution until verified.
  for(const {ids,adapter} of observed.adapters){

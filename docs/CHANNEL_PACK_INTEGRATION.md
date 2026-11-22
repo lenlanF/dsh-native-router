@@ -14,7 +14,7 @@ an instruction to run its old scripts, gateway, or OFM UI.
 - `vendor/channel-pack/qoder-auth-wasm.wasm` is the unchanged Qoder binary component. It is never newline-normalized.
 - MIT license text is included in `LICENSE`, `LICENSES/` and `vendor/channel-pack/LICENSE`. Attribution remains in `vendor/channel-pack/NOTICE.md`. Original source is provided for audit under its MIT terms.
 
-The v3.5.4 native derivative retains the same **13 built-in channel-pack sources**, 51 independent safety transformations, and a single in-process Cordis runtime. This refresh incorporates upstream CodeArts/Qoder model and activity compatibility changes only; top-level upstream Meoo Web, QwenWork, and Doubao browser-session modules are **not** part of `vendor/channel-pack/pack.js` and have **not** been silently installed or claimed as supported online accounts. Local source transformation, standalone runtime build, and owned-account RPC tests must pass before merging. The user's running DSH installation remains unchanged until independent online acceptance.
+The v3.5.4 native derivative retains the same **13 built-in channel-pack sources**, **53 independently verified safety transformations**, and a single in-process Cordis runtime. The two additional changes specifically bind Loomy's official SMS send/submit RPCs to an enabled Loomy-owned account, preventing cross-provider credential overwrite. This refresh incorporates upstream CodeArts/Qoder model and activity compatibility changes only; top-level upstream Meoo Web, QwenWork, and Doubao browser-session modules are **not** part of `vendor/channel-pack/pack.js` and have **not** been silently installed or claimed as supported online accounts. Production DSH is not updated by compiling this derivative.
 
 
 ## Cross-platform reproducible build
@@ -47,9 +47,9 @@ using pinned esbuild 0.25.12 and the actual DSH-managed Node.js v22.16.0.
 No production DSH plugin, account, sign-in setting, or original Host Provider was changed.
 
 - Immutable original (LF) SHA-256: `5b933808951453cab76227e68cea480c6321e746e152f9e78963d5562faceb27`.
-- 51-transformation native source SHA-256: `6ba0951e5f897ab9b9d890baae7348cc8a3e3f99f04dfe36be3d458e2774c22c`.
-- Independently bundled standalone runtime SHA-256: `60297218936f66ec43b09004252d7b7b9a644998393ce4d5b093549b9c3a6756`.
-- Windows full `npm test` **618/618**, canonical source and standalone receipt `--check` PASS,
+- 53-transformation native source SHA-256: `6005d65ba6c9453f39971c6f32332087fe24c2a9290683ad9ba7518a8c662638`.
+- Independently bundled standalone runtime SHA-256: `fe23c03f7de1096e5e09deab5e92e3b0066b3b0cc262f19486bd6f88b64c8efe`.
+- Windows full `npm test` must pass, canonical source and standalone receipt `--check` PASS,
   public tracked-source privacy scan PASS.
 - Real in-process Cordis sandbox with zero authenticated accounts: **13/13** registered
   private aliases, **13/13** independent account-list RPCs completed without exposing
