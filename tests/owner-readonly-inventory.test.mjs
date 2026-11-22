@@ -113,3 +113,51 @@ test('unavailable, invalid and cancelled per-account status are fail closed and 
  assert.equal(down.code,'OFFICIAL_STATUS_UNAVAILABLE');
  assert.doesNotMatch(JSON.stringify(down),/secret header/);
 });
+
+test('duplicate source model rows count one official model and ignore missing IDs',async()=>{
+ const driver={refreshAccountStatus:async()=>({state:'ready',authVerified:true}),
+  listModels:async()=>[
+   {id:'same',costMultiplier:0,priceSource:'codearts-official-credit-ratio'},
+   {id:'same',upstreamFreeLabel:true},
+   {id:'paid',costMultiplier:0.07,priceSource:'codearts-official-credit-ratio'},
+   {id:'paid',costMultiplier:0.07,priceSource:'codearts-official-credit-ratio'},
+   {upstreamFreeLabel:true},{id:'',free:true},
+  ]};
+ const result=await ownerReadOnlyInventory({account:{providerId:'codearts'},driver});
+ assert.equal(result.advertisedCount,2);
+ assert.equal(result.exactOfficialRateCount,2);
+ assert.equal(result.exactOfficialZeroRateCount,1);
+ assert.equal(result.officialFreeCandidates,1);
+});
+test('ZCode gifted tokens are not confirmed without official auth, spendable ledger and matching model',async()=>{
+ const account={providerId:'own_zcode'};
+ const baseline={state:'ready',authVerified:true,balanceState:'available',giftedBalance:4096};
+ for(const status of [
+   {...baseline,authVerified:false},
+   {...baseline,balanceState:'unknown'},
+   {...baseline,giftedBalance:0},
+ ]){
+   const result=await ownerReadOnlyInventory({account,driver:{
+    refreshAccountStatus:async()=>status,
+    listModels:async()=>[{id:'GLM-5.3-Flash'}],
+   }});
+   assert.equal(result.zcodeGiftConfirmed,false);
+ }
+ const wrongModel=await ownerReadOnlyInventory({account,driver:{
+  refreshAccountStatus:async()=>baseline,listModels:async()=>[{id:'paid-model'}],
+ }});
+ assert.equal(wrongModel.zcodeGiftConfirmed,false);
+ const valid=await ownerReadOnlyInventory({account,driver:{
+  refreshAccountStatus:async()=>baseline,listModels:async()=>[{id:'GLM-5.3-Flash'}],
+ }});
+ assert.equal(valid.zcodeGiftConfirmed,true);
+});
+test('cancelled read-only model catalogue never persists a successful account proof',async()=>{
+ const abort=new AbortController();
+ const result=await ownerReadOnlyInventory({account:{providerId:'codearts'},signal:abort.signal,driver:{
+  refreshAccountStatus:async()=>({state:'ready',authVerified:true}),
+  listModels:async()=>{abort.abort();return [{id:'safe',free:true}]},
+ }});
+ assert.equal(result.code,'CANCELLED');
+ assert.equal(result.state,'skipped');
+});
