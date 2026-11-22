@@ -36397,7 +36397,12 @@ function createDirectFetch(options = {}) {
       };
     }
     const requestedDispatcher = init?.dispatcher;
-    if (process.env.GET_IT_FOR_FREE_HOST_FETCH === "1" && requestedDispatcher === void 0 && typeof globalThis.fetch === "function") {
+    const hostFetchMode = process.env.GET_IT_FOR_FREE_HOST_FETCH ?? "";
+    const hostFetchUsable = requestedDispatcher === void 0 && typeof globalThis.fetch === "function";
+    const hostTarget = typeof target === "string" ? target : String(target?.href ?? target ?? "");
+    const huaweiCloud = /(^|\/\/|\.)((my)?huaweicloud(-inc)?\.(com|cn))(:|\/|$)/i.test(hostTarget);
+    const wantsHostFetch = hostFetchMode === "1" || hostFetchMode !== "0" && huaweiCloud;
+    if (wantsHostFetch && hostFetchUsable) {
       const { dispatcher: _dropDispatcher, ...hostInit } = requestInit ?? {};
       return globalThis.fetch(target, hostInit);
     }
@@ -38006,6 +38011,12 @@ function codeArtsDefaultMaxTokens() {
   const raw = Number(process.env.GET_IT_FOR_FREE_CODEARTS_MAX_TOKENS ?? "");
   return Number.isSafeInteger(raw) && raw >= 1024 ? raw : 65536;
 }
+var CODEARTS_MAX_OUTPUT_CEILING = 131072;
+function clampCodeArtsMaxTokens(requested) {
+  const value = Number(requested);
+  const base = Number.isSafeInteger(value) && value > 0 ? value : codeArtsDefaultMaxTokens();
+  return Math.min(base, CODEARTS_MAX_OUTPUT_CEILING);
+}
 function codeArtsBenefitHeaderEnabled() {
   return process.env.GET_IT_FOR_FREE_CODEARTS_BENEFIT_HEADER === "1";
 }
@@ -38195,6 +38206,13 @@ var SseGatewayRoutingError = class extends Error {
   constructor(code, message2) {
     super(message2);
     this.name = "SseGatewayRoutingError";
+    this.code = code;
+  }
+};
+var SseContentModerationError = class extends Error {
+  constructor(code, message2) {
+    super(message2);
+    this.name = "SseContentModerationError";
     this.code = code;
   }
 };
@@ -38743,9 +38761,10 @@ var CodeArtsAdapter = class extends LlmAdapter {
       // 大文件 write 工具参数（如 1000-2000+ 行文档）需要数万 token 的生成空间，
       // 若沿用后端默认输出上限，参数 JSON 会在中途被截断成非法 JSON，harness
       // 工具校验报 `invalid arguments: "arguments" must be an object`。
-      // 参考实现 e2e 实测：65536 可用，131072 反而触发空流被后端拒绝；
-      // 显式传入的 options.maxTokens 优先，未设置时默认 65536。
-      max_tokens: degradeStage >= 3 ? 8192 : options.maxTokens ?? codeArtsDefaultMaxTokens(),
+      // 参考实现 e2e 实测：65536 可用；131072 是硬顶（见 clampCodeArtsMaxTokens：
+      // 131073 起必回 001001005）。显式传入的 options.maxTokens 优先，未设置时
+      // 默认 65536，两条路都过一遍夹取。
+      max_tokens: degradeStage >= 3 ? 8192 : clampCodeArtsMaxTokens(options.maxTokens),
       ...wireTools !== void 0 && wireTools.length > 0 ? { tools: wireTools } : {}
     });
     const url = `${CHAT_API_BASE}/chat/completions`;
@@ -38854,6 +38873,31 @@ var CodeArtsAdapter = class extends LlmAdapter {
             }
             throw new LlmError(
               `codearts: \u534E\u4E3A\u4E91\u7F51\u5173\u6682\u65F6\u627E\u4E0D\u5230\u8FD9\u4E2A\u63A5\u53E3\uFF08${error.code}\uFF09\u2014\u2014 \u5E73\u53F0\u4FA7\u53D1\u5E03\u72B6\u6001\u5F02\u5E38\uFF08\u5E38\u89C1\u4E8E\u534E\u4E3A\u4E91\u6545\u969C\u7A97\u53E3\uFF09\uFF0C\u4E0D\u662F\u5BC6\u94A5\u6216\u8BF7\u6C42\u7684\u95EE\u9898`,
+              "RATE_LIMIT",
+              { status: 200 }
+            );
+          }
+          if (error instanceof SseContentModerationError) {
+            logCodeArtsFailure({
+              status: 200,
+              phase: "sse-moderation",
+              body: String(error.message ?? "").slice(0, 300),
+              accountId: currentAccountId ?? null,
+              model: options.model
+            });
+            if (this.options.accountPool) {
+              const nextModerated = await this.options.accountPool.getAvailableAccount("codearts", options.model, rateLimitTried);
+              if (nextModerated && !rateLimitTried.has(nextModerated.entry.id)) {
+                rateLimitTried.add(nextModerated.entry.id);
+                credential = nextModerated.credential;
+                currentAccountId = nextModerated.entry.id;
+                this.pinSession(credential.access_key_id);
+                authRefreshed = false;
+                continue;
+              }
+            }
+            throw new LlmError(
+              `codearts: \u4E0A\u6E38\u5185\u5BB9\u5BA1\u6838\u62E6\u622A\u4E86\u672C\u8F6E\u8BF7\u6C42\uFF08${error.code}\uFF09\u2014\u2014 \u5DF2\u5C1D\u8BD5\u5168\u90E8\u53EF\u7528\u8D26\u53F7\u4ECD\u88AB\u62E6\u3002\u8FD9\u4E0D\u662F\u5BC6\u94A5\u95EE\u9898\uFF1B\u53EF\u6362\u4E2A\u8BF4\u6CD5\u91CD\u53D1\uFF0C\u6216\u5207\u6362\u5230 buddy \u7B49\u5176\u5B83\u6E20\u9053\u7684\u540C\u540D\u6A21\u578B\u3002`,
               "RATE_LIMIT",
               { status: 200 }
             );
@@ -39198,6 +39242,9 @@ var CodeArtsAdapter = class extends LlmAdapter {
               accountId: null,
               model: options.model
             });
+            if (errorCode === "TM.00001024" || /无法协助完成这个请求|内容审核|content.?moderation|risk.?control/i.test(message2)) {
+              throw new SseContentModerationError(errorCode, message2);
+            }
             if (/not registered|002002009|The model is not registered/i.test(errorCode + " " + message2)) {
               throw new SseBenefitProbeRequired(errorCode, message2);
             }
@@ -43820,6 +43867,13 @@ var QODER_CN_FALLBACK_MODELS = [
   // CN 独有：Qwen3.7-Flash（国际版目录无此 key）
   // ⚠️ 目录里**完全没有 `thinking_config`** → 不可选档位（IDE 显示「不支持」）。
   { id: "q37fmodel", name: "Qwen3.7-Flash", contextWindow: 1e6, supportsImage: true, supportsThinking: true, priceFactor: 0.1 },
+  // CN 独有：Qwen4-Max 预览（本机 `com.qodercn.app.stable/main.sqlite` 的
+  // `chat_model_preferences` 里有 `qmodel_latest_preview` 一行，visible=1、
+  // context_window=400000；用量接口 `/sash/api/v1/me/usages/big_model_credits/histories`
+  // 对这些会话回的 `model_category` 是 `Qwen4-Max-Preview`，且 `chat_sessions.model`
+  // 正是这个 key —— 三者对上，故展示名取官方的 Qwen4-Max-Preview）。
+  // ⚠️ 目录里没有 `thinking_config` 证据 → 与 q37fmodel 同口径，不给 efforts。
+  { id: "qmodel_latest_preview", name: "Qwen4-Max-Preview", contextWindow: 1e6, supportsImage: true, supportsThinking: true, priceFactor: 0.2 },
   // ⚠️ CN 的 `max_input_tokens` 是 96000，但档位表与其它模型一样有 1M 档；
   // 官方客户端只认档位表 → **填 1M**（用户 2026-09-27 定：档位表有 1M 就填 1M）。
   // 实测只探到 800,000 目标 → 服务端计入 **852,951** 通过，985,000 时越界且
@@ -44589,12 +44643,16 @@ var QoderAdapter = class extends LlmAdapter {
    * （用户报障：「关闭的就没有显示倍率」）。详见 `model.list` 端点的注释。
    */
   /**
-   * 本机补充的模型（`~/.dsh/get-it-for-free/model-overrides.json`，按渠道 id 分组）。
+   * 「刷新模型」按钮对本适配器的入口。
    *
-   * 为什么需要：Qoder 的模型目录端点要 WASM 签名，本插件没实现，上游上新模型时
-   * 列表不会自己变。这个文件是唯一不用改代码的补入口。文件不存在 / 解析失败 /
-   * 条目缺 id 都按「没有补充」处理，不影响原表。
+   * Qoder 系目录 = 兜底表 + `model-overrides.json`，**不吃** `remoteModels` 等四个
+   * 远端缓存字段（见 `refreshModelCatalog`），所以通用刷新对 qodercn 是空操作。
+   * 这里把本机补充的 15 秒缓存清掉，让下一次 `allModels()` 立刻重读文件。
    */
+  refreshCatalog() {
+    this.extraModelsCache = void 0;
+    this.extraModelsAt = 0;
+  }
   extraModels() {
     const now = Date.now();
     if (this.extraModelsCache !== void 0 && now - this.extraModelsAt < 15e3) return this.extraModelsCache;
@@ -62763,6 +62821,14 @@ function hasQoderCampaignRefreshedToday(nowMs = Date.now()) {
 }
 var QODER_CREDITS_TIMEOUT_MS = 15e3;
 var NOT_ACTIVATED_HINT = "\u8BE5\u8D26\u53F7\u5C1A\u672A\u5728 Qoder \u4FA7\u5F00\u901A\u6BCF\u65E5\u9886\u53D6\uFF08\u6BCF\u65E5 100 Credits\uFF09\u3002\u8BF7\u5148\u7528 Qoder \u5B98\u65B9\u5BA2\u6237\u7AEF\u767B\u5F55\u4E00\u6B21\u8BE5\u8D26\u53F7\uFF0C\u5F00\u901A\u540E\u518D\u56DE\u6765\u9886\u53D6\u3002";
+var QODER_INELIGIBLE_HINT = "\u4F53\u9A8C\u7248\uFF08\u514D\u8D39\uFF09\u8D26\u53F7\u81EA 2026-11-19 \u8D77\u4E0D\u518D\u5F00\u653E\u6BCF\u65E5\u9886\u53D6\uFF08\u5B98\u65B9\u516C\u544A docs.qoder.cn/events/100credits\uFF09\uFF1B\u5F00\u901A\u8BD5\u7528/\u4E13\u4E1A\u7248/\u4F1A\u5458\u5361\u540E\u53EF\u9886\u3002\u8FD9\u4E0D\u662F\u63D2\u4EF6\u6545\u969C\uFF0C\u91CD\u8BD5\u4E0D\u4F1A\u6539\u53D8\u7ED3\u679C";
+function isQoderFreeTierIneligible(campaigns, usageBody) {
+  if (campaigns === void 0) return false;
+  if (campaigns.campaigns.some((c) => c.actionType === "CLAIM_BENEFIT")) return false;
+  if (typeof usageBody !== "object" || usageBody === null) return false;
+  const usage = usageBody.qoderUsage;
+  return typeof usage === "object" && usage !== null && usage.userType === "personal_standard";
+}
 var NOT_REFRESHED_YET_HINT = `\u4ECA\u5929\u7684\u6BCF\u65E5\u6D3B\u52A8\u5C1A\u672A\u5237\u65B0\uFF08\u6BCF\u65E5 ${QODER_CAMPAIGN_REFRESH_HOUR_UTC8}:00\uFF08UTC+8\uFF09\u5237\u65B0\uFF09\uFF0C\u5F53\u524D\u770B\u5230\u7684\u662F\u6628\u5929\u90A3\u4E00\u8F6E\uFF0C\u8BF7\u7A0D\u540E\u518D\u6765\u9886\u53D6\u3002`;
 function isQoderNotActivated(campaigns, usageBody) {
   if (campaigns === void 0) return false;
@@ -63012,6 +63078,9 @@ async function claimQoderDailyCheckin(credential, product, fetcher = sanitizingF
       return { kind: "already-claimed", message: "\u4ECA\u5929\u5DF2\u9886\u53D6" };
     }
     const usage = await fetchQoderUsageRaw(credential, product, fetcher);
+    if (isQoderFreeTierIneligible(parsed, usage)) {
+      return { kind: "ineligible", message: QODER_INELIGIBLE_HINT, coversToday: true };
+    }
     if (isQoderNotActivated(parsed, usage)) {
       return { kind: "inactive", message: NOT_ACTIVATED_HINT, actionRequired: true };
     }
@@ -63032,7 +63101,13 @@ async function fetchQoderCheckinStatus(credential, product, fetcher = sanitizing
   const parsed = await loadCampaigns(credential, product, fetcher);
   if (parsed === void 0) return null;
   const benefits = parsed.campaigns.filter((c) => c.actionType === "CLAIM_BENEFIT");
-  if (benefits.length === 0) return { active: false, todayCheckedIn: false, todayCredit: 0 };
+  if (benefits.length === 0) {
+    const usage = await fetchQoderUsageRaw(credential, product, fetcher);
+    if (isQoderFreeTierIneligible(parsed, usage)) {
+      return { active: false, todayCheckedIn: false, todayCredit: 0, ineligible: true, message: QODER_INELIGIBLE_HINT };
+    }
+    return { active: false, todayCheckedIn: false, todayCredit: 0 };
+  }
   const refreshed = hasQoderCampaignRefreshedToday(nowMs);
   const claimed = benefits.every((c) => c.claimStatus === "CLAIMED");
   const credit = benefits.reduce((sum, c) => sum + (Number.isFinite(c.amount) ? c.amount : 0), 0);
@@ -65727,7 +65802,7 @@ function createAutoCheckinStore(ctx) {
   return new FileAutoCheckinStore(join7(home, "channel-pack", AUTO_CHECKIN_FILE), ctx.logger);
 }
 function emptyTotals2() {
-  return { providers: 0, claimed: 0, totalCredit: 0, totalByUnit: { token: 0, credit: 0 }, alreadyClaimed: 0, inactive: 0, failed: 0, coversToday: 0, skipped: 0, errors: 0 };
+  return { providers: 0, claimed: 0, totalCredit: 0, totalByUnit: { token: 0, credit: 0 }, alreadyClaimed: 0, inactive: 0, ineligible: 0, failed: 0, coversToday: 0, skipped: 0, errors: 0 };
 }
 function isUnsupportedCheckin(message2) {
   return message2.includes("\u4E0D\u652F\u6301\u6BCF\u65E5\u7B7E\u5230") || message2.includes("unsupported provider");
@@ -65742,6 +65817,7 @@ function describeRun(totals) {
     parts.push(`${totals.claimed} \u4E2A\u8D26\u53F7\u9886\u53D6\u6210\u529F${amounts === null ? "" : `\uFF08${amounts}\uFF09`}`);
   }
   if (totals.alreadyClaimed > 0) parts.push(`${totals.alreadyClaimed} \u4E2A\u4ECA\u5929\u5DF2\u9886`);
+  if (totals.ineligible > 0) parts.push(`${totals.ineligible} \u4E2A\u65E0\u9886\u53D6\u8D44\u683C\uFF08\u5B98\u65B9\u653F\u7B56\u6536\u7D27\uFF09`);
   if (totals.failed > 0) parts.push(`${totals.failed} \u4E2A\u5931\u8D25`);
   if (totals.errors > 0) parts.push(`${totals.errors} \u4E2A\u6E20\u9053\u51FA\u9519`);
   if (totals.skipped > 0) parts.push(`${totals.skipped} \u4E2A\u6E20\u9053\u4E0D\u652F\u6301\u7B7E\u5230`);
@@ -65769,6 +65845,7 @@ function describeChannel(summary) {
   if (summary.alreadyClaimed > 0) parts.push(`${summary.alreadyClaimed} \u4E2A\u4ECA\u5929\u5DF2\u9886`);
   if (summary.failed > 0) parts.push(`${summary.failed} \u4E2A\u5931\u8D25`);
   if (summary.inactive > 0) parts.push(`${summary.inactive} \u4E2A\u672A\u5F00\u542F`);
+  if (summary.ineligible > 0) parts.push(`${summary.ineligible} \u4E2A\u65E0\u9886\u53D6\u8D44\u683C\uFF08\u5B98\u65B9\u653F\u7B56\u6536\u7D27\uFF09`);
   if (parts.length === 0) return "\u65E0\u53EF\u9886";
   const coversToday = summary.coversToday ?? summary.claimed + summary.alreadyClaimed;
   if (coversToday === 0 && summary.claimed + summary.alreadyClaimed > 0) {
@@ -65863,6 +65940,7 @@ function createAutoCheckin(deps) {
       totals.totalByUnit.token += Number(byUnit.token) || 0;
       totals.alreadyClaimed += summary.alreadyClaimed;
       totals.inactive += summary.inactive;
+      totals.ineligible += summary.ineligible ?? 0;
       totals.failed += summary.failed;
       totals.coversToday += summary.coversToday ?? summary.claimed + summary.alreadyClaimed;
       const failures = [];
@@ -66068,6 +66146,7 @@ function computeClaimSummary(outcomes) {
     totalCredit: 0,
     alreadyClaimed: 0,
     inactive: 0,
+    ineligible: 0,
     failed: 0,
     coversToday: 0,
     totalByUnit: { token: 0, credit: 0 }
@@ -66086,6 +66165,10 @@ function computeClaimSummary(outcomes) {
         break;
       case "inactive":
         summary.inactive += 1;
+        break;
+      case "ineligible":
+        summary.ineligible += 1;
+        if (outcome.coversToday !== false) summary.coversToday += 1;
         break;
       case "failed":
         summary.failed += 1;
@@ -66153,7 +66236,9 @@ async function collectClaimResults(accounts, product, deps) {
           outcome = await claim(credential, product, entry);
         } else {
           const status = await fetchStatus(credential, product);
-          if (status !== null && !status.active) {
+          if (status !== null && status.ineligible === true) {
+            outcome = { kind: "ineligible", message: typeof status.message === "string" && status.message !== "" ? status.message : "\u8BE5\u8D26\u53F7\u65E0\u9886\u53D6\u8D44\u683C\uFF08\u5B98\u65B9\u653F\u7B56\u6536\u7D27\uFF09", coversToday: true };
+          } else if (status !== null && !status.active) {
             outcome = { kind: "inactive", message: "\u7B7E\u5230\u6D3B\u52A8\u672A\u5F00\u542F" };
           } else if (status !== null && status.todayCheckedIn) {
             outcome = { kind: "already-claimed", message: "\u4ECA\u5929\u5DF2\u7B7E\u5230" };
@@ -66289,6 +66374,13 @@ function refreshModelCatalog(provider) {
   for (const id of targets) {
     const adapter = MODEL_ADAPTERS_BY_PROVIDER.get(id);
     if (adapter === void 0 || adapter === null) continue;
+    if (typeof adapter.refreshCatalog === "function") {
+      try {
+        adapter.refreshCatalog();
+      } catch (error) {
+        void error;
+      }
+    }
     for (const field of MODEL_CACHE_FIELDS) {
       try {
         if (field in adapter) adapter[field] = void 0;
@@ -66349,6 +66441,7 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
   };
   const pendingSmsMsgid = /* @__PURE__ */ new Map();
   const pendingLoginFailures = /* @__PURE__ */ new Map();
+  const pendingLoginSuccesses = /* @__PURE__ */ new Map();
   const badgePreferences = createBadgePreferenceStore(ctx);
   const autoCheckin = createAutoCheckin({
     store: createAutoCheckinStore(ctx),
@@ -66653,6 +66746,7 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
             });
           }).catch((error) => {
             ctx.logger.warn(`[channel-pack] background ${GEMINI.id} login failed for ${id}: ${String(error)}`);
+            pendingLoginFailures.set(id, (error instanceof Error ? error.message : String(error)).slice(0, 500));
             void pool.removeAccount(id).catch(() => {
             });
           });
@@ -66693,6 +66787,7 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
             });
           }).catch((err) => {
             ctx.logger.warn(`[channel-pack] background ${product.id} login failed for ${id}: ${err}`);
+            pendingLoginFailures.set(id, (err instanceof Error ? err.message : String(err)).slice(0, 500));
             void pool.removeAccount(id).catch(() => {
             });
           });
@@ -66727,6 +66822,7 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
                 await ctx.credentials.set(credentialRef(entry.credentialRef), loginResult.access);
                 await pool.updateAccount(entry.id, { nickname, expiresAt, refreshable: Boolean(credential?.refresh_token), enabled: true });
                 ctx.logger.warn(`[channel-pack] codearts \u8BE5\u8D26\u53F7\uFF08account_id=${identity}\uFF09\u5DF2\u5B58\u5728\u4E8E ${entry.id}\uFF0C\u672C\u6B21\u767B\u5F55\u53EA\u66F4\u65B0\u51ED\u636E\uFF0C\u4E0D\u518D\u65B0\u5EFA\u8D26\u53F7`);
+                pendingLoginSuccesses.set(id, { accountId: entry.id, login: nickname });
                 void pool.removeAccount(id).catch(() => {
                 });
                 return;
@@ -66735,6 +66831,7 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
             await pool.updateAccount(id, { nickname, expiresAt, refreshable: Boolean(credential?.refresh_token) });
           }).catch((error) => {
             ctx.logger.warn(`[channel-pack] background codearts login failed for ${id}: ${String(error)}`);
+            pendingLoginFailures.set(id, (error instanceof Error ? error.message : String(error)).slice(0, 500));
             void pool.removeAccount(id).catch(() => {
             });
           });
@@ -66761,6 +66858,7 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
             });
           }).catch((error) => {
             ctx.logger.warn(`[channel-pack] background ${LOBSTERAI.id} login failed for ${id}: ${String(error)}`);
+            pendingLoginFailures.set(id, (error instanceof Error ? error.message : String(error)).slice(0, 500));
             void pool.removeAccount(id).catch(() => {
             });
           });
@@ -66794,6 +66892,7 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
             });
           }).catch((error) => {
             ctx.logger.warn(`[channel-pack] background ${product2.id} login failed for ${id}: ${String(error)}`);
+            pendingLoginFailures.set(id, (error instanceof Error ? error.message : String(error)).slice(0, 500));
             void pool.removeAccount(id).catch(() => {
             });
           });
@@ -66821,6 +66920,7 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
             });
           }).catch((error) => {
             ctx.logger.warn(`[channel-pack] background ${TRAE.id} login failed for ${id}: ${String(error)}`);
+            pendingLoginFailures.set(id, (error instanceof Error ? error.message : String(error)).slice(0, 500));
             void pool.removeAccount(id).catch(() => {
             });
           });
@@ -66845,6 +66945,7 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
             });
           }).catch((error) => {
             ctx.logger.warn(`[channel-pack] background ${CLINE.id} login failed for ${id}: ${String(error)}`);
+            pendingLoginFailures.set(id, (error instanceof Error ? error.message : String(error)).slice(0, 500));
             void pool.removeAccount(id).catch(() => {
             });
           });
@@ -66881,6 +66982,7 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
             });
           }).catch((error) => {
             ctx.logger.warn(`[channel-pack] background ${LOOMY.id} wechat login failed for ${id}: ${String(error)}`);
+            pendingLoginFailures.set(id, (error instanceof Error ? error.message : String(error)).slice(0, 500));
             void pool.removeAccount(id).catch(() => {
             });
           });
@@ -66925,6 +67027,7 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
             });
           }).catch((error) => {
             ctx.logger.warn(`[channel-pack] background ${RACCOON.id} login failed for ${id}: ${String(error)}`);
+            pendingLoginFailures.set(id, (error instanceof Error ? error.message : String(error)).slice(0, 500));
             void pool.removeAccount(id).catch(() => {
             });
           });
@@ -66966,6 +67069,7 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
             });
           }).catch((error) => {
             ctx.logger.warn(`[channel-pack] background ${MINIMAX.id} login failed for ${id}: ${String(error)}`);
+            pendingLoginFailures.set(id, (error instanceof Error ? error.message : String(error)).slice(0, 500));
             void pool.removeAccount(id).catch(() => {
             });
           });
@@ -67014,6 +67118,7 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
             await pool.updateAccount(id, { nickname: `ZCode ${label}` });
           }).catch((error) => {
             ctx.logger.warn(`[channel-pack] background ${ZCODE.id} login failed for ${id}: ${String(error)}`);
+            pendingLoginFailures.set(id, (error instanceof Error ? error.message : String(error)).slice(0, 500));
             void pool.removeAccount(id).catch(() => {
             });
           });
@@ -67161,6 +67266,11 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
       }
       case "login.poll": {
         const req = payload;
+        const merged = pendingLoginSuccesses.get(req.accountId);
+        if (merged !== void 0) {
+          pendingLoginSuccesses.delete(req.accountId);
+          return { ok: true, value: { done: true, success: true, login: merged.login ?? "", accountId: merged.accountId ?? req.accountId } };
+        }
         const failure = pendingLoginFailures.get(req.accountId);
         if (failure !== void 0) {
           pendingLoginFailures.delete(req.accountId);
@@ -67198,6 +67308,10 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
         if (req.provider !== LOOMY.id) {
           return { ok: false, error: { code: "bad-request", message: `unsupported provider: ${req.provider}` } };
         }
+        const smsAccount = pool.findAccount(req.accountId);
+        if (!smsAccount || smsAccount.provider !== LOOMY.id || smsAccount.enabled !== true) {
+          return { ok: false, error: { code: "loomy-account-mismatch", message: "The Loomy account must exist and be enabled" } };
+        }
         const phone = typeof req.phone === "string" ? req.phone.trim() : "";
         if (!/^1[3-9]\d{9}$/.test(phone)) {
           return { ok: false, error: { code: "bad-request", message: "\u9700\u8981 11 \u4F4D\u6709\u6548\u624B\u673A\u53F7\uFF08phone\uFF09" } };
@@ -67215,6 +67329,10 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
         const req = payload;
         if (req.provider !== LOOMY.id) {
           return { ok: false, error: { code: "bad-request", message: `unsupported provider: ${req.provider}` } };
+        }
+        const smsAccount = pool.findAccount(req.accountId);
+        if (!smsAccount || smsAccount.provider !== LOOMY.id || smsAccount.enabled !== true) {
+          return { ok: false, error: { code: "loomy-account-mismatch", message: "The Loomy account must exist and be enabled" } };
         }
         const pending = pendingSmsMsgid.get(req.accountId);
         if (pending === void 0 || pending.msgid.length === 0) {
@@ -68252,6 +68370,9 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
           models = await llm.listModels(req.provider);
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error);
+          ctx.logger?.warn?.(
+            `[channel-pack] model.list(${req.provider}) failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`
+          );
           return { ok: false, error: { code: "bad-request", message: `\u8BFB\u53D6\u6A21\u578B\u5217\u8868\u5931\u8D25\uFF1A${reason}` } };
         }
         const disabledMap = pool.listDisabledModels(req.provider);
@@ -71763,6 +71884,7 @@ function primeOpencodeCapabilities() {
   loadDiskCacheSync();
   void ensureDiskLoaded().then(() => {
     if (memory.length === 0) refreshOpencodeCapabilities();
+  }).catch(() => {
   });
 }
 function supportsOpencodeImage(capability) {

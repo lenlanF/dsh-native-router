@@ -520,17 +520,36 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
           &&Number.isInteger(before.planCount)&&before.planCount>0
         :before?.available===true;
       if(before?.active===false)
-        return {state:'failed',message:'来源活动尚未开放，未发送领取请求'};
-      if(!eligible)
+        return {state:providerId==='zcode'?'no_task':'failed',
+          ...(providerId==='zcode'?{claimPosted:false}:{}),
+          message:'来源活动尚未开放，未发送领取请求'};
+      if(!eligible){
+        // Only a definite signed empty ZCode card is safe for read-only retry.
+        // Unknown status remains a failure rather than a false free allowance.
+        if(providerId==='zcode'&&before?.active===true
+          &&before?.claimable===false&&before?.planCount===0)
+          return {state:'no_task',claimPosted:false,
+            message:'官方当前没有可领取的 Start Plan；没有提交领取请求'};
         return {state:'failed',message:'官方尚未确认本账号有可领取计划，未发送领取请求'};
+      }
       const claim=await ops.claim(providerId,sourceAccountId);    if(scope!==mountedScope())return {state:'unavailable'};
     const outcomes=claim?.ok===true&&Array.isArray(claim.value?.results)
       ?claim.value.results.filter(row=>row?.accountId===sourceAccountId):[];
     if(outcomes.length===0)return {state:'failed',message:'上游未提供指定账号的签到回执'};
+    // ZCode may demand the app's security challenge (vendor code 3007).
+    // That is NOT a submitted or accepted plan. Never retry the POST until
+    // the exact account completes its own authorized verification.
+    if(outcomes.some(row=>row?.outcome?.kind==='captcha'))
+      return {state:'client_required',message:'ZCode 官方要求在客户端完成验证码；未证明赠送到账'};
     if(outcomes.some(row=>row?.outcome?.kind==='failed'))
       return {state:'failed',message:'上游签到未成功，等待下次人工或定时重试'};
-    if(outcomes.every(row=>row?.outcome?.kind==='inactive'))
-      return {state:'no_task',message:'来源签到活动暂未开放'};
+    if(outcomes.every(row=>['inactive','ineligible'].includes(row?.outcome?.kind)))
+      // This result followed a real claim POST, unlike a read-only empty card.
+      // It MUST count against the bounded automatic submission attempts.
+      return {state:'no_task',claimPosted:true,
+        message:'来源活动当前无可领取的赠送计划；本次领取请求已经提交'};
+    if(outcomes.some(row=>!['claimed','done','already'].includes(row?.outcome?.kind)))
+      return {state:'failed',message:'上游领取状态未知，不能冒称已受理'};
     // Claim response is NOT success: some upstream APIs report a successful
     // request without actually checking in. A fresh same-day status is required.
     const after=exactStatus(await ops.status(providerId,sourceAccountId));

@@ -35,9 +35,10 @@ function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={stat
       mutations.push({kind:'source-rpc',method,payload:input.payload?.payload});
       let value={};
       if(method==='account.create')value={accountId:'qoder-new',loginUrl:'https://login.example.test/authorize'};
+      else if(method==='login.sendSms')value={msgid:'simulated-message'};
+      else if(method==='login.submitSms')value={done:true};
       else if(method==='login.poll')value={done:true,success:true};
-      else if(method==='account.refresh')value={success:true};
-      else if(method==='credits.status')value={accounts:[{accountId:'qoder-01',
+      else if(method==='account.refresh')value={success:true};      else if(method==='credits.status')value={accounts:[{accountId:'qoder-01',
         status:{active:true,todayCheckedIn:false}}]};
       else if(method==='credits.claimAll')value={results:[{accountId:'qoder-01',outcome:{kind:'claimed'}}]};
       else throw Error('Unexpected upstream method '+method);
@@ -458,10 +459,81 @@ test('isolated source account console explicitly runs upstream login, poll, refr
  assert.equal(rig.mutations.filter(row=>row.kind==='upstream-delete')[0].acknowledgedSourceCredentialDeletion,true);
  assert.equal(rig.mutations.filter(row=>row.kind==='source-rpc').some(row=>row.method==='account.delete'),false);
 });
+test('Loomy login offers an explicit backup route, never silently sends a message',async()=>{
+ const status={state:'mounted',rpcReady:true,channelCount:13,channels:['loomy']};
+ const rig=createUiRig(new Map(),{state:'ready',accounts:[]},status);
+ await rig.init();
+ rig.find(rig.render(),'button','复用管理')[0].props.onClick();
+ rig.find(rig.render(),'button','自主登录')[0].props.onClick();
+ assert.equal(rig.find(rig.render(),'button','发送官方短信验证码').length,0);
+ await rig.find(rig.render(),'button','发起扫码/网页登录')[0].props.onClick();
+ const page=rig.render();
+ const action=rig.find(page,'button','发送官方短信验证码')[0];
+ assert.ok(action);
+ assert.equal(action.props.disabled,true);
+ assert.equal(rig.find(page,'button','核验短信并完成登录')[0].props.disabled,true);
+ assert.deepEqual(rig.mutations.filter(row=>row.kind==='source-rpc').map(row=>row.method),
+  ['account.create']);
+ const phone='139'+'0'.repeat(8),code='7'.repeat(6);
+ const findInput=(tree,label)=>{
+   let found;
+   const scan=node=>{
+     if(Array.isArray(node)){node.forEach(scan);return}
+     if(!node||typeof node!=='object')return;
+     if(node.type==='input'&&node.props['aria-label']===label)found=node;
+     scan(node.children);
+   };
+   scan(tree);return found;
+ };
+ findInput(rig.render(),'Loomy 手机号').props.onChange({target:{value:phone}});
+ let ready=rig.render();
+ assert.equal(rig.find(ready,'button','发送官方短信验证码')[0].props.disabled,false);
+ await rig.find(ready,'button','发送官方短信验证码')[0].props.onClick();
+ assert.equal(rig.mutations.at(-1).method,'login.sendSms');
+ assert.equal(rig.mutations.at(-1).payload.phone,phone);
+ findInput(rig.render(),'Loomy 短信验证码').props.onChange({target:{value:code}});
+ ready=rig.render();
+ assert.equal(rig.find(ready,'button','核验短信并完成登录')[0].props.disabled,false);
+ await rig.find(ready,'button','核验短信并完成登录')[0].props.onClick();
+ assert.equal(rig.mutations.filter(row=>row.kind==='source-rpc').at(-1).method,'login.submitSms');
+  assert.equal(rig.mutations.filter(row=>row.kind==='source-rpc').at(-1).payload.code,code);
+  assert.equal(rig.find(rig.render(),'button','核验短信并完成登录').length,0);
+ assert.equal(rig.cfg.accounts.length,3,'model account configuration must not be forged by source login');
+});
+test('other independent source logins never show the Loomy-only backup option',async()=>{
+ const status={state:'mounted',rpcReady:true,channelCount:13,channels:['qoder']};
+ const rig=createUiRig(new Map(),{state:'ready',accounts:[]},status);
+ await rig.init();
+ rig.find(rig.render(),'button','复用管理')[0].props.onClick();
+ rig.find(rig.render(),'button','自主登录')[0].props.onClick();
+ await rig.find(rig.render(),'button','发起扫码/网页登录')[0].props.onClick();
+ assert.equal(rig.find(rig.render(),'button','发送官方短信验证码').length,0);
+});
+test('Loomy can reauthorize an existing owned account without creating a duplicate',async()=>{
+ const preview={state:'ready',accounts:[{id:'loomy-owned-existing',providerId:'loomy',
+   nickname:'Loomy Test',enabled:true,refreshable:false,connectionState:'expired'}]};
+ const status={state:'mounted',rpcReady:true,channelCount:13,channels:['loomy']};
+ const rig=createUiRig(new Map(),preview,status);await rig.init();
+ rig.find(rig.render(),'button','复用管理')[0].props.onClick();
+ rig.find(rig.render(),'button','自主登录')[0].props.onClick();
+ let page=rig.render();
+ const action=rig.find(page,'button','短信重新授权现有账号')[0];
+ assert.ok(action,'existing Loomy account must offer reauthentication even without refresh tokens');
+ assert.equal(action.props.disabled,false);
+ assert.equal(rig.mutations.filter(row=>row.kind==='source-rpc').length,0);
+ await action.props.onClick();
+ page=rig.render();
+ const summary=rig.flatten(page).join(' ');
+ assert.match(summary,/现有 Loomy 账号 · 原账号重新授权/);
+ assert.equal(rig.find(page,'button','发送官方短信验证码').length,1);
+ assert.equal(rig.find(page,'button','检查登录结果').length,0);
+ assert.equal(rig.mutations.filter(row=>row.kind==='source-rpc').length,0,
+  'switching reauthentication mode must not create an account or send a message');
+ assert.equal(rig.cfg.accounts.length,3);
+});
 test('source checkin reads per-account status; bulk claim requires explicit choice and fresh recheck',async()=>{
  const source={state:'mounted',rpcReady:true,channelCount:13,channels:['qoder','workbuddy']};
- const rig=createUiRig(new Map(),{state:'ready',accounts:[]},source);await rig.init();
- rig.find(rig.render(),'button','每日签到')[0].props.onClick();
+ const rig=createUiRig(new Map(),{state:'ready',accounts:[]},source);await rig.init(); rig.find(rig.render(),'button','每日签到')[0].props.onClick();
  let page=rig.render();
  assert.equal(rig.mutations.filter(row=>row.kind==='source-rpc').length,0);
  const claimButton=rig.find(page,'button','批量领取（该渠道所有账号）')[0];
@@ -714,8 +786,53 @@ test('channels default to all and can switch to one channel without losing other
  screen=rig.render();lines=rig.flatten(screen).join(' ');
  assert.match(lines,/alpha.*内部账号：a1/);
  assert.match(lines,/local.*内部账号：l1/);
-});test('source account actions are grouped and unsafe operations remain guarded',async()=>{
- const preview={state:'ready',accounts:[{id:'q-01',providerId:'qoder',nickname:'A long source account label',
+});
+test('all 13 owned sources show truthful per-channel readiness and allow direct manual login',async()=>{
+ const ids=['codearts','buddy','workbuddy','lobsterai','qoder','qodercn',
+  'trae','cline','loomy','raccoon','minimax','zcode','gemini'];
+ const preview={state:'ready',accounts:[
+  {id:'ca-one',providerId:'codearts',enabled:true,connectionState:'online'},
+  {id:'ca-two',providerId:'codearts',enabled:true,connectionState:'not_checked'},
+  {id:'qo-one',providerId:'qoder',enabled:false,connectionState:'online'}]};
+ const status={state:'mounted',rpcReady:true,channelCount:13,channels:ids,
+  modelAdapterReady:['codearts','qodercn'],modelAdapterUnready:['gemini']};
+ const rig=createUiRig(new Map(),preview,status);await rig.init();
+ rig.find(rig.render(),'button','复用管理')[0].props.onClick();
+ rig.find(rig.render(),'button','自主登录')[0].props.onClick();
+ const page=rig.render();
+ const all=uiNodes(page,node=>typeof node.props?.['data-source-provider']==='string');
+ assert.equal(all.length,13,'the owned pool must show all available channels, even with no accounts');
+ const get=id=>all.find(node=>node.props['data-source-provider']===id);
+ assert.ok(get('qodercn')&&get('gemini')&&get('buddy'));
+ assert.match(rig.flatten(get('codearts')).join(' '),/登记 2 个 \/ 官方鉴权 1 个/);
+ assert.match(rig.flatten(get('qoder')).join(' '),/官方鉴权 0 个/);
+ assert.match(rig.flatten(get('gemini')).join(' '),/尚无独立账号.*适配器异常/);
+ assert.equal(rig.mutations.filter(x=>x.kind==='source-rpc').length,0,
+  'opening the channel matrix must not create or poll an account');
+ const authorize=uiNodes(get('qodercn'),node=>node.type==='button')
+  .find(node=>rig.flatten(node).join('')==='自主登录');
+ assert.ok(authorize&&!authorize.props.disabled);
+ await authorize.props.onClick();
+ const calls=rig.mutations.filter(x=>x.kind==='source-rpc');
+ assert.deepEqual(calls.map(x=>x.method),['account.create']);
+ assert.equal(calls[0].payload.provider,'qodercn');
+  const pendingPage=rig.render();
+  const pendingRows=uiNodes(pendingPage,node=>typeof node.props?.['data-source-provider']==='string');
+  assert.equal(pendingRows.length,13);
+  for(const row of pendingRows){
+   const login=uiNodes(row,node=>node.type==='button')
+    .find(node=>rig.flatten(node).join('')==='自主登录');
+   assert.ok(login.props.disabled,'in-flight authorization cannot be overwritten');
+  }
+  assert.equal(rig.find(pendingPage,'button','发起扫码/网页登录')[0].props.disabled,true);
+  const dismiss=rig.find(pendingPage,'button','结束本次授权跟踪')[0];
+  assert.ok(dismiss&&!dismiss.props.disabled);
+  await dismiss.props.onClick();
+  assert.equal(rig.mutations.filter(x=>x.kind==='source-rpc').length,1,
+    'dismissing only clears UI tracking; it does not delete an account');
+  assert.equal(rig.find(rig.render(),'button','发起扫码/网页登录')[0].props.disabled,false);
+});
+test('source account actions are grouped and unsafe operations remain guarded',async()=>{ const preview={state:'ready',accounts:[{id:'q-01',providerId:'qoder',nickname:'A long source account label',
    enabled:true,refreshable:true,connectionState:'not_checked'}]};
  const source={state:'mounted',rpcReady:true,channelCount:13,channels:['qoder','workbuddy']};
  const rig=createUiRig(new Map(),preview,source);await rig.init();

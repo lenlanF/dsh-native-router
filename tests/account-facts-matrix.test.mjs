@@ -9,8 +9,19 @@ import {normalizeConfig} from '../src/config.mjs';
 import {mergeAccountSources} from '../src/account-source-view.mjs';
 import {sourceAccountOpaqueId} from '../src/source-account-ref.mjs';
 
-test('every enumerated source uses one read-only identity and balance contract without fabricated credits',()=>{
-  const channels=new Set([...REFERENCE_CHANNELS.map(x=>x.id),...SOURCE_PACK_PROVIDERS,
+test('all 13 built-in source providers are represented by channel metadata',()=>{
+ const ids=REFERENCE_CHANNELS.map(row=>row.id);
+ assert.equal(new Set(ids).size,ids.length);
+ assert.equal(SOURCE_PACK_PROVIDERS.length,13);
+ for(const id of SOURCE_PACK_PROVIDERS){
+  const row=REFERENCE_CHANNELS.find(c=>c.id===id);
+  assert.ok(row,'channel missing from shared list: '+id);
+  assert.ok(row.name&&row.auth);
+ }
+ assert.ok(ids.includes('own_mimo_desktop'));
+ assert.ok(ids.includes('own_doubao'));
+});
+test('every enumerated source uses one read-only identity and balance contract without fabricated credits',()=>{  const channels=new Set([...REFERENCE_CHANNELS.map(x=>x.id),...SOURCE_PACK_PROVIDERS,
     'lingxi','codebuddy','workbuddy-global']);
   assert.ok(channels.size>=13);
   for(const providerId of channels){

@@ -58,6 +58,126 @@ test('inventory-audit examines all enabled accounts read-only, without charging 
  assert.doesNotMatch(JSON.stringify(report),/wbp_aa|sp_bb|secret|credentialRef/);
  assert.equal((await runOwnerLiveSmoke(h.input)).state,'already_consumed');
 }));
+
+test('inventory reads distinct Providers concurrently, same-Provider accounts serially, in fixed slot order',async()=>fixture(async dir=>{
+ const ids=['own_workbuddy-cn','own_workbuddy-cn','own_workbuddy-global',
+   'own_loomy','own_lingxi','codearts','own_zcode'];
+ const accounts=ids.map((providerId,i)=>({id:'inventory-'+i,providerId,enabled:true,
+  credentialRef:'driver:'+providerId+':inventory-'+i}));
+ const configStore={path:join(dir,'config.json'),get:()=>({
+  accounts,providers:[...new Set(ids)].map(id=>({id,enabled:true}))})};
+ writeFileSync(join(dir,'owner-live-smoke-request.json'),JSON.stringify({
+  version:1,nonce,mode:'inventory-audit',consent:true,expiresAt:Date.now()+300000}));
+ let active=0,maxActive=0,reads=0;
+ const byProvider=new Map(),providerMax=new Map();
+ const accountCenter={driverFor:providerId=>({
+  refreshAccountStatus:async({account})=>{
+   assert.equal(account.providerId,providerId);
+   reads++;active++;maxActive=Math.max(maxActive,active);
+   const count=(byProvider.get(providerId)??0)+1;
+   byProvider.set(providerId,count);
+   providerMax.set(providerId,Math.max(providerMax.get(providerId)??0,count));
+   await new Promise(resolve=>setTimeout(resolve,20));
+   active--;byProvider.set(providerId,count-1);
+   return {state:'ready',authVerified:true,balanceState:'available'};
+  },
+  listModels:async()=>[{id:'free-model',upstreamFreeLabel:true}],
+  generate(){throw Error('read only cannot generate')},
+  checkIn(){throw Error('read only cannot claim')},
+ })};
+ const result=await runOwnerLiveSmoke({configStore,accountCenter,
+  env:{DSH_NATIVE_ROUTER_SMOKE_NONCE:nonce}});
+ assert.equal(result.state,'complete');assert.equal(result.checked,accounts.length);
+ assert.equal(reads,accounts.length);
+ assert.ok(maxActive>=2,'different Providers must overlap');
+ assert.ok(maxActive<=4,'at most four official remote reads');
+ assert.ok([...providerMax.values()].every(count=>count===1),
+  'no overlapping reads for the same Provider');
+ const report=JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'));
+ assert.deepEqual(report.accounts.map(a=>a.slot),accounts.map((_,i)=>i+1));
+ assert.ok(report.accounts.every(row=>row.code==='OFFICIAL_ACCOUNT_AND_CATALOG'));
+ assert.ok(report.accounts.every(row=>row.officialFreeCandidates===1));
+ assert.doesNotMatch(JSON.stringify(report),/inventory-[0-9]|credentialRef/);
+}));
+test('parallel inventory refuses a changed second account without reading its private channel',async()=>fixture(async dir=>{
+ const accounts=[0,1].map(i=>({id:'test-'+i,providerId:'own_loomy',
+   credentialRef:'driver:own_loomy:test-'+i,enabled:true}));
+ let allowedSecond=true,reads=0;
+ const configStore={path:join(dir,'config.json'),get:()=>({
+  accounts:accounts.map((a,i)=>i===1&&!allowedSecond?{...a,enabled:false}:a),
+  providers:[{id:'own_loomy',enabled:true}]})};
+ writeFileSync(join(dir,'owner-live-smoke-request.json'),JSON.stringify({
+  version:1,nonce,mode:'inventory-audit',consent:true,expiresAt:Date.now()+300000}));
+ const accountCenter={driverFor:()=>({
+  refreshAccountStatus:async()=>{reads++;allowedSecond=false;
+   return {state:'ready',authVerified:true,balanceState:'available'}},
+  listModels:async()=>[{id:'free',freeAllowance:'loomy-daily-gift'}],
+ })};
+ const result=await runOwnerLiveSmoke({configStore,accountCenter,
+  env:{DSH_NATIVE_ROUTER_SMOKE_NONCE:nonce}});
+ assert.equal(result.state,'complete');assert.equal(reads,1);
+ const report=JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'));
+ assert.deepEqual(report.accounts.map(row=>row.code),
+  ['OFFICIAL_ACCOUNT_AND_CATALOG','ACCOUNT_CHANGED']);
+ assert.equal(report.accounts[1].state,'skipped');
+}));
+test('parallel inventory cancellation marks unvisited slots without launching generation',async()=>fixture(async dir=>{
+ const providers=['own_loomy','own_lingxi','codearts'];
+ const accounts=providers.map((providerId,i)=>({id:'p-'+i,providerId,
+  credentialRef:'driver:'+providerId+':p-'+i,enabled:true}));
+ const controller=new AbortController();
+ const configStore={path:join(dir,'config.json'),get:()=>({
+  accounts,providers:providers.map(id=>({id,enabled:true}))})};
+ writeFileSync(join(dir,'owner-live-smoke-request.json'),JSON.stringify({
+  version:1,nonce,mode:'inventory-audit',consent:true,expiresAt:Date.now()+300000}));
+ const accountCenter={driverFor:()=>({
+  refreshAccountStatus:async()=>{controller.abort();
+   return {state:'ready',authVerified:true}},
+  listModels:async()=>{throw Error('should be cancelled before model listing')},
+  generate(){throw Error('must not generate')},
+ })};
+ const state=await runOwnerLiveSmoke({configStore,accountCenter,signal:controller.signal,
+  env:{DSH_NATIVE_ROUTER_SMOKE_NONCE:nonce}});
+ assert.equal(state.state,'interrupted');
+ const report=JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'));
+ assert.equal(report.accounts.length,3);
+ assert.ok(report.accounts.every(row=>row.finishedAt!==null&&row.state!=='checking'));
+ assert.doesNotMatch(JSON.stringify(report),/credentialRef/);
+}));
+
+test('a hung official Provider is timed out without blocking other channels or writing a late proof',async()=>fixture(async dir=>{
+ const accounts=['own_loomy','own_lingxi'].map((providerId,i)=>({
+  id:'acc-'+i,providerId,credentialRef:'driver:'+providerId+':acc-'+i,enabled:true}));
+ const configStore={path:join(dir,'config.json'),get:()=>({
+  accounts,providers:accounts.map(a=>({id:a.providerId,enabled:true}))})};
+ writeFileSync(join(dir,'owner-live-smoke-request.json'),JSON.stringify({
+  version:1,nonce,mode:'inventory-audit',consent:true,expiresAt:Date.now()+300000}));
+ let release,lateCatalog=0,goodCatalog=0;
+ const accountCenter={driverFor:providerId=>({
+   refreshAccountStatus:providerId==='own_loomy'
+    ?()=>new Promise(resolve=>{release=resolve})
+    :async()=>({state:'ready',authVerified:true,balanceState:'available'}),
+   listModels:async()=>{
+     if(providerId==='own_loomy')lateCatalog++;
+     else goodCatalog++;
+     return [{id:'model',upstreamFreeLabel:true}];
+   },
+ })};
+ const state=await runOwnerLiveSmoke({configStore,accountCenter,
+  inventoryReadTimeoutMs:60,env:{DSH_NATIVE_ROUTER_SMOKE_NONCE:nonce}});
+ assert.equal(state.state,'complete');assert.equal(state.checked,2);
+ let report=JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'));
+ assert.deepEqual(report.accounts.map(row=>row.code),
+  ['OFFICIAL_READ_TIMEOUT','OFFICIAL_ACCOUNT_AND_CATALOG']);
+ assert.equal(report.accounts[0].authVerified,false);
+ assert.equal(goodCatalog,1);
+ release?.({state:'ready',authVerified:true,balanceState:'available'});
+ await new Promise(resolve=>setImmediate(resolve));
+ report=JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'));
+ assert.equal(report.accounts[0].code,'OFFICIAL_READ_TIMEOUT');
+ assert.equal(lateCatalog,0,'timed-out read must not proceed to model catalog');
+}));
+
 test('inventory-audit prohibits billing permissions, arbitrary provider selectors and model selection',async()=>fixture(async dir=>{
  const h=rig(dir);h.request();
  const file=join(dir,'owner-live-smoke-request.json');

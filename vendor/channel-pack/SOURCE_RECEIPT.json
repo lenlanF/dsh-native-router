@@ -1,7 +1,7 @@
 {
   "sourceRepository": "https://github.com/hulibuld/dsh-get-it-for-free",
-  "sourceCommit": "6daa5bc344feac44763af25c674e8882c292a728",
-  "upstreamVersion": "3.2.0",
+  "sourceCommit": "114b4a516ab32e6f318a53cab4ac7f83ef8dd0b0",
+  "upstreamVersion": "3.5.4",
   "embeddedOrigin": "vendor/channel-pack",
   "upstreamChannelPackSource": "https://gitee.com/iJetLi/deepseek-harness-codearts",
   "upstreamChannelPackCommit": "345f0a07b22713c0ae189ca7d8b97ec4f64626c6",
@@ -10,8 +10,8 @@
   "referenceFiles": [
     {
       "file": "pack.js",
-      "bytes": 3015049,
-      "sha256": "5a87770f727c2827f6d75b34351de54b92facfc67dd8a4b52fb0ecf794158247"
+      "bytes": 3026193,
+      "sha256": "5b933808951453cab76227e68cea480c6321e746e152f9e78963d5562faceb27"
     },
     {
       "file": "qoder-auth-wasm.wasm",

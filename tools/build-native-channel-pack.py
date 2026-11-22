@@ -387,6 +387,31 @@ async function fetchZcodeClaimablePlans(credential,fetchImpl=sanitizingFetch){
         '          app_version: appVersion\n        })\n      }, 3e3);',
         'zcode-activation-readonly-3s-timeout',
     ))
+    # Loomy backup SMS endpoints must be bound to an actual enabled Loomy
+    # account before contacting the paid SMS provider or writing credentials.
+    # Upstream v3.5.4 accepts arbitrary accountId in sendSms and then uses
+    # that account's credentialRef in submitSms. A caller could otherwise
+    # bind a Loomy session to another provider's credential reference.
+    patches.extend([
+        (
+            '        const phone = typeof req.phone === "string" ? req.phone.trim() : "";',
+            '        const smsAccount = pool.findAccount(req.accountId);\n'
+            '        if (!smsAccount || smsAccount.provider !== LOOMY.id || smsAccount.enabled !== true) {\n'
+            '          return { ok: false, error: { code: "loomy-account-mismatch", message: "The Loomy account must exist and be enabled" } };\n'
+            '        }\n'
+            '        const phone = typeof req.phone === "string" ? req.phone.trim() : "";',
+            'loomy-sms-sender-requires-existing-owned-account',
+        ),
+        (
+            '        const pending = pendingSmsMsgid.get(req.accountId);',
+            '        const smsAccount = pool.findAccount(req.accountId);\n'
+            '        if (!smsAccount || smsAccount.provider !== LOOMY.id || smsAccount.enabled !== true) {\n'
+            '          return { ok: false, error: { code: "loomy-account-mismatch", message: "The Loomy account must exist and be enabled" } };\n'
+            '        }\n'
+            '        const pending = pendingSmsMsgid.get(req.accountId);',
+            'loomy-sms-submit-refuses-cross-provider-credential-overwrite',
+        ),
+    ])
     names = []
     for old, new, name in patches:
         count = text.count(old)
