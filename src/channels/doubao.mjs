@@ -247,7 +247,30 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
        balanceState:Number.isFinite(old.balance)?'available':'not_returned',
        quotaRefreshState:'unavailable'});
      }
-   return {state:models.length?'online':'pending',
+    // Metadata refresh only discovers official tasks; never submits awards.
+    try{
+      const launch=await fetchLaunch(cookie,withFetch({timeoutMs:12000}));
+      const group=launch.campaignGroup||launch.campaign;
+      if(group){
+        const detail=await fetchCampaignDetail(cookie,group,withFetch({timeoutMs:12000}));
+        const daily=findDailyCheckin(detail.tasks||[]);
+        const prior=publicStatus.get(account.id)??{};
+        const date=beijingDate(now());
+        const verified=daily?.checkedInToday===true,claimable=daily?.checkedInToday===false;
+        publicStatus.set(account.id,{...prior,
+          activityState:verified?'claimed':claimable?'claimable':'not_confirmed',
+          activityCheckedAt:now(),
+          ...(verified||claimable?{checkinDate:date,
+            checkinOutcome:verified?'already':'claimable'}:{})});
+      }else{
+        const prior=publicStatus.get(account.id)??{};
+        publicStatus.set(account.id,{...prior,activityState:'not_offered',activityCheckedAt:now()});
+      }
+    }catch{
+      const prior=publicStatus.get(account.id)??{};
+      publicStatus.set(account.id,{...prior,activityState:'unavailable'});
+    }
+    return {state:models.length?'online':'pending',
      message:models.length?'豆包工作账号及普通对话模型目录鉴权通过（真实推理待验收）':'账号已鉴权但无可用对话模型'};
   }catch(error){
    return {state:error?.status===401?'expired':error?.status===429?'limited':'error',
@@ -265,10 +288,15 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
    if(!task)return {state:'no_task',message:'官方活动未列出今日签到任务'};
    if(task.checkedInToday===true)return {confirmed:true,date,
      message:'官方任务列表已确认今日签到'};
-   // Reuse the web campaign API directly. No DoubaoWork process or desktop
-   // workspace is involved. An accepted claim is NOT proof of a reward.
-   try{await claimCheckin(cookie,group,withFetch({timeoutMs:12000}))}
-   catch{return {state:'pending_confirmation',message:'豆包网页版领取请求未通过，未确认签到成功'}}
+    if(task.checkedInToday!==false)
+      return {state:'pending_confirmation',message:'官方没有明确报告今日未领取，禁止重复发送签到'};
+    // A submitted request may consume one activity chance even on rejection.
+    try{await claimCheckin(cookie,group,withFetch({timeoutMs:12000}))}
+    catch(error){
+      if(errorCode(error)==='710010702'||errorCode(error)==='710022004')
+        return {state:'client_required',message:'官方要求在网页完成活动确认，不自动重发或跳过验证'};
+      return {state:'pending_confirmation',message:'豆包网页版领取请求未确认，停止自动重复领取'};
+    }
    for(const delayMs of [0,2000,4000]){
     if(delayMs)await sleepMs(delayMs);
     try{

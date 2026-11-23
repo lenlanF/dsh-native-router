@@ -157,7 +157,11 @@ export function createMimoDesktopDriver({
      ...(Number.isFinite(remote.membershipPercentRemaining)?
        {membershipPercentRemaining:remote.membershipPercentRemaining}:{}),
      ...(Number.isFinite(remote.membershipResetAt)?{membershipResetAt:remote.membershipResetAt}:{}),
-     ...(Number.isFinite(remote.quotaCheckedAt)?{quotaCheckedAt:remote.quotaCheckedAt}:{})});
+      ...(Number.isFinite(remote.quotaCheckedAt)?{quotaCheckedAt:remote.quotaCheckedAt}:{}),
+      ...(remote.usageState?{usageState:remote.usageState}:{}),
+      ...(Number.isFinite(remote.usagePercentRemaining)?{usagePercentRemaining:remote.usagePercentRemaining}:{}),
+      ...(Number.isFinite(remote.usageResetAt)?{usageResetAt:remote.usageResetAt}:{}),
+      ...(Number.isFinite(remote.usageCheckedAt)?{usageCheckedAt:remote.usageCheckedAt}:{})});
     return receipt;
    },
   verifySession:verifyMembership,
@@ -218,7 +222,11 @@ export function createMimoDesktopDriver({
        ...(Number.isFinite(remote.membershipPercentRemaining)?
         {membershipPercentRemaining:remote.membershipPercentRemaining}:{}),
        ...(Number.isFinite(remote.membershipResetAt)?{membershipResetAt:remote.membershipResetAt}:{}),
-       ...(Number.isFinite(remote.quotaCheckedAt)?{quotaCheckedAt:remote.quotaCheckedAt}:{})});
+        ...(Number.isFinite(remote.quotaCheckedAt)?{quotaCheckedAt:remote.quotaCheckedAt}:{}),
+        ...(remote.usageState?{usageState:remote.usageState}:{}),
+        ...(Number.isFinite(remote.usagePercentRemaining)?{usagePercentRemaining:remote.usagePercentRemaining}:{}),
+        ...(Number.isFinite(remote.usageResetAt)?{usageResetAt:remote.usageResetAt}:{}),
+        ...(Number.isFinite(remote.usageCheckedAt)?{usageCheckedAt:remote.usageCheckedAt}:{})});
       return {state:'online',message:'MiMo Desktop 账号信息已核验；会员额度与 API Token Plan 分开显示'};
      }
      // A temporary remote outage must not discard a previously verified name.

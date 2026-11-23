@@ -121,7 +121,12 @@ test('WorkBuddy auth metadata never selects arbitrary off-platform host',async t
  const f=fixture(t,{domain:'https://attacker.invalid'});
  const {added}=await imported(f);f.center.setEnabled(added.id,true);
  assert.equal((await f.center.verify(added.id)).state,'online');
- assert.ok(f.calls.every(c=>c.url.startsWith('https://copilot.tencent.com/')));
+  assert.ok(f.calls.every(c=>c.url.startsWith('https://copilot.tencent.com/')||
+    c.url.startsWith('https://www.codebuddy.cn/')),
+   'official CN model transport and billing host are both allowlisted');
+  assert.ok(f.calls.filter(c=>c.url.endsWith('/v3/config')).every(c=>
+    c.url.startsWith('https://copilot.tencent.com/')),
+   'original model transport may not be retargeted by untrusted auth-domain metadata');
 });
 test('WorkBuddy provider rejects vanished/replaced accounts before network access',async t=>{
  const f=fixture(t);const {added}=await imported(f);f.center.setEnabled(added.id,true);

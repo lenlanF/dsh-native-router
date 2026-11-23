@@ -14,7 +14,7 @@ import {createNativeRouterAdapter} from '../src/adapter.mjs';
 const sha=v=>createHash('sha256').update(v).digest('hex');
 const safeRoot=()=>mkdtempSync(join(tmpdir(),'dsh-workbuddy-own-test-'));
 const content=[{choices:[{delta:{content:'independent workbuddy'},finish_reason:'stop'}]}];
-function testRig(region){
+function testRig(region,{benefitCampaign=false}={}){
  const root=safeRoot();
  const domain=region==='cn'?'www.workbuddy.cn':'www.workbuddy.ai';
  const source='workbuddy-'+region,own='own_workbuddy-'+region;
@@ -40,7 +40,7 @@ function testRig(region){
   async set(key,value){store.set(key,value)},
   async unset(key){store.delete(key)},
  };
- const hits=[];let checked=false;
+  const hits=[];let checked=false,compensationClaimed=false;
  const fetchImpl=async(url,init={})=>{
   hits.push(String(url));
   assert.ok(String(url).startsWith('https://'+domain+'/')
@@ -54,7 +54,15 @@ function testRig(region){
     checked=true;return new Response(JSON.stringify({code:0,data:{credit:10}}),
       {status:200,headers:{'content-type':'application/json'}});
   }
-  if(String(url).includes('/v3/config'))return new Response(JSON.stringify({
+   if(String(url).includes('/billing/meter/compensation-status'))
+    return new Response(JSON.stringify({code:0,data:{active:benefitCampaign,claimed:compensationClaimed,credit_num:160}}));
+   if(String(url).includes('/billing/meter/check-gift-claimed'))
+    return new Response(JSON.stringify({code:0,data:{active:false,claimed:false}}));
+   if(String(url).includes('/billing/meter/claim-compensation')){
+    if(!benefitCampaign)throw Error('No grant advertised');
+    compensationClaimed=true;return new Response(JSON.stringify({code:0,data:{}}));
+   }
+   if(String(url).includes('/v3/config'))return new Response(JSON.stringify({
    code:0,data:{models:[{id:region==='cn'?'hy4-preview-f':'default-model',
      name:'Synthetic Model',credits:'x0.00 credits',supportsToolCall:true},
      {id:'synthetic-premium',name:'Synthetic paid',credits:'x0.79 credits',supportsToolCall:true}]}}),{
@@ -77,6 +85,26 @@ function testRig(region){
     rmSync(plugins,{recursive:true,force:true})},
   cleanup(){rmSync(root,{recursive:true,force:true})}};
 }
+test('WorkBuddy independently collects eligible compensation in opt-in check-in once',async()=>{
+ const r=testRig('cn',{benefitCampaign:true});
+ try{
+  const found=await r.inventory.scan();
+  const id=found.accounts.find(x=>x.providerId==='workbuddy-cn')?.accountId;
+  assert(id);
+  const result=await r.adoption.adopt({providerId:'workbuddy-cn',accountId:id,consent:true});
+  assert.equal(result.state,'stored_unverified');
+  r.destroyOriginal();
+  const account=r.cfg.accounts[0],day='2026-11-23';
+  const first=await r.driver.checkIn({account,date:day});
+  assert.equal(first.confirmed,true);
+  assert.match(first.message,/活动奖励/);
+  assert.equal(r.hits.filter(x=>x.includes('/billing/meter/claim-compensation')).length,1);
+  const second=await r.driver.checkIn({account,date:day});
+  assert.equal(second.confirmed,true);
+  assert.equal(r.hits.filter(x=>x.includes('/billing/meter/claim-compensation')).length,1);
+  assert.equal(r.driver.accountSnapshot(account).benefits.find(x=>x.kind==='compensation').claimed,true);
+ }finally{r.cleanup()}
+});
 for(const region of ['cn','global']){
  test('WorkBuddy '+region+' independent identity survives original plugin uninstall',async()=>{
   const r=testRig(region);

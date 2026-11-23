@@ -360,9 +360,8 @@ export async function fetchCampaignDetail(cookieHeader, group, options) {
 // 每日签到任务在活动组里按名字找。找不到就是「今天没有可签的任务」，
 // 不是错误——很多账号是任务型活动（做一件事领额度），没有签到卡。
 export function findDailyCheckin(tasks) {
-  return tasks.find(task => /check_?in|sign_?in|daily_sign/i.test(`${task.code} ${task.kind} ${task.type} ${task.title}`))
-    ?? tasks.find(task => /daily/i.test(task.code) && task.status === 1 && task.kind === 'chat_activity')
-    ?? null
+   return tasks.find(task=>/check_?in|sign_?in|daily_sign/i.test(
+     [task.code,task.kind,task.type,task.title].join(' ')))??null;
 }
 
 // 请求体按服务端 IDL 来：{scene, biz_params(map), AgwCommonParam}。

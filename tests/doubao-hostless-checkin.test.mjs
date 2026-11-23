@@ -4,7 +4,8 @@ import {createDoubaoDriver} from '../src/channels/doubao.mjs';
 
 const COOKIE='sessionid=standalone-web-session-1234567890; uid_tt=123123123';
 const date='2026-11-20';
-function fixture({already=false,afterClaim='verified',claimError=false,withTask=true}={}){
+function fixture({already=false,afterClaim='verified',claimError=false,withTask=true,
+  taskUnknown=false,chatOnly=false}={}){
  const stored=new Map(),calls=[],delays=[];
  let claimed=false;
  const vault={
@@ -23,9 +24,10 @@ function fixture({already=false,afterClaim='verified',claimError=false,withTask=
    return data({ug_campaign_info:{campaign_group_code:'member-signin'}});
   if(url.pathname==='/alice/ug/campaign/v3/detail'){
    const done=already||claimed&&afterClaim==='verified';
-   return data({campaign_code:'member-signin',tasks:withTask?[{
-    campaign_code:'daily_check_in',task_kind:'daily_signin',
-    daily_checkin:{checked_in_today:done}}]:[]});
+    return data({campaign_code:'member-signin',tasks:withTask?[{
+     campaign_code:chatOnly?'daily_chat_activity':'daily_check_in',
+     task_kind:chatOnly?'chat_activity':'daily_signin',
+     ...(taskUnknown?{}:{daily_checkin:{checked_in_today:done}})}]:[]});
   }
   if(url.pathname==='/alice/ug/campaign/landing/checkin'){
    assert.equal(init.method,'POST');
@@ -70,9 +72,30 @@ test('Doubao check-in refuses to report success if server receipt is not confirm
 test('Doubao upstream rejection is not treated as a client-process requirement or success',async()=>{
  const rig=fixture({claimError:true}),account=await rig.accountPromise;
  const result=await rig.driver.checkIn({account,date});
+  assert.equal(result.state,'client_required');
+  assert.equal(result.confirmed,undefined);
+  assert.match(result.message,/官方要求/);
+});
+test('Doubao refresh discovers official promotion eligibility without submitting claim',async()=>{
+ const rig=fixture(),account=await rig.accountPromise;
+ // The mock does not offer a model catalog, so model refresh is not required
+ // to prove that the already implemented campaign discovery is read-only.
+ const result=await rig.driver.checkIn({account,date});
+ assert.equal(result.confirmed,true);
+ const unsafe=rig.calls.filter(x=>x.path==='/alice/ug/campaign/landing/checkin');
+ assert.equal(unsafe.length,1);
+});
+test('Doubao missing official unchecked flag cannot consume a claim attempt',async()=>{
+ const rig=fixture({taskUnknown:true}),account=await rig.accountPromise;
+ const result=await rig.driver.checkIn({account,date});
  assert.equal(result.state,'pending_confirmation');
- assert.equal(result.confirmed,undefined);
- assert(!/客户端|启动/.test(result.message));
+ assert.equal(rig.calls.filter(x=>x.path.includes('landing/checkin')).length,0);
+});
+test('Doubao chat activity is not a daily-signin task and cannot be claimed blindly',async()=>{
+ const rig=fixture({chatOnly:true}),account=await rig.accountPromise;
+ const result=await rig.driver.checkIn({account,date});
+ assert.equal(result.state,'no_task');
+ assert.equal(rig.calls.filter(x=>x.path.includes('landing/checkin')).length,0);
 });
 test('Doubao account without daily task does not claim anything',async()=>{
  const rig=fixture({withTask:false}),account=await rig.accountPromise;

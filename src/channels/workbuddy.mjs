@@ -10,6 +10,8 @@ import {toChatMessages} from '../protocol.mjs';
 import {decodeOpenAIResponse,validateModelCalls} from '../provider/openai.mjs';
 import {UpstreamError,safeRetryAfter} from '../failure.mjs';
 import {defaultConfigPath} from '../config.mjs';
+import {publicAccountName} from '../account-facts.mjs';
+import {createWorkBuddyMemberReader} from './workbuddy-members.mjs';
 import {ownCredentialRef} from '../credential-ref.mjs';
 
 const AUTH_FILES=['workbuddy-desktop.info','workbuddy-desktop-ai.info'];
@@ -52,19 +54,25 @@ function validateAuth(parsed){
   const access=privateText(parsed.accessToken)||privateText(parsed.access_token)||privateText(auth.accessToken);
   if(!access)return null;
   const claims=jwtClaims(access);
-  const accountId=safeText(parsed.uin)||safeText(auth.uin)||safeText(parsed.uid)||safeText(auth.uid)
-    ||'unidentified_'+sha(access).slice(0,12);
-  const nickname=safeText(parsed.nickname)||safeText(parsed.nickName)||safeText(parsed.displayName)
-    ||safeText(auth.nickname)||'WorkBuddy 账号';
+  const uid=safeText(parsed.uid)||safeText(auth.uid)||safeText(claims.sub);
+  const uin=safeText(parsed.uin)||safeText(auth.uin)||safeText(claims.uin);
+  const accountId=uin||uid||'unidentified_'+sha(access).slice(0,12);
+  const nickname=safeText(parsed.displayName)||safeText(auth.displayName)||
+   safeText(parsed.enterpriseUserName)||safeText(auth.enterpriseUserName)||
+   safeText(parsed.nickname)||safeText(parsed.nickName)||safeText(auth.nickname)||
+   safeText(claims.nickname)||safeText(claims.preferred_username);
   const refresh=privateText(parsed.refreshToken)||privateText(auth.refreshToken);
   const refreshed=timestamp(parsed.lastRefreshAtMs)||timestamp(parsed.lastRefreshTime)||
-    timestamp(auth.lastRefreshAtMs)||timestamp(auth.lastRefreshTime);
+   timestamp(auth.lastRefreshAtMs)||timestamp(auth.lastRefreshTime);
   const expiresAt=timestamp(parsed.expiresAt)||timestamp(auth.expiresAt)||
-    timestamp((Number(claims.exp)||0)*1000);
+   timestamp((Number(claims.exp)||0)*1000);
   const domain=safeText(parsed.domain)||safeText(auth.domain)||safeText(parsed.apiDomain)||safeText(claims.iss);
   const endpoint=/codebuddy\.ai|workbuddy\.ai/i.test(domain)?DOMAIN_INTL:DOMAIN_CN;
-  return {accountId,nickname,access,refresh,expiresAt,lastRefreshAtMs:refreshed,endpoint,
-    sub:safeText(claims.sub),enterprise:safeText(claims.enterprise_id),tenant:safeText(claims.tenant_id)};
+  return {accountId,uid,uin,nickname,access,refresh,expiresAt,
+   lastRefreshAtMs:refreshed,domain,endpoint,
+   enterprise:safeText(parsed.enterpriseId)||safeText(auth.enterpriseId)||
+     safeText(parsed.enterprise_id)||safeText(auth.enterprise_id)||safeText(claims.enterprise_id),
+   tenant:safeText(parsed.tenantId)||safeText(auth.tenantId)||safeText(claims.tenant_id)};
 }
 function possibleFiles(env){
   const home=env.USERPROFILE||homedir();
@@ -154,7 +162,11 @@ export function createWorkBuddyDriver({
       accessToken:cached.access,refreshToken:cached.refresh,
       expiresAt:Math.floor(cached.expiresAt/1000),
       domain:ownedRegion==='cn'?'www.workbuddy.cn':'www.workbuddy.ai',
-      ...(auth.accountId?{uid:auth.accountId}:{}),
+      ...(auth.uid?{uid:auth.uid}:{}),
+      ...(auth.uin?{uin:auth.uin}:{}),
+      ...(auth.enterprise?{enterpriseId:auth.enterprise}:{}),
+      ...(auth.tenant?{tenantId:auth.tenant}:{}),
+      ...(auth.nickname?{nickname:auth.nickname}:{}),
     }));
   }
   async function findAccount(account){
@@ -380,7 +392,38 @@ export function createWorkBuddyDriver({
     if(!finish)return 'DONE_MISSING_FINISH';
     return 'UNCLASSIFIED_SSE';
   }
-  async function workbuddyCheckIn({account,date}={}){
+  const memberReader=createWorkBuddyMemberReader({fetchImpl,now,baseOverride:allowTestEndpoint});
+  const memberSnapshots=new Map(),benefitInflight=new Set();
+  async function fetchMemberFacts(account,signal){
+    const auth=await validSession(account,signal);
+    const region=ownedRegion??(auth.endpoint===DOMAIN_INTL?'global':'cn');
+    const [profile,credits,benefits]=await Promise.allSettled([
+      memberReader.profile(auth,region,signal),
+      memberReader.credits(auth,region,signal),
+      memberReader.benefits(auth,region,signal),
+    ]);
+    const latest=memberSnapshots.get(account.id)??{};
+    const profileRow=profile.status==='fulfilled'?profile.value:{};
+    const creditRow=credits.status==='fulfilled'?credits.value:null;
+    const benefitsRow=benefits.status==='fulfilled'?benefits.value:null;
+    const name=publicAccountName(profileRow,{displayName:auth.nickname},account);
+    const next={...latest,
+      ...(name?{accountName:name}:{}),
+      ...(creditRow??{
+        balanceState:Number.isFinite(latest.balance)?'available':'not_returned',
+        creditFetchState:'unavailable',
+      }),
+      ...(benefitsRow?{benefits:benefitsRow,
+        availableBenefits:benefitsRow.filter(x=>x.active&&!x.claimed).length,
+        benefitsCheckedAt:now()}:{}),
+      profileCheckedAt:now(),
+    };
+    memberSnapshots.set(account.id,next);
+    return {state:creditRow||profileRow?.authVerified===true?'online':'unavailable',
+      authVerified:!!creditRow||profileRow?.authVerified===true,
+      ...next};
+  }
+  async function workbuddyDailyCheckIn({account,date}={}){
     if(!ownedRegion)return {state:'unsupported'};
     if(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date))
       return {state:'failed',message:'签到日期非法'};
@@ -413,6 +456,42 @@ export function createWorkBuddyDriver({
       return {state:'pending_confirmation',accepted:true,message:'已请求签到，但尚未核实上游今日状态'};
     }catch{return {state:'failed',message:'WorkBuddy 签到通信未成功'}}
     finally{request.cleanup()}
+  }
+  // A user-triggered check-in, or the already opt-in automatic check-in
+  // scheduler, also collects officially eligible account gifts/compensation.
+  // It never guesses campaigns, never buys, and never retries a POST whose
+  // outcome is uncertain (the upstream may already have credited it).
+  async function workbuddyCheckIn({account,date}={}){
+    const daily=await workbuddyDailyCheckIn({account,date});
+    if(!ownedRegion||daily.state==='client_required')return daily;
+    let auth;try{auth=await validSession(account)}catch{return daily}
+    if(auth.enterprise)return daily;
+    const region=ownedRegion,available=await memberReader.benefits(auth,region).catch(()=>[]);
+    let claimed=0,uncertain=0;
+    for(const benefit of available){
+      if(!benefit?.active||benefit.claimed||
+        !['gift','compensation'].includes(benefit.kind))continue;
+      const key=account.id+'\0'+benefit.kind+'\0'+date;
+      if(benefitInflight.has(key)){uncertain++;continue}
+      // Remains locked for the day even if a network error leaves outcome
+      // ambiguous; refresh metadata before ANY later deliberate re-claim.
+      benefitInflight.add(key);
+      try{
+        const outcome=await memberReader.claimBenefit(auth,region,benefit.kind);
+        if(outcome.confirmed===true)claimed++;
+        else if(outcome.state==='pending_confirmation')uncertain++;
+      }catch{uncertain++}
+    }
+    // The display refresh is read-only and never re-sends a reward claim.
+    if(available.some(x=>x.active&&!x.claimed))
+      await fetchMemberFacts(account).catch(()=>{});
+    if(daily.confirmed||claimed>0)
+      return {confirmed:true,date,message:claimed?
+        'WorkBuddy 今日签到/活动奖励已读取官方确认 · 新增领取 '+claimed+' 项':
+        daily.message};
+    if(uncertain>0)return {state:'pending_confirmation',
+      message:'WorkBuddy 活动领取回执尚未确认，停止重复领取'};
+    return daily;
   }
   return {
     ...(ownedRegion?{checkIn:workbuddyCheckIn}:{}),
@@ -454,17 +533,33 @@ export function createWorkBuddyDriver({
     async login({account}={}){
       return this.refresh({account});
     },
-    async refresh({account,signal}={}){
-      try{
+     async refresh({account,signal}={}){
+       try{
         await modelList(account,signal);
-        return {state:'online',message:'WorkBuddy 远端模型目录校验通过（引用桌面端登录态）'};
-      }catch(e){
+        // Metadata reads use this owner's exact signed session, never the
+        // original WorkBuddy plugin, and do not spend generation credits.
+        await fetchMemberFacts(account,signal).catch(()=>{});
+        return {state:'online',message:'WorkBuddy 官方模型和个人积分信息已发起核对；账号详情来自自有授权'};
+       }catch(e){
         return {state:e?.status===401||e?.status===403||e?.code==='CREDENTIAL'?'expired':e?.status===429?'limited':'error',
           message:e?.status===401||e?.status===403||e?.code==='CREDENTIAL'
-            ?'WorkBuddy 授权已失效或本地凭据不可用，请检查原客户端':
-            'WorkBuddy 远程连接暂不可用（'+String(e?.code??e?.status??'network').slice(0,36)+'）'};
-      }
-    },
+            ?'WorkBuddy 授权已失效或本地凭据不可用，请检查登录状态':
+            'WorkBuddy 远程连接暂不可用'};
+       }
+     },
+     accountSnapshot(account){
+       const row=memberSnapshots.get(account?.id)??{};
+       const name=publicAccountName(row,account);
+       return {...row,...(name?{accountName:name}:{})};
+     },
+     async refreshAccountStatus({account,signal}={}){
+       try{
+        const facts=await fetchMemberFacts(account,signal);
+        return {state:facts.authVerified===true?'online':'unavailable',
+         authVerified:facts.authVerified===true,
+         ...(facts.authVerified===true?{checkedAt:now()}:{})};
+       }catch{return {state:'unavailable',authVerified:false}}
+     },
     async logout({account}={}){
        if(ownedRegion){
          const owner='own_workbuddy-'+ownedRegion;

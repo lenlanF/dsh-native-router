@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import {createMimoDesktopSessionTransport} from '../src/channels/mimo-desktop-session.mjs';
 const own={region:'cn',passToken:'owner-desktop-private-pass-123',userId:'account-101'};
 function fixture({invalidRedirect=false,auth=0,expectedModel='mimo-v2.6-pro',
-  membership={planCode:'plus',planTier:2,percent:77.5,nextResetTime:'2026-11-30T00:00:00Z'},
-  missingMembership=false,malformedMembership=false}={}){
+   membership={planCode:'plus',planTier:2,percent:77.5,nextResetTime:'2026-11-30T00:00:00Z'},
+   missingMembership=false,malformedMembership=false,
+   allowance={percent:70,resetDate:'2026-12-05'}}={}){
  const calls=[];let handshakes=0;
  const fetchImpl=async(url,init={})=>{
   calls.push({url,init});
@@ -32,7 +33,9 @@ function fixture({invalidRedirect=false,auth=0,expectedModel='mimo-v2.6-pro',
     return missingMembership?new Response('',{status:404}):
      new Response(JSON.stringify(malformedMembership?{code:0,data:{}}:
        {code:0,data:{current:membership}}),{status:200});
-   assert.ok(url.endsWith('/api/route/chat/completions'));
+    if(url.endsWith('/api/user/usage'))
+      return new Response(JSON.stringify({code:0,data:allowance}),{status:200});
+    assert.ok(url.endsWith('/api/route/chat/completions'));
   assert.equal(init.method,'POST');
   assert.equal(JSON.parse(init.body).model,'xiaomi/'+expectedModel);
   if(auth&&handshakes===1)return new Response('',{status:401});
@@ -89,6 +92,27 @@ test('MiMo quota API unavailable and null percentage never become a false 0% lab
  const malformed=await fixture({malformedMembership:true}).transport.probe({session:own});
  assert.equal(malformed.state,'online');
  assert.equal(malformed.membershipState,'unavailable');
+});
+test('MiMo naturally refreshed free seven-day member allowance is visible without a paid API key',async()=>{
+ const rig=fixture({membership:null,allowance:{percent:70,resetDate:'2026-12-05'}});
+ const profile=await rig.transport.probe({session:own});
+ assert.equal(profile.state,'online');
+ assert.equal(profile.membershipState,'not_subscribed');
+ assert.equal(profile.usageState,'available');
+ assert.equal(profile.usagePercentRemaining,70);
+ assert.equal(profile.usageResetAt,Date.parse('2026-12-05T00:00:00+08:00'));
+ assert(rig.calls.some(x=>x.url.endsWith('/api/user/usage')));
+ assert(!rig.calls.some(x=>x.url.includes('/v1/')));
+});
+test('MiMo no active cycle is distinct from an actual zero-percent remaining quota',async()=>{
+ const free=await fixture({allowance:{percent:100,resetDate:null}}).transport.probe({session:own});
+ assert.equal(free.usageState,'no_cycle');
+ assert.equal('usagePercentRemaining' in free,false);
+ const exhausted=await fixture({allowance:{percent:0,resetDate:'2026-12-05'}}).transport.probe({session:own});
+ assert.equal(exhausted.usageState,'available');
+ assert.equal(exhausted.usagePercentRemaining,0);
+ const malformed=await fixture({allowance:{percent:null,resetDate:'2026-12-05'}}).transport.probe({session:own});
+ assert.equal(malformed.usageState,'unavailable');
 });
 test('all advertised MiMo V2.6 member models use only private desktop session and account-service endpoint',async()=>{
  for(const model of ['mimo-v2.6-pro','mimo-v2.6-flash','mimo-v2.6-pro-ultraspeed']){

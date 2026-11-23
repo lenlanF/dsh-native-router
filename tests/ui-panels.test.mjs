@@ -994,6 +994,37 @@ test('native account cards show real Xiaomi membership and Doubao quota windows 
  assert.doesNotMatch(rendered,/账号1|账号 1|余额待来源同步|余额：92/);
  assert.equal(rig.find(page,'button','刷新账户资料').length,2);
 });
+test('native account page renders WorkBuddy monthly grant and independent MiMo free rolling quota',async()=>{
+ const inventory={ok:true,channels:[
+  {id:'own_workbuddy-cn',name:'WorkBuddy 国内',adapterReady:true,authMethod:'独立会员'},
+  {id:'own_mimo_desktop',name:'MiMo Desktop',adapterReady:true,authMethod:'独立会员'}],
+ accounts:[
+  {id:'wbp_abcdef',providerId:'own_workbuddy-cn',nickname:'WorkBuddy 正式会员',
+   connectionState:'online',enabled:true,configuredEnabled:true,weight:1,
+   runtimeMode:'owned',credentialKind:'driver',
+   balance:121.98,balanceState:'available',balanceUnit:'积分',
+   quotaWindows:[{kind:'monthly',label:'月基础积分',left:81.23,total:500,used:418.77},
+    {kind:'grant',label:'活动赠送',left:40.75,total:100,used:59.25}],
+   benefits:[{kind:'compensation',active:true,claimed:false,credit:300}]},
+  {id:'sp_mimo_fixture',providerId:'own_mimo_desktop',nickname:'MiMo 会员',
+   connectionState:'online',enabled:true,configuredEnabled:true,weight:1,
+   runtimeMode:'owned',credentialKind:'driver',
+   membershipState:'not_subscribed',usageState:'available',usagePercentRemaining:70,
+   usageResetAt:Date.parse('2026-12-05T00:00:00+08:00')},
+ ],embeddedAccounts:{state:'disabled',accounts:[]},pools:[]};
+ const rig=createUiRig(new Map(),null,{state:'disabled'},{},[],
+  undefined,()=>true,inventory);
+ await rig.init();rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
+ const page=rig.render(),text=rig.flatten(page).join(' ');
+ assert.match(text,/WorkBuddy 正式会员/);
+ assert.match(text,/121\.98 积分/);
+ assert.match(text,/81\.23 \/ 500/);
+ assert.match(text,/40\.75 \/ 100/);
+ assert.match(text,/可领取 补偿积分 · 300 积分/);
+ assert.match(text,/MiMo 免费七日额度/);
+ assert.match(text,/70% 剩余/);
+ assert.doesNotMatch(text,/官方未返回|账号1|账号 1|余额待来源同步/);
+});
 test('provider search filters by name ID and protocol and defaults every disclosure closed',async()=>{
  const rig=createUiRig();await rig.init();
  rig.find(rig.render(),'button','提供商')[0].props.onClick();
