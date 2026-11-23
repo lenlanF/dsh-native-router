@@ -6,7 +6,7 @@ import {verificationWithinPeriod} from './account-verification-store.mjs';
 import {publicCheckinMessage,publicAccountFailureMessage} from './public-diagnostics.mjs';
 
 const supported=new Set(SOURCE_DAILY_SIGNIN_PROVIDERS);const RETRY_DELAY_MS=60*60*1000;
-const MAX_AUTO_ATTEMPTS=3;
+const MAX_AUTO_ATTEMPTS=3,RACCOON_MAX_AUTO_ATTEMPTS=14;
 // An empty ZCode banner is a time-limited observation, not a day-long
 // refusal. The official marketing feed can deliver a second card at 19:30.
 const ZCODE_CARD_RECHECK_MS=30*60*1000;
@@ -19,7 +19,7 @@ const ZCODE_PROMO_START='19:00';
  * The native pack's credits.status/credits.claimAll implementations are reused.
  */
 export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>Date.now(),logger,
- verificationStore}={}){
+ verificationStore,activityStore}={}){
  const roster=new Map(),pending=new Set(),statusCache=new Map(),statusAttempts=new Map();
  let refreshing=null,stopped=false;
  // Status is valid for 15 minutes across runtime restarts. Explicit owner
@@ -59,6 +59,10 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
       &&(a.providerId===row.providerId||a.providerId==='own_'+row.providerId));
   }
   const bindingFor=row=>boundAccount(row)?.credentialRef??null;
+  const raccoonOffer=Object.freeze({kind:'raccoon_login'});
+  const raccoonAccount=row=>({providerId:'own_raccoon',id:row.id,
+    credentialRef:bindingFor(row)??'source:'+row.providerId+':'+row.id});
+  const raccoonReceipt=row=>activityStore?.receipt?.(raccoonAccount(row),raccoonOffer)??null;
   function currentStatus(row){
     let cached=statusCache.get(row.id);
     const account=boundAccount(row),bindingRef=account?.credentialRef??null;
@@ -186,6 +190,8 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
               authVerified:entry.authVerified===true,
               ...(typeof entry.claimable==='boolean'?{claimable:entry.claimable}:{}),
               ...(entry.noClaimablePlans===true?{noClaimablePlans:true}:{}),
+               ...(row.providerId==='raccoon'&&typeof entry.loginRewardPending==='boolean'
+                 ?{loginRewardPending:entry.loginRewardPending}:{}),
               ...(Number.isFinite(entry.activityRewardAmount)&&entry.activityRewardAmount>=0
                 &&typeof entry.activityRewardUnit==='string'?{
                   activityRewardAmount:entry.activityRewardAmount,
@@ -197,6 +203,13 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
                 &&entry.balanceUnit==='积分'?{expiringPoints:entry.expiringPoints,
                 ...(Number.isFinite(entry.expiringAt)?{expiringAt:entry.expiringAt}:{})}:{}),
               maskedPhone:typeof entry.maskedPhone==='string'?entry.maskedPhone.slice(0,32):null});
+           // Reconcile an earlier ambiguous one-time POST from authenticated
+           // official task status. Do not retry that POST after a restart.
+           if(row.providerId==='raccoon'&&entry.authVerified===true
+             &&entry.loginRewardTaskVerified===true&&entry.loginRewardPending===false
+             &&raccoonReceipt(row)
+             &&raccoonReceipt(row).state!=='confirmed')
+             try{activityStore.finish(raccoonAccount(row),raccoonOffer,'confirmed')}catch{}
            if(nickname)row.nickname=nickname;
          }
         // A successful provider response is not a successful authentication
@@ -215,6 +228,7 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
  function snapshot(){
   return [...roster.values()].filter(row=>!configFor(row).hidden).map(row=>{
    const state=configFor(row),recent=latest(row.id),implemented=supported.has(row.providerId);
+    const receipt=row.providerId==='raccoon'?raccoonReceipt(row):null;
    const verified=currentStatus(row);
    const fresh=verified?.day===today()
      &&verificationWithinPeriod({state:verified.state??(verified.authVerified?'online':'pending'),
@@ -241,6 +255,15 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
       autoCheckinEffective:state.autoCheckin&&state.enabled&&state.providerEnabled
         &&configStore.get().checkin.autoEnabled===true,
       checkinSupported:implemented,checkinAvailable:implemented,
+      ...(row.providerId==='raccoon'?{
+        activityClaims:{confirmed:receipt?.state==='confirmed'?1:0,
+          unconfirmed:receipt&&receipt.state!=='confirmed'?1:0,
+          lastAt:receipt?.at??null},
+        ...(report?.loginRewardPending===true||receipt?.state==='confirmed'?{
+          benefits:[{kind:'raccoon_login',active:true,
+            claimed:receipt?.state==='confirmed',
+            ...(Number.isFinite(receipt?.credit)?{credit:receipt.credit}:{})}]}:{})
+      }:{}),
       ...(report?.active===false?{activityActive:false}:
         report?.active===true?{activityActive:true}:{}),
       checkinState:accountState,checkinAt:report?.checkedAt??recent?.at??null,
@@ -262,7 +285,7 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
            ?'官方查询当前没有可领取的 Start Plan；未证明今日已领取，后续继续检查':
          report?.claimable===true?'官方确认当前存在可领取的计划':
          report?.todayCheckedIn===false?'来源服务确认今日尚未签到':         recent?publicCheckinMessage(recent.state):(implemented?'今日签到状态暂未核实':
-           row.providerId==='raccoon'?'该平台每日积分由服务端自动发放':'该渠道不提供每日签到操作'),
+           row.providerId==='raccoon'?'每日积分需官方网页活动触发并核验账单':'该渠道不提供每日签到操作'),
     };
   }); }
  async function run(id,{source='manual'}={}){
@@ -276,8 +299,10 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
   if(pending.has(id)){const e=Error('该账号的签到正在执行');e.status=409;throw e}
     const previous=latest(id);
     const successfulHistory=history(id).find(x=>x.state==='success');
-    if(successfulHistory||statusCache.get(id)?.day===today()&&
-      statusCache.get(id)?.todayCheckedIn===true)
+    const pendingRaccoonLogin=row.providerId==='raccoon'
+      &&statusCache.get(id)?.loginRewardPending===true&&!raccoonReceipt(row);
+    if(!pendingRaccoonLogin&&(successfulHistory||statusCache.get(id)?.day===today()&&
+      statusCache.get(id)?.todayCheckedIn===true))
      return {alreadyConfirmed:true,record:successfulHistory??{
        date:today(),accountId:id,providerId:row.providerId,state:'success',
        message:'来源服务已确认今日签到',at:now(),source:'status'}};
@@ -300,7 +325,16 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
   pending.add(id);
   let reply,state='failed',message='未确认';
   try{
-    try{reply=await sourcePack.checkinAccount({providerId:row.providerId,sourceAccountId:row.sourceAccountId})}
+    try{reply=await sourcePack.checkinAccount({providerId:row.providerId,
+      sourceAccountId:row.sourceAccountId,
+      ...(row.providerId==='raccoon'?{
+        beforeOneTimeClaim:offer=>stillAuthorized()&&activityStore?.blocked!==true
+          &&activityStore?.begin?.(raccoonAccount(row),offer)===true,
+        onOneTimeOutcome:(kind,state,meta)=>{
+          if(kind!=='raccoon_login'||!stillAuthorized())return;
+          activityStore?.finish?.(raccoonAccount(row),raccoonOffer,state,meta);
+        }
+      }:{})})}
     catch{reply={state:'failed',message:'来源签到请求异常，等待下次自动重试'}}
     if(reply?.state==='unavailable'){const e=Error('来源服务尚未就绪');e.status=503;throw e}
     if(stopped){const e=Error('插件已卸载，禁止写回签到历史');e.status=503;throw e}
@@ -312,7 +346,9 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
        // until the owner completes the vendor's own verification flow.
        state='client_required';message=publicCheckinMessage('client_required');
      }
-     else if(reply?.state==='pending_confirmation'&&reply?.accepted===true){
+     else if(reply?.state==='pending_confirmation'
+       &&(reply?.accepted===true||row.providerId==='raccoon'
+         &&reply.loginRewardState==='pending_confirmation')){
        // Read-only confirmation must follow a confirmed acceptance response.
        await refresh({force:true,onlyProviderId:row.providerId});
        if(statusCache.get(id)?.day===today()&&statusCache.get(id)?.todayCheckedIn===true){
@@ -360,16 +396,22 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
     if(row.providerId==='zcode'&&noPlan?.day===today()&&noPlan.noClaimablePlans===true
       &&verificationWithinPeriod({state:noPlan.state,checkedAt:noPlan.checkedAt},
         now(),STATUS_TTL_MS))continue;
-    if(records.some(x=>x.state==='success')||recent?.state==='client_required')continue;
+    const pendingRaccoonLogin=row.providerId==='raccoon'
+      &&statusCache.get(row.id)?.loginRewardPending===true&&!raccoonReceipt(row);
+    if((records.some(x=>x.state==='success')&&!pendingRaccoonLogin)
+      ||recent?.state==='client_required')continue;
     // A morning manual no-task is not evidence that no evening card will drop.
     // A ZCode receipt accepted earlier tonight must not trigger more captchas.
     if(row.providerId==='zcode'&&recent?.state==='pending_confirmation')continue;
-    if(recent?.state==='no_task'&&!zcodeEmptyRecheck)continue;
-    if(statusCache.get(row.id)?.day===today()&&statusCache.get(row.id)?.todayCheckedIn===true)continue;   // Only proven read-only ZCode empty cards do not count as claim POSTs.
+    if(recent?.state==='no_task'&&!zcodeEmptyRecheck
+      &&row.providerId!=='raccoon')continue;
+    if(statusCache.get(row.id)?.day===today()&&statusCache.get(row.id)?.todayCheckedIn===true
+      &&!pendingRaccoonLogin)continue;   // Only proven read-only ZCode empty cards do not count as claim POSTs.
     // Unknown/older no_task outcomes still consume the three-attempt budget.
     if(records.filter(x=>x.source==='auto'
       &&!(row.providerId==='zcode'&&x.state==='no_task'
-        &&x.readOnlyNoTask===true)).length>=MAX_AUTO_ATTEMPTS)continue;
+        &&x.readOnlyNoTask===true)).length>=
+      (row.providerId==='raccoon'?RACCOON_MAX_AUTO_ATTEMPTS:MAX_AUTO_ATTEMPTS))continue;
    if(recent&&now()-recent.at<RETRY_DELAY_MS&&!zcodeEmptyRecheck)continue;
    try{results.push(await run(row.id,{source:'auto'}));attempted++}
    catch(error){logger?.warn?.('source sign-in skipped '+row.providerId+': '+publicAccountFailureMessage(error))}

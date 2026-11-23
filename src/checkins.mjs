@@ -59,7 +59,7 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
    const pending=new Set(),activityLastProbe=new Map();
    let timer=null,running=null;
    const sourceCenter=sourcePack?createSourceCheckinCenter({sourcePack,configStore,store,now,logger,
-     verificationStore}):null;
+     verificationStore,activityStore}):null;
   const currentDate=()=>todayKey(now(),configStore.get().checkin.timeZone);
   function latestFor(accountId,date=currentDate()){
     return store.all().filter(x=>x.accountId===accountId&&x.date===date).at(-1)??null;
@@ -98,6 +98,8 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
         beforeClaim:offer=>authorized()&&activityStore.begin(account,offer),
         onOutcome:(offer,state)=>activityStore.finish(account,offer,
           state==='confirmed'&&authorized()?'confirmed':'pending_confirmation'),
+        onObserved:(offer,state)=>authorized()&&activityStore.finish(account,offer,
+          state==='confirmed'?'confirmed':'pending_confirmation'),
       });
       return authorized()?{state:result?.state??'unavailable',
         confirmed:result?.confirmed??0,pending:result?.pending??0,
@@ -153,6 +155,8 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
           autoCheckinEffective:sourceRow.autoCheckinEffective===true,sourceAccount:true,
           ...(typeof sourceRow.activityActive==='boolean'?{
             activityActive:sourceRow.activityActive}:{}),
+          ...(Array.isArray(sourceRow.benefits)?{benefits:sourceRow.benefits}:{}),
+          ...(sourceRow.activityClaims?{activityClaims:sourceRow.activityClaims}:{}),
           // The standalone source pool owns the actual login state. The
           // imported static card must not show online/enabled when its real
           // source member was disabled, expired or became rate limited.

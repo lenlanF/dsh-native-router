@@ -63,6 +63,173 @@ test('ZCode signed claimable plan can enter exact-account claim without legacy a
   assert.equal(called,4);
  }finally{bridge.dispose()}
 });
+test('Raccoon exact source account claims free login bonus first, then daily web grant with official confirmations',async()=>{
+ const pool={listAllAccounts:async()=>[{id:'racc-A',provider:'raccoon',enabled:true,credentialRef:'RACCOON_TEST'}]};
+ let loginPending=true,dailyGranted=false,claims=0,dailyTriggers=0;
+ const ops={
+  status:async(_provider,id)=>({ok:true,value:{accounts:[{accountId:id??'racc-A',status:{
+   active:true,loginRewardPending:loginPending,
+   todayCheckedIn:dailyGranted,dailyGranted,webTriggered:true,claimable:true,
+   ...(dailyGranted?{todayCredit:300}:{})
+  }}]}}),
+  claim:async(_provider,id)=>{
+   claims++;
+   const outcome=loginPending?{kind:'claimed',credit:3000}:
+     {kind:'claimed',credit:300};
+   if(loginPending)loginPending=false;
+   return {ok:true,value:{results:[{accountId:id,outcome}]}};
+  }
+ };
+ let livePool;
+ const scope={llm:{listProviders:async()=>[]},
+  get:k=>k==='accountPool'?livePool:k==='nativeRouterSourceCheckins'?ops:undefined};
+ const bridge=createEmbeddedChannelPack({ctx:{inject(_names,cb){cb(scope)}},
+  getConfig:enabled,env:isolatedEnv,
+  raccoonTaskVerifier:async()=>({state:loginPending?'pending':'completed'}),
+  raccoonDailyTrigger:async()=>{dailyTriggers++;dailyGranted=true;return {state:'triggered'}},
+  loadPack:async()=>({apply(){livePool=pool}})});
+ bridge.attach();await tick();await tick();
+ try{
+  let start=0,confirmed=0;
+  const result=await bridge.checkinAccount({providerId:'raccoon',sourceAccountId:'racc-A',
+   beforeOneTimeClaim:offer=>{assert.equal(offer.kind,'raccoon_login');start++;return true},
+   onOneTimeOutcome:(kind,state,meta)=>{
+    assert.equal(kind,'raccoon_login');assert.equal(state,'confirmed');
+    assert.equal(meta.credit,3000);confirmed++;
+   }});
+  assert.equal(result.confirmed,true);
+  assert.equal(result.activityRewardAmount,300);
+  assert.equal(start,1);
+  assert.equal(confirmed,1);
+  assert.equal(claims,1,'one-time login reward is the ONLY POST');
+  assert.equal(dailyTriggers,1,'daily grant is triggered via free GET-only workflow');
+  const replay=await bridge.checkinAccount({providerId:'raccoon',sourceAccountId:'racc-A',
+   beforeOneTimeClaim:()=>{throw Error('should not retry')}});
+  assert.equal(replay.confirmed,true);
+  assert.equal(claims,1);
+  assert.equal(dailyTriggers,1);
+  const read=await bridge.readSourceStatuses('raccoon');
+  assert.equal(read.accounts[0].loginRewardPending,false);
+  assert.equal(read.accounts[0].activityRewardAmount,300);
+  assert.equal(read.accounts[0].activityRewardUnit,'积分');
+  assert.doesNotMatch(JSON.stringify(read),/RACCOON_TEST/);
+ }finally{bridge.dispose()}
+});
+
+test('Raccoon uncertain login bonus never retries POST; existing daily grant does not mask pending login',async()=>{
+ const pool={listAllAccounts:async()=>[{id:'racc-B',provider:'raccoon',enabled:true,credentialRef:'RACC_B'}]};
+ let loginPending=true,dailyGranted=true,claims=0,approve=true;
+ const ops={
+  status:async(_p,id)=>({ok:true,value:{accounts:[{accountId:id,status:{
+   active:true,loginRewardPending:loginPending,todayCheckedIn:dailyGranted,
+   dailyGranted,webTriggered:true,claimable:loginPending
+  }}]}}),
+  claim:async(_p,id)=>{claims++;return {ok:true,value:{results:[{
+   accountId:id,outcome:{kind:'claimed',credit:3000}}]}}}
+ };
+ let livePool;
+ const scope={llm:{listProviders:async()=>[]},
+  get:k=>k==='accountPool'?livePool:k==='nativeRouterSourceCheckins'?ops:undefined};
+ const bridge=createEmbeddedChannelPack({ctx:{inject(_d,fn){fn(scope)}},
+  getConfig:enabled,env:isolatedEnv,
+  raccoonTaskVerifier:async()=>({state:loginPending?'pending':'completed'}),
+  loadPack:async()=>({apply(){livePool=pool}})});
+ bridge.attach();await tick();await tick();
+ try{
+  const receipts=[];
+  const claim=()=>bridge.checkinAccount({providerId:'raccoon',sourceAccountId:'racc-B',
+   beforeOneTimeClaim:()=>approve,
+   onOneTimeOutcome:(_kind,state)=>receipts.push(state)});
+  const first=await claim();
+  assert.equal(first.state,'pending_confirmation');
+  assert.equal(first.loginRewardState,'pending_confirmation');
+  assert.equal(claims,1);
+  assert.deepEqual(receipts,['pending_confirmation']);
+  approve=false;
+  const next=await claim();
+  assert.equal(next.confirmed,true,'the already credited daily grant stays confirmed');
+  assert.equal(next.loginRewardState,'pending_confirmation');
+  assert.equal(claims,1,'uncertain one-time POST is not replayed');
+  loginPending=false;
+  const after=await claim();
+  assert.equal(after.confirmed,true);
+  assert.equal(claims,1);
+ }finally{bridge.dispose()}
+});
+
+
+test('Raccoon vendor false-after-/tasks-error cannot trigger a new one-shot POST or settle reward',async()=>{
+ const pool={listAllAccounts:async()=>[{id:'racc-unknown',provider:'raccoon',
+  enabled:true,credentialRef:'RACC_UNKNOWN'}]};
+ let called=0;const ops={
+  status:async(_provider,id)=>({ok:true,value:{accounts:[{accountId:id??'racc-unknown',
+   status:{active:true,todayCheckedIn:false,loginRewardPending:false,
+    dailyGranted:false,webTriggered:true}}]}}),
+  claim:async()=>{called++;throw Error('claim must be impossible')}
+ };
+ let livePool;
+ const scope={llm:{listProviders:async()=>[]},
+  get:k=>k==='accountPool'?livePool:k==='nativeRouterSourceCheckins'?ops:undefined};
+ const bridge=createEmbeddedChannelPack({ctx:{inject(_names,cb){cb(scope)}},
+  getConfig:enabled,env:isolatedEnv,
+  raccoonTaskVerifier:async()=>({state:'unavailable'}),
+  loadPack:async()=>({apply(){livePool=pool}})});
+ bridge.attach();await tick();await tick();
+ try{
+  const read=await bridge.readSourceStatuses('raccoon');
+  assert.equal(read.accounts.length,1);
+  assert.equal(read.accounts[0].loginRewardPending,undefined);
+  assert.equal(read.accounts[0].loginRewardTaskVerified,undefined);
+  const out=await bridge.checkinAccount({providerId:'raccoon',
+   sourceAccountId:'racc-unknown',beforeOneTimeClaim:()=>true});
+  assert.equal(out.state,'failed');
+  assert.equal(called,0,'never trust vendor default false when task GET failed');
+ }finally{bridge.dispose()}
+});
+
+test('Raccoon uses exact account credential binding for official task verification',async()=>{
+ const pool={listAllAccounts:async()=>[{id:'racc-owned',provider:'raccoon',
+   enabled:true,credentialRef:'RACC_NATIVE_TEST'}]};
+ let livePool,fetches=0,posts=0;
+ const syntheticBearer=['FAKE','RACCOON','BEARER','LONG','TOKEN'].join('_');
+ const credentials={resolve:async ref=>{
+   assert.equal(ref,'RACC_NATIVE_TEST');
+   return {value:JSON.stringify({access_token:syntheticBearer})};
+ }};
+ const ops={
+  status:async(_provider,id)=>({ok:true,value:{accounts:[{accountId:id??'racc-owned',
+   status:{active:true,todayCheckedIn:true,loginRewardPending:false,
+    dailyGranted:true,webTriggered:true,todayCredit:300}}]}}),
+  claim:async()=>{posts++;return {ok:false}}
+ };
+ const scope={llm:{listProviders:async()=>[]},credentials,
+  get:k=>k==='accountPool'?livePool:k==='nativeRouterSourceCheckins'?ops:undefined};
+ const bridge=createEmbeddedChannelPack({ctx:{inject(_names,cb){cb(scope)}},
+  getConfig:enabled,env:isolatedEnv,
+  raccoonFetchImpl:async(url,options)=>{
+   fetches++;
+   assert.equal(options.method,'GET');
+   assert.equal(url,'https://xiaohuanxiong.com/api/web/points/v1/tasks');
+   assert.equal(options.headers.Authorization,'Bearer '+syntheticBearer);
+   return new Response(JSON.stringify({code:0,data:{new_user_task_states:[
+    {key:'desktop_login',status:'completed'}]}}),{status:200});
+  },
+  loadPack:async()=>({apply(){livePool=pool}})});
+ bridge.attach();await tick();await tick();
+ try{
+  const observed=await bridge.readSourceStatuses('raccoon');
+  assert.equal(observed.accounts.length,1);
+  assert.equal(observed.accounts[0].loginRewardPending,false);
+  assert.equal(observed.accounts[0].loginRewardTaskVerified,true);
+  const out=await bridge.checkinAccount({providerId:'raccoon',
+   sourceAccountId:'racc-owned'});
+  assert.equal(out.confirmed,true);
+  assert.equal(posts,0);
+  assert.ok(fetches>=2);
+  assert.doesNotMatch(JSON.stringify({observed,out}),/RACCOON_NATIVE_TEST|FAKE_RACCOON_BEARER/);
+ }finally{bridge.dispose()}
+});
+
 test('real pinned source pack ESM import is refused on incompatible Node runtimes before loading its embedded Undici',()=>{
   const available=()=>{};
   assert.match(channelPackNodeRuntimeReason({nodeVersion:'22.5.0',markAsUncloneable:undefined}),/22.10/);

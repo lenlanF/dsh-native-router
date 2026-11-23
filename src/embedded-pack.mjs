@@ -2,18 +2,20 @@ import {channelPackIsolationReason,channelPackNodeRuntimeReason} from './channel
 import {sourceAccountOpaqueId} from './source-account-ref.mjs';
 import {publicAccountName,upstreamCheckedInToday} from './account-facts.mjs';
 import {sourceAccountFacts} from './source-account-facts.mjs';
-import {installSourceAccountSelection} from './source-account-selection.mjs';// The bundled MIT derivative runs INSIDE the DSH Cordis host. No external
+import {installSourceAccountSelection} from './source-account-selection.mjs';
+import {ownCredentialRef} from './credential-ref.mjs';
+import {readRaccoonLoginTask,triggerRaccoonFreeDaily} from './channels/raccoon-rewards.mjs';// The bundled MIT derivative runs INSIDE the DSH Cordis host. No external
 // OpenAI gateway, agent-resume daemon or independent check-in scheduler.
 export const SOURCE_PACK_PROVIDERS=Object.freeze([
   'codearts','buddy','workbuddy','lobsterai','qoder','qodercn','trae',
   'cline','loomy','raccoon','minimax','zcode','gemini',
 ]);
 export const SOURCE_DAILY_SIGNIN_PROVIDERS=Object.freeze([
-  'codearts','buddy','lobsterai','qoder','qodercn','trae','loomy','minimax','zcode',
+  'codearts','buddy','lobsterai','qoder','qodercn','trae','loomy','raccoon','minimax','zcode',
 ]);
-// Excluded deliberately: WorkBuddy/Cline have no daily check-in; Raccoon is
-// credited daily by its server and its claim button is a one-time login bonus.
-// Gemini has no source daily claim endpoint.
+// Excluded: WorkBuddy/Cline/Gemini lack a verified daily source claim.
+// Raccoon is eligible: its server credits +daily_grant after free web GETs,
+// while its once-per-account login POST must use a durable owner receipt.
 // The runtime is prebundled into one self-contained ESM file. The DSH plugin
 // manager does not preserve nested node_modules from npm bundleDependencies.
 const loadPinnedPack=()=>import('../vendor/channel-pack/pack-runtime.mjs');
@@ -30,7 +32,9 @@ function safetyReason(env){
    return '须设置 DSH_REASONING_LOOP_AUTO_RESUME=0，禁止上游默认启用第二套 Agent 自动续跑';
  return '';
 }
-export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPack=loadPinnedPack,modelTimeoutMs=20000}){
+export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
+ loadPack=loadPinnedPack,modelTimeoutMs=20000,
+ raccoonTaskVerifier=null,raccoonDailyTrigger=null,raccoonFetchImpl=fetch}={}){
   let state='disabled',reason='',errorStage='',errorKind='',disposed=false,activeScope=null,injectedCallback=null;
    let privateSourcePool=null,privateSourceCheckins=null,privateSourceCatalog=null,loadedPack=null;
     let sourcePhase='',modelAdapterStates={},privateSourceRpcReady=false;
@@ -486,7 +490,55 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
       }finally{providerStreams.delete(providerId)}
     })();
   }
-  async function checkinAccount({providerId,sourceAccountId}={}){
+  // Verify this once-per-account reward independently: the pinned upstream
+  // status maps a failed /tasks read to pending=false, which is NOT evidence
+  // that the task completed. Only a successful, authenticated official /tasks
+  // response can finalize an ambiguous owner receipt.
+  async function withRaccoonCredential(scope,sourceAccountId,sourceAccount,action){
+    try{
+      const pool=sourcePool(scope),credentials=scope.credentials??scope.get?.('credentials',false);
+      if(typeof pool?.listAllAccounts!=='function'||
+        typeof credentials?.resolve!=='function')return {state:'unavailable'};
+      const roster=await pool.listAllAccounts();
+      if(scope!==mountedScope()||!Array.isArray(roster))
+        return {state:'unavailable'};
+      const records=roster.filter(x=>x?.provider==='raccoon'
+        &&x?.id===sourceAccountId&&x?.enabled===true);
+      if(records.length!==1||roster.filter(x=>x?.id===sourceAccountId).length!==1)
+        return {state:'unavailable'};
+      const item=records[0];
+      if(sourceAccount&&item.credentialRef!==sourceAccount.credentialRef)
+        return {state:'unavailable'};
+      const ref=ownCredentialRef(item.credentialRef);
+      const resolved=await credentials.resolve(ref);
+      if(scope!==mountedScope()||typeof resolved?.value!=='string'
+        ||resolved.value.length>65536)return {state:'unavailable'};
+      const credential=JSON.parse(resolved.value);
+      if(scope!==mountedScope())return {state:'unavailable'};
+      return await action(credential);
+    }catch{return {state:'unavailable'}}
+  }
+  async function verifiedRaccoonTask(scope,sourceAccountId,sourceAccount,
+    {timeoutMs=9500}={}){
+    const trusted=result=>['pending','completed'].includes(result?.state)?
+      {state:result.state}:{state:'unavailable'};
+    if(typeof raccoonTaskVerifier==='function'){
+      try{return trusted(await raccoonTaskVerifier({sourceAccountId}))}
+      catch{return {state:'unavailable'}}
+    }
+    return trusted(await withRaccoonCredential(scope,sourceAccountId,sourceAccount,
+      credential=>readRaccoonLoginTask({credential,fetchImpl:raccoonFetchImpl,timeoutMs})));
+  }
+  async function triggerRaccoonDaily(scope,sourceAccountId,sourceAccount){
+    if(typeof raccoonDailyTrigger==='function'){
+      try{return await raccoonDailyTrigger({sourceAccountId})}
+      catch{return {state:'unavailable'}}
+    }
+    return withRaccoonCredential(scope,sourceAccountId,sourceAccount,
+      credential=>triggerRaccoonFreeDaily({credential,fetchImpl:raccoonFetchImpl}));
+  }
+  async function checkinAccount({providerId,sourceAccountId,
+    beforeOneTimeClaim,onOneTimeOutcome}={}){
     if(!SOURCE_DAILY_SIGNIN_PROVIDERS.includes(providerId)||!sourceAllowed(providerId)      ||typeof sourceAccountId!=='string'||!sourceAccountId||sourceAccountId.length>100)
       return {state:'unsupported',message:'渠道没有经核验的每日签到服务'};
     const scope=mountedScope();
@@ -511,6 +563,91 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
      const today=new Intl.DateTimeFormat('en-CA',{
        timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'})
        .format(new Date());
+    if(providerId==='raccoon'){
+      // The pinned official Raccoon source pack implements TWO free tasks:
+      // a once-per-account desktop login grant (POST), then an account's
+      // daily web activity (GET requests confirmed by daily_grant bill).
+      // Its generic claim method prioritizes the login bonus, so a single
+      // invocation cannot satisfy the daily task. A durable owner receipt
+      // must exist BEFORE any one-shot login POST.
+      const statusValid=status=>status?.active===true
+        &&typeof status.todayCheckedIn==='boolean'
+        &&typeof status.loginRewardPending==='boolean';
+      if(!statusValid(before))return {state:'failed',
+        message:'小浣熊官方账单或任务资格不明确，未执行领取'};
+      const read=async()=>exactStatus(await ops.status(providerId,sourceAccountId));
+      const invoke=async()=>{
+        const result=await ops.claim(providerId,sourceAccountId);
+        if(scope!==mountedScope())return null;
+        if(result?.ok!==true||!Array.isArray(result.value?.results))return null;
+        const matches=result.value.results.filter(row=>row?.accountId===sourceAccountId);
+        return matches.length===1?matches[0]?.outcome??null:null;
+      };
+      let current=before,loginConfirmed=false;
+      // The bundled source's loginRewardPending=false is NOT authoritative
+      // when its separate task GET failed. Verify via exact account/credential
+      // before any claim that could accidentally submit the one-time POST.
+      const proof=await verifiedRaccoonTask(scope,sourceAccountId,matches[0]);
+      if(scope!==mountedScope())return {state:'unavailable'};
+      if(proof.state==='unavailable')return current.todayCheckedIn===true?
+        {confirmed:true,loginRewardState:'unavailable',
+          message:'今日积分已到账；登录奖励资格查询不可用，未发送领取请求'}:
+        {state:'failed',message:'登录奖励资格查询不可用，禁止不确定的领取请求'};
+      if(proof.state==='pending'){
+        // A missing approval callback is NOT consent to claim. If the
+        // official service still says pending after a previous uncertain
+        // receipt, do not repeat the one-time POST on restart.
+        let approved=false;
+        try{approved=typeof beforeOneTimeClaim==='function'
+          &&await beforeOneTimeClaim({kind:'raccoon_login'})===true}
+        catch{}
+        if(!approved)return current.todayCheckedIn===true?{
+          confirmed:true,loginRewardState:'pending_confirmation',
+          message:'小浣熊今日免费积分已发放；登录奖励回执待核实，不重复提交'
+        }:{state:'pending_confirmation',loginRewardState:'pending_confirmation',
+          message:'小浣熊一次性登录奖励回执待核实，未重复提交'};
+        const outcome=await invoke();
+        // Any unknown transport/acceptance result remains pending. The
+        // claim receipt protects against blindly resending this POST.
+        const after=await read();
+        const afterProof=await verifiedRaccoonTask(scope,sourceAccountId,matches[0]);
+        if(scope!==mountedScope())return {state:'unavailable'};
+        // Only the independent official /tasks response can settle a
+        // one-time reward. The vendor parser masks task-read errors.
+        loginConfirmed=afterProof.state==='completed'&&
+          ['claimed','already-claimed','already'].includes(outcome?.kind);
+        try{await onOneTimeOutcome?.('raccoon_login',
+          loginConfirmed?'confirmed':'pending_confirmation',
+          loginConfirmed&&Number.isFinite(outcome?.credit)?{credit:outcome.credit}:{})}
+        catch{}
+        if(!loginConfirmed)return {
+          state:'pending_confirmation',accepted:true,
+          loginRewardState:'pending_confirmation',
+          message:'小浣熊登录积分已尝试领取，但官方未确认，不重发'};
+        current=after;
+      }
+      if(current.todayCheckedIn===true)return {confirmed:true,
+        ...(loginConfirmed?{loginRewardState:'confirmed'}:{}),
+        message:'小浣熊官方账单已确认今日免费积分'+
+          (loginConfirmed?'；桌面登录奖励也已确认':'')};
+      if(current.dailyGranted!==false||current.webTriggered!==true)
+        return {state:'failed',message:'小浣熊每日免费积分状态未知，未触发网页活动'};
+      // Only the GET-based daily process remains. Its outcome must be
+      // verified by a fresh official bill, never by response success alone.
+      const daily=await triggerRaccoonDaily(scope,sourceAccountId,matches[0]);
+      if(scope!==mountedScope())return {state:'unavailable'};
+      const verified=await read();
+      if(scope!==mountedScope())return {state:'unavailable'};
+      if(verified?.todayCheckedIn===true)return {confirmed:true,
+        ...(loginConfirmed?{loginRewardState:'confirmed'}:{}),
+        ...(Number.isFinite(verified.todayCredit)&&verified.todayCredit>0
+          ?{activityRewardAmount:verified.todayCredit,activityRewardUnit:'积分'}:{}),
+        message:'小浣熊每日免费积分已由官方账单确认'};
+      return daily?.state!=='triggered'?
+        {state:'failed',message:'小浣熊免费办公 GET 未触发成功；官方账单未确认到账'}:
+        {state:'pending_confirmation',accepted:true,
+          message:'小浣熊免费办公 GET 已触发，但官方账单尚未证明到账'};
+    }
      if(upstreamCheckedInToday(before,today)===true)
        return {confirmed:true,message:'来源服务已确认今日签到'};
       // 3.17+ ZCode has `claimable` and `planCount`, never `available`.
@@ -609,6 +746,20 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
       // provider API; it must not scrape either the original plugin's saved
       // profile or infer a login from the credential payload.
       if(scope!==mountedScope())return {state:'unavailable',accounts:[]};      if(scope!==mountedScope())return {state:'unavailable',accounts:[]};
+      // Avoid 10+ sequential 9.5-second task reads at startup. Use bounded
+      // account-level GET concurrency with shorter read-only timeouts; unknown
+      // results stay unknown rather than marking any reward claimed.
+      const raccoonProofs=new Map();
+      if(providerId==='raccoon'){
+        const ids=[...allIds];let index=0;
+        await Promise.all(Array.from({length:Math.min(4,ids.length)},async()=>{
+          while(index<ids.length&&scope===mountedScope()){
+            const accountId=ids[index++];
+            raccoonProofs.set(accountId,await verifiedRaccoonTask(scope,accountId,
+              undefined,{timeoutMs:3500}));
+          }
+        }));
+      }
       const accounts=[];
      for(const accountId of allIds){
         const statusRow=statusMap.get(accountId),balanceRow=balanceMap.get(accountId);
@@ -616,6 +767,9 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
           &&!Array.isArray(statusRow.status)?statusRow.status:null;
         const facts=sourceAccountFacts({providerId,identity:identityMap.get(accountId),
           statusRow,balanceRow,observedAt:Date.now()});
+        const loginProof=providerId==='raccoon'?
+          raccoonProofs.get(accountId)??{state:'unavailable'}:null;
+        if(scope!==mountedScope())return {state:'unavailable',accounts:[]};
         // CodeArts status is drawn from its official CREDIT-package sign-in
         // campaign; its numeric amount is points, not an account balance or
         // a ZCode plan count. For other providers require an explicit signed
@@ -646,6 +800,12 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
            ...(typeof exact?.claimable==='boolean'?{claimable:exact.claimable}:{}),
            ...(exact?.noClaimablePlans===true?{noClaimablePlans:true}:{}),
            ...freeReward,
+           ...(providerId==='raccoon'&&loginProof&&loginProof.state!=='unavailable'
+             ?{loginRewardPending:loginProof.state==='pending',
+               loginRewardTaskVerified:true}:{}),
+           ...(providerId==='raccoon'&&Number.isFinite(Number(exact?.todayCredit))
+             &&Number(exact.todayCredit)>0?{
+               activityRewardAmount:Number(exact.todayCredit),activityRewardUnit:'积分'}:{}),
            ...(Number.isFinite(end)&&end>0?{activityExpiresAt:end}:{}),
            active:typeof exact?.active==='boolean'?exact.active:null});     }     return {state:'ready',accounts,checkedAt:Date.now()};
    } function dispose(){    if(disposed)return;

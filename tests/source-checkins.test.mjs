@@ -70,6 +70,139 @@ test('official nonzero free reward metadata reaches the channel activities table
  h.center.stop();
 });
 
+
+test('Raccoon opt-in scheduler claims free login bonus even when daily points are already posted, then persists across restart',async()=>{
+ const {mkdtempSync,mkdirSync,rmSync}=await import('node:fs');
+ const {join}=await import('node:path');
+ const {createActivityClaimStore}=await import('../src/activity-claims.mjs');
+ const base=process.platform==='win32'?'E:\\Temp':(await import('node:os')).tmpdir();
+ mkdirSync(base,{recursive:true});
+ const dir=mkdtempSync(join(base,'dsh-raccoon-auto-'));
+ try{
+  const cfg=normalizeConfig({providers:[{id:'own_raccoon',name:'Raccoon',enabled:true,protocol:'native-channel'}],
+   checkin:{autoEnabled:true,autoSourceAccounts:true,runAt:'10:05',timeZone:'Asia/Shanghai'}});
+  const configStore={get:()=>structuredClone(cfg),replace(){}};
+  const records=[],store={all:()=>structuredClone(records),
+   append:v=>{records.push(v);return structuredClone(v)}};
+  let at=Date.parse('2026-11-23T02:06:00Z'),pending=true,posts=0,seen=0;
+  const sourcePack={
+   status:()=>({state:'mounted'}),
+   listAccounts:async()=>({state:'ready',accounts:[{id:'raccoon-1',
+    providerId:'raccoon',nickname:'Raccoon demo',enabled:true}]}),
+   readSourceStatuses:async()=>({state:'ready',accounts:[{
+    accountId:'raccoon-1',authVerified:true,active:true,loginRewardPending:pending,
+    loginRewardTaskVerified:true,
+    todayCheckedIn:true,activityRewardAmount:300,activityRewardUnit:'积分'}]}),
+   async checkinAccount({providerId,sourceAccountId,beforeOneTimeClaim,onOneTimeOutcome}){
+    assert.equal(providerId,'raccoon');
+    assert.equal(sourceAccountId,'raccoon-1');
+    seen++;
+    if(!pending)return {confirmed:true};
+    const approved=await beforeOneTimeClaim({kind:'raccoon_login'});
+    if(!approved)return {state:'pending_confirmation',
+      loginRewardState:'pending_confirmation'};
+    posts++;pending=false;
+    await onOneTimeOutcome('raccoon_login','confirmed',{credit:3000});
+    return {confirmed:true};
+   }
+  };
+  const accountCenter={list:()=>({accounts:[],channels:[]}),
+   find:()=>{throw Error('No native standalone account')},
+   driverFor:()=>undefined};
+  const path=join(dir,'reward-claims.json');
+  const mount=()=>createCheckinCenter({configStore,accountCenter,store,
+   sourcePack,now:()=>at,activityStore:createActivityClaimStore({path,now:()=>at})});
+  let center=mount();
+  await center.refreshSources();
+  const first=await center.tick();
+  assert.equal(first.attempted,1);
+  assert.equal(posts,1);
+  const view=center.snapshot().accounts[0];
+  assert.equal(view.checkinState,'success');
+  assert.equal(view.benefits[0].kind,'raccoon_login');
+  assert.equal(view.benefits[0].claimed,true);
+  assert.equal(view.benefits[0].credit,3000);
+  assert.equal(view.activityClaims.confirmed,1);
+  await center.tick();
+  assert.equal(posts,1);
+  center.stop();
+  center=mount();
+  at+=60*60*1000;
+  await center.refreshSources();
+  const reloaded=center.snapshot().accounts[0];
+  assert.equal(reloaded.activityClaims.confirmed,1);
+  assert.equal(reloaded.benefits[0].claimed,true);
+  assert.equal((await center.tick()).attempted,0);
+  assert.equal(posts,1);
+  assert.equal(seen,1,'offline restart cannot send another login bonus request');
+  center.stop();
+ }finally{rmSync(dir,{recursive:true,force:true})}
+});
+
+test('Raccoon ambiguous one-time reward receipt is never replayed and may be reconciled by new official task status',async()=>{
+ const {mkdtempSync,mkdirSync,rmSync}=await import('node:fs');
+ const {join}=await import('node:path');
+ const {createActivityClaimStore}=await import('../src/activity-claims.mjs');
+ const base=process.platform==='win32'?'E:\\Temp':(await import('node:os')).tmpdir();
+ mkdirSync(base,{recursive:true});
+ const dir=mkdtempSync(join(base,'dsh-raccoon-uncertain-'));
+ try{
+  const cfg=normalizeConfig({providers:[{id:'own_raccoon',enabled:true,protocol:'native-channel'}],
+    checkin:{autoEnabled:true,autoSourceAccounts:true,runAt:'10:05'}});
+  const configStore={get:()=>structuredClone(cfg),replace(){}};
+  const accountCenter={list:()=>({accounts:[],channels:[]}),
+    find:()=>{throw Error('not owned')},driverFor:()=>undefined};
+  let at=Date.parse('2026-11-23T02:06:00Z'),loginPending=true,dailyGranted=false,posts=0;
+  const sourcePack={
+   status:()=>({state:'mounted'}),
+   listAccounts:async()=>({state:'ready',accounts:[{id:'raccoon-x',providerId:'raccoon',
+     nickname:'Raccoon X',enabled:true}]}),
+   readSourceStatuses:async()=>({state:'ready',accounts:[{accountId:'raccoon-x',
+     authVerified:true,active:true,loginRewardPending:loginPending,
+     loginRewardTaskVerified:true,
+     todayCheckedIn:dailyGranted}]}),
+   async checkinAccount({beforeOneTimeClaim,onOneTimeOutcome}){
+    if(loginPending){
+     if(await beforeOneTimeClaim({kind:'raccoon_login'})){
+      posts++;
+      await onOneTimeOutcome('raccoon_login','pending_confirmation');
+     }
+     return {state:'pending_confirmation',accepted:true,
+       loginRewardState:'pending_confirmation'};
+    }
+    dailyGranted=true;
+    return {confirmed:true};
+   }
+  };
+  const records=[],store={all:()=>structuredClone(records),
+    append:x=>(records.push(x),structuredClone(x))};
+  const path=join(dir,'claim.json');
+  const mount=()=>createCheckinCenter({configStore,accountCenter,store,
+    sourcePack,now:()=>at,activityStore:createActivityClaimStore({path,now:()=>at})});
+  let center=mount();
+  await center.refreshSources();
+  const first=await center.tick();
+  assert.equal(posts,1);
+  assert.equal(first.attempted,1);
+  center.stop();
+  center=mount();
+  at+=60*60*1000;
+  await center.refreshSources();
+  await center.tick();
+  assert.equal(posts,1,'ambiguous POST is never re-sent after restart');
+  assert.equal(center.snapshot().accounts[0].activityClaims.unconfirmed,1);
+  loginPending=false;at+=60*60*1000;
+  await center.refreshSources({force:true});
+  assert.equal(center.snapshot().accounts[0].activityClaims.confirmed,1,
+    'official absent task reconciles previously submitted receipt');
+  const done=await center.tick();
+  assert.equal(done.attempted,1,'daily free GET can finish after one-time reward');
+  assert.equal(center.snapshot().accounts[0].checkinState,'success');
+  assert.equal(posts,1);
+  center.stop();
+ }finally{rmSync(dir,{recursive:true,force:true})}
+});
+
 test('a confirmed same-day source check-in survives a later pending record and prevents duplicate claims',async()=>{
   const h=fixture({rows:[row('codearts','valid-source')],
     statusQuery:async()=>({state:'ready',accounts:[{
@@ -215,16 +348,16 @@ test('unconfirmed source acceptance does not remain pending forever',async()=>{
   assert.equal(h.calls.length,1);
   h.center.stop();
 });
-test('global DSH opt-in signs in every supported source channel; four unsupported channels are shown but never touched',async()=>{
+test('global DSH opt-in signs in every supported source channel; three unsupported channels are shown but never touched',async()=>{
  const supported=SOURCE_DAILY_SIGNIN_PROVIDERS;
  assert.equal(Object.isFrozen(supported),true,'channel support inventory cannot mutate at runtime');
- const rows=[...supported.map(id=>row(id)),...['workbuddy','cline','gemini','raccoon'].map(id=>row(id))];
+ const rows=[...supported.map(id=>row(id)),...['workbuddy','cline','gemini'].map(id=>row(id))];
  const h=fixture({rows});
  await h.center.refreshSources();
  const view=h.center.snapshot();
  assert.equal(view.accounts.length,rows.length);
  assert.equal(view.accounts.filter(x=>x.checkinSupported).length,supported.length);
- assert.equal(view.accounts.filter(x=>x.checkinState==='unsupported').length,4);
+ assert.equal(view.accounts.filter(x=>x.checkinState==='unsupported').length,3);
  assert.ok(view.accounts.every(x=>x.id.startsWith('sp_')));
  assert.ok(view.accounts.every(x=>!x.id.includes('acct-1')));
  h.setNow(Date.parse('2026-11-17T11:06:00Z')); // Beijing 19:06: claim window open

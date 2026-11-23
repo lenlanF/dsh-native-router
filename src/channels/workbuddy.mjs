@@ -484,7 +484,7 @@ export function createWorkBuddyDriver({
    // Reward claims are independent of daily sign-in. A durable Host receipt
    // is written before every eligible official POST; never blindly replay an
    // ambiguous activity claim after DSH restart.
-   async function workbuddyClaimActivities({account,date,beforeClaim,onOutcome}={}){
+   async function workbuddyClaimActivities({account,date,beforeClaim,onOutcome,onObserved}={}){
      if(!ownedRegion||!account)return {state:'unsupported',confirmed:0,pending:0,eligible:0};
      let auth;
      try{auth=await validSession(account)}
@@ -492,6 +492,13 @@ export function createWorkBuddyDriver({
      if(auth.enterprise)return {state:'no_task',confirmed:0,pending:0,eligible:0};
      const available=await memberReader.benefits(auth,ownedRegion).catch(()=>null);
      if(!available)return {state:'unavailable',confirmed:0,pending:0,eligible:0};
+      // A previous POST may have been accepted while its response was lost.
+      // Reconcile only an existing durable receipt against a new official
+      // 'claimed:true' observation; never repeat the original POST.
+      for(const benefit of available){
+        if(benefit?.claimed!==true||!['gift','compensation'].includes(benefit.kind))continue;
+        try{await onObserved?.(benefit,'confirmed')}catch{}
+      }
      const eligible=available.filter(b=>b?.active&&!b.claimed
        &&['gift','compensation'].includes(b.kind));
      let confirmed=0,pending=0,skipped=0;
