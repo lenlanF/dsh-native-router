@@ -1025,6 +1025,34 @@ test('native account page renders WorkBuddy monthly grant and independent MiMo f
  assert.match(text,/70% 剩余/);
  assert.doesNotMatch(text,/官方未返回|账号1|账号 1|余额待来源同步/);
 });
+test('account UI renders partial official quota windows, account units and independent wallet beside membership',async()=>{
+ const inventory={ok:true,channels:[
+  {id:'own_aws_quick',name:'Amazon Quick',adapterReady:true,authMethod:'独立授权'},
+  {id:'own_mimo_desktop',name:'MiMo Desktop',adapterReady:true,authMethod:'会员授权'},
+  {id:'own_workbuddy-cn',name:'WorkBuddy',adapterReady:true,authMethod:'独立会员'}],
+ accounts:[
+  {id:'aq-public',providerId:'own_aws_quick',nickname:'Quick Personal',enabled:true,configuredEnabled:true,
+   connectionState:'online',runtimeMode:'owned',credentialKind:'driver',
+   quotaWindows:[{label:'Agent Hours',left:3,unit:'h'},
+     {label:'Research Hours',total:10,used:4,unit:'h'}],balanceState:'unavailable'},
+  {id:'mimo-public',providerId:'own_mimo_desktop',nickname:'MiMo Member',enabled:true,configuredEnabled:true,
+   connectionState:'online',runtimeMode:'owned',credentialKind:'driver',
+   membershipState:'active',membershipPercentRemaining:66,usageState:'available',
+   usagePercentRemaining:80,balance:18.5,balanceUnit:'credits'},
+  {id:'wb-public',providerId:'own_workbuddy-cn',nickname:'WorkBuddy Member',enabled:true,configuredEnabled:true,
+   connectionState:'online',runtimeMode:'owned',credentialKind:'driver',
+   balance:42,balanceUnit:'credits'},
+ ],pools:[],embeddedAccounts:{state:'disabled',accounts:[]}};
+ const rig=createUiRig(new Map(),null,{state:'disabled'}, {},[],undefined,()=>true,inventory);
+ await rig.init();rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
+ const view=rig.flatten(rig.render()).join(' ');
+ assert.ok(view.includes('3 剩余')&&view.includes('Agent Hours'));
+ assert.ok(view.includes('4 / 10 已用')&&view.includes('Research Hours')); assert.match(view,/18\.5 credits/,'independent wallet remains visible alongside MiMo membership');
+ assert.match(view,/42 credits/,'WorkBuddy preserves official units rather than inventing points');
+ assert.equal((view.match(/42 credits/g)||[]).length,1,'WorkBuddy total cannot be shown twice');
+ assert.doesNotMatch(view,/NaN|undefined|42 积分/);
+});
+
 test('provider search filters by name ID and protocol and defaults every disclosure closed',async()=>{
  const rig=createUiRig();await rig.init();
  rig.find(rig.render(),'button','提供商')[0].props.onClick();

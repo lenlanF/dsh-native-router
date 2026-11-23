@@ -751,8 +751,9 @@ window.__ModuleLoader__.load({
                       '下次自动恢复 '+new Date(account.usageResetAt).toLocaleString()):null):null,
                   account.providerId?.includes('workbuddy')&&Number.isFinite(account.balance)?
                     h('div',{className:'dnr-account-metric'},
-                      h('span',{className:'dnr-account-metric-label'},'WorkBuddy 实际可用总积分'),
-                      h('strong',{className:'dnr-account-metric-value'},account.balance.toLocaleString()+' 积分'),
+                      h('span',{className:'dnr-account-metric-label'},'WorkBuddy 官方可用额度'),
+                      h('strong',{className:'dnr-account-metric-value'},
+                        account.balance.toLocaleString()+(account.balanceUnit?' '+account.balanceUnit:'')),
                       account.balanceCheckedAt?h('span',{className:'dnr-account-metric-note'},
                         '核实 '+new Date(account.balanceCheckedAt).toLocaleString()):null):null,
                   account.membershipState?h('div',{className:'dnr-account-metric'},
@@ -773,18 +774,32 @@ window.__ModuleLoader__.load({
                         window.kind==='package'?'套餐':window.kind==='grant'?'赠送':'平台')+
                        ' · '+window.label),
                      h('strong',{className:'dnr-account-metric-value'},
-                       window.left.toLocaleString()+' / '+window.total.toLocaleString()),
+                       Number.isFinite(window.left)&&Number.isFinite(window.total)?
+                         window.left.toLocaleString()+' / '+window.total.toLocaleString():
+                       Number.isFinite(window.left)?window.left.toLocaleString()+' 剩余':
+                       Number.isFinite(window.used)&&Number.isFinite(window.total)?
+                         window.used.toLocaleString()+' / '+window.total.toLocaleString()+' 已用':
+                       Number.isFinite(window.total)?window.total.toLocaleString()+' 总额度':
+                         window.used.toLocaleString()+' 已用',
+                       window.unit?' '+window.unit:''),
                      h('span',{className:'dnr-account-metric-note'},
-                       '剩余 / 总额度'+(window.endAt?' · 截止 '+new Date(
+                       (Number.isFinite(window.left)&&Number.isFinite(window.total)?'剩余 / 总额度':
+                         Number.isFinite(window.left)?'官方剩余额度':
+                         Number.isFinite(window.used)?'官方已用额度':'官方总额度')+
+                       (window.endAt?' · 截止 '+new Date(
                          window.endAt<1e11?window.endAt*1000:window.endAt).toLocaleDateString():'')))),
-                   !account.membershipState&&!account.usageState&&!(account.quotaWindows||[]).length?
+                   (!account.providerId?.includes('workbuddy')&&
+                     !(account.quotaWindows||[]).length&&
+                     (Number.isFinite(account.balance)||
+                       (!account.membershipState&&!account.usageState)))?
                    h('div',{className:'dnr-account-metric'},
                      h('span',{className:'dnr-account-metric-label'},'官方余额 / 可用额度'),
                      h('strong',{className:'dnr-account-metric-value'},
                        Number.isFinite(account.balance)?
                          account.balance.toLocaleString()+(account.balanceUnit?' '+account.balanceUnit:''):
                        account.balanceState==='not_supported'?'平台未提供':
-                       account.balanceState==='not_returned'?'官方本次未返回':'尚未取得'),
+                       account.balanceState==='not_returned'?'官方本次未返回':
+                       account.balanceState==='unavailable'?'官方额度暂时无法读取':'尚未取得'),
                      account.balanceCheckedAt?h('span',{className:'dnr-account-metric-note'},
                        '更新于 '+new Date(account.balanceCheckedAt).toLocaleString()):null):null,
                  account.planName?h('div',{className:'dnr-account-metric'},
@@ -825,7 +840,7 @@ window.__ModuleLoader__.load({
                    '首次授权来源仅用于迁移，后续由本插件独立管理；'+
                    (account.connectionState==='online'?'自有驱动鉴权通过':
                     '自有驱动尚待在线验证')):null,                h('div',{style:css.small},'来源：'+(account.origin?.label||'来源未识别')),
-                h('div',{style:css.small},'权重：'+account.weight),
+                h('div',{style:css.small},'权重：'+(Number.isFinite(account.weight)?account.weight:'未设置')),
                  account.checkedAt?h('div',{style:css.small},'最近检查：'+new Date(account.checkedAt).toLocaleString()):null,
                  (account.backupSources||[]).map((s,i)=>h('div',{key:'backup-'+i,style:css.small},
                    '保留备援 '+(i+1)+'：'+(s.kind==='autonomous'?'自主登录':
