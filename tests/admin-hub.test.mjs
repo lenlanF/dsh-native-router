@@ -47,6 +47,17 @@ test('channel endpoints provide accounts and route actions through validated hos
  assert.equal(status.body.accounts[0].connectionState,'disabled');
  t.dispose();assert.equal(t.handlers.size,0);
 });
+test('authenticated account endpoint includes independent activity status for owned channels',async()=>{
+ const driver={claimActivities:async()=>({state:'no_task',confirmed:0,eligible:0})};
+ const t=rig(new Map([['alpha',driver]]));
+ const snapshot=await t.hit('GET','/channels/accounts');
+ assert.equal(snapshot.code,200);
+ const member=snapshot.body.accounts.find(x=>x.id==='a1');
+ assert.equal(member.activitiesSupported,true);
+ assert.deepEqual(member.activityClaims,{confirmed:0,unconfirmed:0,lastAt:null});
+ t.dispose();
+});
+
 test('checkin API never reports success if no native channel checkin executor exists',async()=>{
  const t=rig();
  const snapshot=await t.hit('GET','/checkins');

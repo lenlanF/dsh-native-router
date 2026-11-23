@@ -83,6 +83,9 @@ export function mergeAccountSources({roster,embeddedAccounts,sourceRows=[],
       connectionState:!enabled?'disabled':
         boundToPack&&status?.connectionState==='online'?'online':item.connectionState,
       ...reported,
+      ...(Number.isFinite(status?.expiringPoints)&&status.expiringPoints>0
+        &&reported.balanceUnit==='积分'?{expiringPoints:status.expiringPoints,
+        ...(Number.isFinite(status.expiringAt)?{expiringAt:status.expiringAt}:{})}:{}),
    },boundToPack?'private:'+id+':'+item.id:'configured:'+item.providerId+':'+item.id);
    if(boundToPack)physicalSeen.add(key({providerId:id,id:item.id}));
  }
@@ -101,6 +104,9 @@ export function mergeAccountSources({roster,embeddedAccounts,sourceRows=[],
         row?.connectionState==='online'?'online':'not_checked',
       origin:{kind,label:sourceName(kind)},credentialKind:'driver',
       ...publicBalance(row,source),
+      ...(Number.isFinite(row?.expiringPoints)&&row.expiringPoints>0
+        &&row.balanceUnit==='积分'?{expiringPoints:row.expiringPoints,
+        ...(Number.isFinite(row.expiringAt)?{expiringAt:row.expiringAt}:{})}:{}),
      checkinState:row?.checkinState??'not_run',
    },'private:'+source.providerId+':'+source.opaqueId);
  }

@@ -186,7 +186,11 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
               authVerified:entry.authVerified===true,
               ...(typeof entry.claimable==='boolean'?{claimable:entry.claimable}:{}),
               ...(entry.noClaimablePlans===true?{noClaimablePlans:true}:{}),
-              ...facts,             maskedPhone:typeof entry.maskedPhone==='string'?entry.maskedPhone.slice(0,32):null});
+              ...facts,
+              ...(Number.isFinite(entry.expiringPoints)&&entry.expiringPoints>0
+                &&entry.balanceUnit==='积分'?{expiringPoints:entry.expiringPoints,
+                ...(Number.isFinite(entry.expiringAt)?{expiringAt:entry.expiringAt}:{})}:{}),
+              maskedPhone:typeof entry.maskedPhone==='string'?entry.maskedPhone.slice(0,32):null});
            if(nickname)row.nickname=nickname;
          }
         // A successful provider response is not a successful authentication
@@ -233,6 +237,9 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
       checkinSupported:implemented,checkinAvailable:implemented,
       checkinState:accountState,checkinAt:report?.checkedAt??recent?.at??null,
       ...publicBalance(report),
+      ...(Number.isFinite(report?.expiringPoints)&&report.expiringPoints>0
+        &&report.balanceUnit==='积分'?{expiringPoints:report.expiringPoints,
+        ...(Number.isFinite(report.expiringAt)?{expiringAt:report.expiringAt}:{})}:{}),
       ...(report?.maskedPhone?{maskedPhone:report.maskedPhone}:{}),
       checkinMessage:confirmedUpstream?'来源服务已核实今日签到完成':
         confirmedFromHistory?'本账号今日已有确认成功记录；来源状态尚未同步':

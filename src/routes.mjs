@@ -209,9 +209,14 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
          .map(row=>[row.id,row]));
        roster.accounts=roster.accounts.map(row=>{
          const current=checkins.get(row.id);
-         return current?{...row,checkinState:current.checkinState,
-           checkinMessage:current.checkinMessage,autoCheckin:current.autoCheckin,
-           autoCheckinEffective:current.autoCheckinEffective===true}:row;
+          return current?{...row,checkinState:current.checkinState,
+            checkinMessage:current.checkinMessage,autoCheckin:current.autoCheckin,
+            autoCheckinEffective:current.autoCheckinEffective===true,
+            activitiesSupported:current.activitiesSupported===true,
+            ...(current.activityClaims?{activityClaims:current.activityClaims}:{}),
+            ...(Number.isFinite(current.expiringPoints)&&current.expiringPoints>0
+              &&current.balanceUnit==='积分'?{expiringPoints:current.expiringPoints,
+              ...(Number.isFinite(current.expiringAt)?{expiringAt:current.expiringAt}:{})}:{})}:row;
        });
        const {channels,accounts}=mergeAccountSources({roster,embeddedAccounts,sourceRows,
          ignoredIds,embeddedStatus:embeddedPack?.status?.()??{}});

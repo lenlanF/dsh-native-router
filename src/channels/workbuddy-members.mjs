@@ -28,6 +28,8 @@ export function parseWorkBuddyCredits(payload,{enterprise=false,now=Date.now()}=
   return {balance:remain,balanceUnit:'积分',
    quotaWindows:[{kind:'monthly',label:'企业月度积分',total,used:Math.min(spent,total),
     left:remain,...(refresh?{endAt:refresh}:{})}],
+   ...(refresh&&refresh>now&&refresh<=now+7*86400000&&remain>0
+     ?{expiringPoints:remain,expiringAt:refresh}:{}),
    balanceCheckedAt:now,balanceState:'available'};
  }
  if(!Array.isArray(answer.Accounts))return null;
@@ -54,7 +56,15 @@ export function parseWorkBuddyCredits(payload,{enterprise=false,now=Date.now()}=
    ...(kind==='grant'&&expires?{endAt:expires}:{})});
  }
  if(!packages.length)return null; // An enterprise's empty personal list is NOT zero.
+ // Official independent WorkBuddy credit packages form the summed wallet;
+ // only these exact non-overlapping points buckets may be aggregated into
+ // an expiring-soon total. Five-hour/week model limits must never be added.
+ const soon=packages.filter(p=>Number.isFinite(p.endAt)&&p.endAt>now
+   &&p.endAt<=now+7*86400000);
+ const expiring=Math.round(soon.reduce((sum,p)=>sum+p.left,0)*1e4)/1e4;
  return {balance:Math.round(total*1e4)/1e4,balanceUnit:'积分',quotaWindows:packages,
+  ...(expiring>0?{expiringPoints:expiring,
+    expiringAt:Math.min(...soon.map(p=>p.endAt))}:{}),
   balanceCheckedAt:now,balanceState:'available'};
 }
 export function parseWorkBuddyProfile(payload,auth={}){
