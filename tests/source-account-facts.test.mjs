@@ -52,6 +52,12 @@ test('Loomy wallet recovers its OFFICIAL points unit only from fully reconciled 
  assert.equal(wallet(390).balance,390);
  assert.equal(wallet(391).balanceUnit,undefined,
    'mismatched official totals are not enough to assert one wallet unit');
+ const one=sourceAccountFacts({providerId:'loomy',
+   balanceRow:{balance:{total:75,packages:[{unit:'积分',remaining:55}]}}});
+ assert.equal(one.balanceUnit,undefined,
+   'one partial wallet bucket cannot label a different aggregate total');
+ assert.equal(sourceAccountFacts({providerId:'loomy',
+   balanceRow:{balance:{total:55,packages:[{unit:'积分',remaining:55}]}}}).balanceUnit,'积分');
  assert.equal(sourceAccountFacts({providerId:'loomy',
    balanceRow:{balance:{total:390,packages:[pkg[0],
      {...pkg[1],unit:'token'}]}}}).balanceUnit,undefined);

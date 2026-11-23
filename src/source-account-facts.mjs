@@ -37,8 +37,14 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
     &&new Set(packages.map(x=>safeUnit(x.unit))).size===1
     &&Math.abs(packages.reduce((sum,x)=>sum+x.remaining,0)-balanceValue)<0.000001
     ?safeUnit(packages[0].unit):null;
+  // One official package can also label the total when its own remaining
+  // is omitted (the source API reports a single unit and the total). If
+  // remaining is present but differs from total, do not assume a unit.
+  const soleUnit=single&&balanceValue!==null&&
+    (numeric(single.remaining)===null||
+      Math.abs(single.remaining-balanceValue)<0.000001)?safeUnit(single.unit):null;
   const unit=safeUnit(balanceRow?.balanceUnit)??safeUnit(structured?.unit)??
-    safeUnit(single?.unit)??reconciledUnit;
+    reconciledUnit??soleUnit;
   const liveStatus=!statusRow?.error&&status!==null&&(
     typeof status.todayCheckedIn==='boolean'||
     Array.isArray(status.checkinDates)||
