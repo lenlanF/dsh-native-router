@@ -448,7 +448,8 @@ window.__ModuleLoader__.load({
       adoptionPreview,adoptionBusy,adoptionResults,credentialService,onPreviewAdoption,onAdoptAccount,
        verifyResults,verifyBusy,onVerifyAdopted}){
        const reuse=data?.sessionReuse||{hostProviders:[],channels:[],results:[]};
-      const hosts=reuse.hostProviders||[],available=(reuse.channels||[]).filter(x=>x.available);
+      const hosts=reuse.hostProviders||[],available=(reuse.channels||[]).filter(x=>x.available),
+        discovered=(reuse.channels||[]).filter(x=>x.accountDetected);
       const accountLabels={online:'本次鉴权通过',recently_verified:'上次鉴权通过 · 自动复核中',not_checked:'首次鉴权排队中',expired:'授权已失效',pending:'等待确认',checking:'自动检查中',error:'连接检查异常',limited:'限流中',client_required:'需要原客户端操作'};
       const checkedAccounts=data?.accounts||[];
       // Only genuine current/previously verified identities belong to this
@@ -648,8 +649,9 @@ window.__ModuleLoader__.load({
               '，待处理 '+verifyResults.filter(x=>x.state!=='online').length+
               '。目录鉴权通过不保证所有模型推理与签到均成功。'):null),
           h('p',{style:{...css.small,margin:'4px 7px 12px'}},
-            '本机可检测来源：'+(available.map(x=>x.providerId).join('、')||'暂无')+
-            '。来源可被发现不等于已经登录，也不意味着要重新扫码。'),
+            '已接入渠道适配器（不等于已登录）：'+(available.map(x=>x.providerId).join('、')||'暂无')+
+            '。已扫描到可接管账号：'+(discovered.map(x=>x.providerId).join('、')||'暂无')+
+            '。真实登录状态仅以本页上方的已核验账号列表为准。'),
           (reuse.results||[]).length?h('details',{style:css.card},
             h('summary',{style:{cursor:'pointer'}},'历史扫描结果 · '+reuse.results.length),
             (reuse.results||[]).slice(-20).map((row,i)=>h('div',{key:i,style:css.itemRow},

@@ -45,13 +45,21 @@ export function createSessionReuse({configStore,drivers,embeddedPack,adapter,
    autoLinked:(cfg.sessionReuse?.linkedIds??[]).filter(id=>cfg.accounts.some(a=>a.id===id)).length,
     detectedPrivate:lastPrivateCount,
    ignored:(cfg.sessionReuse?.ignoredIds??[]).length,
-     channels:[{providerId:'workbuddy',
+      // 'available' only describes presence of an adapter. A mounted private
+      // source driver DOES NOT prove that a user logged into this channel.
+      // Keep the auth signal separate so the UI cannot mistake readiness for
+      // account verification or credit eligibility.
+      channels:[{providerId:'workbuddy',
         method:'desktop-readonly / existing-dsh-source-account',
-        available:typeof driverFor('workbuddy')?.discover==='function'},
-       ...SOURCE_PACK_PROVIDERS.filter(id=>id!=='workbuddy')
-         .map(providerId=>({providerId,method:'existing-dsh-source-account',
-             available:driverFor(providerId)?.runtimeReady===true
-               ||driverFor(providerId)?.sourceReady===true}))],
+        available:typeof driverFor('workbuddy')?.discover==='function',
+        accountDetected:lastResult.some(x=>x.providerId==='workbuddy'
+          &&x.state==='requires_independent_adoption'),loginVerified:false},
+        ...SOURCE_PACK_PROVIDERS.filter(id=>id!=='workbuddy')
+          .map(providerId=>({providerId,method:'existing-dsh-source-account',
+            available:driverFor(providerId)?.runtimeReady===true
+              ||driverFor(providerId)?.sourceReady===true,
+            accountDetected:lastResult.some(x=>x.providerId===providerId
+              &&x.state==='requires_independent_adoption'),loginVerified:false}))],
    results:lastResult.map(x=>({...x}))};
  }
   async function scan({importReferences=false}={}){

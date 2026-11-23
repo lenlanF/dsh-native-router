@@ -1,6 +1,6 @@
 {
   "name": "dsh-native-router",
-  "version": "1.0.0-rc.95", "private": false, "type": "module",  "license": "MIT",  "engines": {"node": ">=22.10.0"},  "keywords": ["deepseek-harness", "dsh", "cordis", "model-routing", "autofree", "model-pool", "failover"],  "description": "Native DSH provider reuse, independent login, dynamic free model pool, manual model chains, and agent failover",  "main": "./src/index.mjs",  "exports": {
+  "version": "1.0.0-rc.96", "private": false, "type": "module",  "license": "MIT",  "engines": {"node": ">=22.10.0"},  "keywords": ["deepseek-harness", "dsh", "cordis", "model-routing", "autofree", "model-pool", "failover"],  "description": "Native DSH provider reuse, independent login, dynamic free model pool, manual model chains, and agent failover",  "main": "./src/index.mjs",  "exports": {
     ".": "./src/index.mjs",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json",
@@ -30,6 +30,7 @@
     "docs/WORKBUDDY_NATIVE.md",
     "docs/MEOO_QWENWORK_NATIVE.md",
     "docs/RC83_ACCOUNT_HYDRATION.md",
+    "docs/RC96_REAL_DSH_HOST_ACCEPTANCE.md",
     "docs/RC95_INSTALLED_ACCOUNT_AUDIT.md",
     "docs/RC94_ALL_CHANNEL_FREE_ACTIVITIES.md",
     "docs/RC93_UNIFIED_CHANNEL_WORKFLOWS.md",

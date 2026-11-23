@@ -54,6 +54,27 @@ function fixture(t,{enabled=true,refreshToken='fake-refresh',
  return {dir,file,folder,manifestPath,fileHash,fakeJWT,env,store,driver:workbuddy,
   source,drivers,reuse,center,calls,get cfg(){return cfg}};
 }
+test('mounted adapter is not an authenticated session; read-only scan exposes discovery separately without silently importing',async t=>{
+ const f=fixture(t,{sourceRows:[{id:'already-signed-qoder',providerId:'qoder',
+   nickname:'Synthetic source only',enabled:true}]});
+ f.drivers.set('workbuddy',{async discover(){return []}});
+ f.drivers.set('trae',{runtimeReady:true});
+ let view=f.reuse.snapshot();
+ assert.equal(view.channels.find(x=>x.providerId==='trae').available,true);
+ assert.equal(view.channels.find(x=>x.providerId==='trae').accountDetected,false);
+ assert.equal(view.channels.find(x=>x.providerId==='trae').loginVerified,false);
+ const scanned=await f.reuse.scan({importReferences:false});
+ assert.equal(scanned.attempted,1);
+ assert.equal(scanned.linked,0);
+ assert.equal(scanned.autoLinked,0);
+ assert.equal(scanned.channels.find(x=>x.providerId==='qoder').accountDetected,true);
+ assert.equal(scanned.channels.find(x=>x.providerId==='qoder').loginVerified,false);
+ assert.equal(scanned.channels.find(x=>x.providerId==='trae').available,true);
+ assert.equal(scanned.channels.find(x=>x.providerId==='trae').accountDetected,false);
+ assert.deepEqual(f.cfg.accounts,[],'a read-only discovery must not import a credential');
+ assert.equal(sha(readFileSync(f.file,'utf8')),f.fileHash);
+ f.reuse.stop();
+});
 test('reuse is opt-in: disabled plugin does not even look at existing desktop login files',async t=>{
  const f=fixture(t,{enabled:false});
  let discoveries=0;

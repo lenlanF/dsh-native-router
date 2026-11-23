@@ -54,7 +54,9 @@ const existing={
   providerRetryPolicy(){return undefined},
   imageRequestPricing(){return undefined},
   imageRequestTarget(){return undefined},
- async listModels(){return [{provider:'qoder',id:'already-installed-model',name:'Fake Authorized Host Model'}]},
+  async listModels(){return [
+   {provider:'qoder',id:'already-installed-model',name:'Fake Authorized Host Model'},
+   {provider:'qoder',id:'unselected-expensive-model',name:'Not allowed in aggregator'}]},
  async resolveModel(provider,model){return {provider,id:model,name:model,inputModalities:['text']}},
  async prepareCall(provider,model){return {model:await this.resolveModel(provider,model),
   stream:options=>this.stream(options)}},
@@ -73,6 +75,10 @@ const existing={
 const detachExisting=llm.registerAdapter(['qoder'],existing);
 let cfg=normalizeConfig({
  embeddedPack:{enabled:true},sessionReuse:{enabled:true},
+ providers:[{id:'qoder',name:'Original Qoder host adapter',protocol:'dsh-host',
+   enabled:true,models:['already-installed-model','unselected-expensive-model'],
+   supportsTools:true}],
+ hostModelSelection:{qoder:['already-installed-model']},
 });
 const store={path:process.env.DSH_HOME+'\\plugins\\dsh-native-router\\config.json',
  get:()=>structuredClone(cfg),replace:x=>(cfg=normalizeConfig(x),structuredClone(cfg))};
@@ -90,12 +96,15 @@ try{
   const response=await request('/status');
   if(response.status===200){
    state=await response.json();
-   if(state.embeddedPack?.state==='blocked')break;
+    if(['mounted','failed','blocked'].includes(state.embeddedPack?.state))break;
   }
   await new Promise(resolve=>setTimeout(resolve,35));
  }
- assert.equal(state?.embeddedPack?.state,'blocked',
-  'Source pack must not displace an already installed native accountPool or provider');
+ assert.equal(state?.embeddedPack?.state,'mounted',
+   'Bundled source must mount an independent pool beside an already installed provider: '+JSON.stringify({state:state?.embeddedPack?.state,stage:state?.embeddedPack?.errorStage,kind:state?.embeddedPack?.errorKind}));
+ assert.equal(state.embeddedPack.independentLogin,true);
+ assert.ok(state.embeddedPack.modelAdapterReady.includes('qoder'),
+   'Separate private native source qoder alias must be ready');
  assert.equal((await ctx.get('accountPool',false).listAllAccounts()).length,1);
  assert.ok(llm.listProviders().some(x=>x.id==='qoder'));
  assert.equal(listeners.length,1,'Exactly the DSH WebServer may listen');
@@ -106,25 +115,39 @@ try{
   'content-type':'application/json'},body:'{}'});
  assert.equal(scan.status,200);
  const scanned=await scan.json();
-   assert.equal(scanned.autoLinked,1,'One already-installed signed-in DSH source must be linked without OAuth');
-   assert.equal(scanned.linked,0,'Startup automatic linking is idempotent on manual scan');
-   assert.equal(scanned.channels.find(x=>x.providerId==='qoder').available,true);
-   assert.equal(scanned.channels.find(x=>x.providerId==='trae').available,false,
-     'An unrelated provider must not be described as authenticated or available');
- assert.equal(cfg.accounts.length,1);
+ assert.equal(scanned.autoLinked,0,
+  'Discovery must never import another plugin login without explicit owner adoption');
+ assert.equal(scanned.linked,0,
+  'Read-only scan never writes the configured accounts');
+ assert.equal(scanned.attempted,1,
+  'The original already-signed-in channel is discovered');
+ assert.equal(scanned.needsOneTimeMigration,1);
+ assert.equal(scanned.channels.find(x=>x.providerId==='qoder').available,true);
+ assert.equal(scanned.channels.find(x=>x.providerId==='qoder').accountDetected,true);
+ assert.equal(scanned.channels.find(x=>x.providerId==='qoder').loginVerified,false,
+  'The scanned account is not officially verified merely by listing it');
+ assert.equal(scanned.channels.find(x=>x.providerId==='trae').available,true,
+  'Mounted private provider adapter may be usable even without a session');
+ assert.equal(scanned.channels.find(x=>x.providerId==='trae').accountDetected,false);
+ assert.equal(scanned.channels.find(x=>x.providerId==='trae').loginVerified,false);
+ assert.equal(cfg.accounts.length,0);
  assert.equal(cfg.providers.length,1);
  assert.equal(cfg.providers[0].id,'qoder');
- assert.ok(cfg.accounts[0].id.startsWith('sp_'));
- assert.equal(cfg.accounts[0].autoCheckin,true);
+ assert.equal(cfg.providers[0].protocol,'dsh-host');
  assert.doesNotMatch(JSON.stringify(cfg),/SECRET_EXTERNAL_SOURCE_REF|offline-external-qoder-account/);
  assert.equal(readCredential,0);
  assert.equal(writeCredential,0);
  assert.equal(JSON.stringify(enrolled),original);
  const enabled=llm.listProviders().map(x=>x.id);
  assert.ok(enabled.includes('native-router')&&enabled.includes('qoder'));
- const found=await llm.listModels('native-router');
- assert.ok(found.some(x=>x.id==='direct:qoder:already-installed-model'),
-  'Existing original channel must be discoverable through native-router using no new login');
+  const originalModels=await llm.listModels('qoder');
+  assert.ok(originalModels.some(x=>x.id==='unselected-expensive-model'),
+   'The standalone DSH provider retains its full source catalog');
+  const found=await llm.listModels('native-router');
+  assert.ok(found.some(x=>x.id==='direct:qoder:already-installed-model'),
+   'Explicitly selected original Host model is discoverable through aggregator');
+  assert.ok(!found.some(x=>x.id==='direct:qoder:unselected-expensive-model'),
+   'Unselected expensive Host model must never be advertised by aggregator');
  const chunks=[];
  for await(const chunk of llm.stream({provider:'native-router',
   model:'direct:qoder:already-installed-model',
@@ -153,10 +176,12 @@ try{
 }
 assert.ok(loaded);
 console.log(JSON.stringify({result:'PASS',runtime:'real Cordis, LlmRuntime, WebServer, Connection',
- existingInstalledHostProvider:'qoder',alreadyLoggedInSourceAccounts:1,
- nativeRouterAttachedWithoutOwnSourcePack:true,modelRequestsViaOriginalDSHProvider:issued,
- credentialReads:readCredential,credentialWrites:writeCredential,
- accountPoolUnchanged:JSON.stringify(enrolled)===original,
+  existingInstalledHostProvider:'qoder',detectedExternalSourceAccounts:1,
+  independentOwnedSourcePackMounted:true,readOnlyScanLinkedAccounts:0,
+  hostModelAllowlistEffective:true,originalHostCatalogUnchanged:true,
+  modelRequestsViaOriginalDSHProvider:issued,
+  credentialReads:readCredential,credentialWrites:writeCredential,
+  accountPoolUnchanged:JSON.stringify(enrolled)===original,
  noDuplicateProvider:true,noExtraProcess:true,webServerListenerCount:listeners.length,
  authenticatedOwnerLoginReuse:true,unauthenticatedScanDenied:true,unloadPreservedExistingProvider:true}));
 process.exit(0);

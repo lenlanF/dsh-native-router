@@ -345,6 +345,14 @@ test('dashboard shows original WorkBuddy routes, which enter directly without a 
  assert.match(rig.flatten(page).join(' '),/WorkBuddy 国际/);
  assert.equal(rig.find(page,'button','接入聚合路由').length,0);
 });
+test('reuse screen does not label an available source adapter as an authenticated account',async()=>{
+ const rig=createUiRig();await rig.init();
+ rig.find(rig.render(),'button','复用管理')[0].props.onClick();
+ const view=rig.flatten(rig.render()).join(' ');
+ assert.match(view,/已接入渠道适配器（不等于已登录）/);
+ assert.match(view,/已扫描到可接管账号/);
+ assert.match(view,/真实登录状态仅以本页上方的已核验账号列表为准/);
+});
 test('host channel click shows the original full model list on the right, not at page bottom',async()=>{
  const host=[{providerId:'workbuddy-global',family:'workbuddy-native-plugin-route',
    accountAccess:'plugin-managed-or-unknown',loginVerified:false}];
