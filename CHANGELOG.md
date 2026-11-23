@@ -4,7 +4,7 @@
 
 - 新增 own_aws_quick：基于 MIT 协议自有双向 WebSocket 实现，支持单次本机 Quick 凭据接管与独立 OAuth PKCE 登录；凭据保存在 DSH 自有 vault，不依赖 Magpie 或 Quick Desktop 进程。
 - 四档动态模式真实协议、官方会员小时额度与身份只读查询、精确事务回滚/退出、DSH 原生模型调用接入；未知倍率不宣传免费，会员用量失败不虚报余额为零。
-- Amazon Quick 本地真实双向 WebSocket 模拟端到端 5/5 和全量回归 703/703 通过；真实 Amazon 账号/额度与模型云端推理尚未验证。发布前仍需打包、隐私审查和 CI，生产不自动升级。见 docs/AWS_QUICK_NATIVE.md。
+- Amazon Quick 本地双向 WebSocket 协议模拟端到端 9/9；补充恶意 OIDC 发现 token_endpoint、防竞态回滚、会员小时窗口显示等安全测试，全量回归 707/707 通过。真实 Amazon 云端账号/额度及推理仍待用户正常登录后验收；打包/隐私/CI 独立核查，生产不自动升级。见 docs/AWS_QUICK_NATIVE.md。
 
 ## 1.0.0-rc.83 — 2026-11-23 — 已登录账号资料恢复、真实 UID 和权益领取去重
 
