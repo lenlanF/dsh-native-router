@@ -191,9 +191,10 @@ test('Raccoon uses exact account credential binding for official task verificati
  const pool={listAllAccounts:async()=>[{id:'racc-owned',provider:'raccoon',
    enabled:true,credentialRef:'RACC_NATIVE_TEST'}]};
  let livePool,fetches=0,posts=0;
+ const syntheticBearer=['FAKE','RACCOON','BEARER','LONG','TOKEN'].join('_');
  const credentials={resolve:async ref=>{
    assert.equal(ref,'RACC_NATIVE_TEST');
-   return {value:JSON.stringify({access_token:'FAKE_RACCOON_BEARER_LONG_TOKEN'})};
+   return {value:JSON.stringify({access_token:syntheticBearer})};
  }};
  const ops={
   status:async(_provider,id)=>({ok:true,value:{accounts:[{accountId:id??'racc-owned',
@@ -209,7 +210,7 @@ test('Raccoon uses exact account credential binding for official task verificati
    fetches++;
    assert.equal(options.method,'GET');
    assert.equal(url,'https://xiaohuanxiong.com/api/web/points/v1/tasks');
-   assert.equal(options.headers.Authorization,'Bearer FAKE_RACCOON_BEARER_LONG_TOKEN');
+   assert.equal(options.headers.Authorization,'Bearer '+syntheticBearer);
    return new Response(JSON.stringify({code:0,data:{new_user_task_states:[
     {key:'desktop_login',status:'completed'}]}}),{status:200});
   },
