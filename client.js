@@ -1689,6 +1689,24 @@ window.__ModuleLoader__.load({
             else setError((data.result?.code?data.result.code+' · ':'')+
               (data.result?.message||'模型尚未完成真实回复验收；没有标记为可用。'));
           }
+          else if((path==='/checkins/action'||path==='/activities/action')
+            &&body.action==='run-channel'&&data.result?.summary){
+            const s=data.result.summary;
+            setNotice(!s.attempted?'本渠道没有实际可执行的账号，未发起官方签到或领奖请求。':
+              '本次处理 '+s.attempted+' 个账号；今日已确认签到 '+s.confirmedSignins+
+              ' 个；新增官方到账奖励 '+s.newlyCreditedRewards+
+              ' 项；待回查 '+s.pendingAccounts+' 个；失败/不可用 '+s.failedAccounts+
+              ' 个；无可领任务 '+s.noTaskAccounts+
+              ' 个。未获官方到账证据的操作不计领取成功。');
+          }
+          else if(path==='/checkins/action'&&body.action==='run'){
+            const result=data.result||{},state=result.record?.state??result.state;
+            setNotice(result.alreadyConfirmed===true||state==='success'
+              ?'官方已确认今日签到；奖励是否到账仍以官方积分账单为准。':
+              state==='pending_confirmation'||result.alreadyPending===true
+                ?'请求尚待官方回查，不会重复发送同一领取请求。':
+                '已检查官方任务，签到或奖励尚未确认成功；请查看当前账号状态。');
+          }
           else setNotice(success||'操作完成，详细状态已刷新。');
         }catch(error){setError(String(error?.message??error));}
         finally{setActionBusy('')}
