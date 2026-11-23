@@ -38,7 +38,8 @@ const provenBenefit=(account,benefit,now)=>benefit?.claimed===true
   &&benefit.rewardVerified===true
   &&benefit.rewardProof==='official_wallet_delta'
   &&(account?.sourceAccount===true&&channelKey(account.providerId)==='loomy'
-    ||isWorkBuddy(account?.providerId))
+    ||isWorkBuddy(account?.providerId)
+    ||account?.providerId==='own_doubao')
   &&validAt(benefit.rewardVerifiedAt,now)
   &&asAmount(benefit.credit)>0;
 const kindTitle=kind=>kind==='gift'?'官方活动赠送积分':
@@ -73,10 +74,11 @@ export function buildChannelActivityCatalog({config,accountRows=[],sourceRows=[]
     const name=publicAccountName(account)||'账号名待获取';
     channel.accountCount++;
     if(account.enabled!==true)continue;
-    if(account.activitiesSupported===true)channel.activityExecutorCount++;
     const activeProvider=providers.find(p=>p.id===account.providerId)??
       providers.find(p=>channelKey(p.id)===channel.id);
     if(activeProvider?.enabled===false)continue;
+    if(account.activitiesSupported===true||account.checkinSupported===true)
+      channel.activityExecutorCount++;
     const signer=account.checkinSupported===true
       &&account.activityActive!==false&&!excluded.has(account.checkinState)
       &&(account.sourceAccount===true&&SOURCE_SIGNIN.has(channelKey(account.providerId))
@@ -86,6 +88,25 @@ export function buildChannelActivityCatalog({config,accountRows=[],sourceRows=[]
     const eligible=signer&&(!doubao||
       ['claimable','claimed'].includes(account.activityState))
       &&(!source||SOURCE_SIGNIN.has(channelKey(account.providerId)));
+    // A genuine OFFICIAL account-scoped daily eligibility response may be
+    // visible BEFORE claiming. This is not a reward-credit proof and must
+    // never appear as completed or add to an earned-points total.
+    const officiallyClaimable=eligible&&account.enabled===true
+      &&account.connectionState==='online'
+      &&(account.activityClaimable===true||doubao
+        &&account.activityState==='claimable'
+        &&Number.isSafeInteger(account.activityCheckedAt)
+        &&account.activityCheckedAt>0&&account.activityCheckedAt<=now
+        &&now-account.activityCheckedAt<=15*60*1000);
+    if(officiallyClaimable){
+      const deadline=endOf(account.activityExpiresAt);
+      if(deadline===null||deadline>now)channel.activities.push({
+        id:account.id+':daily-claimable',accountId:account.id,accountName:name,
+        name:'今日免费签到／额度活动',kind:'daily',rewardAmount:null,
+        rewardUnit:null,validity:'valid',endAt:deadline,
+        execution:'automatic',progress:'官方已确认可领取 · 尚无到账证据',
+      });
+    }
     if(eligible&&provenDaily(account,now)){
       const officialAmount=asAmount(account.activityRewardAmount);
       const officialUnit=safeText(account.activityRewardUnit,18);
@@ -102,9 +123,30 @@ export function buildChannelActivityCatalog({config,accountRows=[],sourceRows=[]
     const workbuddy=isWorkBuddy(account.providerId);
     const raccoon=source&&channel.id==='raccoon';
     const loomy=source&&channel.id==='loomy';
-    if(!workbuddy&&!raccoon&&!loomy)continue;
+    if(!workbuddy&&!raccoon&&!loomy&&!doubao)continue;
+    // WorkBuddy's gift and compensation APIs explicitly report active and
+    // unclaimed. Do NOT confuse offer value with spendable wallet balance.
+    if((workbuddy||doubao)&&account.connectionState==='online')for(const benefit of
+      Array.isArray(account.benefits)?account.benefits:[]){
+      if(!(['gift','compensation'].includes(benefit?.kind)&&workbuddy
+        ||workbuddy&&/^workbuddy_growth_(?:task|travel)_[a-f0-9]{24}$/.test(benefit?.kind)
+        ||doubao&&/^doubao_task_[a-f0-9]{24}$/.test(benefit?.kind))
+        ||benefit.active!==true||benefit.claimed!==false)continue;
+      const deadline=endOf(benefit.endAt);
+      if(deadline!==null&&deadline<=now)continue;
+      channel.activities.push({id:account.id+':'+benefit.kind+':available',
+        accountId:account.id,accountName:name,
+        name:/^(?:workbuddy_growth_|doubao_task_)/.test(benefit.kind)?
+          safeText(benefit.name)||'会员免费任务':kindTitle(benefit.kind),
+        kind:benefit.kind,rewardAmount:asAmount(benefit.credit),
+        rewardUnit:Number.isFinite(benefit.credit)?doubao?'平台赠送额度':'积分':null,
+        validity:'valid',endAt:deadline,execution:'automatic',
+        progress:'官方账户确认活动待领取 · 尚未证明积分入账'});
+    }
     for(const benefit of Array.isArray(account.benefits)?account.benefits:[]){
-      if(!benefit||!(workbuddy?['gift','compensation'].includes(benefit.kind):
+      if(!benefit||!(workbuddy?['gift','compensation'].includes(benefit.kind)
+            ||/^workbuddy_growth_(?:task|travel)_[a-f0-9]{24}$/.test(benefit.kind):
+          doubao?/^doubao_task_[a-f0-9]{24}$/.test(benefit.kind):
           loomy?['first_message','pick_skill','generate_ppt','set_schedule',
             'install_skill','configure_remote','create_soul','share_soul']
             .some(key=>benefit.kind==='loomy_'+key):
@@ -115,12 +157,16 @@ export function buildChannelActivityCatalog({config,accountRows=[],sourceRows=[]
       const amount=asAmount(benefit.credit);
       channel.activities.push({
         id:account.id+':'+benefit.kind,accountId:account.id,accountName:name,
-        name:loomy?safeText(benefit.name)||'免费新手活动':kindTitle(benefit.kind),
+        name:loomy?safeText(benefit.name)||'免费新手活动':
+          /^(?:workbuddy_growth_|doubao_task_)/.test(benefit.kind)?
+            safeText(benefit.name)||'会员免费任务':kindTitle(benefit.kind),
         kind:benefit.kind,
-        rewardAmount:amount,rewardUnit:amount!==null?'积分':null,
+        rewardAmount:amount,rewardUnit:amount!==null?
+          doubao?'平台赠送额度':'积分':null,
         validity:'completed',
         endAt:deadline,execution:'automatic',
-        progress:'官方任务状态与积分钱包增量双重核验',
+        progress:doubao?'官方任务状态与赠送额度窗口增量双重核验':
+          '官方任务状态与积分钱包增量双重核验',
       });
     }
   }

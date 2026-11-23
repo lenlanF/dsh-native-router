@@ -158,10 +158,15 @@ export function createAccountCenter({
               ...(Number.isFinite(live.usageCheckedAt)?{usageCheckedAt:live.usageCheckedAt}:{}),
               ...(typeof live.creditFetchState==='string'?{creditFetchState:live.creditFetchState}:{}),
               ...(Number.isFinite(live.benefitsCheckedAt)?{benefitsCheckedAt:live.benefitsCheckedAt}:{}),
-              ...(Array.isArray(live.benefits)?{benefits:live.benefits.slice(0,8).filter(x=>
-                ['gift','compensation'].includes(x?.kind)&&typeof x.active==='boolean'
-                &&typeof x.claimed==='boolean').map(x=>({kind:x.kind,active:x.active,
-                claimed:x.claimed,...(Number.isFinite(x.credit)?{credit:x.credit}:{}),
+              ...(Array.isArray(live.benefits)?{benefits:live.benefits.slice(0,48).filter(x=>
+                (['gift','compensation'].includes(x?.kind)
+                ||/^workbuddy_growth_(?:task|travel)_[a-f0-9]{24}$/.test(x?.kind)
+                ||/^doubao_task_[a-f0-9]{24}$/.test(x?.kind))
+                &&typeof x.active==='boolean'
+                &&typeof x.claimed==='boolean').map(x=>({kind:x.kind,
+                ...(typeof x.name==='string'?{name:x.name.slice(0,80)}:{}),
+                active:x.active,claimed:x.claimed,
+                ...(Number.isFinite(x.credit)?{credit:x.credit}:{}),
                 ...(Number.isFinite(x.endAt)?{endAt:x.endAt}:{})}))}:{}),
               ...(['claimed','claimable','not_confirmed','not_offered','unavailable'].includes(live.activityState)?
                 {activityState:live.activityState}:{}),

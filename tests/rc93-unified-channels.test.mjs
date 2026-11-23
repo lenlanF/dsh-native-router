@@ -119,9 +119,10 @@ test('channel manual sign-in and free activities never generate fake catalog rew
     'a channel without the official signer is never executed');
   assert.equal((await v.checkins.runActivityChannel('workbuddy-cn')).attempted,1);
   assert.equal(v.claims,1);
-  assert.equal(v.signins,0,'manual activities do not force a daily sign-in');
+  assert.equal(v.signins,1,
+    'channel activity action now also executes its real official daily free signer');
   assert.equal(buildChannelActivityCatalog({config:v.config,
-    accountRows:v.checkins.snapshot().accounts,now:clock}).summary.activityCount,0,
-    'accepted completion without official wallet increase stays hidden');
+    accountRows:v.checkins.snapshot().accounts,now:clock}).summary.completedCount,0,
+    'confirmed daily check-in is not proof of credited wallet reward');
  }finally{v.stop()}
 });

@@ -313,6 +313,11 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
       autoCheckinEffective:state.autoCheckin&&state.enabled&&state.providerEnabled
         &&configStore.get().checkin.autoEnabled===true,
       checkinSupported:implemented,checkinAvailable:implemented,
+      // Only the authenticated, fresh official source status is enough to
+      // show a currently claimable free daily activity. A local balance or
+      // old checked-in flag is NOT official live eligibility.
+      activityClaimable:state.enabled&&state.providerEnabled
+        &&report?.authVerified===true&&report?.claimable===true,
       activitiesSupported:row.providerId==='loomy'
         &&typeof sourcePack?.claimLoomyActivities==='function',
       ...(loomy?{benefits:loomy,

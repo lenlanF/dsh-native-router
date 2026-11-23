@@ -6,7 +6,8 @@ import {toChatMessages} from '../protocol.mjs';
 import {visibleTools} from '../host-tools.mjs';
 import {publicAccountName} from '../account-facts.mjs';
 import {chat,fetchAccountInfo,fetchModels,fetchQuota,fetchLaunch,fetchCampaignDetail,
- findDailyCheckin,claimCheckin,DoubaoError,hasSession,uidFromCookie} from './doubao-upstream.mjs';
+ findDailyCheckin,claimCheckin,completedDoubaoRewards,claimCompletedDoubaoReward,
+ DoubaoError,hasSession,uidFromCookie} from './doubao-upstream.mjs';
 import {createLoginFlow} from './doubao-login.mjs';
 
 const ID='own_doubao',REF=/^driver:own_doubao:(db_[a-f0-9]{28})$/;
@@ -264,15 +265,19 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
         const daily=findDailyCheckin(detail.tasks||[]);
         // Non-daily campaign tasks have independent conditions and are not
         // fulfilled by the simple daily check-in claim endpoint.
-        const extra=(detail.tasks||[]).filter(task=>task!==daily);
+        const extra=completedDoubaoRewards(detail);
+        const additionalTasks=(detail.tasks||[]).filter(task=>task!==daily);
         const prior=publicStatus.get(account.id)??{};
         const date=beijingDate(now());
         const verified=daily?.checkedInToday===true,claimable=daily?.checkedInToday===false;
         publicStatus.set(account.id,{...prior,
           activityState:verified?'claimed':claimable?'claimable':'not_confirmed',
           activityCheckedAt:now(),
-          activityTaskCount:Math.min(extra.length,99),
-          activityTaskExecutionState:extra.length?'requires_verified_executor':'none',
+          activityTaskCount:Math.min(additionalTasks.length,99),
+          activityTaskExecutionState:extra.some(x=>!x.claimed)?
+            'official_completed_reward_only':additionalTasks.length?
+              'requires_verified_executor':'none',
+          benefits:extra.map(rewardOffer).slice(0,40),benefitsCheckedAt:now(),
           ...(verified||claimable?{checkinDate:date,
             checkinOutcome:verified?'already':'claimable'}:{})});
       }else{
@@ -301,6 +306,85 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
         '豆包身份与权益已确认，官方暂未列出可用对话模型'};
     }catch{return {state:'online',message:'豆包身份与权益已确认，但模型目录暂不可用'};}
   }
+ // Authenticated, already-finished campaign rewards only; never perform
+ // creative tasks, buy packages, call paid models or forge completion.
+ // Source: MIT Muverix/Auto-Signin-Hub signin/doubao.py.
+ const doubaoKind=(group,code)=>'doubao_task_'+createHash('sha256')
+   .update(group+'\\0'+code).digest('hex').slice(0,24);
+ const rewardOffer=x=>({kind:doubaoKind(x.group,x.code),
+   name:x.name,active:true,claimed:x.claimed===true,credit:x.credit});
+ async function discoverExtra(cookie){
+   const launch=await fetchLaunch(cookie,withFetch({timeoutMs:12000}));
+   const group=launch.campaignGroup||launch.campaign;
+   if(!/^[A-Za-z0-9_-]{1,100}$/.test(group))return {group:null,offers:[]};
+   const detail=await fetchCampaignDetail(cookie,group,withFetch({timeoutMs:12000}));
+   return {group,offers:completedDoubaoRewards(detail)};
+ }
+ async function grantWallet(cookie){
+   try{
+     const quota=await fetchQuota(cookie,withFetch({timeoutMs:12000}));
+     const items=(quota?.windows||[]).filter(row=>row.kind==='grant'
+       &&Number.isFinite(row.left)&&row.left>=0);
+     return items.length===1?items[0].left:null;
+   }catch{return null}
+ }
+ async function claimActivities({account,beforeClaim,onOutcome,onObserved,previousReceipt}={}){
+   let cookie;try{cookie=await secret(account);await probe(account)}
+   catch{return {state:'unavailable',confirmed:0,pending:0,eligible:0}}
+   let discovered;try{discovered=await discoverExtra(cookie)}
+   catch{return {state:'unavailable',confirmed:0,pending:0,eligible:0}}
+   let confirmed=0,pending=0,skipped=0;
+   const eligible=discovered.offers.filter(x=>!x.claimed);
+   // Uncertain old POSTs are never reissued. Status + wallet proofs can
+   // reconcile those receipts later with no further write to the campaign.
+   for(const item of discovered.offers.filter(x=>x.claimed)){
+     const offer=rewardOffer(item);
+     let receipt=null;try{receipt=await previousReceipt?.(offer)}catch{}
+     if(!receipt||receipt.state==='confirmed'
+       ||!Number.isFinite(receipt.baselineBalance))continue;
+     const wallet=await grantWallet(cookie);
+     if(!Number.isFinite(wallet)||Math.abs(wallet-receipt.baselineBalance-item.credit)>0.000001)
+       continue;
+     try{await onObserved?.(offer,'confirmed',{
+       credit:item.credit,proof:'official_wallet_delta',verifiedAt:now()})}catch{}
+   }
+   for(const item of eligible){
+     const offer=rewardOffer(item);
+     let receipt=null;try{receipt=await previousReceipt?.(offer)}catch{}
+     if(receipt){skipped++;continue}
+     const before=await grantWallet(cookie);
+     if(!Number.isFinite(before)){skipped++;continue}
+     let approved=false;
+     try{approved=await beforeClaim?.(offer,{baselineBalance:before})===true}catch{}
+     if(!approved){skipped++;continue}
+     let state='pending_confirmation',meta={};
+     try{
+       await claimCompletedDoubaoReward(cookie,discovered.group,item.code,
+         withFetch({timeoutMs:12000}));
+       const latest=await discoverExtra(cookie);
+       const after=await grantWallet(cookie);
+       const verified=latest.offers.some(row=>row.code===item.code
+         &&row.group===item.group&&row.claimed&&row.credit===item.credit);
+       if(verified&&Number.isFinite(after)
+         &&Math.abs(after-before-item.credit)<0.000001){
+         state='confirmed';confirmed++;
+         meta={credit:item.credit,proof:'official_wallet_delta',verifiedAt:now()};
+       }else pending++;
+     }catch{pending++}
+     try{await onOutcome?.(offer,state,meta)}catch{}
+     if(state!=='confirmed')break;
+   }
+   // Only sanitized public data enters account snapshot; private task IDs
+   // never leave this driver or persist to activity receipt journal.
+   try{const latest=await discoverExtra(cookie),old=publicStatus.get(account.id)??{};
+     publicStatus.set(account.id,{...old,
+       benefits:latest.offers.map(rewardOffer).slice(0,40),benefitsCheckedAt:now(),
+       activityTaskCount:latest.offers.filter(x=>!x.claimed).length,
+       activityTaskExecutionState:'official_completed_reward_only'})}catch{}
+   return {state:pending?'pending_confirmation':confirmed?'confirmed':
+     eligible.length?'skipped':'no_task',
+     confirmed,pending,skipped,eligible:eligible.length};
+ }
  async function checkIn({account,date}={}){
   const cookie=await secret(account);
   try{
@@ -391,5 +475,6 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
   return {authMethod:'独立浏览器扫码登录 / Cookie',
     get runtimeReady(){return typeof vault?.resolve==='function'&&typeof vault?.set==='function'},
    addCookie,rollbackCandidate,completeCandidate,loginStatus,startLogin:()=>browser.start(),cancelLogin,
-    listModels,generate,refresh,refreshAccountStatus,login:refresh,logout,checkIn,accountSnapshot};
+    listModels,generate,refresh,refreshAccountStatus,login:refresh,logout,
+    checkIn,claimActivities,accountSnapshot};
  }
