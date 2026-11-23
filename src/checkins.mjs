@@ -8,6 +8,7 @@ import {checkinGroups,latestConfirmedDate} from './checkin-summary.mjs';
 import {publicCheckinMessage,publicAccountFailureMessage} from './public-diagnostics.mjs';
 
 import {retryAtomicRename} from './retry-atomic-rename.mjs';
+import {summarizeChannelExecution} from './channel-execution-result.mjs';
 const MAX_HISTORY=500;
 const STATES=new Set(['success','failed','pending_confirmation','no_task','client_required','unsupported']);
 export function todayKey(now=Date.now(),timeZone='Asia/Shanghai'){
@@ -298,17 +299,15 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
     const selected=String(providerId||'').replace(/^own_/,'');
     if(!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(selected))
       throw Error('Invalid activity channel');
-    const accounts=snapshot().accounts.filter(row=>
+    const before=snapshot().accounts;
+    const accounts=before.filter(row=>
       row.providerId?.replace(/^own_/,'')===selected&&row.enabled!==false
       &&(row.activitiesSupported===true||row.checkinSupported===true)).slice(0,32);
     const results=[];
     for(const row of accounts){
       try{
-        // The source pack's ten DAILY free-claim providers are genuine
-        // activity executors too. In rc93 this path accidentally only
-        // called Loomy/WorkBuddy extra tasks, silently skipping them.
-        // run() already preserves per-account official eligibility, receipts
-        // and repeat-claim protection. It also runs Loomy bonus tasks.
+        // Only the real source driver decides official eligibility and
+        // performs anti-replay checks. A completed call is not wallet proof.
         const outcome=row.checkinSupported===true?
           await run(row.id,{source}):
           sourceCenter?.has(row.id)?await sourceCenter.runFreeActivities(row.id,{source}):
@@ -317,13 +316,16 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
       }catch(error){results.push({accountId:row.id,state:'unavailable',
         message:publicAccountFailureMessage(error)})}
     }
-    return {providerId:selected,attempted:results.length,results};
+    return {providerId:selected,attempted:results.length,results,
+      summary:summarizeChannelExecution({before,after:snapshot().accounts,
+        results,today:currentDate()})};
   }
   async function runChannel(providerId,{source='manual'}={}){
     const selected=String(providerId||'').replace(/^own_/,'');
     if(!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(selected))
       throw Error('Invalid check-in channel');
-    const eligible=snapshot().accounts.filter(row=>
+    const before=snapshot().accounts;
+    const eligible=before.filter(row=>
       row.providerId?.replace(/^own_/,'')===selected
       &&row.enabled!==false&&row.checkinSupported===true).slice(0,32);
     const results=[];
@@ -332,7 +334,9 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
       catch(error){results.push({accountId:row.id,state:'unavailable',
         message:publicAccountFailureMessage(error)})}
     }
-    return {providerId:selected,attempted:results.length,results};
+    return {providerId:selected,attempted:results.length,results,
+      summary:summarizeChannelExecution({before,after:snapshot().accounts,
+        results,today:currentDate()})};
   }
   async function tick(){
     if(store.blocked)return {skipped:'history_blocked'};
