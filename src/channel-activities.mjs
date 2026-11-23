@@ -16,7 +16,8 @@ const isWorkBuddy=id=>/^own_workbuddy-(?:cn|global)$/.test(id);
 const excluded=new Set(['unsupported','client_required','no_task','disabled']);
 const safeText=(value,length=80)=>typeof value==='string'&&value.trim()?
   value.trim().slice(0,length):'';
-const kindTitle=kind=>kind==='gift'?'官方活动赠送积分':'官方补偿积分';
+const kindTitle=kind=>kind==='gift'?'官方活动赠送积分':
+  kind==='compensation'?'官方补偿积分':'小浣熊桌面登录免费积分奖励';
 
 export function buildChannelActivityCatalog({config,accountRows=[],sourceRows=[],now=Date.now()}={}){
   const channels=new Map();
@@ -76,9 +77,12 @@ export function buildChannelActivityCatalog({config,accountRows=[],sourceRows=[]
           account.autoCheckinEffective?'自动执行中':'自动任务未开启',
       });
     }
-    if(!isWorkBuddy(account.providerId))continue;
+    const workbuddy=isWorkBuddy(account.providerId);
+    const raccoon=source&&channel.id==='raccoon';
+    if(!workbuddy&&!raccoon)continue;
     for(const benefit of Array.isArray(account.benefits)?account.benefits:[]){
-      if(!benefit||!['gift','compensation'].includes(benefit.kind)
+      if(!benefit||(workbuddy?!['gift','compensation'].includes(benefit.kind):
+          benefit.kind!=='raccoon_login')
         ||benefit.active!==true||typeof benefit.claimed!=='boolean')continue;
       const deadline=endOf(benefit.endAt);
       if(deadline!==null&&deadline<=now)continue;
@@ -87,10 +91,11 @@ export function buildChannelActivityCatalog({config,accountRows=[],sourceRows=[]
         id:account.id+':'+benefit.kind,accountId:account.id,accountName:name,
         name:kindTitle(benefit.kind),kind:benefit.kind,
         rewardAmount:amount,rewardUnit:amount!==null?'积分':null,
-        validity:benefit.claimed?'completed':'valid',
+        validity:benefit.claimed?'completed':account.activityClaims?.unconfirmed>0
+          ?'unverified':'valid',
         endAt:deadline,execution:'automatic',
         progress:benefit.claimed?'官方确认已领取':
-          account.activityClaims?.unconfirmed>0?'存在待核实回执':
+          account.activityClaims?.unconfirmed>0?'领取回执待官方核实，不重发':
           account.autoCheckinEffective?'待自动领取':'自动任务未开启',
       });
     }

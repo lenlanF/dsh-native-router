@@ -96,6 +96,34 @@ test('disabled borrowed provider cannot hide an enabled independently owned chan
  assert.equal(result.channels[0].activities[0].rewardAmount,16);
 });
 
+
+test('Raccoon free daily credited points and one-time login bonus have two independent catalog rows',()=>{
+ const cfg={providers:[{id:'own_raccoon',name:'小浣熊',enabled:true}]};
+ const base={id:'sp_raccoon',providerId:'raccoon',providerName:'小浣熊',
+  nickname:'官方账号',sourceAccount:true,enabled:true,checkinSupported:true,
+  checkinState:'success',activityRewardAmount:300,activityRewardUnit:'积分',
+  autoCheckinEffective:true};
+ const result=buildChannelActivityCatalog({config:cfg,now,accountRows:[{...base,
+  activityClaims:{confirmed:1,unconfirmed:0},
+  benefits:[{kind:'raccoon_login',active:true,claimed:true,credit:3000}]}]});
+ assert.equal(result.channels.length,1);
+ const row=result.channels[0];
+ assert.equal(row.id,'raccoon');
+ assert.equal(row.activities.length,2);
+ assert.equal(row.activities.find(x=>x.kind==='daily').rewardAmount,300);
+ assert.equal(row.activities.find(x=>x.kind==='raccoon_login').rewardAmount,3000);
+ assert.equal(row.activities.find(x=>x.kind==='raccoon_login').validity,'completed');
+ assert.equal(row.activities.find(x=>x.kind==='raccoon_login').endAt,null,
+   'do not invent a one-time login bonus deadline');
+ const pending=buildChannelActivityCatalog({config:cfg,now,accountRows:[{...base,
+  activityClaims:{confirmed:0,unconfirmed:1},
+  benefits:[{kind:'raccoon_login',active:true,claimed:false}]}]});
+ assert.equal(pending.channels[0].activities.find(x=>x.kind==='raccoon_login')
+   .validity,'unverified');
+ assert.equal(pending.channels[0].activities.find(x=>x.kind==='raccoon_login')
+   .rewardAmount,null,'do not advertise inferred upstream 3000 as a confirmed reward');
+});
+
 test('source and owned views of the same account do not duplicate an official daily activity',()=>{
  const row=account('source-1','own_loomy',{sourceAccount:true,checkinSupported:true,
   checkinState:'success'});

@@ -5,14 +5,15 @@ import {existsSync,readFileSync,mkdirSync,writeFileSync,renameSync,unlinkSync} f
 import {dirname,join} from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {defaultConfigPath} from './config.mjs';
-const KINDS=new Set(['gift','compensation']);
+const KINDS=new Set(['gift','compensation','raccoon_login']);
 const STATES=new Set(['submitted','confirmed','pending_confirmation']);
 const MAX=1000;
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const numeric=x=>Number.isFinite(x)&&x>=0?x:null;
 const valid=r=>r&&/^[a-f0-9]{64}$/.test(r.key)
   &&/^[a-f0-9]{64}$/.test(r.binding)
-  &&KINDS.has(r.kind)&&STATES.has(r.state)&&Number.isSafeInteger(r.at)&&r.at>0;
+  &&KINDS.has(r.kind)&&STATES.has(r.state)&&Number.isSafeInteger(r.at)&&r.at>0
+  &&(r.credit===undefined||Number.isFinite(r.credit)&&r.credit>=0&&r.credit<=1e9);
 export function createActivityClaimStore({path=join(dirname(defaultConfigPath()),'reward-claims.json'),
  now=()=>Date.now()}={}){
  let rows=[],blocked=false;
@@ -61,18 +62,26 @@ export function createActivityClaimStore({path=join(dirname(defaultConfigPath())
    persist([...rows,entry].slice(-MAX));
    return true;
   },
-  finish(account,offer,state){
+  finish(account,offer,state,{credit}={}){
    const key=keyOf(account,offer);
    if(!key||!STATES.has(state)||blocked)return false;
    const index=rows.findIndex(r=>r.key===key);
    if(index<0)return false;
-   const next=rows.map((r,i)=>i===index?{...r,state}:r);
+   const next=rows.map((r,i)=>i===index?{...r,state,
+     ...(state==='confirmed'&&Number.isFinite(credit)&&credit>=0&&credit<=1e9
+       ?{credit}:{} )}:r);
    persist(next);
    return true;
   },
   state(account,offer){
    const key=keyOf(account,offer);
    return key?rows.find(r=>r.key===key)?.state??null:null;
+  },
+  receipt(account,offer){
+   const key=keyOf(account,offer);
+   const row=key?rows.find(r=>r.key===key):null;
+   return row?{state:row.state,at:row.at,
+     ...(Number.isFinite(row.credit)?{credit:row.credit}:{})}:null;
   },
   summary(account){
    const binding=bindingOf(account);

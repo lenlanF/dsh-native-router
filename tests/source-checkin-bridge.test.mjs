@@ -78,7 +78,7 @@ test('already-checked-in account is not claimed twice; disabled/unsupported acco
  const result=await checked.bridge.checkinAccount({providerId:'qoder',sourceAccountId:'acct-b'});
  assert.equal(result.confirmed,true);
  assert.deepEqual(checked.calls,['status:qoder:acct-b']);
- assert.equal((await checked.bridge.checkinAccount({providerId:'raccoon',sourceAccountId:'acct-b'})).state,'unsupported');
+ assert.equal((await checked.bridge.checkinAccount({providerId:'cline',sourceAccountId:'acct-b'})).state,'unsupported');
  assert.equal((await checked.bridge.checkinAccount({providerId:'qoder',sourceAccountId:'unknown'})).state,'unavailable');
  checked.bridge.dispose();
  const disabled=await fixture({enabled:false});

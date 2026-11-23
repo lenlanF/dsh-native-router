@@ -8,6 +8,7 @@ import {createInstalledPluginInventory} from '../src/installed-plugin-inventory.
 import {createWorkbuddyVaultInventory} from '../src/workbuddy-vault.mjs';
 import {createWorkbuddyVaultAdoption,workbuddyOwnedId} from '../src/workbuddy-vault-adoption.mjs';
 import {createWorkBuddyDriver} from '../src/channels/workbuddy.mjs';
+import {createActivityClaimStore} from '../src/activity-claims.mjs';
 import {freeEvidence} from '../src/auto-free.mjs';
 import {normalizeConfig} from '../src/config.mjs';
 import {createNativeRouterAdapter} from '../src/adapter.mjs';
@@ -15,7 +16,8 @@ import {createNativeRouterAdapter} from '../src/adapter.mjs';
 const sha=v=>createHash('sha256').update(v).digest('hex');
 const safeRoot=()=>mkdtempSync(join(tmpdir(),'dsh-workbuddy-own-test-'));
 const content=[{choices:[{delta:{content:'independent workbuddy'},finish_reason:'stop'}]}];
-function testRig(region,{benefitCampaign=false,dailyActive=true,dailyClaimError=false}={}){
+function testRig(region,{benefitCampaign=false,dailyActive=true,dailyClaimError=false,
+ benefitPostAmbiguous=false}={}){
  const root=safeRoot();
  const domain=region==='cn'?'www.workbuddy.cn':'www.workbuddy.ai';
  const source='workbuddy-'+region,own='own_workbuddy-'+region;
@@ -66,7 +68,9 @@ function testRig(region,{benefitCampaign=false,dailyActive=true,dailyClaimError=
     return new Response(JSON.stringify({code:0,data:{active:false,claimed:false}}));
    if(String(url).includes('/billing/meter/claim-compensation')){
     if(!benefitCampaign)throw Error('No grant advertised');
-    compensationClaimed=true;return new Response(JSON.stringify({code:0,data:{}}));
+    compensationClaimed=true;
+    if(benefitPostAmbiguous)return new Response('',{status:503});
+    return new Response(JSON.stringify({code:0,data:{}}));
    }
    if(String(url).includes('/v3/config'))return new Response(JSON.stringify({
    code:0,data:{models:[{id:region==='cn'?'hy4-preview-f':'default-model',
@@ -177,6 +181,29 @@ test('WorkBuddy activity adapter operates after confirmed daily sign-in without 
    {kind:'compensation',stage:'confirmed'}]);
   assert.equal(r.hits.filter(x=>x.includes('/billing/meter/claim-compensation')).length,1);
   assert.equal(r.hits.filter(x=>x.includes('/v2/billing/meter/daily-checkin')).length,1);
+ }finally{r.cleanup()}
+});
+
+test('WorkBuddy uncertain gift accepted by provider is later reconciled from official claimed status, without duplicate POST',async()=>{
+ const r=testRig('cn',{benefitCampaign:true,benefitPostAmbiguous:true});
+ try{
+  const source=(await r.inventory.scan()).accounts.find(x=>x.providerId===r.source);
+  await r.adoption.adopt({providerId:r.source,accountId:source.accountId,consent:true});
+  const account=r.cfg.accounts[0],store=createActivityClaimStore({path:null});
+  const doClaim=()=>r.driver.claimActivities({account,date:'2026-11-23',
+   beforeClaim:offer=>store.begin(account,offer),
+   onOutcome:(offer,state)=>store.finish(account,offer,state),
+   onObserved:(offer,state)=>store.finish(account,offer,state)});
+  const first=await doClaim();
+  assert.equal(first.pending,1);
+  assert.equal(store.summary(account).unconfirmed,1);
+  assert.equal(r.hits.filter(x=>x.includes('/billing/meter/claim-compensation')).length,1);
+  await doClaim();
+  assert.equal(store.summary(account).confirmed,1,
+    'after a network error the real claimed status completes the pending ledger');
+  assert.equal(store.summary(account).unconfirmed,0);
+  assert.equal(r.hits.filter(x=>x.includes('/billing/meter/claim-compensation')).length,1,
+    'only one remote compensation POST is ever allowed');
  }finally{r.cleanup()}
 });
 
