@@ -5,9 +5,13 @@ import {existsSync,readFileSync,mkdirSync,writeFileSync,renameSync,unlinkSync} f
 import {dirname,join} from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {defaultConfigPath} from './config.mjs';
-const KINDS=new Set(['gift','compensation','raccoon_login']);
+const KINDS=new Set(['gift','compensation','raccoon_login',
+ ...['first_message','pick_skill','generate_ppt','set_schedule','install_skill',
+ 'configure_remote','create_soul','share_soul'].map(key=>'loomy_'+key)]);
 const STATES=new Set(['submitted','confirmed','pending_confirmation']);
-const MAX=1000;
+// Never discard an old one-shot receipt: doing so could re-submit an
+// already-claimed activity on older accounts. Full journal fails closed.
+const MAX=10000;
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const numeric=x=>Number.isFinite(x)&&x>=0?x:null;
 const valid=r=>r&&/^[a-f0-9]{64}$/.test(r.key)
@@ -57,9 +61,9 @@ export function createActivityClaimStore({path=join(dirname(defaultConfigPath())
   begin(account,offer){
    const key=keyOf(account,offer);
    if(!key||blocked)return false;
-   if(rows.some(r=>r.key===key))return false;
+   if(rows.some(r=>r.key===key)||rows.length>=MAX)return false;
    const entry={key,binding:bindingOf(account),kind:offer.kind,state:'submitted',at:now()};
-   persist([...rows,entry].slice(-MAX));
+   persist([...rows,entry]);
    return true;
   },
   finish(account,offer,state,{credit}={}){

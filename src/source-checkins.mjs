@@ -4,6 +4,7 @@ import {todayKey,clockAt} from './checkins.mjs';
 import {publicAccountName,publicBalance,checkinDisplayState,expiredCheckinConfirmation} from './account-facts.mjs';
 import {verificationWithinPeriod} from './account-verification-store.mjs';
 import {publicCheckinMessage,publicAccountFailureMessage} from './public-diagnostics.mjs';
+import {LOOMY_FREE_TASKS} from './channels/loomy-rewards.mjs';
 
 const supported=new Set(SOURCE_DAILY_SIGNIN_PROVIDERS);const RETRY_DELAY_MS=60*60*1000;
 const MAX_AUTO_ATTEMPTS=3,RACCOON_MAX_AUTO_ATTEMPTS=14;
@@ -21,6 +22,7 @@ const ZCODE_PROMO_START='19:00';
 export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>Date.now(),logger,
  verificationStore,activityStore}={}){
  const roster=new Map(),pending=new Set(),statusCache=new Map(),statusAttempts=new Map();
+ const activityPending=new Set(),activityLastProbe=new Map();
  let refreshing=null,stopped=false;
  // Status is valid for 15 minutes across runtime restarts. Explicit owner
  // refresh bypasses this cache. Successful sign-ins still use their durable
@@ -63,6 +65,16 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
   const raccoonAccount=row=>({providerId:'own_raccoon',id:row.id,
     credentialRef:bindingFor(row)??'source:'+row.providerId+':'+row.id});
   const raccoonReceipt=row=>activityStore?.receipt?.(raccoonAccount(row),raccoonOffer)??null;
+  const loomyAccount=row=>({providerId:'own_loomy',id:row.id,
+    credentialRef:bindingFor(row)??'source:'+row.providerId+':'+row.id});
+  const loomyBenefits=entry=>Array.isArray(entry?.benefits)?entry.benefits
+    .filter(x=>x&&typeof x.kind==='string'&&x.kind.startsWith('loomy_')
+      &&Object.hasOwn(LOOMY_FREE_TASKS,x.kind.slice(6))
+      &&typeof x.claimed==='boolean')
+    .slice(0,8).map(x=>({kind:x.kind,
+      name:LOOMY_FREE_TASKS[x.kind.slice(6)].name,
+      credit:LOOMY_FREE_TASKS[x.kind.slice(6)].points,
+      active:true,claimed:x.claimed})):[];
   function currentStatus(row){
     let cached=statusCache.get(row.id);
     const account=boundAccount(row),bindingRef=account?.credentialRef??null;
@@ -190,6 +202,8 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
               authVerified:entry.authVerified===true,
               ...(typeof entry.claimable==='boolean'?{claimable:entry.claimable}:{}),
               ...(entry.noClaimablePlans===true?{noClaimablePlans:true}:{}),
+              ...(row.providerId==='loomy'&&Array.isArray(entry.benefits)?{
+                benefits:loomyBenefits(entry)}:{}),
                ...(row.providerId==='raccoon'&&typeof entry.loginRewardPending==='boolean'
                  ?{loginRewardPending:entry.loginRewardPending}:{}),
               ...(Number.isFinite(entry.activityRewardAmount)&&entry.activityRewardAmount>=0
@@ -234,6 +248,12 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
      &&verificationWithinPeriod({state:verified.state??(verified.authVerified?'online':'pending'),
        checkedAt:verified.checkedAt},now(),STATUS_TTL_MS);
    const report=fresh?verified:null;
+   const loomy=row.providerId==='loomy'&&Array.isArray(report?.benefits)?
+     report.benefits.map(offer=>({...offer,
+       ...(activityStore?.receipt?.(loomyAccount(row),offer)?.state?{
+         receiptState:activityStore.receipt(loomyAccount(row),offer).state}:{})})):null;
+   const loomySummary=row.providerId==='loomy'&&activityStore?
+     activityStore.summary(loomyAccount(row)):null;
       const confirmedFromHistory=history(row.id).some(x=>x.state==='success');
       const confirmedUpstream=verified?.day===today()&&verified.todayCheckedIn===true;
       const confirmed=confirmedFromHistory||confirmedUpstream;
@@ -255,6 +275,8 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
       autoCheckinEffective:state.autoCheckin&&state.enabled&&state.providerEnabled
         &&configStore.get().checkin.autoEnabled===true,
       checkinSupported:implemented,checkinAvailable:implemented,
+      ...(loomy?{benefits:loomy,
+        activityClaims:loomySummary}:{}),
       ...(row.providerId==='raccoon'?{
         activityClaims:{confirmed:receipt?.state==='confirmed'?1:0,
           unconfirmed:receipt&&receipt.state!=='confirmed'?1:0,
@@ -305,7 +327,9 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
       statusCache.get(id)?.todayCheckedIn===true))
      return {alreadyConfirmed:true,record:successfulHistory??{
        date:today(),accountId:id,providerId:row.providerId,state:'success',
-       message:'来源服务已确认今日签到',at:now(),source:'status'}};
+       message:'来源服务已确认今日签到',at:now(),source:'status'},
+       ...(row.providerId==='loomy'?{
+         activities:await runFreeActivities(id,{source})}:{})};
   // A sign-in can outlive its original owner authorization. Capture the
   // exact source identity and credential binding before calling upstream;
   // late completion cannot authenticate a disabled/replaced account.
@@ -363,8 +387,55 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
     ...(row.providerId==='zcode'&&state==='no_task'&&reply?.claimPosted===false
       ?{readOnlyNoTask:true}:{})});
    logger?.info?.('native-router source sign-in '+row.providerId+'/'+id+': '+state);
-   return {alreadyConfirmed:false,record};
+   return {alreadyConfirmed:false,record,
+     ...(row.providerId==='loomy'?{
+       activities:await runFreeActivities(id,{source})}:{})};
   }finally{pending.delete(id)}
+ }
+ async function runFreeActivities(id,{source='manual'}={}){
+   if(stopped||store.blocked||activityStore?.blocked)return {state:'blocked'};
+   const row=roster.get(id);
+   if(!row||row.providerId!=='loomy'
+      ||typeof sourcePack?.claimLoomyActivities!=='function'||!activityStore)
+     return {state:'unsupported'};
+   const cfg=configFor(row);
+   if(!cfg.enabled||!cfg.providerEnabled)return {state:'disabled'};
+   if(source==='auto'&&(!configStore.get().checkin.autoEnabled||!cfg.autoCheckin))
+     return {state:'disabled'};
+   if(activityPending.has(id))return {state:'busy'};
+   const key=id+'\\0'+(bindingFor(row)??'');
+   if(source==='auto'&&activityLastProbe.has(key)
+     &&now()-activityLastProbe.get(key)<30*60*1000)return {state:'cached'};
+   activityLastProbe.set(key,now());
+   const account=loomyAccount(row),credentialRef=bindingFor(row);
+   const authorized=()=>{
+     const live=roster.get(id);
+     const config=configFor(row);
+     return !stopped&&!!live&&live.sourceAccountId===row.sourceAccountId
+       &&live.providerId==='loomy'&&config.enabled&&config.providerEnabled
+       &&bindingFor(row)===credentialRef;
+   };
+   activityPending.add(id);
+   try{
+     const result=await sourcePack.claimLoomyActivities({
+       sourceAccountId:row.sourceAccountId,
+       beforeClaim:offer=>authorized()&&activityStore.begin(account,offer),
+       onOutcome:(offer,state)=>authorized()&&activityStore.finish(account,offer,
+         state==='confirmed'?'confirmed':'pending_confirmation'),
+       onObserved:(offer,state)=>authorized()&&activityStore.finish(account,offer,
+         state==='confirmed'?'confirmed':'pending_confirmation')
+     });
+     if(!authorized())return {state:'account_changed'};
+     if(result?.confirmed>0||result?.pending>0)
+       await refresh({force:true,onlyProviderId:'loomy'}).catch(()=>{});
+     return {accountId:id,providerId:'loomy',
+       state:result?.state??'unavailable',
+       confirmed:result?.confirmed??0,pending:result?.pending??0,
+       eligible:result?.eligible??0};
+   }catch(error){
+     logger?.warn?.('Loomy free activity unavailable: '+publicAccountFailureMessage(error));
+     return {state:'unavailable'};
+   }finally{activityPending.delete(id)}
  }
  async function tick(){
    if(stopped||store.blocked)return {attempted:0,results:[]};
@@ -416,7 +487,16 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
    try{results.push(await run(row.id,{source:'auto'}));attempted++}
    catch(error){logger?.warn?.('source sign-in skipped '+row.providerId+': '+publicAccountFailureMessage(error))}
   }
-  return {attempted,results};
+  const rewards=[];
+  for(const row of roster.values()){
+    if(stopped||row.providerId!=='loomy')continue;
+    const cfg=configFor(row);
+    if(!cfg.enabled||!cfg.providerEnabled||!cfg.autoCheckin)continue;
+    const outcome=await runFreeActivities(row.id,{source:'auto'});
+    if(outcome?.confirmed||outcome?.pending)rewards.push(outcome);
+  }
+  return {attempted,results,rewards};
  }
-  function stop(){stopped=true;roster.clear();statusCache.clear();statusAttempts.clear();pending.clear()}
-  return {refresh,snapshot,run,tick,has,stop};}
+  function stop(){stopped=true;roster.clear();statusCache.clear();statusAttempts.clear();pending.clear();
+    activityPending.clear();activityLastProbe.clear()}
+  return {refresh,snapshot,run,runFreeActivities,tick,has,stop};}

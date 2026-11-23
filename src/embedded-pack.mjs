@@ -4,7 +4,8 @@ import {publicAccountName,upstreamCheckedInToday} from './account-facts.mjs';
 import {sourceAccountFacts} from './source-account-facts.mjs';
 import {installSourceAccountSelection} from './source-account-selection.mjs';
 import {ownCredentialRef} from './credential-ref.mjs';
-import {readRaccoonLoginTask,triggerRaccoonFreeDaily} from './channels/raccoon-rewards.mjs';// The bundled MIT derivative runs INSIDE the DSH Cordis host. No external
+import {readRaccoonLoginTask,triggerRaccoonFreeDaily} from './channels/raccoon-rewards.mjs';
+import {readLoomyFreeTasks,claimLoomyFreeTasks} from './channels/loomy-rewards.mjs';// The bundled MIT derivative runs INSIDE the DSH Cordis host. No external
 // OpenAI gateway, agent-resume daemon or independent check-in scheduler.
 export const SOURCE_PACK_PROVIDERS=Object.freeze([
   'codearts','buddy','workbuddy','lobsterai','qoder','qodercn','trae',
@@ -34,7 +35,8 @@ function safetyReason(env){
 }
 export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
  loadPack=loadPinnedPack,modelTimeoutMs=20000,
- raccoonTaskVerifier=null,raccoonDailyTrigger=null,raccoonFetchImpl=fetch}={}){
+ raccoonTaskVerifier=null,raccoonDailyTrigger=null,raccoonFetchImpl=fetch,
+ loomyFetchImpl=fetch}={}){
   let state='disabled',reason='',errorStage='',errorKind='',disposed=false,activeScope=null,injectedCallback=null;
    let privateSourcePool=null,privateSourceCheckins=null,privateSourceCatalog=null,loadedPack=null;
     let sourcePhase='',modelAdapterStates={},privateSourceRpcReady=false;
@@ -494,7 +496,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
   // status maps a failed /tasks read to pending=false, which is NOT evidence
   // that the task completed. Only a successful, authenticated official /tasks
   // response can finalize an ambiguous owner receipt.
-  async function withRaccoonCredential(scope,sourceAccountId,sourceAccount,action){
+  async function withOwnedSourceCredential(scope,providerId,sourceAccountId,sourceAccount,action){
     try{
       const pool=sourcePool(scope),credentials=scope.credentials??scope.get?.('credentials',false);
       if(typeof pool?.listAllAccounts!=='function'||
@@ -502,7 +504,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
       const roster=await pool.listAllAccounts();
       if(scope!==mountedScope()||!Array.isArray(roster))
         return {state:'unavailable'};
-      const records=roster.filter(x=>x?.provider==='raccoon'
+      const records=roster.filter(x=>x?.provider===providerId
         &&x?.id===sourceAccountId&&x?.enabled===true);
       if(records.length!==1||roster.filter(x=>x?.id===sourceAccountId).length!==1)
         return {state:'unavailable'};
@@ -526,7 +528,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
       try{return trusted(await raccoonTaskVerifier({sourceAccountId}))}
       catch{return {state:'unavailable'}}
     }
-    return trusted(await withRaccoonCredential(scope,sourceAccountId,sourceAccount,
+    return trusted(await withOwnedSourceCredential(scope,'raccoon',sourceAccountId,sourceAccount,
       credential=>readRaccoonLoginTask({credential,fetchImpl:raccoonFetchImpl,timeoutMs})));
   }
   async function triggerRaccoonDaily(scope,sourceAccountId,sourceAccount){
@@ -534,8 +536,24 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
       try{return await raccoonDailyTrigger({sourceAccountId})}
       catch{return {state:'unavailable'}}
     }
-    return withRaccoonCredential(scope,sourceAccountId,sourceAccount,
+    return withOwnedSourceCredential(scope,'raccoon',sourceAccountId,sourceAccount,
       credential=>triggerRaccoonFreeDaily({credential,fetchImpl:raccoonFetchImpl}));
+  }
+  async function readLoomyActivities(sourceAccountId){
+    const scope=mountedScope();
+    if(!scope||!sourceAllowed('loomy'))return {state:'unavailable',tasks:[]};
+    const result=await withOwnedSourceCredential(scope,'loomy',sourceAccountId,null,
+      credential=>readLoomyFreeTasks({credential,fetchImpl:loomyFetchImpl}));
+    return result?.state==='available'?result:{state:'unavailable',tasks:[]};
+  }
+  async function claimLoomyActivities({sourceAccountId,beforeClaim,onOutcome,onObserved}={}){
+    const scope=mountedScope();
+    if(!scope||!sourceAllowed('loomy'))return {state:'unavailable'};
+    return withOwnedSourceCredential(scope,'loomy',sourceAccountId,null,
+      credential=>claimLoomyFreeTasks({credential,fetchImpl:loomyFetchImpl,
+        beforeClaim:offer=>scope===mountedScope()&&beforeClaim?.(offer),
+        onOutcome:(offer,state)=>scope===mountedScope()&&onOutcome?.(offer,state),
+        onObserved:(offer,state)=>scope===mountedScope()&&onObserved?.(offer,state)}));
   }
   async function checkinAccount({providerId,sourceAccountId,
     beforeOneTimeClaim,onOneTimeOutcome}={}){
@@ -760,6 +778,16 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
           }
         }));
       }
+      const loomyProofs=new Map();
+      if(providerId==='loomy'){
+        const ids=[...allIds];let index=0;
+        await Promise.all(Array.from({length:Math.min(4,ids.length)},async()=>{
+          while(index<ids.length&&scope===mountedScope()){
+            const accountId=ids[index++];
+            loomyProofs.set(accountId,await readLoomyActivities(accountId));
+          }
+        }));
+      }
       const accounts=[];
      for(const accountId of allIds){
         const statusRow=statusMap.get(accountId),balanceRow=balanceMap.get(accountId);
@@ -769,6 +797,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
           statusRow,balanceRow,observedAt:Date.now()});
         const loginProof=providerId==='raccoon'?
           raccoonProofs.get(accountId)??{state:'unavailable'}:null;
+        const loomyProof=providerId==='loomy'?loomyProofs.get(accountId):null;
         if(scope!==mountedScope())return {state:'unavailable',accounts:[]};
         // CodeArts status is drawn from its official CREDIT-package sign-in
         // campaign; its numeric amount is points, not an account balance or
@@ -800,6 +829,8 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
            ...(typeof exact?.claimable==='boolean'?{claimable:exact.claimable}:{}),
            ...(exact?.noClaimablePlans===true?{noClaimablePlans:true}:{}),
            ...freeReward,
+           ...(providerId==='loomy'&&loomyProof?.state==='available'
+             ?{benefits:loomyProof.tasks}:{}),
            ...(providerId==='raccoon'&&loginProof&&loginProof.state!=='unavailable'
              ?{loginRewardPending:loginProof.state==='pending',
                loginRewardTaskVerified:true}:{}),
@@ -822,5 +853,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
        catch{ctx.logger?.warn?.('native-router: source Cordis child scope cleanup failed')}
      }
    }
-   return {attach,status,listAccounts,listModels,changeAccountEnabled,removeSourceAccount,streamNative,checkinAccount,readSourceStatuses,ownedAdoptionContext,dispose,
+   return {attach,status,listAccounts,listModels,changeAccountEnabled,removeSourceAccount,
+      streamNative,checkinAccount,readSourceStatuses,readLoomyActivities,claimLoomyActivities,
+      ownedAdoptionContext,dispose,
      setModelEligibility:fn=>{modelEligibility=typeof fn==='function'?fn:()=>false}};}

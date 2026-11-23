@@ -878,7 +878,7 @@ window.__ModuleLoader__.load({
         h(Panel,{title:'免费自动活动总览',
           actions:h(Button,{disabled:!!busy,onClick:refresh},
             busy?'核验中…':'刷新官方活动')},
-          h('p',{style:css.small},'仅收录无需付费、购买、验证码或人工操作，且已有可验证自动执行流程的官方奖励活动。未确认奖励数量或到期时间时如实标注“官方未公布”。'),
+          h('p',{style:css.small},'只执行后台无感的官方查询／任务完成／领取接口；需要实际发送、分享、生成、付款、验证码或界面操作的任务直接跳过。所有完成状态必须有官方回查，奖励和到期时间不推测。'),
           h('div',{style:css.line},
             h('span',{style:css.mutedTag},'渠道 '+(summary.channelCount??groups.length)),
             h('span',{style:css.mutedTag},'符合条件活动 '+(summary.activityCount??0)),
@@ -913,7 +913,8 @@ window.__ModuleLoader__.load({
                     h('td',null,activity.progress||'待核实')))
                 :h('tr',null,h('td',{colSpan:5,className:'dnr-activity-empty'},
                   channel.accountCount>0?
-                    '暂无符合条件的免费自动活动':
+                    '暂无符合条件的免费自动活动'+
+                      (channel.emptyReason?'；'+channel.emptyReason:''):
                     '尚无已接入账号，暂无符合条件的免费自动活动'))))))):
           h(Panel,{title:'渠道活动'},'尚未取得渠道配置'));
     }

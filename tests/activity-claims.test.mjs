@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {existsSync,mkdtempSync,readFileSync,writeFileSync,rmSync,mkdirSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
+import {createHash} from 'node:crypto';
 import {createActivityClaimStore} from '../src/activity-claims.mjs';
 import {createCheckinCenter,createCheckinStore} from '../src/checkins.mjs';
 import {normalizeConfig} from '../src/config.mjs';
@@ -50,6 +51,28 @@ test('corrupted durable activity receipts fail closed; no duplicate POST can be 
   assert.equal(store.blocked,true);
   assert.equal(store.begin(cfg.accounts[0],gift()),false);
   assert.equal(readFileSync(path,'utf8'),'{invalid');
+ }finally{rmSync(dir,{recursive:true,force:true})}
+});
+
+test('filled durable claim journal never evicts old accepted POST receipts',()=>{
+ const dir=root();try{
+   const path=join(dir,'rewards.json'),account=cfg.accounts[0],offer=gift();
+  const first=createActivityClaimStore({path});
+  assert.equal(first.begin(account,offer),true);
+  const old=JSON.parse(readFileSync(path,'utf8')).receipts[0];
+  const rows=[old,...Array.from({length:9999},(_,i)=>({
+   key:createHash('sha256').update('filler-'+i).digest('hex'),
+   binding:'0'.repeat(64),kind:'gift',state:'confirmed',at:1
+  }))];
+  writeFileSync(path,JSON.stringify({version:1,receipts:rows}));
+  const reopened=createActivityClaimStore({path});
+  assert.equal(reopened.blocked,false);
+  assert.equal(reopened.count(),10000);
+  assert.equal(reopened.begin(account,offer),false);
+  assert.equal(reopened.begin(account,gift(100)),false,
+   'full ledger must fail closed, not discard the oldest one-time claims');
+  assert.equal(reopened.count(),10000);
+  assert.equal(createActivityClaimStore({path}).begin(account,offer),false);
  }finally{rmSync(dir,{recursive:true,force:true})}
 });
 

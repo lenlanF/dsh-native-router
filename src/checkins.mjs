@@ -294,13 +294,15 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
            logger?.warn?.('native-router checkin skipped: '+publicAccountFailureMessage(error));
         }
       }
+       let sourceRewards=[];
        if(sourceCenter){
          const sourceResult=await sourceCenter.tick();
          results.push(...sourceResult.results??[]);
+         sourceRewards=sourceResult.rewards??[];
        }
        // A successful sign-in must NOT terminate later eligible activity
        // discovery; WorkBuddy compensation/gift campaigns can appear any time.
-       const rewards=[];
+       const rewards=[...sourceRewards];
        for(const account of cfg.accounts){
          if(!account.enabled||account.autoCheckin!==true)continue;
          if(typeof accountCenter.driverFor(account.providerId)?.claimActivities!=='function')continue;

@@ -63,6 +63,73 @@ test('ZCode signed claimable plan can enter exact-account claim without legacy a
   assert.equal(called,4);
  }finally{bridge.dispose()}
 });
+test('Loomy official API-only tasks are read and claimed by exact owned source account, never by an adjacent account',async()=>{
+ const ids=['loomy-member-a','loomy-member-b'];
+ const refs={['loomy-member-a']:'LOOMY_A_TOKEN',['loomy-member-b']:'LOOMY_B_TOKEN'};
+ const tokens={['loomy-member-a']:['FAKE','A','LOOMY','TOKEN'].join('_'),
+   ['loomy-member-b']:['FAKE','B','LOOMY','TOKEN'].join('_')};
+ const keys=['first_message','pick_skill','generate_ppt','set_schedule',
+   'install_skill','configure_remote','create_soul','share_soul'];
+ const states=Object.fromEntries(ids.map(id=>[id,
+   Object.fromEntries(keys.map(key=>[key,false]))]));
+ const pool={listAllAccounts:async()=>ids.map(id=>({
+   id,provider:'loomy',enabled:true,credentialRef:refs[id]}))};
+ let livePool,posts=0;
+ const credentials={resolve:async ref=>{
+   const id=ids.find(x=>refs[x]===ref);
+   return {value:JSON.stringify({access_token:tokens[id]})};
+ }};
+ const ops={status:async(_p,id)=>({ok:true,value:{accounts:(id?[id]:ids)
+   .map(accountId=>({accountId,status:{active:true,todayCheckedIn:true}}))}}),
+   identity:async()=>({ok:true,value:{accounts:ids.map(accountId=>({
+     accountId,name:accountId}))}}),
+   claim:async()=>{throw Error('generic signin claim must NOT be used for onboarding')}};
+ const scope={llm:{listProviders:async()=>[]},credentials,
+   get:k=>k==='accountPool'?livePool:k==='nativeRouterSourceCheckins'?ops:undefined};
+ const fetchImpl=async(_url,init)=>{
+   const id=ids.find(x=>init.headers?.token===tokens[x]);
+   assert.ok(id,'exact owned account token');
+   if(init.method==='GET')return new Response(JSON.stringify({
+     code:'000000',data:{tasks:states[id]}}),{status:200});
+   assert.equal(init.method,'POST');
+   const key=JSON.parse(init.body).key;
+   assert.ok(Object.hasOwn(states[id],key));
+   posts++;states[id][key]=true;
+   return new Response(JSON.stringify({code:'000000',data:{balance:0}}),{status:200});
+ };
+ const bridge=createEmbeddedChannelPack({ctx:{inject(_names,fn){fn(scope)}},
+   getConfig:enabled,env:isolatedEnv,loomyFetchImpl:fetchImpl,
+   loadPack:async()=>({apply(){livePool=pool}})});
+ bridge.attach();await tick();await tick();
+ try{
+   const first=await bridge.readSourceStatuses('loomy');
+   assert.equal(first.state,'ready');
+   assert.equal(first.accounts.length,2);
+   assert.ok(first.accounts.every(x=>x.benefits.length===8));
+   assert.equal(posts,0);
+   let confirmed=0;
+   const claimed=await bridge.claimLoomyActivities({
+     sourceAccountId:'loomy-member-b',
+     beforeClaim:()=>true,
+     onOutcome:(offer,state)=>{assert.equal(state,'confirmed');confirmed++}});
+   assert.equal(claimed.confirmed,8);
+   assert.equal(confirmed,8);
+   assert.equal(posts,8);
+   assert.ok(keys.every(key=>states['loomy-member-b'][key]));
+   assert.ok(keys.every(key=>!states['loomy-member-a'][key]));
+   const after=await bridge.readSourceStatuses('loomy');
+   assert.ok(after.accounts.find(x=>x.accountId==='loomy-member-b')
+     .benefits.every(x=>x.claimed));
+   assert.ok(after.accounts.find(x=>x.accountId==='loomy-member-a')
+     .benefits.every(x=>!x.claimed));
+   const wrong=await bridge.claimLoomyActivities({
+     sourceAccountId:'unowned',beforeClaim:()=>true});
+   assert.equal(wrong.state,'unavailable');
+   assert.equal(posts,8);
+   assert.doesNotMatch(JSON.stringify(after),/LOOMY_A_TOKEN|LOOMY_B_TOKEN|FAKE_B_LOOMY/);
+ }finally{bridge.dispose()}
+});
+
 test('Raccoon exact source account claims free login bonus first, then daily web grant with official confirmations',async()=>{
  const pool={listAllAccounts:async()=>[{id:'racc-A',provider:'raccoon',enabled:true,credentialRef:'RACCOON_TEST'}]};
  let loginPending=true,dailyGranted=false,claims=0,dailyTriggers=0;
