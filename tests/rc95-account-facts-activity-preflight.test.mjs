@@ -50,8 +50,8 @@ const owned={id:ownedId,providerId:'own_workbuddy-cn',
 test('WorkBuddy CN official daily status makes a read-only, account-specific claimable row, not a paid or credited bonus',async()=>{
  let postClaims=0,dailyReads=0;
  const vault={resolve:async()=>({value:JSON.stringify({
-  accessToken:'SYNTHETIC_WORKBUDDY_ACCESS_CREDENTIAL',
-  refreshToken:'SYNTHETIC_WORKBUDDY_REFRESH_CREDENTIAL',
+  accessToken:'test-access-'+('a'.repeat(18)),
+  refreshToken:'test-refresh-'+('b'.repeat(18)),
   expiresAt:Math.floor(Date.now()/1000)+18000,domain:'www.workbuddy.cn',
   uid:'SYNTHETIC_MEMBER_UID',nickname:'模拟会员'})})};
  const ok=value=>new Response(JSON.stringify({code:0,data:value}),{status:200});
