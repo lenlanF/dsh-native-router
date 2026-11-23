@@ -64,6 +64,8 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
   function latestFor(accountId,date=currentDate()){
     return store.all().filter(x=>x.accountId===accountId&&x.date===date).at(-1)??null;
   }
+  const channelEnabled=(cfg,providerId)=>
+    cfg.checkin.channels?.[String(providerId).replace(/^own_/,'')]!==false;
   const activityPending=new Set();
   const activityFor=accountId=>{
     try{return activityStore.summary(accountCenter.find(accountId).account)}
@@ -77,7 +79,8 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
     const cfg=configStore.get();
     if(!account.enabled||!provider.enabled||typeof driver?.claimActivities!=='function')
       return {state:'unsupported'};
-    if(source==='auto'&&(!cfg.checkin.autoEnabled||account.autoCheckin!==true))
+    if(source==='auto'&&(!cfg.checkin.autoEnabled||account.autoCheckin!==true
+      ||!channelEnabled(cfg,provider.id)))
       return {state:'disabled'};
     if(activityPending.has(accountId))return {state:'busy'};
     const probeKey=account.id+'\\0'+account.credentialRef;
@@ -141,7 +144,8 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
        }):null;
        return {...a,...(verifiedBenefits?{benefits:verifiedBenefits}:{}),
          autoCheckin:entry.account.autoCheckin===true,
-         autoCheckinEffective:cfg.checkin.autoEnabled&&entry.account.autoCheckin===true,
+         autoCheckinEffective:cfg.checkin.autoEnabled&&entry.account.autoCheckin===true
+           &&channelEnabled(cfg,entry.account.providerId),
          checkinState:state,checkinAt:recent?.at??a.balanceCheckedAt??null,
            checkinMessage:verified?(historyConfirmed?
              '本账号今日已有已确认签到记录':sourceName+'确认今日已签到'):
@@ -158,6 +162,7 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
        const existing=accounts.find(item=>item.id===sourceRow.id);
         if(existing)Object.assign(existing,{
           checkinSupported:sourceRow.checkinSupported,
+          activitiesSupported:sourceRow.activitiesSupported===true,
           checkinAvailable:sourceRow.checkinAvailable,checkinState:sourceRow.checkinState,
           checkinAt:sourceRow.checkinAt,checkinMessage:sourceRow.checkinMessage,
           ...(Number.isFinite(sourceRow.activityRewardAmount)&&sourceRow.activityRewardAmount>=0
@@ -206,7 +211,11 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
           account.checkinMessage=(account.checkinMessage||'今日状态待核实')+
             '；历史最近确认：'+lastConfirmedDate;
       }
-      const groups=checkinGroups(accounts,roster.channels);
+      // A channel with no genuine daily sign-in executor is never presented
+      // as sign-in capable, even if it exposes natural-refresh quota.
+      const groups=checkinGroups(accounts,roster.channels)
+        .filter(group=>group.supported>0).map(group=>({...group,
+          autoEnabled:channelEnabled(cfg,group.id)}));
      return {today,timeZone:cfg.checkin.timeZone,autoEnabled:cfg.checkin.autoEnabled,
        autoSourceAccounts:cfg.checkin.autoSourceAccounts,
        rewardHistoryBlocked:activityStore.blocked,
@@ -280,6 +289,46 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
     return {alreadyConfirmed:false,record,
       activities:await runActivities(accountId,{source})};
   }
+  // Owner-initiated batch: never invokes channels which only have a quota
+  // reader or an unverified activity endpoint. Global auto switch does not
+  // prevent safe manual requests. Existing per-account anti-duplicate rules
+  // remain in run() for every request.
+  // Pure-API, no-purchase free activity attempt across one channel.
+  // It does NOT turn rejected or pending receipts into visible rewards.
+  async function runActivityChannel(providerId,{source='manual'}={}){
+    const selected=String(providerId||'').replace(/^own_/,'');
+    if(!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(selected))
+      throw Error('Invalid activity channel');
+    const accounts=snapshot().accounts.filter(row=>
+      row.providerId?.replace(/^own_/,'')===selected&&row.enabled!==false
+      &&row.activitiesSupported===true).slice(0,32);
+    const results=[];
+    for(const row of accounts){
+      try{
+        const outcome=sourceCenter?.has(row.id)
+          ?await sourceCenter.runFreeActivities(row.id,{source})
+          :await runActivities(row.id,{source});
+        results.push({accountId:row.id,...outcome});
+      }catch(error){results.push({accountId:row.id,state:'unavailable',
+        message:publicAccountFailureMessage(error)})}
+    }
+    return {providerId:selected,attempted:results.length,results};
+  }
+  async function runChannel(providerId,{source='manual'}={}){
+    const selected=String(providerId||'').replace(/^own_/,'');
+    if(!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(selected))
+      throw Error('Invalid check-in channel');
+    const eligible=snapshot().accounts.filter(row=>
+      row.providerId?.replace(/^own_/,'')===selected
+      &&row.enabled!==false&&row.checkinSupported===true).slice(0,32);
+    const results=[];
+    for(const row of eligible){
+      try{results.push({accountId:row.id,...await run(row.id,{source})})}
+      catch(error){results.push({accountId:row.id,state:'unavailable',
+        message:publicAccountFailureMessage(error)})}
+    }
+    return {providerId:selected,attempted:results.length,results};
+  }
   async function tick(){
     if(store.blocked)return {skipped:'history_blocked'};
     const cfg=configStore.get();
@@ -291,7 +340,8 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
        await accountCenter.refreshReadOnly?.().catch(()=>{});
        const today=currentDate(),known=accountCenter.list().accounts;
        for(const account of cfg.accounts){
-         if(!account.autoCheckin||!account.enabled)continue;
+         if(!account.autoCheckin||!account.enabled
+           ||!channelEnabled(cfg,account.providerId))continue;
          const provider=cfg.providers.find(p=>p.id===account.providerId);
          if(!provider?.enabled||typeof accountCenter.driverFor(account.providerId)?.checkIn!=='function')continue;
          const publicAccount=known.find(row=>row.id===account.id);
@@ -323,7 +373,8 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
        // discovery; WorkBuddy compensation/gift campaigns can appear any time.
        const rewards=[...sourceRewards];
        for(const account of cfg.accounts){
-         if(!account.enabled||account.autoCheckin!==true)continue;
+         if(!account.enabled||account.autoCheckin!==true
+           ||!channelEnabled(cfg,account.providerId))continue;
          if(typeof accountCenter.driverFor(account.providerId)?.claimActivities!=='function')continue;
          const outcome=await runActivities(account.id,{source:'auto'});
          if(outcome.confirmed||outcome.pending)rewards.push({accountId:account.id,...outcome});
@@ -348,6 +399,7 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
     void tick().catch(()=>logger?.warn?.('checkin startup check unavailable'));    return stop;
   }
    function stop(){if(timer){clearInterval(timer);timer=null}sourceCenter?.stop()}
-    return {snapshot,sourceSnapshot:()=>sourceCenter?.snapshot()??[],run,runActivities,tick,start,stop,
+    return {snapshot,sourceSnapshot:()=>sourceCenter?.snapshot()??[],run,runChannel,
+      runActivityChannel,runActivities,tick,start,stop,
       store,activityStore,refreshSources:options=>sourceCenter?.refresh(options)??Promise.resolve([])};
 }

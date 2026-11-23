@@ -116,6 +116,11 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
   // All ORIGINAL DSH Providers, not just those in native-router's config.
   // This read-only catalog powers the Agent-level failover model picker.
   // Bounded concurrency, no credential enumeration and no login side effects.
+  const allowHostModels=(providerId,rows)=>{
+    const selection=configStore.get().hostModelSelection?.[providerId]??[];
+    return !selection.length?rows:rows.filter(row=>selection.includes(
+      typeof row==='string'?row:row?.id));
+  };
   mount('/host/catalog',async(req,res)=>{
     if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
     if(req.method!=='GET')return json(res,405,{ok:false,error:'Method not allowed'});
@@ -149,7 +154,7 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
             :await hostProviderInventory?.listHostModels?.(id);
           const rows=source?.state==='ready'&&Array.isArray(source.models)?source.models:[];
           const seen=new Set(),models=[];
-          for(const row of rows){
+          for(const row of allowHostModels(id,rows)){
             if(models.length>=250)break;
             const model=normalizeRow(id,row);
             if(!model||seen.has(model.id))continue;
@@ -174,7 +179,10 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
      return json(res,400,{ok:false,error:'Invalid DSH provider'});
     const result=await hostProviderInventory?.listHostModels?.(providerId)
       ??{state:'unavailable',providerId,models:[]};
-    return json(res,result.state==='ready'?200:503,{ok:result.state==='ready',result,
+    const visible=result.state==='ready'&&Array.isArray(result.models)?
+      {...result,availableModels:result.models,
+        models:allowHostModels(providerId,result.models)}:result;
+    return json(res,result.state==='ready'?200:503,{ok:result.state==='ready',result:visible,
       ...(result.state==='ready'?{}:{error:'宿主路由模型目录不可用；未读取或修改原插件凭据'})});
    }catch{return json(res,400,{ok:false,error:'Invalid host model query'})}
   });
@@ -547,6 +555,20 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
     });
   }
   if(checkinCenter){
+    mount('/activities/action',async(req,res)=>{
+      if(!isLoopback(req)||!sameOrigin(req))
+        return json(res,403,{ok:false,error:'Access rejected'});
+      if(req.method!=='POST')return json(res,405,{ok:false,error:'Method not allowed'});
+      try{
+        const body=await readJson(req);
+        if(body?.action!=='run-channel'||typeof body.providerId!=='string'
+          ||!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(body.providerId))
+          return json(res,400,{ok:false,error:'Invalid activity action'});
+        return json(res,200,{ok:true,
+          result:await checkinCenter.runActivityChannel(body.providerId)});
+      }catch(error){const failure=publicAdministrativeError(error);
+        return json(res,failure.status,{ok:false,error:failure.error})}
+    });
     mount('/checkins',async(req,res)=>{
       if(!isLoopback(req))return json(res,403,{error:'Loopback only'});
       if(req.method!=='GET')return json(res,405,{error:'Method not allowed'});
@@ -558,6 +580,10 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
       if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{error:'Access rejected'});
       if(req.method!=='POST')return json(res,405,{error:'Method not allowed'});
       try{const body=await readJson(req);
+         if(body?.action==='run-channel'&&typeof body.providerId==='string'
+           &&/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(body.providerId))
+           return json(res,200,{ok:true,
+             result:await checkinCenter.runChannel(body.providerId)});
          if(body?.action!=='run'||typeof body.accountId!=='string'||body.accountId.length>80)
            return json(res,400,{ok:false,error:'Invalid check-in action'});
         return json(res,200,{ok:true,result:await checkinCenter.run(body.accountId)});

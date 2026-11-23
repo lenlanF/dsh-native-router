@@ -39,6 +39,7 @@ export function freeEvidence(model,providerId=''){
 }
 const empty=()=>({state:'not_scanned',models:[],catalog:[],sourceAccounts:[],
  scannedAt:null,hostCount:0,sourceCount:0,unknownPricing:0,errors:0});
+import {allowsHostModel} from './host-model-selection.mjs';
 export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
  now=()=>Date.now(),ttlMs=90000,timeoutMs=2600}={}){
  let cache=empty(),signatureSaved='',pending=null,revision=0;
@@ -59,7 +60,7 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
   const origins=Object.entries(cfg.sessionReuse?.linkedOrigins??{}).sort();
   return JSON.stringify([hostIds(),packStatus().state,owner(),
     (cfg.providers??[]).map(p=>[p.id,p.enabled,p.protocol]).sort(),
-    accounts,ignored,origins]);
+    accounts,ignored,origins,cfg.hostModelSelection??{}]);
  };
  const bounded=async job=>{
   let timer;
@@ -98,7 +99,8 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
    const result=await bounded(()=>hostProviderInventory.listHostModels(providerId));
    if(result?.state!=='ready'||!Array.isArray(result.models)){errors++;return}
    hostCount++;
-   for(const model of result.models)add(providerId,model,'host');
+   for(const model of result.models)if(allowsHostModel(getConfig?.(),providerId,
+      typeof model==='string'?model:model?.id))add(providerId,model,'host');
   });
   const pack=packStatus();
   // A standalone CodeArts QR login may retain its original public provider ID
@@ -162,7 +164,8 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
    if(mark.free!==true||!isId(mark.providerId)||!isModel(mark.model))continue;
    const isHost=hosts.includes(mark.providerId);
    const isOwn=sourceAccounts.some(a=>a.providerId===mark.providerId);
-   if(isHost||isOwn)add(mark.providerId,{id:mark.model,name:mark.model},
+   if((isHost&&allowsHostModel(getConfig?.(),mark.providerId,mark.model))||isOwn)
+     add(mark.providerId,{id:mark.model,name:mark.model},
      isHost?'host':'owned-source');
   }
   models.sort(sort);catalog.sort(sort);

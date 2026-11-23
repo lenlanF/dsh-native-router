@@ -26,6 +26,7 @@ export function conciseModelName(providerId,channel,model,sourceName){
     .replace(/[·\s()]+$/u,'').trim()||model;
   return conciseChannelName(providerId,channel)+' · '+plain+' · '+(match?'x'+match[1]:'x?');
 }
+import {allowsHostModel} from './host-model-selection.mjs';
 export function createCatalog({getConfig,getEffectiveConfig,fetchImpl=fetch,
  resolveKey=resolveCredential,credentialOptions={},ttlMs=60000,
  channelDrivers=new Map(),hostProviderInventory,autoFreePool,
@@ -136,7 +137,8 @@ export function createCatalog({getConfig,getEffectiveConfig,fetchImpl=fetch,
        r.id,r.name,r.enabled,r.mode,r.tiers.map(t=>[t.providerId,t.model,t.accountIds])]).sort();
      const currentSourceAvailability=sourceState()+'|host:'+
        (hostProviderInventory?.status?.().hostProviders??[]).map(row=>row.providerId).sort().join(',')
-       +'|selector:'+JSON.stringify([accountSignature,providerSignature,routeSignature]);
+       +'|selector:'+JSON.stringify([accountSignature,providerSignature,routeSignature,
+         cfg.hostModelSelection??{}]);
      if(updatedAt&&sourceAvailability===currentSourceAvailability&&Date.now()-updatedAt<ttlMs)
        return cached.map(x=>({...x}));
     const all=autoFreePool?.snapshot?.().catalog??[];
@@ -172,7 +174,8 @@ export function createCatalog({getConfig,getEffectiveConfig,fetchImpl=fetch,
         if(p.protocol==='native-channel'&&(typeof driver?.generate!=='function'
           ||(driver?.isSourceBridge===true&&driver.runtimeReady!==true)))continue;
         const sourceModels=all.filter(row=>row.providerId===p.id);
-        const models=new Set([...p.models,...sourceModels.map(row=>row.model)]);
+        const models=new Set([...p.models,...sourceModels.map(row=>row.model)].filter(model=>
+          p.protocol!=='dsh-host'||allowsHostModel(cfg,p.id,model)));
         const liveNames=new Map();
         const accounts=cfg.accounts.filter(a=>a.providerId===p.id&&a.enabled).slice(0,32);
         if(p.protocol==='native-channel'&&accounts.length===0)continue;
@@ -185,6 +188,7 @@ export function createCatalog({getConfig,getEffectiveConfig,fetchImpl=fetch,
           await discoverAccounts(p,accounts,driver,signal,models,liveNames);
         const entries=[];
         for(const model of models){
+          if(p.protocol==='dsh-host'&&!allowsHostModel(cfg,p.id,model))continue;
           const discovered=sourceModels.find(row=>row.model===model);
           const name=conciseModelName(p.id,p.name,model,
             discovered?.name??liveNames.get(model));

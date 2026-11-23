@@ -50,7 +50,8 @@ export function buildChannelActivityCatalog({config,accountRows=[],sourceRows=[]
     const key=channelKey(providerId);
     if(!key)return null;
     if(!channels.has(key))channels.set(key,{id:key,name:safeText(name)||key,
-      accountCount:0,activities:[],emptyReason:EMPTY_EXPLANATIONS[key]??null});
+      accountCount:0,activityExecutorCount:0,activities:[],
+      emptyReason:EMPTY_EXPLANATIONS[key]??null});
     else if(name&&channels.get(key).name===key)channels.get(key).name=safeText(name)||key;
     return channels.get(key);
   };
@@ -72,6 +73,7 @@ export function buildChannelActivityCatalog({config,accountRows=[],sourceRows=[]
     const name=publicAccountName(account)||'账号名待获取';
     channel.accountCount++;
     if(account.enabled!==true)continue;
+    if(account.activitiesSupported===true)channel.activityExecutorCount++;
     const activeProvider=providers.find(p=>p.id===account.providerId)??
       providers.find(p=>channelKey(p.id)===channel.id);
     if(activeProvider?.enabled===false)continue;

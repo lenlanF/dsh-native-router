@@ -111,6 +111,14 @@ if(key==='/host/catalog'){
       if(row)row.enabled=input.enabled;
       return response({ok:true,result:{state:'updated',changed:true,enabled:input.enabled}});
     }
+    if(key==='/checkins/action'){
+      const input=JSON.parse(options.body);mutations.push({kind:'manual-channel-checkin',...input});
+      return response({ok:true,result:{providerId:input.providerId,attempted:1,results:[]}});
+    }
+    if(key==='/activities/action'){
+      const input=JSON.parse(options.body);mutations.push({kind:'manual-channel-activity',...input});
+      return response({ok:true,result:{providerId:input.providerId,attempted:1,results:[]}});
+    }
     if(key==='/checkins')return response({ok:true,...checkinCenter.snapshot()});
     if(key==='/activities')return response(activitySnapshot??{ok:true,
       channels:[],summary:{channelCount:0,activityCount:0,validCount:0,completedCount:0}});
@@ -434,30 +442,25 @@ test('real client render: login button triggers account authentication probe, no
   page=rig.render();
  assert.match(rig.flatten(page).join(' '),/鉴权通过/);
 });
-test('real client check-in summary uses compact channel tags, and only the selected channel expands',async()=>{
-  const rig=createUiRig();await rig.init();
-  rig.find(rig.render(),'button','每日积分任务')[0].props.onClick();
-  let page=rig.render();
-  let texts=rig.flatten(page).join(' ');
-  assert.match(texts,/今日积分任务/);
-  assert.match(texts,/各渠道今日签到/);
-  assert.match(texts,/alpha 已签 0\/2/);
-  assert.match(texts,/local 已签 0\/1/);
-  assert.equal(rig.find(page,'button','执行积分任务').length,0,
-    'channel account actions must not crowd the page before selection');
-  assert.doesNotMatch(texts,/华为云 CodeArts/,
-    'channels without a configured account do not occupy a tag');
-  const tag=rig.find(page,'button','alpha已签 0/2')[0];
-  assert.ok(tag);
-  assert.equal(tag.props['aria-pressed'],false);
-  tag.props.onClick();
-  page=rig.render();
-  texts=rig.flatten(page).join(' ');
-  assert.match(texts,/alpha · 账号签到明细/);
-  assert.equal(rig.find(page,'button','执行积分任务').length,2);
-  assert.ok(rig.find(page,'button','执行积分任务').every(x=>x.props.disabled===true));
-  rig.find(page,'button','收起明细')[0].props.onClick();
-  assert.equal(rig.find(rig.render(),'button','执行积分任务').length,0);
+test('only verified sign-in executors expose channel auto switch and manual run',async()=>{
+ const driver={checkIn:async()=>({state:'no_task'})};
+ const rig=createUiRig(new Map([['alpha',driver],['local',driver]]));await rig.init();
+ rig.find(rig.render(),'button','每日积分任务')[0].props.onClick();
+ let page=rig.render(),text=rig.flatten(page).join(' ');
+ assert.match(text,/今日积分任务/);
+ assert.match(text,/alpha.*支持签到 2 个账号/);
+ assert.match(text,/local.*支持签到 1 个账号/);
+ assert.equal(rig.find(page,'button','手动执行本渠道').length,2);
+ assert.equal(rig.find(page,'button','执行积分任务').length,0);
+ assert.doesNotMatch(text,/华为云 CodeArts/);
+ assert.match(text,/本渠道自动签到与免费活动/);
+ const open=rig.find(page,'button','查看账号')[0];
+ assert.ok(open);open.props.onClick();
+ page=rig.render();text=rig.flatten(page).join(' ');
+ assert.match(text,/alpha · 账号签到明细/);
+ assert.equal(rig.find(page,'button','执行积分任务').length,2);
+ rig.find(page,'button','收起明细')[0].props.onClick();
+ assert.equal(rig.find(rig.render(),'button','执行积分任务').length,0);
 });
 
 
@@ -1224,8 +1227,67 @@ test('independent login is visible in channel account and local-session pages wi
   assert.match(rig.flatten(page).join(' '),/来源授权池 · 自主登录与原授权接管/);
  rig.find(page,'button','本机登录态')[0].props.onClick();
  page=rig.render();
- assert.match(rig.flatten(page).join(' '),/本插件独立登录态 · 无需原渠道插件/);
+ assert.match(rig.flatten(page).join(' '),/已核验本机登录态 · 按渠道聚合/);
  assert.match(rig.flatten(page).join(' '),/独立 Loomy 账号/);
+});
+test('five member login paths are inside their own channels, not a second aggregate card',async()=>{
+ const rig=createUiRig();await rig.init();
+ rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
+ const page=rig.render(),text=rig.flatten(page).join(' ');
+ assert.doesNotMatch(text,/新增账号或重新登录 · 小米 \/ 豆包/);
+ for(const [id,name] of [['own_mimo_desktop','小米'],['own_doubao','豆包'],
+   ['own_meoo_web','秒悟'],['own_qwenwork','千问办公'],
+   ['own_aws_quick','Amazon Quick']]){
+   const channels=uiNodes(page,node=>node.type==='details'
+     &&node.props?.className==='dnr-channel-group'
+     &&rig.flatten(node).join(' ').includes('新增账号 / 重新登录'));
+   assert.ok(channels.some(group=>rig.flatten(group).join(' ').includes(name)),
+     'member login action must live under its own '+id+' channel');
+ }
+ assert.match(text,/新增账号 \/ 重新登录/);
+ assert.equal(rig.mutations.some(x=>/login|cookie/.test(x.kind||'')),false,
+   'opening account page never initiates an unsolicited OAuth or paid call');
+});
+test('host model allowlist checkboxes start with all and save exact model IDs',async()=>{
+ const models=[{id:'flash',name:'Flash model'},{id:'pro',name:'Pro model'}];
+ const rig=createUiRig(new Map(),null,{state:'disabled'},{},
+   [{providerId:'workbuddy'}],{state:'ready',providerId:'workbuddy',
+     models,availableModels:models});
+ await rig.init();
+ rig.find(rig.render(),'button','复用管理')[0].props.onClick();
+ rig.find(rig.render(),'button','宿主路由与模型')[0].props.onClick();
+ let page=rig.render();
+ const open=uiNodes(page,node=>node.type==='button'
+   &&rig.flatten(node).join('').startsWith('WorkBuddy 国内'))[0];
+ assert.ok(open);open.props.onClick();
+ await new Promise(resolve=>setTimeout(resolve,10));
+ page=rig.render();
+ assert.match(rig.flatten(page).join(' '),/未指定，默认全部 2 个模型/);
+ const flash=uiNodes(page,node=>node.type==='input'
+   &&node.props?.['aria-label']==='允许宿主模型 flash')[0];
+ assert.ok(flash);flash.props.onChange({target:{checked:true}});
+ page=rig.render();
+ assert.match(rig.flatten(page).join(' '),/仅允许已选中的 1 个模型/);
+ assert.equal(rig.cfg.hostModelSelection?.workbuddy,undefined,
+   'draft does not update live routing until Save');
+ await rig.find(page,'button','保存配置')[0].props.onClick();
+ assert.deepEqual(Array.from(rig.cfg.hostModelSelection.workbuddy),['flash']);
+});
+test('activity channel with an actual executor has a manual free-only action',async()=>{
+ const snapshot={ok:true,channels:[{id:'loomy',name:'Loomy',accountCount:1,
+   activityExecutorCount:1,activities:[]},
+   {id:'gemini',name:'Gemini',accountCount:1,
+     activityExecutorCount:0,activities:[]}],
+   summary:{channelCount:2,activityCount:0,validCount:0,completedCount:0}};
+ const rig=createUiRig(new Map(),null,{state:'disabled'},{},[],undefined,
+   ()=>true,null,snapshot);await rig.init();
+ rig.find(rig.render(),'button','渠道活动')[0].props.onClick();
+ const page=rig.render();
+ assert.equal(rig.find(page,'button','手动核验并领取免费活动').length,1);
+ assert.doesNotMatch(rig.flatten(page).join(' '),/10000 积分/);
+ await rig.find(page,'button','手动核验并领取免费活动')[0].props.onClick();
+ assert.ok(rig.mutations.some(x=>x.kind==='manual-channel-activity'
+   &&x.providerId==='loomy'));
 });
 test('notice errors render as dismissible nonblocking five-second toasts',async()=>{
  const rig=createUiRig();await rig.init();

@@ -28,7 +28,8 @@ test('unsupported check-in stays unsupported and never invents an executed resul
  const rig=fixture(t);
  const view=rig.center.snapshot();
  assert.equal(view.today,'2026-11-17');
- assert.equal(view.groups.find(x=>x.id==='workbuddy').accountCount,0);
+ assert.equal(view.groups.some(x=>x.id==='workbuddy'),false,
+   'channels without a real executor are absent from sign-in UI');
  assert.equal(view.accounts.find(x=>x.id==='a1').checkinState,'unsupported');
  await assert.rejects(()=>rig.center.run('a1'),e=>e.status===501);
  assert.equal(existsSync(rig.file),false);
