@@ -147,6 +147,50 @@ test('a stopped native Provider disables its dynamically discovered account card
  assert.equal(result.accounts[0].connectionState,'disabled');
  assert.equal(result.accounts[0].backupSources.length,0);
 });
+test('newly selected source with missing public facts preserves the same physical account balance and name',()=>{
+ const id=sourceAccountOpaqueId('loomy','same-physical');
+ const roster={channels:[{id:'loomy',name:'Loomy'}],accounts:[{
+  id,providerId:'loomy',nickname:'曾确认用户',balance:2880,balanceUnit:'积分',
+  balanceCheckedAt:Date.parse('2026-11-23T04:00:00Z'),
+  enabled:true,connectionState:'recently_verified',reusedExistingSession:true,
+ }]};
+ const embedded={state:'ready',accounts:[{providerId:'loomy',id:'same-physical',
+  nickname:'',authorizationSource:'autonomous',enabled:true}]};
+ const sources=[{id,providerId:'loomy',sourceAccount:true,
+  enabled:true,connectionState:'online'}];
+ const view=mergeAccountSources({roster,embeddedAccounts:embedded,sourceRows:sources});
+ assert.equal(view.accounts.length,1);
+ const primary=view.accounts[0];
+ assert.equal(primary.activeSource,'autonomous');
+ assert.equal(primary.nickname,'曾确认用户');
+ assert.equal(primary.balance,2880);
+ assert.equal(primary.balanceUnit,'积分');
+ assert.equal(primary.balanceStale,true,'alternate source balance is last-known, not live');
+ assert.equal(primary.backupSources.length,1);
+});
+test('freshest same-account balance wins despite online source score; never merges different IDs',()=>{
+ const id=sourceAccountOpaqueId('zcode','primary');
+ const t=Date.parse('2026-11-23T04:00:00Z');
+ const result=mergeAccountSources({roster:{channels:[{id:'zcode',name:'ZCode'}],
+  accounts:[{id,providerId:'zcode',nickname:'原账号名称',
+   enabled:true,connectionState:'online',balance:600,balanceUnit:'积分',
+   balanceCheckedAt:t-120000}]},
+  embeddedAccounts:{accounts:[{providerId:'zcode',id:'primary',enabled:true,
+    nickname:'',authorizationSource:'autonomous'},
+   {providerId:'zcode',id:'different',enabled:true,nickname:'陌生账号',
+    balance:900000,balanceUnit:'积分'}]},
+  sourceRows:[{id,providerId:'zcode',sourceAccount:true,
+   enabled:true,connectionState:'not_checked',balance:650,balanceUnit:'积分',
+   balanceCheckedAt:t}]});
+ const rows=result.accounts;
+ assert.equal(rows.length,2);
+ const item=rows.find(x=>x.id===id);
+ assert.equal(item.balance,650);
+ assert.equal(item.nickname,'原账号名称');
+ assert.equal(item.balanceStale,true);
+ assert.notEqual(item.balance,900000);
+});
+
 test('different account IDs and different channels never merge based on nickname',()=>{
  const sameName='duplicate-nickname';
  const result=mergeAccountSources({

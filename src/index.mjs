@@ -4,6 +4,7 @@ import {attachHostFailover} from './host-failover.mjs';
 import {registerAuthenticatedRouterRoutes} from './connection-routes.mjs';
 import {createAccountCenter} from './account-center.mjs';
 import {createAccountVerificationStore} from './account-verification-store.mjs';
+import {createPublicAccountFactsStore} from './account-public-facts-store.mjs';
 import {createSessionReuse} from './session-reuse.mjs';
 import {createAccountAdoption} from './account-adoption.mjs';
 import {createInstalledPluginInventory} from './installed-plugin-inventory.mjs';
@@ -119,10 +120,12 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
     hostProviderInventory:existingHostSource,ownedPack:embeddedPack});
    const verificationStore=createAccountVerificationStore({
      path:ownStore.path?join(dirname(ownStore.path),'account-verification.json'):undefined});
+   const publicFactsStore=createPublicAccountFactsStore({
+     path:ownStore.path?join(dirname(ownStore.path),'account-public-facts.json'):undefined});
    const installedInventory=createInstalledPluginInventory();
     const accountCenter=createAccountCenter({configStore:ownStore,adapter:ownAdapter,
       drivers,fetchImpl,env,vault:ownedVault,getSourceStatus:()=>sourceFacade.status(),
-      verificationStore});  const sessionReuse=createSessionReuse({configStore:ownStore,drivers,
+      verificationStore,publicFactsStore});  const sessionReuse=createSessionReuse({configStore:ownStore,drivers,
      embeddedPack:sourceFacade,adapter:ownAdapter,logger:ctx.logger,installedInventory});
   const workbuddyVaultAdoption=createWorkbuddyVaultAdoption({
       inventory:installedInventory,configStore:ownStore,vault:ownedVault,

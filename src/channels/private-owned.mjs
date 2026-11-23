@@ -288,7 +288,10 @@ export function createPrivateOwnedDriver({providerId,vault,makeCredentialRef,
     if(statusPending.has(id))return statusPending.get(id);
     const job=readAccountStatus(account,signal).then(result=>{
       if(result.state==='ready')statusCache.set(id,{at:Date.now(),data:result});
-      else statusCache.set(id,{at:Date.now(),data:{state:'unavailable'}});
+      else statusCache.set(id,{at:Date.now(),data:{
+        ...(cached?.data??{}),state:'unavailable',
+        // Do not repeat a previous healthy proof as current authentication.
+        authVerified:false,creditFetchState:'unavailable'}});
       return result;
     }).finally(()=>statusPending.delete(id));
     statusPending.set(id,job);

@@ -18,6 +18,7 @@ function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={stat
     },
     useEffect(fn){if(!effectFn)effectFn=fn;else tabEffectFn=fn},
     useCallback(fn){return fn},
+    useRef(value){const pos=sequence++;if(!(pos in hooks))hooks[pos]={current:value};return hooks[pos]},
   };
   const configStore={get:()=>structuredClone(cfg),replace:v=>(cfg=normalizeConfig(v))};
   const accountCenter=createAccountCenter({configStore,drivers,env:{NATIVE_ROUTER_TEST_KEY:'x',LOCAL_TEST_KEY:'x'},
@@ -214,6 +215,64 @@ test('channel activity page shows a separate five-column table per provider and 
  assert.ok(refresh&&!refresh.props.disabled);
  await refresh.props.onClick();
  assert.ok(rig.mutations.some(x=>x.kind==='activities-official-refresh'));
+});
+
+test('account workspace keeps cached account name and balance visible with provenance labels, quick filters and accessible navigation',async()=>{
+ const id='sp_'+'b'.repeat(24),when=Date.parse('2026-11-23T04:00:00Z');
+ const snapshot={ok:true,channels:[
+  {id:'own_loomy',name:'Loomy',adapterReady:true,protocol:'native-channel'},
+  {id:'own_doubao',name:'豆包',adapterReady:true,protocol:'native-channel'},
+ ],pools:[],accounts:[{
+  id,providerId:'own_loomy',configuredEnabled:true,enabled:true,
+  connectionState:'recently_verified',nickname:'准确的账户名称',
+  profileState:'cached',balance:480.5,balanceUnit:'积分',
+  balanceCheckedAt:when,balanceState:'cached',balanceStale:true,
+  expiringPoints:60,expiringAt:Date.now()+2*86400000,
+  runtimeMode:'owned',modelTestAvailable:false,
+ },{
+  id:'db_'+'c'.repeat(28),providerId:'own_doubao',
+  nickname:'豆包登录账号',balance:0,balanceUnit:'积分',
+  connectionState:'online',configuredEnabled:true,enabled:true,
+ }]};
+ const rig=createUiRig(new Map(),null,{state:'disabled'},{},[],undefined,
+  ()=>true,snapshot);
+ await rig.init();
+ let root=rig.render();
+ const headings=rig.find(root,'button','渠道账号');
+ assert.ok(headings.length===1);headings[0].props.onClick();
+ root=rig.render();
+ const text=rig.flatten(root).join(' ');
+ assert.match(text,/准确的账户名称/);
+ assert.match(text,/480.5 积分/);
+ assert.match(text,/上次记录 ·/);
+ assert.match(text,/上次识别 ·/);
+ assert.match(text,/豆包登录账号/);
+ assert.match(text,/高级模型测试/);
+ assert.ok(rig.find(root,'button','只读刷新账号数据').length);
+ const groups=[];
+ const scan=node=>{if(Array.isArray(node))return node.forEach(scan);
+  if(!node||typeof node!=='object')return;
+  if(node.type==='details'&&node.props?.className==='dnr-channel-group')groups.push(node);
+  scan(node.children)};
+ scan(root);
+ assert.equal(groups.length,2);
+ assert.equal(groups[0].props.open,true,'first channel is initially expanded');
+ assert.equal(groups[1].props.open,false,'secondary channels are progressive disclosures');
+ const filter=rig.find(root,'button','有余额或积分')[0];
+ assert.ok(filter);
+ filter.props.onClick();
+ root=rig.render();
+ assert.match(rig.flatten(root).join(' '),/准确的账户名称/);
+ const nav=rig.find(root,'nav','')[0];
+ const advanced=[];
+ const walk=node=>{if(Array.isArray(node))return node.forEach(walk);
+  if(!node||typeof node!=='object')return;
+  if(node.type==='details'&&node.props?.className==='dnr-subnav')advanced.push(node);
+  walk(node.children)};
+ walk(root);
+ assert.equal(advanced.length,4);
+ assert.equal(advanced.filter(n=>n.props.open===true).length,1,
+  'only primary five workflows are open by default');
 });
 
 test('built-in account panel can inspect explicit free evidence and run a real-model adapter test without a browser',async()=>{

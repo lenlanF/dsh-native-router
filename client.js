@@ -3,7 +3,7 @@ window.__ModuleLoader__.load({
   factory:(require)=>{
     const React=require('react');
     const h=React.createElement;
-    const {useState,useEffect,useCallback}=React;
+    const {useState,useEffect,useCallback,useRef}=React;
     const NS='dsh-native-router',URL='/api/plugins/dsh-native-router';
 
     // WorkBuddy 5.24.14-inspired compact Host-native surfaces. Strictly
@@ -14,7 +14,7 @@ window.__ModuleLoader__.load({
 .dnr-shell button,.dnr-shell input,.dnr-shell select,.dnr-shell textarea{font:inherit}
 .dnr-shell button{touch-action:manipulation}
 .dnr-shell button:focus-visible,.dnr-shell input:focus-visible,.dnr-shell select:focus-visible,.dnr-shell textarea:focus-visible,.dnr-shell summary:focus-visible{outline:2px solid var(--dnr-brand);outline-offset:2px}
-.dnr-shell .dnr-header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 14px;padding:0 0 11px;border-bottom:1px solid var(--dnr-border)}
+.dnr-shell .dnr-header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 20px;padding:0 0 16px;border-bottom:1px solid var(--dnr-border)}
 .dnr-shell .dnr-header-note{color:var(--dnr-muted);font-size:12px;line-height:1.5}
 .dnr-shell .dnr-version{border:1px solid var(--dnr-border);border-radius:8px;padding:3px 8px;color:var(--dnr-muted);font-variant-numeric:tabular-nums;font-size:11px;white-space:nowrap}
 .dnr-shell .dnr-checkin-tags{display:flex;flex-wrap:wrap;gap:7px;min-width:0}
@@ -23,7 +23,7 @@ window.__ModuleLoader__.load({
 .dnr-shell .dnr-checkin-tag[data-confirmed="yes"] strong{color:var(--dsw-alias-positive-primary,#44b790)}
 .dnr-shell .dnr-checkin-tag:hover,.dnr-shell .dnr-checkin-tag[aria-pressed="true"]{border-color:var(--dnr-brand);background:var(--dnr-surface)}
 
-.dnr-shell .dnr-layout{display:grid;grid-template-columns:184px minmax(0,1fr);gap:14px;align-items:start}
+.dnr-shell .dnr-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:20px;align-items:start}
 .dnr-shell .dnr-rail{position:sticky;top:12px;min-width:0;max-height:calc(100vh - 24px);overflow-y:auto;padding:8px;background:var(--dnr-surface);border:1px solid var(--dnr-border);border-radius:11px;scrollbar-width:thin}
 .dnr-shell .dnr-nav-group+.dnr-nav-group{border-top:1px solid var(--dnr-border);margin-top:7px;padding-top:7px}
 .dnr-shell .dnr-group-title{font-size:10px;letter-spacing:.055em;font-weight:700;opacity:.68;padding:7px 9px 5px}
@@ -32,9 +32,9 @@ window.__ModuleLoader__.load({
 .dnr-shell .dnr-nav-button[aria-current="page"]{background:var(--dnr-elevated);border-color:var(--dnr-brand);color:var(--dnr-ink);font-weight:700}
 .dnr-shell .dnr-main{min-width:0}
 .dnr-shell .dnr-page-head{margin:1px 0 12px;min-width:0}
-.dnr-shell .dnr-page-head h3{font-size:17px;font-weight:700;margin:0 0 3px}
+.dnr-shell .dnr-page-head h3{font-size:21px;font-weight:750;margin:0 0 4px}
 .dnr-shell .dnr-page-head p{font-size:12px;color:var(--dnr-muted);margin:0;line-height:1.5}
-.dnr-shell .dnr-button{appearance:none;display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:0;min-height:34px;border:1px solid var(--dnr-border);border-radius:7px;padding:5px 10px;background:transparent;color:var(--dnr-ink);font-size:12px;font-weight:550;line-height:1.4;cursor:pointer;transition:background-color .14s,border-color .14s}
+.dnr-shell .dnr-button{appearance:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:0;min-height:40px;border:1px solid var(--dnr-border);border-radius:9px;padding:8px 12px;background:transparent;color:var(--dnr-ink);font-size:13px;font-weight:600;line-height:1.4;cursor:pointer;transition:background-color .14s,border-color .14s}
 .dnr-shell .dnr-button:hover:not(:disabled){border-color:var(--dsw-alias-label-dimmed,#888);background:var(--dnr-elevated)}
 .dnr-shell .dnr-button:active:not(:disabled){background:var(--dnr-surface)}
 .dnr-shell .dnr-button:disabled{opacity:.43;cursor:not-allowed}
@@ -97,10 +97,49 @@ window.__ModuleLoader__.load({
 @media (max-width:920px){.dnr-shell .dnr-layout{grid-template-columns:156px minmax(0,1fr);gap:9px}.dnr-shell .dnr-rail{padding:5px}.dnr-shell .dnr-nav-button{padding:6px 8px}}
 @media (max-width:760px){.dnr-shell .dnr-layout{display:block}.dnr-shell .dnr-rail{display:none}.dnr-shell .dnr-mobile-nav{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}.dnr-shell .dnr-mobile-nav span{color:var(--dnr-muted);font-size:11px}.dnr-shell .dnr-panel-head{align-items:flex-start}.dnr-shell .dnr-savebar{position:sticky;bottom:0}}
 @media (max-width:520px){.dnr-shell .dnr-nav-group{grid-template-columns:repeat(2,minmax(0,1fr))}.dnr-shell .dnr-savebar{gap:6px}.dnr-shell .dnr-savebar .dnr-save-note{flex-basis:100%;margin-left:0}.dnr-shell .dnr-header-note{flex-basis:100%}.dnr-shell .dnr-panel-head{display:block}.dnr-shell .dnr-panel-head>div{margin-top:7px}}
+
+.dnr-shell .dnr-sync-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 13px;margin:0 0 14px;border:1px solid var(--dnr-border);border-radius:11px;background:var(--dnr-surface);font-size:12px;color:var(--dnr-muted)}
+.dnr-shell .dnr-sync-status .dnr-button{margin-left:auto}
+.dnr-shell .dnr-sync-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#8c96a8;flex-shrink:0}
+.dnr-shell .dnr-sync-dot[data-state="ready"]{background:var(--dsw-alias-positive-primary,#35ad7b)}
+.dnr-shell .dnr-sync-dot[data-state="partial"]{background:#bd902d}
+.dnr-shell .dnr-sync-dot[data-state="offline"]{background:var(--dsw-alias-danger-primary,#c85a68)}
+.dnr-shell .dnr-channel-group{margin:12px 0;border:1px solid var(--dnr-border);border-radius:13px;min-width:0;background:var(--dnr-surface);overflow:clip}
+.dnr-shell .dnr-channel-group>summary{list-style:none;cursor:pointer;padding:15px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:55px}
+.dnr-shell .dnr-channel-group>summary::-webkit-details-marker{display:none}
+.dnr-shell .dnr-channel-group>summary::after{content:'展开';font-size:12px;color:var(--dnr-muted);margin-left:auto}
+.dnr-shell .dnr-channel-group[open]>summary::after{content:'收起'}
+.dnr-shell .dnr-channel-group[open]>summary{border-bottom:1px solid var(--dnr-border)}
+.dnr-shell .dnr-channel-content{padding:12px 15px}
+.dnr-shell .dnr-channel-caption{color:var(--dnr-muted);font-size:12px}
+.dnr-shell .dnr-account-card{margin:0 0 11px;background:var(--dsw-alias-bg-layer-1,var(--dnr-elevated))}
+.dnr-shell .dnr-account-name{font-size:16px}
+.dnr-shell .dnr-account-metric-value{font-size:19px}
+.dnr-shell .dnr-data-note{color:var(--dnr-muted);font-size:11px}
+.dnr-shell .dnr-data-note[data-stale="true"]{color:#b28a33}
+.dnr-shell .dnr-filter-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:8px 0 14px}
+.dnr-shell .dnr-filter-bar .dnr-button[aria-pressed="true"]{border-color:var(--dnr-brand);background:var(--dnr-elevated);font-weight:700}
+.dnr-shell .dnr-quick-links{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:13px}
+.dnr-shell .dnr-subnav{margin:7px 0;border:1px solid transparent;border-radius:9px}
+.dnr-shell .dnr-subnav>summary{font-size:12px;color:var(--dnr-muted);cursor:pointer;min-height:40px;padding:10px 12px}
+.dnr-shell .dnr-subnav[open]{border-color:var(--dnr-border)}
+.dnr-shell .dnr-subnav[open]>summary{border-bottom:1px solid var(--dnr-border)}
+.dnr-shell .dnr-subnav-items{padding:6px}
+.dnr-shell .dnr-rail .dnr-nav-button{min-height:43px;font-size:13px}
+.dnr-shell .dnr-rail .dnr-nav-group:first-child .dnr-nav-button{font-size:14px;font-weight:600}
+.dnr-shell .dnr-rail .dnr-nav-button[aria-current="page"]{box-shadow:inset 3px 0 0 var(--dnr-brand)}
+@media(max-width:760px){
+ .dnr-shell{font-size:16px}
+ .dnr-shell .dnr-button{min-height:44px;font-size:15px}
+ .dnr-shell input,.dnr-shell select{min-height:44px}
+ .dnr-shell .dnr-sync-status .dnr-button{margin-left:0}
+ .dnr-shell .dnr-channel-group>summary{min-height:55px}
+ .dnr-shell .dnr-account-card{padding:12px}
+}
 @media (prefers-reduced-motion:reduce){.dnr-shell button{transition:none!important}}
 `;
     const css={
-      root:{color:'var(--dsw-alias-label-primary,var(--text,inherit))',maxWidth:1400,margin:'0 auto',padding:'12px clamp(8px,1.7vw,20px) 40px',fontSize:13,lineHeight:1.55},
+      root:{color:'var(--dsw-alias-label-primary,var(--text,inherit))',maxWidth:1540,margin:'0 auto',padding:'16px clamp(10px,2vw,28px) 48px',lineHeight:1.6},
       title:{fontSize:21,fontWeight:740,letterSpacing:'-.025em',margin:'0 0 3px'},
       caption:{fontSize:12,opacity:.78,lineHeight:1.55,margin:'0 0 10px'},
       tabbar:{display:'flex',gap:6,flexWrap:'wrap',padding:'0 0 10px',borderBottom:'1px solid var(--dsw-alias-border-l2,rgba(130,144,166,.27))',marginBottom:11},
@@ -109,7 +148,7 @@ window.__ModuleLoader__.load({
       card:{border:'1px solid var(--dsw-alias-border-l2,rgba(130,144,166,.27))',borderRadius:11,padding:'12px 13px',marginBottom:10,background:'var(--dsw-alias-bg-layer-2,rgba(128,140,160,.055))'},
       line:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:9,minWidth:0},
       field:{display:'flex',gap:4,flexDirection:'column',flex:'1 1 170px',minWidth:0,maxWidth:'100%'},
-      input:{padding:'7px 10px',minHeight:35,borderRadius:7,border:'1px solid var(--dsw-alias-border-l2,rgba(120,140,160,.38))',color:'inherit',background:'var(--dsw-alias-bg-layer-3,transparent)',font:'inherit',fontSize:12,width:'100%',minWidth:0,maxWidth:'100%',boxSizing:'border-box'},
+      input:{padding:'9px 12px',minHeight:42,borderRadius:9,border:'1px solid var(--dsw-alias-border-l2,rgba(120,140,160,.38))',color:'inherit',background:'var(--dsw-alias-bg-layer-3,transparent)',font:'inherit',fontSize:'1em',width:'100%',minWidth:0,maxWidth:'100%',boxSizing:'border-box'},
       btn:{padding:'5px 10px',minHeight:34,borderRadius:7,border:'1px solid var(--dsw-alias-border-l2,rgba(120,140,160,.38))',color:'inherit',cursor:'pointer',font:'inherit'},
       primary:{background:'var(--dsw-alias-brand-primary,#5686fe)',fontWeight:700},
       error:{padding:10,borderRadius:8,border:'1px solid #c45b64',marginBottom:10,overflowWrap:'anywhere'},
@@ -149,11 +188,13 @@ window.__ModuleLoader__.load({
         h('div',{className:'dnr-panel-head'},
           h('strong',null,title),actions),children);
     }
-    function DisclosurePanel({title,children,actions,initiallyOpen=false}){
-      return h('details',{className:'dnr-disclosure',open:initiallyOpen},
-        h('summary',{className:'dnr-disclosure-summary'},title),
+    function DisclosurePanel({title,children,actions,initiallyOpen=false,className='dnr-disclosure'}){
+      const channel=className==='dnr-channel-group';
+      return h('details',{className,open:initiallyOpen},
+        h('summary',{className:'dnr-disclosure-summary'},title,
+          channel?h('span',{className:'dnr-channel-caption'},actions):null),
         h('div',{className:'dnr-disclosure-body'},
-          actions?h('div',{style:{...css.line,justifyContent:'flex-end'}},actions):null,
+          !channel&&actions?h('div',{style:{...css.line,justifyContent:'flex-end'}},actions):null,
           children));
     }
     function Section({title,children}){
@@ -638,7 +679,7 @@ window.__ModuleLoader__.load({
     }
     function AccountConsole({data,query,onQuery,run,setTab,busy,discovered,onAddProvider,
       onManageAccounts,onOpenOwnedSource,selectedChannel,onSelectChannel,onRefresh,hasDraft}){
-      const [batch,setBatch]=useState(null);
+      const [batch,setBatch]=useState(null),[accountFilter,setAccountFilter]=useState('all');
       if(!data)return h(Panel,{title:'渠道账号'},'账号中心尚未连接 DSH Host。');
       const accounts=data.accounts||[];
       async function runFreeBatch(){
@@ -676,8 +717,16 @@ window.__ModuleLoader__.load({
       }
        // Unified inventory is authoritative; never render raw pool entries twice.
        const allChannels=(data.channels||[]);
-      const channels=allChannels.filter(c=>!query||[c.name,c.id,c.authMethod].some(x=>
-        String(x||'').toLowerCase().includes(query.toLowerCase())));
+      const matchesStatus=a=>accountFilter==='all'||
+        accountFilter==='issues'&&!['online','disabled','provider_disabled'].includes(a.connectionState)||
+        accountFilter==='balance'&&Number.isFinite(a.balance);
+      const searchable=a=>[a.nickname,a.accountName,a.username,a.userName,
+        a.loginName,a.maskedPhone].some(x=>String(x||'').toLowerCase()
+        .includes(query.toLowerCase()));
+      const channels=allChannels.filter(c=>(!query||[c.name,c.id,c.authMethod]
+        .some(x=>String(x||'').toLowerCase().includes(query.toLowerCase()))||
+        accounts.some(a=>a.providerId===c.id&&searchable(a)))&&
+        (accountFilter==='all'||accounts.some(a=>a.providerId===c.id&&matchesStatus(a))));
       const visibleChannels=query||!selectedChannel||selectedChannel==='all'?channels:
         channels.filter(c=>c.id===selectedChannel);
       const active=accounts.filter(a=>a.configuredEnabled).length;
@@ -687,23 +736,33 @@ window.__ModuleLoader__.load({
          a.balanceState==='not_supported'?'余额：平台未提供此项数据':'余额：尚未取得有效数据';
        return h(React.Fragment,null,
         h(Panel,{title:'全部渠道 · 账号状态',
-          actions:h('div',{style:css.line},
-            h(Button,{disabled:!!busy||batch?.running,onClick:()=>run('/channels/accounts/action',
-              {action:'refresh-all'},'已刷新支持校验的账号')},'验证全部'),
-            h(Button,{kind:'primary',disabled:!!busy||batch?.running||hasDraft,
-              onClick:runFreeBatch},batch?.running?'逐账号实测 '+batch.done+'/'+batch.total:
-              '一键实测全部账号的免费模型'))},
+           actions:h('div',{style:css.line},
+             h(Button,{kind:'primary',disabled:!!busy||batch?.running,
+               onClick:()=>onRefresh?.()},'只读刷新账号数据'),
+             h(Button,{disabled:!!busy||batch?.running,onClick:()=>run('/channels/accounts/action',
+               {action:'refresh-all'},'已逐账号检查官方身份')},'逐账号验证'),
+             h('details',{className:'dnr-small-action'},
+               h('summary',{style:css.small},'高级模型测试'),
+               h(Button,{disabled:!!busy||batch?.running||hasDraft,
+                 onClick:runFreeBatch},batch?.running?'逐账号实测 '+batch.done+'/'+batch.total:
+                 '一键实测全部账号的免费模型')))},
           batch?h('p',{style:css.small},
             '真实模型实测 '+batch.done+'/'+batch.total+' · 成功 '+batch.verified+
             ' · 无免费证据跳过 '+batch.skipped+' · 失败 '+batch.failed+
             (batch.running?' · 正在测试下一账号':' · 已完成；详情见各账号状态')+
             (batch.message?' · '+batch.message:'')):null,
           h('div',{style:{...css.line,justifyContent:'space-between'}},
-             h('span',{style:css.small},'渠道 '+allChannels.length+' · 可见账号 '+accounts.length+              ' · 启用 '+active+' · 最近验证通过 '+online),
+             h('span',{style:css.small},'渠道 '+allChannels.length+' · 账号 '+accounts.length+
+               ' · 启用 '+active+' · 鉴权通过 '+online),
             h('input',{'aria-label':'搜索渠道名称或登录方式',
               style:{...css.input,maxWidth:230,flex:'1 1 170px'},
               placeholder:'搜索渠道或登录方式',value:query,
               onChange:e=>onQuery(e.target.value)})),
+          h('div',{className:'dnr-filter-bar',role:'group','aria-label':'账号状态筛选'},
+            ...[['all','全部账号'],['issues','仅看异常'],['balance','有余额或积分']]
+              .map(([id,label])=>h('button',{key:id,type:'button',
+                className:'dnr-button','aria-pressed':accountFilter===id,
+                onClick:()=>setAccountFilter(id)},label))),
           h('label',{className:'dnr-input-field',style:{...css.field,maxWidth:350}},
             h('span',{style:css.small},'筛选渠道（默认全部）'),
             h('select',{style:css.input,value:selectedChannel||'all',
@@ -711,8 +770,10 @@ window.__ModuleLoader__.load({
               h('option',{value:'all'},'全部渠道'),
               allChannels.map(c=>h('option',{key:c.id,value:c.id},
                 c.name+' · '+accounts.filter(a=>a.providerId===c.id).length+' 个账号'))))),
-        visibleChannels.map(channel=>{
-          const members=accounts.filter(a=>a.providerId===channel.id);
+        visibleChannels.map((channel,channelIndex)=>{
+          const members=accounts.filter(a=>a.providerId===channel.id&&matchesStatus(a)
+            &&(!query||[channel.name,channel.id,channel.authMethod].some(x=>
+              String(x||'').toLowerCase().includes(query.toLowerCase()))||searchable(a)));
            const pool=(data.pools||[]).find(x=>x.providerId===channel.id);
            const inferred=members.some(a=>Number.isFinite(a.modelInferenceVerifiedAt)
              &&a.modelInferenceVerifiedAt>0);
@@ -720,8 +781,12 @@ window.__ModuleLoader__.load({
            const readiness=!channel.adapterReady?'适配器未就绪':
              inferred?'模型推理已实测':
              authenticated?'账号鉴权通过 · 推理待实测':'适配器就绪 · 账号待验证';
-           return h(Panel,{key:channel.id,title:channel.name,
-             actions:h('span',{style:css.small},members.length+' 个账号 · '+readiness)},
+           return h(DisclosurePanel,{key:channel.id,
+             className:'dnr-channel-group',
+             initiallyOpen:channelIndex===0||!!query||selectedChannel&&selectedChannel!=='all'||
+               members.some(a=>['expired','error','limited'].includes(a.connectionState)),
+             title:channel.name+' · '+members.length+' 个账号',
+             actions:h('span',{style:css.small},readiness)},
             h('div',{style:css.line},
               h('span',{style:css.small},'登录方式：'+(channel.authMethod||'由来源管理')),
               pool?h('span',{style:css.small},'自动候选 '+pool.enabled+' · 已验证 '+pool.verified):null),
@@ -734,10 +799,11 @@ window.__ModuleLoader__.load({
                      h('strong',{className:'dnr-account-name'},
                        account.nickname||account.accountName||account.username||
                        account.loginName||account.maskedPhone||'账号名待获取'),
-                     h('span',{className:'dnr-account-hint'},
-                       account.runtimeMode==='owned'?'本插件独立持有授权':
-                       account.sourceKind==='reused'?'复用来源 · 原授权有效':
-                       '账号来源待确认'))),
+                      h('span',{className:'dnr-account-hint'},
+                        account.profileState==='cached'?'上次识别 · ':'',
+                        account.runtimeMode==='owned'?'本插件独立持有授权':
+                        account.sourceKind==='reused'?'复用来源 · 原授权有效':
+                        '账号来源待确认'))),
                  h(StateTag,{value:account.connectionState})),
                h('div',{className:'dnr-account-metrics'},
                  h('div',{className:'dnr-account-metric'},
@@ -750,8 +816,10 @@ window.__ModuleLoader__.load({
                        account.balanceState==='not_supported'?'平台暂无可读取的余额':
                        account.balanceState==='not_returned'?'官方本次未返回':
                        account.balanceState==='unavailable'?'官方额度暂不可读取':'尚未取得'),
-                   account.balanceCheckedAt?h('span',{className:'dnr-account-metric-note'},
-                     '核实 '+new Date(account.balanceCheckedAt).toLocaleString()):null),
+                    account.balanceCheckedAt?h('span',{className:'dnr-data-note',
+                      'data-stale':account.balanceStale===true?'true':'false'},
+                      (account.balanceStale?'上次记录 · ':'官方核实 · ')+
+                      new Date(account.balanceCheckedAt).toLocaleString()):null),
                  Number.isFinite(account.expiringPoints)&&account.expiringPoints>0
                    &&account.balanceUnit==='积分'&&Number.isFinite(account.expiringAt)
                    &&account.expiringAt>Date.now()?
@@ -1157,15 +1225,36 @@ window.__ModuleLoader__.load({
            [awsQuickLogin,setAwsQuickLogin]=useState(null),
            [awsQuickCallback,setAwsQuickCallback]=useState(''),
            [providerQuery,setProviderQuery]=useState('');
-       const refreshRuntime=useCallback(async()=>{
-         const response=await fetch(URL+'/status',{cache:'no-store'});
-         if(response.ok)setStatus(await response.json());
-         await Promise.all([
-           fetch(URL+'/channels/accounts',{cache:'no-store'}).then(async r=>{if(r.ok)setChannelsView(await r.json());}),
-           fetch(URL+'/checkins',{cache:'no-store'}).then(async r=>{if(r.ok)setCheckinsView(await r.json());}),
-           fetch(URL+'/activities',{cache:'no-store'}).then(async r=>{if(r.ok)setActivitiesView(await r.json());}),
-           fetch(URL+'/models/autofree',{cache:'no-store'}).then(async r=>{if(r.ok){const d=await r.json();setAutoFreeView(d.result)}}),
-         ]);
+       const refreshSequence=useRef(0);
+       const [syncState,setSyncState]=useState('loading');
+       const [lastSyncAt,setLastSyncAt]=useState(null);
+       const refreshRuntime=useCallback(async({light=false}={})=>{
+         // A slow request from an earlier tab or timer must NEVER overwrite
+         // a newer account snapshot. Each batch is applied only if latest.
+         const revision=++refreshSequence.current;
+         const urls=light?['/channels/accounts','/checkins','/activities']:
+           ['/status','/channels/accounts','/checkins','/activities','/models/autofree'];
+         const values=await Promise.all(urls.map(async path=>{
+           try{
+             const response=await fetch(URL+path,{cache:'no-store'});
+             if(!response.ok)return null;
+             const body=await response.json();
+             return body&&body.ok!==false?body:null;
+           }catch{return null}
+         }));
+         if(revision!==refreshSequence.current)return {state:'superseded'};
+         const items=Object.fromEntries(urls.map((path,i)=>[path,values[i]]));
+         if(items['/status'])setStatus(items['/status']);
+         if(items['/channels/accounts']&&Array.isArray(items['/channels/accounts'].accounts))
+           setChannelsView(items['/channels/accounts']);
+         if(items['/checkins'])setCheckinsView(items['/checkins']);
+         if(items['/activities'])setActivitiesView(items['/activities']);
+         if(items['/models/autofree']?.result)
+           setAutoFreeView(items['/models/autofree'].result);
+         const good=values.filter(Boolean).length;
+         setSyncState(good===values.length?'ready':good?'partial':'offline');
+         if(items['/channels/accounts'])setLastSyncAt(Date.now());
+         return {state:good===values.length?'ready':good?'partial':'offline'};
        },[]);
        const refreshActivities=useCallback(async()=>{
          if(activitiesBusy)return;
@@ -1196,17 +1285,7 @@ window.__ModuleLoader__.load({
          // simply because the user has opened the settings page.
          if(typeof setInterval!=='function')return;
          const timer=setInterval(()=>{
-            void Promise.all([
-              fetch(URL+'/channels/accounts',{cache:'no-store'}).then(async res=>{
-                if(res.ok)setChannelsView(await res.json())
-              }),
-              fetch(URL+'/checkins',{cache:'no-store'}).then(async res=>{
-                if(res.ok)setCheckinsView(await res.json())
-              }),
-              fetch(URL+'/activities',{cache:'no-store'}).then(async res=>{
-                if(res.ok)setActivitiesView(await res.json())
-              })
-             ]).catch(()=>{});
+            void refreshRuntime({light:true});
           },30000);
           return ()=>clearInterval(timer);
         },[refresh]);
@@ -1905,17 +1984,17 @@ window.__ModuleLoader__.load({
        const tabs=[['overview','总览'],['channels','渠道账号'],['reuse','复用管理'],['checkins','每日积分任务'],
         ['activities','渠道活动'],['providers','提供商'],['pool','模型池'],['routes','模型链条'],['host','宿主故障切换'],['advanced','高级 JSON']];
        const navGroups=[
-         {name:'运行',ids:['overview']},
-         {name:'渠道与账号',ids:['channels','reuse','checkins','activities']},
-         {name:'模型与策略',ids:['providers','pool','routes']},
-         {name:'运维',ids:['host','advanced']},
+         {name:'核心工作台',ids:['overview','channels','activities','checkins','pool']},
+         {name:'账号授权与接入',ids:['reuse']},
+         {name:'路由策略与故障恢复',ids:['providers','routes','host']},
+         {name:'高级与诊断',ids:['advanced']},
        ];
        const pageNotes={
-         overview:'查看真实来源接入、账号、签到与模型调度状态',
-         channels:'管理每个渠道的账号、授权状态与启停操作',
+         overview:'渠道、账号、积分与模型运行状态一览',
+         channels:'按渠道管理账号，优先展示总积分、余额和最近有效核验信息',
          reuse:'沿用原插件登录态，独立授权与宿主路由互不干扰',
          checkins:'按账号与渠道核对真实签到回执及执行计划',
-         activities:'每个渠道独立列出免付费、可自动完成的官方奖励活动',
+         activities:'仅展示具有官方到账证据的免费活动',
          providers:'维护来源名称与协议，授权仍由对应渠道处理',
          pool:'自动发现可用模型并明确免费依据',
          routes:'人工制定模型优先级与跨来源降级链条',
@@ -1925,6 +2004,9 @@ window.__ModuleLoader__.load({
        };
        const activeNav=tab==='account-debug'?'channels':tab;
        const pageTitle=tab==='account-debug'?'账号池维护':tabs.find(x=>x[0]===tab)?.[1]||'运行总览';
+       const syncDescription=syncState==='ready'?'数据已同步':
+         syncState==='partial'?'部分渠道暂不可用 · 保留上次有效值':
+         syncState==='offline'?'实时连接暂不可用 · 保留已有显示':'读取运行状态中';
        const unsaved=Boolean(cfg&&savedConfig&&(tab==='advanced'
          ?raw!==JSON.stringify(savedConfig,null,2)
          :JSON.stringify(cfg)!==JSON.stringify(savedConfig)));
@@ -2244,17 +2326,20 @@ window.__ModuleLoader__.load({
          h('header',{className:'dnr-header'},
            h('div',{style:{minWidth:0}},
              h('h2',{style:css.title},'聚合路由'),
-             h('div',{className:'dnr-header-note'},'来源复用 · 账号池 · 模型调度 · 每日积分任务 · 故障续跑')),
+              h('div',{className:'dnr-header-note'},'账号与积分 · 免费活动 · 模型与路由 · 自动任务')),
                h('span',{className:'dnr-version'},status?.version??'版本校验中')),           h('div',{className:'dnr-layout'},            h('label',{className:'dnr-mobile-nav'},              h('span',null,'设置页面'),              h('select',{'aria-label':'选择设置页面',value:activeNav,                onChange:e=>setTab(e.target.value)},                navGroups.map(group=>h('optgroup',{key:group.name,label:group.name},
                   group.ids.map(id=>h('option',{key:id,value:id},tabs.find(x=>x[0]===id)?.[1]||id)))))),            h('nav',{className:'dnr-rail','aria-label':'聚合路由设置导航'},
               navGroups.map(group=>h('div',{key:group.name,className:'dnr-nav-group'},
-                h('div',{className:'dnr-group-title'},group.name),
-                group.ids.map(id=>{
-                  const label=tabs.find(x=>x[0]===id)?.[1]||id;
-                  return h('button',{key:id,type:'button',className:'dnr-nav-button',
-                    'aria-current':activeNav===id?'page':undefined,
-                    title:label,onClick:()=>setTab(id)},label);
-                })))),
+                h('details',{className:'dnr-subnav',open:group.name==='核心工作台'||
+                  group.ids.includes(activeNav)},
+                  h('summary',{className:'dnr-group-title'},group.name),
+                  h('div',{className:'dnr-subnav-items'},
+                    group.ids.map(id=>{
+                      const label=tabs.find(x=>x[0]===id)?.[1]||id;
+                      return h('button',{key:id,type:'button',className:'dnr-nav-button',
+                        'aria-current':activeNav===id?'page':undefined,
+                        title:label,onClick:()=>setTab(id)},label);
+                    })))))),
             h('main',{className:'dnr-main',id:'dnr-settings-content'},
               h('div',{className:'dnr-page-head'},
                 h('h3',null,pageTitle),h('p',null,pageNotes[tab]||'')),
@@ -2265,6 +2350,11 @@ window.__ModuleLoader__.load({
                 notice?h('div',{role:'status',className:'dnr-toast','data-kind':'success'},
                   h('span',null,notice),
                   h('button',{type:'button','aria-label':'关闭提示',onClick:()=>setNotice('')},'×')):null),
+              h('div',{className:'dnr-sync-status',role:'status','aria-live':'polite'},
+                h('span',{className:'dnr-sync-dot','data-state':syncState,'aria-hidden':'true'}),
+                syncDescription,
+                lastSyncAt?h('span',null,' · 最近账号同步 '+new Date(lastSyncAt).toLocaleTimeString()):null,
+                h(Button,{onClick:()=>refreshRuntime(),ariaLabel:'只读刷新账号与运行数据'},'刷新显示')),
               content,
              h('footer',{className:'dnr-savebar'},
                h(Button,{kind:'primary',disabled:busy,onClick:save},busy?'正在保存…':'保存配置'),

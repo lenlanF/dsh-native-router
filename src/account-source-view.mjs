@@ -114,7 +114,31 @@ export function mergeAccountSources({roster,embeddedAccounts,sourceRows=[],
  for(const members of grouped.values()){
    members.sort((a,b)=>sourceScore(b)-sourceScore(a));
    const primary=members[0];
-   accounts.push({...primary,activeSource:primary.sourceKind,
+   // Two adapters can expose the SAME platform account, and their status
+   // replies arrive at different times. Never allow a newly preferred source
+   // with an empty profile to erase a previously confirmed public name or
+   // balance. Identity is strictly scoped to the canonical provider+ID.
+   const chosenName=publicAccountName(primary)||
+      members.map(x=>publicAccountName(x)).find(Boolean)||'';
+   const candidates=members.filter(x=>Number.isFinite(x.balance)&&x.balance>=0);
+   candidates.sort((a,b)=>(Number.isFinite(b.balanceCheckedAt)?b.balanceCheckedAt:0)-
+     (Number.isFinite(a.balanceCheckedAt)?a.balanceCheckedAt:0));
+   const best=candidates[0]??null;
+   const publicAmount=best?publicBalance(best):publicBalance(primary);
+   const borrowed=Boolean(best&&best!==primary);
+   const knownTime=Number.isFinite(publicAmount.balanceCheckedAt)?
+     publicAmount.balanceCheckedAt:null;
+   accounts.push({...primary,
+      ...(chosenName?{nickname:chosenName,
+        ...(publicAccountName(primary)?{}:{profileState:'cached'})}:{}),
+      ...publicAmount,
+      ...(borrowed||best?.balanceStale===true?{
+        balanceState:'cached',balanceStale:true,
+        ...(knownTime?{balanceCheckedAt:knownTime}:{})}:{}),
+      ...(best?.balanceUnit==='积分'&&Number.isFinite(best.expiringPoints)
+        &&Number.isFinite(best.expiringAt)&&best.expiringAt>Date.now()?{
+        expiringPoints:best.expiringPoints,expiringAt:best.expiringAt}:{}),
+      activeSource:primary.sourceKind,
       backupSources:members.slice(1).map(s=>({kind:s.sourceKind,routeProviderId:s.routeProviderId,
         available:s.enabled===true&&s.connectionState==='online',
         configured:s.enabled===true,state:s.connectionState}))});

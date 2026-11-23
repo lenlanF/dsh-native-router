@@ -11,7 +11,8 @@ const MAX_PROBE_MS=15000, AUTO_VERIFY_MS=15*60*1000, FRESH_MS=30*60*1000;
 function accountNotFound(id){const e=new Error('Account not configured: '+String(id).slice(0,80));e.status=404;return e}
 export function createAccountCenter({
  configStore,adapter,drivers=new Map(),fetchImpl=fetch,env=process.env,vault,now=()=>Date.now(),
-   getSourceStatus=()=>({state:'unavailable'}),verificationStore,autoVerifyMs=AUTO_VERIFY_MS,
+   getSourceStatus=()=>({state:'unavailable'}),verificationStore,publicFactsStore,
+   autoVerifyMs=AUTO_VERIFY_MS,
    readOnlyTimeoutMs=8000,readOnlyConcurrency=4,}={}){
   if(!configStore?.get||!configStore?.replace)throw Error('ConfigStore must support get and replace');
    const checks=new Map(),pending=new Set(),discoverCache=new Map(),profileWarmup=new Map(),
@@ -87,8 +88,26 @@ export function createAccountCenter({
           let live={};
           try{live=typeof driver?.accountSnapshot==='function'?
             driver.accountSnapshot(account)??{}:{}}catch{}
-             const name=publicAccountName(live,account);
-             const balance=publicBalance(live);
+             // Driver refreshes may transiently return an empty/partial
+             // snapshot. Capture only sanitized, identity-bound public facts;
+             // never replace a known name or balance with an outage/empty row.
+             try{publicFactsStore?.observe?.(account,live)}catch{}
+             const cached=publicFactsStore?.get?.(account)??null;
+             const official=publicBalance(live),previous=publicBalance(cached);
+             const hasLive=Number.isFinite(official.balance)&&official.balance>=0;
+             const hasPrevious=Number.isFinite(previous.balance)&&previous.balance>=0;
+             const latest=hasLive&&(!hasPrevious||
+               (official.balanceCheckedAt??0)>=(previous.balanceCheckedAt??0));
+             const fromCache=!latest&&hasPrevious;
+             const balance=fromCache?{...previous,balanceState:'cached',
+               balanceStale:true}:official;
+             if(hasLive&&!fromCache&&Number.isFinite(official.balanceCheckedAt)
+                 &&now()-official.balanceCheckedAt>FRESH_MS){
+               balance.balanceState='cached';balance.balanceStale=true;
+             }
+             const liveName=publicAccountName(live);
+             const name=liveName||cached?.name||publicAccountName(account);
+             const profileFromCache=!liveName&&Boolean(cached?.name);
              // A valid entitlement may expose ONLY remaining units (or only
              // the provisioned/used values). Never discard that official
              // evidence simply because the provider omitted a total.
@@ -116,11 +135,17 @@ export function createAccountCenter({
            Number.isFinite(live.modelInferenceVerifiedAt)&&live.modelInferenceVerifiedAt>0?
             live.modelInferenceVerifiedAt:0);
            return {id:account.id,providerId:account.providerId,providerName:provider.name,
-             ...(name?{nickname:name,profileState:'verified'}:{profileState:'not_returned'}),
+             ...(name?{nickname:name,
+               profileState:profileFromCache?'cached':'verified'}:
+               {profileState:'not_returned'}),
              ...balance,quotaWindows,
-             ...(Number.isFinite(live.expiringPoints)&&live.expiringPoints>0
-               &&balance.balanceUnit==='积分'?{expiringPoints:live.expiringPoints,
-               ...(Number.isFinite(live.expiringAt)?{expiringAt:live.expiringAt}:{})}:{}),
+             ...(balance.balanceUnit==='积分'
+               &&Number.isFinite(fromCache?cached?.expiringPoints:live.expiringPoints)
+               &&(fromCache?cached.expiringPoints:live.expiringPoints)>0
+               &&Number.isFinite(fromCache?cached?.expiringAt:live.expiringAt)
+               &&(fromCache?cached.expiringAt:live.expiringAt)>now()?
+                {expiringPoints:fromCache?cached.expiringPoints:live.expiringPoints,
+                 expiringAt:fromCache?cached.expiringAt:live.expiringAt}:{}),
              ...(typeof live.planName==='string'&&live.planName?{planName:live.planName.slice(0,72)}:{}),
              ...(typeof live.membershipPlanName==='string'&&live.membershipPlanName?{membershipPlanName:live.membershipPlanName.slice(0,72)}:{}),
              ...(typeof live.membershipState==='string'?{membershipState:live.membershipState}:{}),
@@ -434,6 +459,7 @@ export function createAccountCenter({
         ignoredIds:[...new Set([...(cfg.sessionReuse?.ignoredIds??[]),id])].slice(-200)}});
     checks.delete(id);inferenceProof.delete(id);inferenceFailures.delete(id);
     try{verificationStore?.forget?.(id)}catch{}
+    try{publicFactsStore?.forget?.(account)}catch{}
     adapter?.invalidateCatalog?.();
    return {id,detached:true,revokedUpstream:outcome?.revokedUpstream===true,
       message:outcome?.revokedUpstream===true?'已确认撤销渠道授权并解除插件关联':
