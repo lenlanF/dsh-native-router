@@ -135,6 +135,13 @@ export function normalizeConfig(source = {}) {
     if(typeof enabled!=='boolean')throw Error('Invalid per-channel auto check-in setting');
     checkinChannels[providerId.replace(/^own_/,'')]=enabled;
   }
+  // Old true channel presets were inert with global scheduling disabled.
+  // Only an explicit new independent opt-in may activate those channels.
+  const independentInput=source.checkin?.independentChannels??[];
+  if(!Array.isArray(independentInput)||independentInput.length>100)
+    throw Error('Invalid independently enabled check-in channels');
+  const independentChannels=[...new Set(independentInput.map(value=>
+    id(value,'independent check-in channel').replace(/^own_/,'')))];
   const hf = source.hostFailover ?? {};
   const checkinInput=source.checkin ?? {};
   const zone=typeof checkinInput.timeZone==='string'?checkinInput.timeZone:'Asia/Shanghai';
@@ -159,7 +166,7 @@ export function normalizeConfig(source = {}) {
     },
     checkin:{autoEnabled:checkinInput.autoEnabled===true,
       autoSourceAccounts:checkinInput.autoSourceAccounts!==false,
-      channels:checkinChannels,timeZone:zone,runAt},
+      channels:checkinChannels,independentChannels,timeZone:zone,runAt},
     hostFailover: {
       enabled: hf.enabled === true, mode: ['off','pinned','free'].includes(hf.mode) ? hf.mode : 'off',
       priority: Array.isArray(hf.priority) ? hf.priority : [], triggers: Array.isArray(hf.triggers) ? hf.triggers : undefined,
@@ -174,6 +181,14 @@ export function normalizeConfig(source = {}) {
     },
   };
 }
+// Global-off mode requires fresh channel-specific consent, never old presets.
+export function channelAutoEnabled(config,providerId){
+ const key=String(providerId??'').replace(/^own_/,'');
+ const selected=config?.checkin?.channels?.[key];
+ return config?.checkin?.autoEnabled===true?selected!==false:
+   selected===true&&config?.checkin?.independentChannels?.includes(key)===true;
+}
+
 export function createConfigStore({ path = defaultConfigPath(), initial } = {}) {
   let current = initial !== undefined ? normalizeConfig(initial) : existsSync(path) ? normalizeConfig(JSON.parse(readFileSync(path,'utf8'))) : normalizeConfig({});
   return {

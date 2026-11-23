@@ -11,9 +11,10 @@ const provider={id:'own_workbuddy-cn',name:'WorkBuddy 国内',
 const owner={id:'one',providerId:'own_workbuddy-cn',
  credentialRef:'driver:own_workbuddy-cn:one',enabled:true,autoCheckin:true};
 const clock=Date.parse('2026-11-23T07:00:00Z');
-function rig({channelAuto=false,withActivity=false,globalAuto=true}={}){
+function rig({channelAuto=false,withActivity=false,globalAuto=true,independent=false}={}){
  let config=normalizeConfig({providers:[provider],accounts:[owner],
   checkin:{autoEnabled:globalAuto,runAt:'10:05',
+   independentChannels:independent?['workbuddy-cn']:[],
    channels:{'workbuddy-cn':channelAuto}}});
  const rows=[];let signins=0,claims=0;
  const driver={checkIn:async({date})=>{signins++;return {confirmed:true,date}},
@@ -98,19 +99,28 @@ test('per-channel auto-off blocks background execution but not explicit manual s
   assert.equal(v.signins,1,'manual repeat must not resubmit a confirmed daily POST');
  }finally{v.stop()}
 });
-test('enabling this channel activates only its own due auto sign-in; global switch still dominates',async()=>{
- const v=rig({channelAuto:false});
+test('one explicitly enabled channel runs safely while global scheduling is off',async()=>{
+ const selected=rig({channelAuto:true,globalAuto:false,independent:true});
  try{
-  assert.equal((await v.checkins.tick()).attempted,0);
-  v.setChannel(true);
-  assert.equal(v.checkins.snapshot().groups[0].autoEnabled,true);
-  assert.equal((await v.checkins.tick()).attempted,1);
-  assert.equal(v.signins,1);
-  assert.equal((await v.checkins.tick()).attempted,0);
- }finally{v.stop()}
- const disabled=rig({channelAuto:true,globalAuto:false});
- try{assert.equal((await disabled.checkins.tick()).skipped,'disabled')}
- finally{disabled.stop()}
+  assert.equal(selected.checkins.snapshot().groups[0].autoEnabled,true);
+  assert.equal(selected.checkins.snapshot().accounts[0].autoCheckinEffective,true);
+  assert.equal((await selected.checkins.tick()).attempted,1);
+  assert.equal(selected.signins,1);
+  assert.equal((await selected.checkins.tick()).attempted,0,
+   'confirmed daily sign-in is never posted twice');
+ }finally{selected.stop()}
+ const legacyPreset=rig({channelAuto:true,globalAuto:false});
+ try{
+  assert.equal(legacyPreset.checkins.snapshot().groups[0].autoEnabled,false);
+  assert.equal((await legacyPreset.checkins.tick()).skipped,'disabled');
+  assert.equal(legacyPreset.signins,0,'existing stored presets must stay inert after upgrade');
+ }finally{legacyPreset.stop()}
+ const off=rig({channelAuto:false,globalAuto:false});
+ try{
+  assert.equal(off.checkins.snapshot().groups[0].autoEnabled,false);
+  assert.equal((await off.checkins.tick()).skipped,'disabled');
+  assert.equal(off.signins,0,'other disabled channels cannot run');
+ }finally{off.stop()}
 });
 test('channel manual sign-in and free activities never generate fake catalog rewards',async()=>{
  const v=rig({channelAuto:false,withActivity:true});

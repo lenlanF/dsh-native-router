@@ -1,6 +1,6 @@
 import {readFileSync,existsSync,mkdirSync,writeFileSync,renameSync,unlinkSync} from 'node:fs';
 import {dirname,join} from 'node:path';
-import {defaultConfigPath} from './config.mjs';
+import {defaultConfigPath,channelAutoEnabled} from './config.mjs';
 import {createSourceCheckinCenter} from './source-checkins.mjs';
 import {createActivityClaimStore} from './activity-claims.mjs';
 import {checkinDisplayState,expiredCheckinConfirmation} from './account-facts.mjs';
@@ -64,8 +64,7 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
   function latestFor(accountId,date=currentDate()){
     return store.all().filter(x=>x.accountId===accountId&&x.date===date).at(-1)??null;
   }
-  const channelEnabled=(cfg,providerId)=>
-    cfg.checkin.channels?.[String(providerId).replace(/^own_/,'')]!==false;
+   const channelEnabled=channelAutoEnabled;
   const activityPending=new Set();
   const activityFor=accountId=>{
     try{return activityStore.summary(accountCenter.find(accountId).account)}
@@ -79,9 +78,8 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
     const cfg=configStore.get();
     if(!account.enabled||!provider.enabled||typeof driver?.claimActivities!=='function')
       return {state:'unsupported'};
-    if(source==='auto'&&(!cfg.checkin.autoEnabled||account.autoCheckin!==true
-      ||!channelEnabled(cfg,provider.id)))
-      return {state:'disabled'};
+     if(source==='auto'&&(!account.autoCheckin||!channelEnabled(cfg,provider.id)))
+       return {state:'disabled'};
     if(activityPending.has(accountId))return {state:'busy'};
     const probeKey=account.id+'\\0'+account.credentialRef;
     if(source==='auto'&&activityLastProbe.has(probeKey)
@@ -144,8 +142,8 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
        }):null;
        return {...a,...(verifiedBenefits?{benefits:verifiedBenefits}:{}),
          autoCheckin:entry.account.autoCheckin===true,
-         autoCheckinEffective:cfg.checkin.autoEnabled&&entry.account.autoCheckin===true
-           &&channelEnabled(cfg,entry.account.providerId),
+          autoCheckinEffective:entry.account.autoCheckin===true
+            &&channelEnabled(cfg,entry.account.providerId),
          checkinState:state,checkinAt:recent?.at??a.balanceCheckedAt??null,
            checkinMessage:verified?(historyConfirmed?
              '本账号今日已有已确认签到记录':sourceName+'确认今日已签到'):
@@ -339,9 +337,11 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
   async function tick(){
     if(store.blocked)return {skipped:'history_blocked'};
     const cfg=configStore.get();
-    if(!cfg.checkin.autoEnabled)return {skipped:'disabled'};
-    if(clockAt(now(),cfg.checkin.timeZone)<cfg.checkin.runAt)return {skipped:'not_due'};
-    if(running)return running;
+     if(!cfg.checkin.autoEnabled&&
+       !Object.keys(cfg.checkin.channels??{}).some(id=>channelEnabled(cfg,id)))
+       return {skipped:'disabled'};
+     if(clockAt(now(),cfg.checkin.timeZone)<cfg.checkin.runAt)return {skipped:'not_due'};
+     if(running)return running;
      running=(async()=>{
        const results=[];
        await accountCenter.refreshReadOnly?.().catch(()=>{});

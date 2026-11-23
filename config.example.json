@@ -78,6 +78,8 @@
   "checkin": {
     "autoEnabled": false,
     "autoSourceAccounts": true,
+    "channels": {},
+    "independentChannels": [],
     "timeZone": "Asia/Shanghai",
     "runAt": "10:05"
   }

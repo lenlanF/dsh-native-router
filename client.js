@@ -996,7 +996,7 @@ window.__ModuleLoader__.load({
                   account.checkinState?h('span',{style:css.mutedTag},
                    '今日签到：'+(checkinLabels[account.checkinState]||account.checkinState)):null,
                  account.autoCheckin===true?h('span',{style:css.mutedTag},
-                   account.autoCheckinEffective===false?'积分任务：全局开关关闭':'账号已允许自动积分任务'):null,
+                   account.autoCheckinEffective===false?'积分任务：本账号或渠道未开启自动执行':'账号自动积分任务已生效'):null,
                  account.activitiesSupported?h('span',{style:css.mutedTag},
                    '活动奖励 · 已确认 '+(account.activityClaims?.confirmed??0)+
                    ' · 待回查 '+(account.activityClaims?.unconfirmed??0)):null,
@@ -1077,7 +1077,7 @@ window.__ModuleLoader__.load({
             style:{...css.card,margin:'8px 0 12px'}},
             h('strong',null,'全局自动免费活动已关闭'),
             h('p',{style:{...css.small,margin:'4px 0 0'}},
-              '不会自动签到或领取。单渠道与账号开关无法覆盖全局关闭状态；手动核验及领取仍可执行。')):null,
+              '仅显式开启的单渠道可独立自动签到和领取安全免费活动，其他渠道保持关闭；手动核验及领取仍可执行。')):null,
           h('div',{style:css.line},
             h('span',{style:css.mutedTag},'渠道 '+(summary.channelCount??groups.length)),
             h('span',{style:css.mutedTag},'符合条件活动 '+(summary.activityCount??0)),
@@ -1142,13 +1142,13 @@ window.__ModuleLoader__.load({
       };
       return h(React.Fragment,null,
         data.historyBlocked?h('div',{role:'alert',style:css.error},data.historyError):null,
-        h(Panel,{title:'今日积分任务 · '+data.today+' ('+data.timeZone+')',
-          actions:h(Button,{disabled:!!busy,onClick:refresh},'同步签到状态')},
-          cfg.checkin?.autoEnabled!==true?h('div',{role:'status',
-            style:{...css.card,margin:'6px 0 10px'}},
-            h('strong',null,'全局自动签到已关闭'),
-            h('p',{style:{...css.small,margin:'4px 0 0'}},
-              '当前不会自动签到或自动领取奖励。渠道及单账号自动开关仅为预设，不会自行触发；手动执行仍可用。')):null,
+         h(Panel,{title:'今日积分任务 · '+data.today+' ('+data.timeZone+')',
+           actions:h(Button,{disabled:!!busy,onClick:refresh},'同步签到状态')},
+           cfg.checkin?.autoEnabled!==true?h('div',{role:'status',
+             style:{...css.card,margin:'6px 0 10px'}},
+             h('strong',null,'全局自动签到已关闭'),
+             h('p',{style:{...css.small,margin:'4px 0 0'}},
+               '只有显式开启的单渠道及其已启用账号可按时独立自动执行；没有开启的渠道不会触发。手动执行仍可用。')):null,
           h('div',{style:css.line},
             ...['已签 '+success,'待确认 '+pending,'支持签到 '+supported,'账号 '+accounts.length]
               .map(x=>h('span',{key:x,style:css.mutedTag},x))),
@@ -1163,9 +1163,17 @@ window.__ModuleLoader__.load({
                 h('span',{style:css.mutedTag},'今日 '+channel.success+' 已完成')),
               h('div',{style:css.line},
                 h(Toggle,{label:'本渠道自动签到与免费活动',
-                  value:cfg.checkin?.channels?.[channel.id]!==false,
-                  onChange:v=>onSettings({channels:{...(cfg.checkin?.channels||{}),
-                    [channel.id]:v}})}),
+                  value:cfg.checkin?.autoEnabled===true?
+                    cfg.checkin?.channels?.[channel.id]!==false:
+                    cfg.checkin?.channels?.[channel.id]===true
+                      &&cfg.checkin?.independentChannels?.includes(channel.id)===true,
+                  onChange:v=>{
+                    const previous=cfg.checkin?.independentChannels||[];
+                    const independentChannels=!v?previous.filter(id=>id!==channel.id):
+                      cfg.checkin?.autoEnabled===true?previous:[...new Set([...previous,channel.id])];
+                    onSettings({channels:{...(cfg.checkin?.channels||{}),
+                      [channel.id]:v},independentChannels});
+                  }}),
                 h(Button,{disabled:!!busy||!!data.historyBlocked||!channel.supported,
                   onClick:()=>run('/checkins/action',{
                     action:'run-channel',providerId:channel.id},
@@ -1203,7 +1211,7 @@ window.__ModuleLoader__.load({
           null,
         h(Panel,{title:'每日积分任务设置（依托 DSH Host 运行）'},
           h('div',{style:css.line},
-            h(Toggle,{label:'启用每日自动积分任务',value:cfg.checkin?.autoEnabled,
+            h(Toggle,{label:'全局自动积分任务（未单独设置的渠道）',value:cfg.checkin?.autoEnabled,
               onChange:v=>onSettings({autoEnabled:v})}),
             h(Toggle,{label:'自动覆盖已验证的来源账号（仍受单渠道开关控制）',
               value:cfg.checkin?.autoSourceAccounts!==false,

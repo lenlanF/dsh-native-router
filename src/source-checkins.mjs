@@ -1,6 +1,7 @@
 import {sourceAccountOpaqueId} from './source-account-ref.mjs';
 import {SOURCE_DAILY_SIGNIN_PROVIDERS,SOURCE_PACK_PROVIDERS} from './embedded-pack.mjs';
 import {todayKey,clockAt} from './checkins.mjs';
+import {channelAutoEnabled} from './config.mjs';
 import {publicAccountName,publicBalance,checkinDisplayState,expiredCheckinConfirmation} from './account-facts.mjs';
 import {verificationWithinPeriod} from './account-verification-store.mjs';
 import {publicCheckinMessage,publicAccountFailureMessage} from './public-diagnostics.mjs';
@@ -47,9 +48,9 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
   const enabled=!hidden&&row.enabled&&(!imported||imported.enabled===true);
   return {
    hidden,enabled,providerEnabled,
-   autoCheckin:enabled&&providerEnabled&&cfg.checkin.autoSourceAccounts===true
-     &&cfg.checkin.channels?.[row.providerId]!==false
-     &&(!imported||imported.autoCheckin===true),
+    autoCheckin:enabled&&providerEnabled&&cfg.checkin.autoSourceAccounts===true
+      &&channelAutoEnabled(cfg,row.providerId)
+      &&(!imported||imported.autoCheckin===true),
   };
  }
   // Reconcile with the latest precise, persisted account authentication
@@ -310,8 +311,7 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
         ['expired','limited'].includes(report?.state)?report.state:
         displayFacts?.authVerified===true?'recently_verified':'not_checked',
       sourceAccount:true,autoCheckin:state.autoCheckin,
-      autoCheckinEffective:state.autoCheckin&&state.enabled&&state.providerEnabled
-        &&configStore.get().checkin.autoEnabled===true,
+       autoCheckinEffective:state.autoCheckin&&state.enabled&&state.providerEnabled,
       checkinSupported:implemented,checkinAvailable:implemented,
       // Only the authenticated, fresh official source status is enough to
       // show a currently claimable free daily activity. A local balance or
@@ -452,8 +452,8 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
      return {state:'unsupported'};
    const cfg=configFor(row);
    if(!cfg.enabled||!cfg.providerEnabled)return {state:'disabled'};
-   if(source==='auto'&&(!configStore.get().checkin.autoEnabled||!cfg.autoCheckin))
-     return {state:'disabled'};
+    if(source==='auto'&&!cfg.autoCheckin)
+      return {state:'disabled'};
    if(activityPending.has(id))return {state:'busy'};
    const key=id+'\\0'+(bindingFor(row)??'');
    if(source==='auto'&&activityLastProbe.has(key)
