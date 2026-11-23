@@ -68,7 +68,8 @@ function readJson(req){
     req.on('error',error=>{if(!finished){finished=true;reject(error)}});
   });
 }
-export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,checkinCenter,embeddedPack,sessionReuse,accountAdoption,hostProviderInventory,credentialsBridge}){
+export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,checkinCenter,
+  embeddedPack,sessionReuse,accountAdoption,hostProviderInventory,credentialsBridge,activityCenter}){
   const server=ctx.get?.('webServer')??ctx.webServer;
   if(!server?.register)return()=>{};
   const dispose=[];
@@ -526,6 +527,23 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
         return json(res,200,{ok:true,...await accountCenter.discover(body.providerId)});
        }catch(error){const failure=publicAdministrativeError(error);
         return json(res,failure.status,{ok:false,error:failure.error,...(failure.code?{code:failure.code}:{})})}
+    });
+  }
+  // Connection Owner only: a read-only catalog of VERIFIED free automatic
+  // claim workflows. Unknown-paid, purchase, CAPTCHA or unimplemented tasks
+  // are never surfaced as executable activities.
+  if(activityCenter){
+    mount('/activities',async(req,res)=>{
+      if(!isLoopback(req))return json(res,403,{error:'Loopback only'});
+      if(req.method!=='GET')return json(res,405,{error:'Method not allowed'});
+      return json(res,200,{ok:true,...activityCenter.snapshot()});
+    });
+    mount('/activities/refresh',async(req,res)=>{
+      if(!isLoopback(req)||!sameOrigin(req))
+        return json(res,403,{ok:false,error:'Access rejected'});
+      if(req.method!=='POST')return json(res,405,{error:'Method not allowed'});
+      try{return json(res,200,{ok:true,...await activityCenter.refresh()})}
+      catch{return json(res,503,{ok:false,error:'活动来源读取暂不可用'})}
     });
   }
   if(checkinCenter){

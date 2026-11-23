@@ -93,7 +93,7 @@ window.__ModuleLoader__.load({
 .dnr-shell .dnr-account-actions .dnr-button{min-height:40px;padding:7px 12px}
 .dnr-shell .dnr-account-card details{border-top:1px solid var(--dnr-border);margin:10px 0 0;padding-top:9px}
 .dnr-shell .dnr-account-card details summary{font-size:12px;color:var(--dnr-muted);min-height:32px;display:flex;align-items:center}
-@media(max-width:520px){.dnr-shell .dnr-account-card{padding:12px}.dnr-shell .dnr-account-head{gap:6px}.dnr-shell .dnr-account-metrics{grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr))}.dnr-shell .dnr-account-actions .dnr-button{flex:1 1 130px}}
+.dnr-shell .dnr-activity-scroll{overflow-x:auto;border:1px solid var(--dnr-border);border-radius:9px;max-width:100%}\n.dnr-shell .dnr-activity-table{width:100%;min-width:645px;border-collapse:collapse;font-size:12px;line-height:1.55}\n.dnr-shell .dnr-activity-table th{text-align:left;background:var(--dnr-elevated);color:var(--dnr-muted);font-weight:700;font-size:11px;white-space:nowrap}\n.dnr-shell .dnr-activity-table th,.dnr-shell .dnr-activity-table td{padding:10px 12px;border-bottom:1px solid var(--dnr-border);vertical-align:middle}\n.dnr-shell .dnr-activity-table tr:last-child td{border-bottom:0}\n.dnr-shell .dnr-activity-table td:first-child{min-width:175px}\n.dnr-shell .dnr-activity-account{display:block;color:var(--dnr-muted);font-size:11px;margin-top:2px;overflow-wrap:anywhere}\n.dnr-shell .dnr-activity-number{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}\n.dnr-shell .dnr-activity-state{display:inline-flex;border-radius:7px;border:1px solid var(--dnr-border);padding:2px 7px;white-space:nowrap}\n.dnr-shell .dnr-activity-state[data-validity='valid']{border-color:var(--dsw-alias-positive-primary,#44b790)}\n.dnr-shell .dnr-activity-state[data-validity='unverified']{color:var(--dnr-muted)}\n.dnr-shell .dnr-activity-empty{text-align:center!important;color:var(--dnr-muted);padding:18px!important}\n@media(max-width:520px){.dnr-shell .dnr-account-card{padding:12px}.dnr-shell .dnr-account-head{gap:6px}.dnr-shell .dnr-account-metrics{grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr))}.dnr-shell .dnr-account-actions .dnr-button{flex:1 1 130px}}
 @media (max-width:920px){.dnr-shell .dnr-layout{grid-template-columns:156px minmax(0,1fr);gap:9px}.dnr-shell .dnr-rail{padding:5px}.dnr-shell .dnr-nav-button{padding:6px 8px}}
 @media (max-width:760px){.dnr-shell .dnr-layout{display:block}.dnr-shell .dnr-rail{display:none}.dnr-shell .dnr-mobile-nav{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}.dnr-shell .dnr-mobile-nav span{color:var(--dnr-muted);font-size:11px}.dnr-shell .dnr-panel-head{align-items:flex-start}.dnr-shell .dnr-savebar{position:sticky;bottom:0}}
 @media (max-width:520px){.dnr-shell .dnr-nav-group{grid-template-columns:repeat(2,minmax(0,1fr))}.dnr-shell .dnr-savebar{gap:6px}.dnr-shell .dnr-savebar .dnr-save-note{flex-basis:100%;margin-left:0}.dnr-shell .dnr-header-note{flex-basis:100%}.dnr-shell .dnr-panel-head{display:block}.dnr-shell .dnr-panel-head>div{margin-top:7px}}
@@ -865,6 +865,59 @@ window.__ModuleLoader__.load({
               }},'审核后导入'))));
         }));
     }
+    function ActivitiesConsole({data,busy,refresh}){
+      const groups=Array.isArray(data?.channels)?data.channels:[];
+      const summary=data?.summary??{};
+      const stateText={valid:'有效 · 可自动执行',completed:'已完成',
+        unverified:'待官方核验'};
+      const endText=value=>Number.isFinite(value)&&value>0?
+        new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',
+          year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})
+          .format(new Date(value)):'官方未公布';
+      return h('div',{className:'dnr-activities'},
+        h(Panel,{title:'免费自动活动总览',
+          actions:h(Button,{disabled:!!busy,onClick:refresh},
+            busy?'核验中…':'刷新官方活动')},
+          h('p',{style:css.small},'仅收录无需付费、购买、验证码或人工操作，且已有可验证自动执行流程的官方奖励活动。未确认奖励数量或到期时间时如实标注“官方未公布”。'),
+          h('div',{style:css.line},
+            h('span',{style:css.mutedTag},'渠道 '+(summary.channelCount??groups.length)),
+            h('span',{style:css.mutedTag},'符合条件活动 '+(summary.activityCount??0)),
+            h('span',{style:css.mutedTag},'有效 '+(summary.validCount??0)),
+            h('span',{style:css.mutedTag},'已完成 '+(summary.completedCount??0)),
+            data?.refreshedAt?h('span',{style:css.small},
+              '最近官方刷新 '+new Date(data.refreshedAt).toLocaleString()):null),
+          data?.refreshState==='partial'||data?.refreshState==='unavailable'?
+            h('p',{style:css.small},'部分来源尚未返回结果，活动状态仍需官方核验'):null),
+        groups.length?groups.map(channel=>h(Panel,{key:channel.id,
+          title:channel.name+' · '+channel.activities.length+' 项'},
+          h('div',{className:'dnr-activity-scroll'},
+            h('table',{className:'dnr-activity-table'},
+              h('thead',null,h('tr',null,
+                ...['活动名称','免费奖励','是否有效','到期时间','执行状态']
+                  .map(title=>h('th',{key:title,scope:'col'},title)))),
+              h('tbody',null,
+                channel.activities.length?channel.activities.map(activity=>
+                  h('tr',{key:activity.id},
+                    h('td',null,h('strong',null,activity.name),
+                      h('span',{className:'dnr-activity-account'},
+                        activity.accountName||'账号名待获取')),
+                    h('td',{className:'dnr-activity-number'},
+                      Number.isFinite(activity.rewardAmount)&&activity.rewardUnit?
+                        activity.rewardAmount.toLocaleString()+' '+activity.rewardUnit:
+                        '官方未公布'),
+                    h('td',null,h('span',{
+                      className:'dnr-activity-state',
+                      'data-validity':activity.validity},
+                      stateText[activity.validity]||'待官方核验')),
+                    h('td',null,endText(activity.endAt)),
+                    h('td',null,activity.progress||'待核实')))
+                :h('tr',null,h('td',{colSpan:5,className:'dnr-activity-empty'},
+                  channel.accountCount>0?
+                    '暂无符合条件的免费自动活动':
+                    '尚无已接入账号，暂无符合条件的免费自动活动'))))))):
+          h(Panel,{title:'渠道活动'},'尚未取得渠道配置'));
+    }
+
     function CheckinConsole({data,cfg,onSettings,onAccountAuto,run,refresh,busy,embeddedPack,
       sourceProvider,setSourceProvider,sourceCredits,sourceClaims,sourceBusy,onSourceStatus,onSourceClaim}){
       const [selectedCheckinChannel,setSelectedCheckinChannel]=React.useState('');
@@ -1061,7 +1114,10 @@ window.__ModuleLoader__.load({
       const [cfg,setCfg]=useState(null),[tab,setTab]=useState('overview'),[busy,setBusy]=useState(false),
         [notice,setNotice]=useState(''),[error,setError]=useState(''),[status,setStatus]=useState(null),
         [raw,setRaw]=useState(''),[channelsView,setChannelsView]=useState(null),
-        [checkinsView,setCheckinsView]=useState(null),[actionBusy,setActionBusy]=useState(''),
+        [checkinsView,setCheckinsView]=useState(null),
+        [activitiesView,setActivitiesView]=useState(null),
+        [activitiesBusy,setActivitiesBusy]=useState(false),
+        [actionBusy,setActionBusy]=useState(''),
         [channelQuery,setChannelQuery]=useState(''),[discovered,setDiscovered]=useState({}),
         [managedAccountProvider,setManagedAccountProvider]=useState(''),
         [modelProvider,setModelProvider]=useState('workbuddy'),[modelBusy,setModelBusy]=useState(false),
@@ -1106,9 +1162,23 @@ window.__ModuleLoader__.load({
          await Promise.all([
            fetch(URL+'/channels/accounts',{cache:'no-store'}).then(async r=>{if(r.ok)setChannelsView(await r.json());}),
            fetch(URL+'/checkins',{cache:'no-store'}).then(async r=>{if(r.ok)setCheckinsView(await r.json());}),
+           fetch(URL+'/activities',{cache:'no-store'}).then(async r=>{if(r.ok)setActivitiesView(await r.json());}),
            fetch(URL+'/models/autofree',{cache:'no-store'}).then(async r=>{if(r.ok){const d=await r.json();setAutoFreeView(d.result)}}),
          ]);
        },[]);
+       const refreshActivities=useCallback(async()=>{
+         if(activitiesBusy)return;
+         setActivitiesBusy(true);setError('');
+         try{
+           const res=await fetch(URL+'/activities/refresh',{method:'POST'});
+           const data=await res.json();
+           if(!res.ok||data.ok!==true)throw Error(data.error||'官方活动核验失败');
+           setActivitiesView(data);
+           setNotice(data.refreshState==='partial'?'部分来源尚未完成状态查询':
+             '已请求更新官方活动状态，请以逐项回执为准');
+         }catch(error){setError(String(error?.message||'活动核验暂不可用'))}
+         finally{setActivitiesBusy(false)}
+       },[activitiesBusy]);
        const refresh=useCallback(async()=>{
          setBusy(true);setError('');
          try{
@@ -1131,6 +1201,9 @@ window.__ModuleLoader__.load({
               }),
               fetch(URL+'/checkins',{cache:'no-store'}).then(async res=>{
                 if(res.ok)setCheckinsView(await res.json())
+              }),
+              fetch(URL+'/activities',{cache:'no-store'}).then(async res=>{
+                if(res.ok)setActivitiesView(await res.json())
               })
              ]).catch(()=>{});
           },30000);
@@ -1828,10 +1901,11 @@ window.__ModuleLoader__.load({
        const accountProviderChoices=cfg.providers.filter(x=>x.protocol!=='dsh-host')
          .map(x=>({value:x.id,label:x.name+' ('+x.id+')'}));
       const modes=[{value:'priority',label:'按链条顺序降级'},{value:'pinned',label:'固定首个模型（账号可切）'},{value:'free',label:'仅显式标记免费'}];
-       const tabs=[['overview','总览'],['channels','渠道账号'],['reuse','复用管理'],['checkins','每日积分任务'],['providers','提供商'],['pool','模型池'],['routes','模型链条'],['host','宿主故障切换'],['advanced','高级 JSON']];
+       const tabs=[['overview','总览'],['channels','渠道账号'],['reuse','复用管理'],['checkins','每日积分任务'],
+        ['activities','渠道活动'],['providers','提供商'],['pool','模型池'],['routes','模型链条'],['host','宿主故障切换'],['advanced','高级 JSON']];
        const navGroups=[
          {name:'运行',ids:['overview']},
-         {name:'渠道与账号',ids:['channels','reuse','checkins']},
+         {name:'渠道与账号',ids:['channels','reuse','checkins','activities']},
          {name:'模型与策略',ids:['providers','pool','routes']},
          {name:'运维',ids:['host','advanced']},
        ];
@@ -1840,6 +1914,7 @@ window.__ModuleLoader__.load({
          channels:'管理每个渠道的账号、授权状态与启停操作',
          reuse:'沿用原插件登录态，独立授权与宿主路由互不干扰',
          checkins:'按账号与渠道核对真实签到回执及执行计划',
+         activities:'每个渠道独立列出免付费、可自动完成的官方奖励活动',
          providers:'维护来源名称与协议，授权仍由对应渠道处理',
          pool:'自动发现可用模型并明确免费依据',
          routes:'人工制定模型优先级与跨来源降级链条',
@@ -1977,6 +2052,8 @@ window.__ModuleLoader__.load({
           setSourceProvider:value=>{setSourceCreditsProvider(value);setSourceCredits(null);setSourceClaims(null)},
           sourceCredits,sourceClaims,sourceBusy:sourceRpcBusy,
           onSourceStatus:sourceCheckinStatus,onSourceClaim:sourceClaimAll});
+       if(tab==='activities')content=h(ActivitiesConsole,{
+         data:activitiesView,busy:activitiesBusy,refresh:refreshActivities});
        if(tab==='providers')content=h(Section,{title:'提供商注册表'},
          h('div',{style:css.line},h('input',{'aria-label':'筛选提供商',
            placeholder:'按名称、标识或协议筛选提供商',style:css.input,value:providerQuery,

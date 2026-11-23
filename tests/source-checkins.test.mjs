@@ -53,6 +53,23 @@ test('legacy source history with private upstream text is redacted in every acco
  assert.equal(h.records.length,1,'do not destroy the owner historical file while redacting views');
  h.center.stop();
 });
+test('official nonzero free reward metadata reaches the channel activities table without balance confusion',async()=>{
+ const h=fixture({enabled:false,rows:[row('codearts','reward-source')],
+  statusQuery:async()=>({state:'ready',accounts:[{
+   accountId:'reward-source',nickname:'Official CodeArts',active:true,
+   authVerified:true,claimable:true,todayCheckedIn:false,
+   balance:500,balanceUnit:'积分',activityRewardAmount:16,
+   activityRewardUnit:'积分',activityExpiresAt:Date.parse('2026-11-20T00:00:00Z')}]})});
+ await h.center.refreshSources();
+ const item=h.center.snapshot().accounts[0];
+ assert.equal(item.activityRewardAmount,16);
+ assert.equal(item.activityRewardUnit,'积分');
+ assert.equal(item.balance,500,'account total is not the daily activity reward');
+ assert.equal(item.activityExpiresAt,Date.parse('2026-11-20T00:00:00Z'));
+ assert.equal(h.calls.length,0,'display must only read, never claim');
+ h.center.stop();
+});
+
 test('a confirmed same-day source check-in survives a later pending record and prevents duplicate claims',async()=>{
   const h=fixture({rows:[row('codearts','valid-source')],
     statusQuery:async()=>({state:'ready',accounts:[{

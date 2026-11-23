@@ -616,6 +616,25 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
           &&!Array.isArray(statusRow.status)?statusRow.status:null;
         const facts=sourceAccountFacts({providerId,identity:identityMap.get(accountId),
           statusRow,balanceRow,observedAt:Date.now()});
+        // CodeArts status is drawn from its official CREDIT-package sign-in
+        // campaign; its numeric amount is points, not an account balance or
+        // a ZCode plan count. For other providers require an explicit signed
+        // reward unit, never guess Token/积分 from a plan's quantity.
+        const amount=exact?.amount??exact?.rewardAmount??exact?.todayCredit;
+        const numeric=(typeof amount==='number'||typeof amount==='string'
+          &&amount.trim())&&Number.isFinite(Number(amount))&&Number(amount)>=0?
+          Number(amount):null;
+        const rawUnit=typeof exact?.rewardUnit==='string'?exact.rewardUnit.trim():
+          typeof exact?.unit==='string'?exact.unit.trim():'';
+        const unit=providerId==='codearts'&&exact?.active===true?'积分':
+          ['积分','Token','token','元','余额'].includes(rawUnit)?rawUnit:'';
+        const freeReward=numeric!==null&&unit&&facts.authVerified===true?{
+          activityRewardAmount:numeric,activityRewardUnit:unit}:{};
+        const rawEnd=exact?.endAt??exact?.expiresAt;
+        const end=typeof rawEnd==='number'&&Number.isFinite(rawEnd)&&rawEnd>0?
+          rawEnd<1e11?rawEnd*1000:rawEnd:
+          typeof rawEnd==='string'&&/^\\d{4}-\\d{2}-\\d{2}T/.test(rawEnd)?
+            Date.parse(rawEnd):null;
         const rawPhone=identityMap.get(accountId)?.phone??exact?.phone;
         const phone=typeof rawPhone==='string'&&/^\d{11}$/.test(rawPhone)
           ?rawPhone.replace(/^(\d{3})\d{4}(\d{4})$/,'$1****$2'):null;
@@ -626,6 +645,8 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,loadPac
            todayCheckedIn:upstreamCheckedInToday(exact,today),
            ...(typeof exact?.claimable==='boolean'?{claimable:exact.claimable}:{}),
            ...(exact?.noClaimablePlans===true?{noClaimablePlans:true}:{}),
+           ...freeReward,
+           ...(Number.isFinite(end)&&end>0?{activityExpiresAt:end}:{}),
            active:typeof exact?.active==='boolean'?exact.active:null});     }     return {state:'ready',accounts,checkedAt:Date.now()};
    } function dispose(){    if(disposed)return;
     disposed=true;

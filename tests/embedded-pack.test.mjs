@@ -296,7 +296,9 @@ test('independent source read-only identity and credit APIs provide usernames, Z
   },
   async status(provider){
    return {ok:true,value:{accounts:rows.filter(row=>row.provider===provider).map(row=>({
-     accountId:row.id,status:{active:true,todayCheckedIn:false}}))}};
+     accountId:row.id,status:{active:true,todayCheckedIn:false,
+       ...(provider==='codearts'?{amount:16}:{}),
+       ...(provider==='zcode'?{planCount:8}:{}),}}))}};
   },
   async balances(provider){
    return {ok:true,value:{accounts:rows.filter(row=>row.provider===provider).map(row=>({
@@ -330,6 +332,14 @@ test('independent source read-only identity and credit APIs provide usernames, Z
    assert.equal(status.accounts[0].balance,value);
    assert.equal(status.accounts[0].balanceUnit,unit);
    assert.equal(status.accounts[0].nickname,username);
+   if(providerId==='codearts'){
+     assert.equal(status.accounts[0].activityRewardAmount,16);
+     assert.equal(status.accounts[0].activityRewardUnit,'积分');
+   }
+   if(providerId==='zcode'){
+     assert.equal(status.accounts[0].activityRewardAmount,undefined,
+       'count of plans is not a token reward quantity');
+   }
    assert.doesNotMatch(JSON.stringify(status),/NATIVE_ROUTER_PRIVATE_PACK|access_token|credentialRef/);
  }
  // Identity read-only fallbacks must look beyond the first placeholder nickname.

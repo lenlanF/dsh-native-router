@@ -4,6 +4,7 @@ import {EventEmitter} from 'node:events';
 import {normalizeConfig} from '../src/config.mjs';
 import {createAccountCenter} from '../src/account-center.mjs';
 import {createCheckinCenter} from '../src/checkins.mjs';
+import {createChannelActivityCenter} from '../src/channel-activities.mjs';
 import {registerRouterRoutes} from '../src/routes.mjs';
 import {sample} from './fixtures.mjs';
 
@@ -18,7 +19,9 @@ function rig(drivers=new Map(),config=sample){
   now:()=>Date.parse('2026-11-17T02:07:00Z')});
  const handlers=new Map(),adapter={getStatus:()=>({healthy:true}),invalidateCatalog(){}};
  const ctx={webServer:{register({path,handler}){handlers.set(path,handler);return()=>handlers.delete(path)}}};
- const dispose=registerRouterRoutes(ctx,{configStore,adapter,accountCenter,checkinCenter});
+ const activityCenter=createChannelActivityCenter({configStore,accountCenter,checkinCenter,
+  now:()=>Date.parse('2026-11-17T02:07:00Z')});
+ const dispose=registerRouterRoutes(ctx,{configStore,adapter,accountCenter,checkinCenter,activityCenter});
  async function hit(method,path,body,{origin='http://localhost:8123',address='127.0.0.1',host='localhost:8123'}={}){
   const req=new EventEmitter();
   req.method=method;req.socket={remoteAddress:address};req.headers={origin,host};
@@ -55,6 +58,24 @@ test('authenticated account endpoint includes independent activity status for ow
  const member=snapshot.body.accounts.find(x=>x.id==='a1');
  assert.equal(member.activitiesSupported,true);
  assert.deepEqual(member.activityClaims,{confirmed:0,unconfirmed:0,lastAt:null});
+ t.dispose();
+});
+
+test('channel activities are owner routes, GET is read-only and cross-origin refresh forbidden',async()=>{
+ const t=rig(new Map([['alpha',{checkIn:async({date})=>({confirmed:true,date})}]]));
+ const result=await t.hit('GET','/activities');
+ assert.equal(result.code,200);
+ assert.equal(result.body.ok,true);
+ assert.ok(Array.isArray(result.body.channels));
+ const same=await t.hit('POST','/activities/refresh',{});
+ assert.equal(same.code,200);
+ assert.equal(same.body.ok,true);
+ const foreign=await t.hit('POST','/activities/refresh',{},
+  {origin:'https://malicious.invalid',host:'localhost:8123'});
+ assert.equal(foreign.code,403);
+ const remote=await t.hit('GET','/activities',{},
+  {address:'192.168.2.11'});
+ assert.equal(remote.code,403);
  t.dispose();
 });
 

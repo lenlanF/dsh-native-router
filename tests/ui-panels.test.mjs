@@ -6,7 +6,7 @@ import {normalizeConfig} from '../src/config.mjs';
 import {createAccountCenter} from '../src/account-center.mjs';
 import {createCheckinCenter} from '../src/checkins.mjs';
 import {sample} from './fixtures.mjs';
-function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={state:'disabled',reason:''},sourceRpcOverrides={},hostProviders=[],hostModelResult,confirmFn=()=>true,accountSnapshot){  let cfg=normalizeConfig(sample),sequence=0,effectFn,tabEffectFn,component;
+function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={state:'disabled',reason:''},sourceRpcOverrides={},hostProviders=[],hostModelResult,confirmFn=()=>true,accountSnapshot,activitySnapshot){  let cfg=normalizeConfig(sample),sequence=0,effectFn,tabEffectFn,component;
   const hooks=[];
   const react={
     Fragment:'fragment',
@@ -111,6 +111,13 @@ if(key==='/host/catalog'){
       return response({ok:true,result:{state:'updated',changed:true,enabled:input.enabled}});
     }
     if(key==='/checkins')return response({ok:true,...checkinCenter.snapshot()});
+    if(key==='/activities')return response(activitySnapshot??{ok:true,
+      channels:[],summary:{channelCount:0,activityCount:0,validCount:0,completedCount:0}});
+    if(key==='/activities/refresh'){
+      assert.equal(options.method,'POST');
+      mutations.push({kind:'activities-official-refresh'});
+      return response(activitySnapshot??{ok:true,channels:[],summary:{}});
+    }
      if(key==='/channels/qwenwork/login'){
        const action=JSON.parse(options.body)?.action;
        mutations.push({kind:'qwen-device',action});
@@ -172,6 +179,43 @@ if(key==='/host/catalog'){
    async flushTabEffect(){render();tabEffectFn?.();for(let i=0;i<20;i++)await new Promise(resolve=>setTimeout(resolve,1))},
    find,flatten,mutations,get cfg(){return cfg}};
 }
+test('channel activity page shows a separate five-column table per provider and only official reward facts',async()=>{
+ const expiry=Date.parse('2026-11-27T00:00:00Z');
+ const snapshot={ok:true,channels:[
+  {id:'workbuddy-cn',name:'WorkBuddy 国内',accountCount:1,activities:[
+   {id:'wb:gift',accountName:'官方账号甲',name:'官方活动赠送积分',
+    rewardAmount:160,rewardUnit:'积分',validity:'valid',endAt:expiry,
+    progress:'自动执行中'},
+   {id:'wb:compensation',accountName:'官方账号甲',name:'官方补偿积分',
+    rewardAmount:null,rewardUnit:null,validity:'completed',endAt:null,
+    progress:'官方确认已领取'}]},
+  {id:'doubao',name:'豆包',accountCount:1,activities:[]},
+ ],summary:{channelCount:2,activityCount:2,validCount:1,completedCount:1}};
+ const rig=createUiRig(new Map(),null,{state:'disabled'},{},[],undefined,()=>true,null,snapshot);
+ await rig.init();
+ const nav=rig.find(rig.render(),'button','渠道活动')[0];
+ assert.ok(nav,'activity catalog has its own top-level page');
+ nav.props.onClick();
+ const page=rig.render(),text=rig.flatten(page).join(' ');
+ assert.match(text,/WorkBuddy 国内 · 2 项/);
+ assert.match(text,/豆包 · 0 项/);
+ assert.match(text,/活动名称.*免费奖励.*是否有效.*到期时间.*执行状态/);
+ assert.match(text,/官方活动赠送积分.*160 积分.*有效 · 可自动执行/);
+ assert.match(text,/官方补偿积分.*官方未公布.*已完成/);
+ assert.match(text,/暂无符合条件的免费自动活动/);
+ assert.doesNotMatch(text,/活动明细组成|消费充值|邀请码任务/);
+ const tables=[];
+ const visit=node=>{if(Array.isArray(node))return node.forEach(visit);
+  if(!node||typeof node!=='object')return;
+  if(node.type==='table')tables.push(node);visit(node.children)};
+ visit(page);
+ assert.equal(tables.length,2,'each channel must render its own accessible table');
+ const refresh=rig.find(page,'button','刷新官方活动')[0];
+ assert.ok(refresh&&!refresh.props.disabled);
+ await refresh.props.onClick();
+ assert.ok(rig.mutations.some(x=>x.kind==='activities-official-refresh'));
+});
+
 test('built-in account panel can inspect explicit free evidence and run a real-model adapter test without a browser',async()=>{
  const id='wbp_'+'b'.repeat(24);
  const snapshot={ok:true,channels:[{id:'own_workbuddy-cn',name:'WorkBuddy CN',
@@ -747,7 +791,7 @@ function uiNodes(node,predicate,found=[]){
  uiNodes(node.children,predicate,found);
  return found;
 }
-test('WorkBuddy-style page shell keeps all nine settings destinations, scoped themes and responsive nav',async()=>{
+test('WorkBuddy-style page shell keeps all ten settings destinations, scoped themes and responsive nav',async()=>{
  const rig=createUiRig();await rig.init();
  let page=rig.render();
  const cssNode=uiNodes(page,node=>node.type==='style')[0];
@@ -762,8 +806,8 @@ test('WorkBuddy-style page shell keeps all nine settings destinations, scoped th
  const nav=uiNodes(page,node=>node.type==='nav')[0];
  assert.equal(nav?.props?.['aria-label'],'聚合路由设置导航');
  const buttons=uiNodes(nav,node=>node.type==='button');
- assert.equal(buttons.length,9);
- assert.equal(new Set(buttons.map(b=>rig.flatten(b).join(''))).size,9);
+ assert.equal(buttons.length,10);
+ assert.equal(new Set(buttons.map(b=>rig.flatten(b).join(''))).size,10);
  assert.equal(buttons.filter(b=>b.props['aria-current']==='page').length,1);
  rig.find(page,'button','模型链条')[0].props.onClick();
  page=rig.render();
@@ -887,7 +931,7 @@ test('compact mobile navigation selects every major page while desktop sidebar r
  assert.ok(mobile,'mobile navigation must exist');
  const select=uiNodes(mobile,node=>node.type==='select')[0];
  assert.equal(select?.props?.['aria-label'],'选择设置页面');
- assert.equal(uiNodes(mobile,node=>node.type==='option').length,9);
+ assert.equal(uiNodes(mobile,node=>node.type==='option').length,10);
  assert.equal(uiNodes(mobile,node=>node.type==='optgroup').length,4);
  const css=uiNodes(page,node=>node.type==='style')[0].props.dangerouslySetInnerHTML.__html;
  assert.match(css,/@media \(max-width:760px\).*?\.dnr-shell \.dnr-rail\{display:none\}/s);
