@@ -71,6 +71,33 @@ test('read-only account driver snapshot is isolated per channel and keeps origin
     'offline owned account must not copy stale original plugin balances'); assert.ok(view.accounts.every(x=>!JSON.stringify(x).includes('secret')));
 });
 
+test('partial official quota windows retain remaining-only, total-only and used-only values with units',()=>{
+ const providerId='own_aws_quick';
+ const cfg=normalizeConfig({providers:[{id:providerId,name:'Amazon Quick',protocol:'native-channel'}],
+  accounts:[{id:'aq-test',providerId,credentialRef:'driver:'+providerId+':aq-test',enabled:true}]});
+ const driver={accountSnapshot(){return {
+  accountName:'Real Quick Member',
+  balanceState:'unavailable',
+  quotaCheckedAt:123456,
+  quotaWindows:[
+   {label:'Automation Hours',left:4.5,unit:'h'},
+   {label:'Research Hours',total:10,used:2.5,unit:'h'},
+   {label:'Trial Hours',used:1.5,unit:'h'},
+   {label:'Invalid Data',left:-1,total:NaN,unit:'h'},
+  ],
+ }}};
+ const center=createAccountCenter({configStore:{get:()=>structuredClone(cfg),replace(){}},
+  drivers:new Map([[providerId,driver]])});
+ const row=center.list().accounts[0];
+ assert.equal(row.nickname,'Real Quick Member');
+ assert.equal(row.balanceState,'unavailable','temporary quota error is not a permanently absent entitlement');
+ assert.equal(row.quotaWindows.length,3);
+ assert.deepEqual(row.quotaWindows[0],{label:'Automation Hours',left:4.5,unit:'h'});
+ assert.deepEqual(row.quotaWindows[1],{label:'Research Hours',total:10,used:2.5,unit:'h'});
+ assert.deepEqual(row.quotaWindows[2],{label:'Trial Hours',used:1.5,unit:'h'});
+ center.stop();
+});
+
 test('same account/source rank never selects a disabled or unverified backup as available',()=>{
  const id=sourceAccountOpaqueId('loomy','same');
  const view=mergeAccountSources({roster:{

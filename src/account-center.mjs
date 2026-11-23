@@ -89,12 +89,23 @@ export function createAccountCenter({
             driver.accountSnapshot(account)??{}:{}}catch{}
              const name=publicAccountName(live,account);
              const balance=publicBalance(live);
+             // A valid entitlement may expose ONLY remaining units (or only
+             // the provisioned/used values). Never discard that official
+             // evidence simply because the provider omitted a total.
              const quotaWindows=Array.isArray(live.quotaWindows)?live.quotaWindows.slice(0,12)
-               .filter(x=>x&&typeof x.label==='string'&&Number.isFinite(x.left)
-                 &&x.left>=0&&Number.isFinite(x.total)&&x.total>=0)
-               .map(x=>({kind:x.kind,label:x.label.slice(0,50),
-                 total:x.total,used:x.used,left:x.left,
-                 ...(Number.isFinite(x.endAt)?{endAt:x.endAt}:{})})):[];
+               .filter(x=>x&&typeof x.label==='string'&&x.label.trim()
+                 &&['left','total','used'].some(key=>
+                   Number.isFinite(x[key])&&x[key]>=0))
+               .map(x=>({
+                 ...(typeof x.kind==='string'?{kind:x.kind.slice(0,24)}:{}),
+                 label:x.label.trim().slice(0,50),
+                 ...Object.fromEntries(['left','total','used']
+                   .filter(key=>Number.isFinite(x[key])&&x[key]>=0)
+                   .map(key=>[key,x[key]])),
+                 ...(typeof x.unit==='string'&&x.unit.trim().length<=24
+                   ?{unit:x.unit.trim()}:{}),
+                 ...(Number.isFinite(x.endAt)&&x.endAt>0?{endAt:x.endAt}:{})
+               })):[];
           const lastProof=inferenceProof.get(account.id);
           const lastFailure=inferenceFailures.get(account.id);
           const persistentProof=verificationStore?.getModelTest?.(account);
@@ -574,9 +585,13 @@ export function createAccountCenter({
             Number.isFinite(snapshot.checkedAt);
           const binding=account.id+'\0'+account.credentialRef;
           const lastWarmup=profileWarmup.get(binding)??0;
+          // A quota refresh timestamp cannot prove the profile nickname was
+          // recovered. Recheck incomplete public identity once per normal
+          // verification period, not on every accounts-page navigation.
+          const named=Boolean(publicAccountName(snapshot,account));
           const needsProfileHydration=previous?.state==='online'&&
-            typeof driver?.accountSnapshot==='function'&&!hydrated&&
-            (!lastWarmup||now()-lastWarmup>=Math.min(autoVerifyMs,60000));
+            typeof driver?.accountSnapshot==='function'&&(!hydrated||!named)&&
+            (!lastWarmup||now()-lastWarmup>=autoVerifyMs);
           if(!force&&verificationWithinPeriod(previous,now(),autoVerifyMs)
               &&!needsProfileHydration){
             results[at]={state:previous.state,checkedAt:previous.checkedAt,

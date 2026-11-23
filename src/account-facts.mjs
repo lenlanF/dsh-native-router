@@ -44,7 +44,8 @@ export function publicBalance(...sources){
     return {balance:amount,...(unit?{balanceUnit:unit}:{}),
       ...(checkedAt?{balanceCheckedAt:checkedAt}:{}),balanceState:'available'};
   }
-  const state=sources.find(x=>x?.balanceState==='not_supported')?'not_supported':
+  const state=sources.find(x=>x?.balanceState==='unavailable')?'unavailable':
+    sources.find(x=>x?.balanceState==='not_supported')?'not_supported':
     sources.find(x=>x?.balanceState==='not_returned')?'not_returned':'not_checked';
   return {balanceState:state};
 }

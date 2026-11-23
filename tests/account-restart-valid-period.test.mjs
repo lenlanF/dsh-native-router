@@ -55,6 +55,32 @@ test('across THREE DSH lifetimes, fresh persisted login is inherited without any
  }finally{rmSync(folder,{recursive:true,force:true})}
 });
 
+test('quota timestamp alone never suppresses one missing nickname recovery on an online account',async()=>{
+ const cfg=makeConfig(),store=createAccountVerificationStore(),start=Date.now();
+ store.set(cfg.accounts[0],{state:'online',at:start});
+ let clock=start,calls=0,profile='';
+ const driver={
+  accountSnapshot(){return {quotaCheckedAt:start,quotaWindows:[{label:'earned',left:4,unit:'h'}],
+    ...(profile?{nickname:profile}:{})}},
+  async refreshAccountStatus(){
+   calls++;
+   profile='Official Account Name';
+   return {state:'ready',authVerified:true};
+  },
+ };
+ const center=createAccountCenter({
+  configStore:{get:()=>structuredClone(cfg),replace(){}},verificationStore:store,
+  drivers:new Map([['own_loomy',driver]]),now:()=>clock});
+ assert.equal(center.list().accounts[0].nickname,undefined);
+ const restored=await center.refreshReadOnly();
+ assert.equal(restored[0].authVerified,true);
+ assert.equal(calls,1,'missing name needs its own read even when quota was recently checked');
+ assert.equal(center.list().accounts[0].nickname,'Official Account Name');
+ await center.refreshReadOnly();
+ assert.equal(calls,1,'authenticated metadata remains cached without duplicate requests');
+ center.stop();
+});
+
 test('real account/check-in startup timers reuse a fresh stored login without a network retry',async()=>{
  const cfg=makeConfig(),verificationStore=createAccountVerificationStore();
  verificationStore.set(cfg.accounts[0],{state:'online',at:Date.now()});
