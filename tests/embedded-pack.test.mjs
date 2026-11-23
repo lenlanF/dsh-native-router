@@ -602,6 +602,26 @@ test('independent source read-only identity and credit APIs provide usernames, Z
  assert.equal(masked.accounts[0].maskedPhone,'138****5678');
  bridge.dispose();
 });
+test('owned source account roster uses trusted login accountName if nickname is only a generated pool ID',async()=>{
+ const entry={id:'loomy-safe-id-1',provider:'loomy',enabled:true,
+   nickname:'账号1',accountName:'已确认登录账户',credentialRef:'NATIVE_ROUTER_SOURCE_FAKE_PRIVATE_REF',
+   refreshable:false};
+ let pool;
+ const scope={get:key=>key==='accountPool'?pool:undefined};
+ const bridge=createEmbeddedChannelPack({ctx:{inject(_names,cb){cb(scope)}},
+   getConfig:enabled,env:isolatedEnv,
+   loadPack:async()=>({apply(){pool={listAllAccounts:async()=>[entry]}}})});
+ bridge.attach();await tick();await tick();
+ try{
+  const result=await bridge.listAccounts();
+  assert.equal(result.state,'ready');
+  assert.equal(result.accounts[0].nickname,'已确认登录账户');
+  assert.equal(result.accounts[0].connectionState,'not_checked',
+    'account name in private pool does NOT prove remote auth');
+  assert.doesNotMatch(JSON.stringify(result),
+    /NATIVE_ROUTER_SOURCE_FAKE_PRIVATE_REF|credentialRef/);
+ }finally{bridge.dispose()}
+});
 test('unavailable upstream pool and failed metadata read never mutate accounts or expose errors',async()=>{
  const scope={get:()=>undefined};
  const bridge=createEmbeddedChannelPack({ctx:{inject(_names,cb){cb(scope)}},

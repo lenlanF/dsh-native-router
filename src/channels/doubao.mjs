@@ -169,8 +169,11 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
       uidConfirmed:true,verifiedAt:now()});
     return info;
    }catch(error){
+    // This catch is *after* a successfully opened local vault credential.
+    // A server 401 or a verified member UID change is an official auth
+    // rejection; by contrast a failing DSH Credentials read never got here.
     if(error?.code==='CREDENTIAL'||error?.status===401||errorCode(error)==='710012001')
-     throw new UpstreamError('Doubao session identity invalid',{code:'CREDENTIAL',status:401});
+     throw new UpstreamError('Doubao session identity invalid',{code:'AUTH',status:401});
     if(error?.status===429||errorCode(error)==='710022004')
      throw new UpstreamError('Doubao risk control requires official confirmation',{code:'RATE_LIMIT',status:429});
     throw new UpstreamError('Doubao official account probe failed',{code:'UPSTREAM'});
@@ -291,9 +294,12 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
      return {state:'online',authVerified:true,checkedAt:now(),
        message:'豆包官方身份、会员额度及活动状态已执行独立只读刷新'};
    }catch(error){
-    return {state:error?.code==='CREDENTIAL'?'expired':
+    // Do not persist 'expired' merely because Host could not read its own
+    // credential record. Only an authenticated official rejection from probe
+    // is definitive. Preserve the exact earlier proof for later rechecking.
+    return {state:error?.code==='AUTH'?'expired':
        error?.status===429?'limited':'unavailable',authVerified:false,
-       message:'豆包官方账号资料暂不可核验，不影响历史合法登录凭据'};
+       message:'豆包账号资料暂不可核验；本地凭据暂不可读取不等于官方授权过期'};
    }
   }
   async function refresh({account,signal}={}){
