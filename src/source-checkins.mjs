@@ -194,7 +194,11 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
            // later partial response omits the task field.
            const confirmed=entry.todayCheckedIn===true||
              prior?.day===today()&&prior.todayCheckedIn===true;
-           const facts=publicBalance(entry);
+           const official=publicBalance(entry);
+           const previous=publicBalance(prior);
+           const keepPrevious=!Number.isFinite(official.balance)&&
+             Number.isFinite(previous.balance)&&prior?.bindingRef===bindingFor(row);
+           const facts=keepPrevious?{...previous,balanceState:'cached'}:official;
            statusCache.set(row.id,{day:today(),checkedAt:now(),nickname,
              bindingRef:bindingFor(row),
              state:entry.authVerified===true?'online':'pending',todayCheckedIn:confirmed?true:entry.todayCheckedIn===false?false:null,
@@ -235,8 +239,22 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
         // for an account missing from its returned roster. Discard stale
         // per-account proof immediately; otherwise it remains 'online' for
         // 15 minutes after the provider stopped returning that identity.
-        for(const row of members)if(!confirmedMembers.has(row.id))
-          statusCache.delete(row.id);
+        for(const row of members)if(!confirmedMembers.has(row.id)){
+          const old=statusCache.get(row.id);
+          if(!old||old.bindingRef!==bindingFor(row)){
+            statusCache.delete(row.id);continue;
+          }
+          // An absent account is NOT authenticated, but its last public
+          // name/balance must not blink out. Retain only presentation facts,
+          // never a prior online badge or daily claim eligibility.
+          const stale={...old,checkedAt:now(),state:'pending',
+            authVerified:false,claimable:false,todayCheckedIn:null,
+            benefits:[],balanceState:Number.isFinite(old.balance)?'cached':
+              'not_checked'};
+          delete stale.activityRewardProof;
+          delete stale.activityRewardVerifiedAt;
+          statusCache.set(row.id,stale);
+        }
       }));
     }
     return snapshot();
@@ -253,6 +271,12 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
      &&verificationWithinPeriod({state:verified.state??(verified.authVerified?'online':'pending'),
        checkedAt:verified.checkedAt},now(),STATUS_TTL_MS);
    const report=fresh?verified:null;
+   // Authentication freshness and public display continuity are separate:
+   // an expired 15-min probe must not erase the last observed account facts.
+   const displayFacts=verified?.bindingRef===bindingFor(row)?verified:null;
+   const displayBalance=publicBalance(report,displayFacts);
+   const isCached=Number.isFinite(displayBalance.balance)&&
+     (!report||displayBalance.balanceState==='cached');
    const loomy=row.providerId==='loomy'&&Array.isArray(report?.benefits)?
      report.benefits.map(offer=>{
        const receipt=activityStore?.receipt?.(loomyAccount(row),offer);
@@ -282,7 +306,8 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
       configuredEnabled:row.enabled,credentialKind:'driver',
       connectionState:!state.enabled||!state.providerEnabled?'disabled':
         report?.authVerified===true?'online':
-        ['expired','limited'].includes(report?.state)?report.state:'not_checked',
+        ['expired','limited'].includes(report?.state)?report.state:
+        displayFacts?.authVerified===true?'recently_verified':'not_checked',
       sourceAccount:true,autoCheckin:state.autoCheckin,
       autoCheckinEffective:state.autoCheckin&&state.enabled&&state.providerEnabled
         &&configStore.get().checkin.autoEnabled===true,
@@ -312,11 +337,13 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
           activityRewardVerifiedAt:report.activityRewardVerifiedAt}:{}),
       ...(Number.isFinite(report?.activityExpiresAt)&&report.activityExpiresAt>0
         ?{activityExpiresAt:report.activityExpiresAt}:{}),
-      ...publicBalance(report),
-      ...(Number.isFinite(report?.expiringPoints)&&report.expiringPoints>0
-        &&report.balanceUnit==='积分'?{expiringPoints:report.expiringPoints,
-        ...(Number.isFinite(report.expiringAt)?{expiringAt:report.expiringAt}:{})}:{}),
-      ...(report?.maskedPhone?{maskedPhone:report.maskedPhone}:{}),
+      ...displayBalance,
+      ...(isCached?{balanceState:'cached',balanceStale:true}:{}),
+      ...(Number.isFinite(displayFacts?.expiringPoints)&&displayFacts.expiringPoints>0
+        &&displayBalance.balanceUnit==='积分'
+        &&Number.isFinite(displayFacts.expiringAt)&&displayFacts.expiringAt>now()?
+        {expiringPoints:displayFacts.expiringPoints,expiringAt:displayFacts.expiringAt}:{}),
+      ...(displayFacts?.maskedPhone?{maskedPhone:displayFacts.maskedPhone}:{}),
       checkinMessage:confirmedUpstream?'来源服务已核实今日签到完成':
         confirmedFromHistory?'本账号今日已有确认成功记录；来源状态尚未同步':
         oldPending?'上次请求已超过20分钟，尚无服务端签到确认；后续将限次复核':
