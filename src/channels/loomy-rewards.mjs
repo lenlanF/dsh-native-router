@@ -53,35 +53,67 @@ export async function readLoomyFreeTasks({credential,fetchImpl=fetch}={}){
    }));
  return tasks.length?{state:'available',tasks}:{state:'unavailable',tasks:[]};
 }
+// The official point-account statement is the only usable reward evidence.
+// A completed onboarding checkbox alone does NOT mean points were credited.
+export async function readLoomyWallet({credential,fetchImpl=fetch}={}){
+ const data=await request(credential,'/points/records?pageNo=1&pageSize=1&recordType=all',
+   {fetchImpl});
+ const value=data?.balance;
+ const permanent=typeof value==='number'?value:
+   typeof value==='string'&&/^\\d+(?:\\.\\d+)?$/.test(value)?Number(value):NaN;
+ return Number.isFinite(permanent)&&permanent>=0&&permanent<=1e12?
+   {state:'available',permanent}:{state:'unavailable'};
+}
+const credited=(before,after,points)=>before?.state==='available'
+ &&after?.state==='available'&&Number.isFinite(points)&&points>0
+ &&Math.abs((after.permanent-before.permanent)-points)<0.000001;
 export async function claimLoomyFreeTasks({credential,fetchImpl=fetch,
- beforeClaim,onOutcome,onObserved}={}){
+ beforeClaim,onOutcome,onObserved,previousReceipt,now=()=>Date.now()}={}){
  const initial=await readLoomyFreeTasks({credential,fetchImpl});
  if(initial.state!=='available')return {state:'unavailable',confirmed:0,pending:0,eligible:0};
  let confirmed=0,pending=0,eligible=0;
+ // Provider task status and wallet statement must both be available before
+ // we ever submit a free task-completion POST.
+ let wallet=await readLoomyWallet({credential,fetchImpl});
+ if(wallet.state!=='available')return {state:'unavailable',confirmed,pending,eligible};
  for(const offer of initial.tasks){
   if(offer.claimed){
-   try{await onObserved?.(offer,'confirmed')}catch{}
+   // Network errors can leave a previously accepted POST ambiguous. Only an
+   // exact wallet increase, compared with the durable pre-POST balance,
+   // upgrades its receipt. Old rc89 receipts had no baseline and stay hidden.
+   let previous=null;
+   try{previous=await previousReceipt?.(offer)}catch{}
+   if(previous&&previous.state!=='confirmed'&&Number.isFinite(previous.baselineBalance)
+       &&credited({state:'available',permanent:previous.baselineBalance},wallet,offer.credit)){
+     try{await onObserved?.(offer,'confirmed',{
+       credit:offer.credit,proof:'official_wallet_delta',verifiedAt:now()})}catch{}
+   }
    continue;
   }
   eligible++;
-  // The sender creates a durable identity-bound receipt BEFORE sending POST.
+  // Record the official balance before the POST in the durable owner receipt.
+  // Failed wallet reads must not initiate any completion request.
+  wallet=await readLoomyWallet({credential,fetchImpl});
+  if(wallet.state!=='available')return {state:'unavailable',confirmed,pending,eligible};
   let approved=false;
-  try{approved=await beforeClaim?.(offer)===true}catch{}
+  try{approved=await beforeClaim?.(offer,{baselineBalance:wallet.permanent})===true}catch{}
   if(!approved)continue;
   const key=offer.kind.slice('loomy_'.length);
-  // Exact API claim: no visible or background user action, only official
-  // /onboarding/tasks/complete. Its reply alone does not prove points.
+  // Only an API-level task completion, never a visible task operation.
   await request(credential,'/onboarding/tasks/complete',{key,fetchImpl});
   const status=await readLoomyFreeTasks({credential,fetchImpl});
   const task=status.tasks.find(x=>x.kind===offer.kind);
-  const done=status.state==='available'&&task?.claimed===true;
-  try{await onOutcome?.(offer,done?'confirmed':'pending_confirmation')}catch{}
+  const after=await readLoomyWallet({credential,fetchImpl});
+  const done=status.state==='available'&&task?.claimed===true
+    &&credited(wallet,after,offer.credit);
+  const metadata=done?{credit:offer.credit,
+    proof:'official_wallet_delta',verifiedAt:now()}:{};
+  try{await onOutcome?.(offer,done?'confirmed':'pending_confirmation',metadata)}catch{}
   if(done)confirmed++;
   else{
    pending++;
-   // A task which still appears incomplete might require genuine visible
-   // work. Do NOT brute-force its endpoint or fan out further task POSTs
-   // after the first ambiguous remote result.
+   // A task can demand genuine visible work, or the wallet can lag behind
+   // a checkbox. Never keep posting other offers on an unverified outcome.
    break;
   }
  }

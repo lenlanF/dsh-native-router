@@ -17,7 +17,7 @@ const sha=v=>createHash('sha256').update(v).digest('hex');
 const safeRoot=()=>mkdtempSync(join(tmpdir(),'dsh-workbuddy-own-test-'));
 const content=[{choices:[{delta:{content:'independent workbuddy'},finish_reason:'stop'}]}];
 function testRig(region,{benefitCampaign=false,dailyActive=true,dailyClaimError=false,
- benefitPostAmbiguous=false}={}){
+ benefitPostAmbiguous=false,benefitWalletUnchanged=false}={}){
  const root=safeRoot();
  const domain=region==='cn'?'www.workbuddy.cn':'www.workbuddy.ai';
  const source='workbuddy-'+region,own='own_workbuddy-'+region;
@@ -43,7 +43,7 @@ function testRig(region,{benefitCampaign=false,dailyActive=true,dailyClaimError=
   async set(key,value){store.set(key,value)},
   async unset(key){store.delete(key)},
  };
-  const hits=[];let checked=false,compensationClaimed=false;
+  const hits=[];let checked=false,compensationClaimed=false,walletBalance=100;
  const fetchImpl=async(url,init={})=>{
   hits.push(String(url));
   assert.ok(String(url).startsWith('https://'+domain+'/')
@@ -62,6 +62,10 @@ function testRig(region,{benefitCampaign=false,dailyActive=true,dailyClaimError=
      checked=true;return new Response(JSON.stringify({code:0,data:{credit:10}}),
       {status:200,headers:{'content-type':'application/json'}});
   }
+   if(String(url).includes('/v2/billing/meter/get-user-resource'))
+    return new Response(JSON.stringify({code:0,data:{Response:{Data:{Accounts:[{
+      PackageName:'测试免费积分',CapacityType:3,CapacityRemain:walletBalance,
+      CapacitySize:walletBalance,ExpiredTime:'2027-11-23T00:00:00Z'}]}}}}));
    if(String(url).includes('/billing/meter/compensation-status'))
     return new Response(JSON.stringify({code:0,data:{active:benefitCampaign,claimed:compensationClaimed,credit_num:160}}));
    if(String(url).includes('/billing/meter/check-gift-claimed'))
@@ -69,6 +73,7 @@ function testRig(region,{benefitCampaign=false,dailyActive=true,dailyClaimError=
    if(String(url).includes('/billing/meter/claim-compensation')){
     if(!benefitCampaign)throw Error('No grant advertised');
     compensationClaimed=true;
+    if(!benefitWalletUnchanged)walletBalance+=160;
     if(benefitPostAmbiguous)return new Response('',{status:503});
     return new Response(JSON.stringify({code:0,data:{}}));
    }
@@ -191,9 +196,10 @@ test('WorkBuddy uncertain gift accepted by provider is later reconciled from off
   await r.adoption.adopt({providerId:r.source,accountId:source.accountId,consent:true});
   const account=r.cfg.accounts[0],store=createActivityClaimStore({path:null});
   const doClaim=()=>r.driver.claimActivities({account,date:'2026-11-23',
-   beforeClaim:offer=>store.begin(account,offer),
-   onOutcome:(offer,state)=>store.finish(account,offer,state),
-   onObserved:(offer,state)=>store.finish(account,offer,state)});
+   beforeClaim:(offer,meta)=>store.begin(account,offer,meta),
+   onOutcome:(offer,state,meta)=>store.finish(account,offer,state,meta),
+   onObserved:(offer,state,meta)=>store.finish(account,offer,state,meta),
+   previousReceipt:offer=>store.receipt(account,offer)});
   const first=await doClaim();
   assert.equal(first.pending,1);
   assert.equal(store.summary(account).unconfirmed,1);
@@ -201,9 +207,34 @@ test('WorkBuddy uncertain gift accepted by provider is later reconciled from off
   await doClaim();
   assert.equal(store.summary(account).confirmed,1,
     'after a network error the real claimed status completes the pending ledger');
+  assert.equal(store.receipt(account,{kind:'compensation',credit:160}).proof,
+    'official_wallet_delta');
   assert.equal(store.summary(account).unconfirmed,0);
   assert.equal(r.hits.filter(x=>x.includes('/billing/meter/claim-compensation')).length,1,
     'only one remote compensation POST is ever allowed');
+ }finally{r.cleanup()}
+});
+
+test('WorkBuddy claimed checkbox without actual wallet increase remains uncredited and cannot be resubmitted',async()=>{
+ const r=testRig('cn',{benefitCampaign:true,benefitWalletUnchanged:true});
+ try{
+  const source=(await r.inventory.scan()).accounts.find(x=>x.providerId===r.source);
+  await r.adoption.adopt({providerId:r.source,accountId:source.accountId,consent:true});
+  const account=r.cfg.accounts[0],store=createActivityClaimStore({path:null});
+  const probe=()=>r.driver.claimActivities({account,date:'2026-11-23',
+    beforeClaim:(offer,meta)=>store.begin(account,offer,meta),
+    onOutcome:(offer,state,meta)=>store.finish(account,offer,state,meta),
+    onObserved:(offer,state,meta)=>store.finish(account,offer,state,meta),
+    previousReceipt:offer=>store.receipt(account,offer)});
+  const first=await probe();
+  assert.equal(first.confirmed,0);
+  assert.equal(first.pending,1);
+  assert.equal(store.summary(account).unconfirmed,1);
+  await probe();
+  assert.equal(store.summary(account).confirmed,0,
+    'already claimed vendor task is not proof of credited points');
+  assert.equal(store.receipt(account,{kind:'compensation',credit:160})?.proof,undefined);
+  assert.equal(r.hits.filter(x=>x.includes('/billing/meter/claim-compensation')).length,1);
  }finally{r.cleanup()}
 });
 

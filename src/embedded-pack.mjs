@@ -546,14 +546,16 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
       credential=>readLoomyFreeTasks({credential,fetchImpl:loomyFetchImpl}));
     return result?.state==='available'?result:{state:'unavailable',tasks:[]};
   }
-  async function claimLoomyActivities({sourceAccountId,beforeClaim,onOutcome,onObserved}={}){
+  async function claimLoomyActivities({sourceAccountId,beforeClaim,onOutcome,
+    onObserved,previousReceipt}={}){
     const scope=mountedScope();
     if(!scope||!sourceAllowed('loomy'))return {state:'unavailable'};
     return withOwnedSourceCredential(scope,'loomy',sourceAccountId,null,
       credential=>claimLoomyFreeTasks({credential,fetchImpl:loomyFetchImpl,
-        beforeClaim:offer=>scope===mountedScope()&&beforeClaim?.(offer),
-        onOutcome:(offer,state)=>scope===mountedScope()&&onOutcome?.(offer,state),
-        onObserved:(offer,state)=>scope===mountedScope()&&onObserved?.(offer,state)}));
+        beforeClaim:(offer,meta)=>scope===mountedScope()&&beforeClaim?.(offer,meta),
+        onOutcome:(offer,state,meta)=>scope===mountedScope()&&onOutcome?.(offer,state,meta),
+        onObserved:(offer,state,meta)=>scope===mountedScope()&&onObserved?.(offer,state,meta),
+        previousReceipt:offer=>scope===mountedScope()?previousReceipt?.(offer):null}));
   }
   async function checkinAccount({providerId,sourceAccountId,
     beforeOneTimeClaim,onOneTimeOutcome}={}){
@@ -824,11 +826,21 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
         const today=new Intl.DateTimeFormat('en-CA',{
           timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'})
           .format(new Date());
+        // Raccoon daily_grant is the rare source that exposes an official
+        // positive per-day wallet transaction in its account status. A plan
+        // amount or generic checked-in flag is NOT evidence of credited points.
+        const creditedDaily=providerId==='raccoon'&&facts.authVerified===true
+          &&upstreamCheckedInToday(exact,today)===true
+          &&typeof exact?.todayCredit==='number'&&Number.isFinite(exact.todayCredit)
+          &&exact.todayCredit>0;
         accounts.push({accountId,...facts,nickname:facts.nickname??'',          ...(phone?{maskedPhone:phone}:{}),
            todayCheckedIn:upstreamCheckedInToday(exact,today),
            ...(typeof exact?.claimable==='boolean'?{claimable:exact.claimable}:{}),
            ...(exact?.noClaimablePlans===true?{noClaimablePlans:true}:{}),
            ...freeReward,
+           ...(creditedDaily?{
+             activityRewardProof:'official_daily_grant_bill',
+             activityRewardVerifiedAt:Date.now()}:{}),
            ...(providerId==='loomy'&&loomyProof?.state==='available'
              ?{benefits:loomyProof.tasks}:{}),
            ...(providerId==='raccoon'&&loginProof&&loginProof.state!=='unavailable'

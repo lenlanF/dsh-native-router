@@ -1,6 +1,8 @@
 # DSH Native Router｜聚合路由
 
-**当前开发候选：1.0.0-rc.89。** Loomy 8 项官方新手任务（合计标称 10000 积分）已按你的要求接入纯后台 API 完成／领取／回查，不实际生成 PPT、发送、分享、创建技能或消耗模型；奖励回执持久防重复，Cline/Gemini 只读鉴别无独立签到接口。详见 docs/RC89_SILENT_API_REWARDS.md。
+**当前开发候选：1.0.0-rc.90。** 渠道活动列表改为只显示真实官方钱包／账单确认积分已到账的活动；Loomy、WorkBuddy 采用官方任务状态加对应积分账户领取前后正增量双验证，Raccoon 每日免费积分严格依据当日官方账单，任何未确认、付费、需有感操作的理论任务和积分均不显示。参见 docs/RC90_VERIFIED_REWARDS_ONLY.md。
+
+**此前 rc.89：** Loomy 8 项官方新手任务（合计标称 10000 积分）已按你的要求接入纯后台 API 完成／领取／回查，不实际生成 PPT、发送、分享、创建技能或消耗模型；奖励回执持久防重复，Cline/Gemini 只读鉴别无独立签到接口。详见 docs/RC89_SILENT_API_REWARDS.md。
 
 **此前 rc.88：** 恢复 Raccoon 免费每日积分和一次性登录奖励，独立官方查询、官方账单确认、防重复提交；WorkBuddy 回执异常可由官方状态自动补确认。参见 docs/RC88_RACCOON_FREE_REWARDS.md。
 

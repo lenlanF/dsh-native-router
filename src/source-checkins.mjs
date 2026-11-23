@@ -210,6 +210,11 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
                 &&typeof entry.activityRewardUnit==='string'?{
                   activityRewardAmount:entry.activityRewardAmount,
                   activityRewardUnit:entry.activityRewardUnit}:{}),
+              ...(row.providerId==='raccoon'&&entry.authVerified===true
+                &&entry.activityRewardProof==='official_daily_grant_bill'
+                &&Number.isSafeInteger(entry.activityRewardVerifiedAt)?{
+                  activityRewardProof:'official_daily_grant_bill',
+                  activityRewardVerifiedAt:entry.activityRewardVerifiedAt}:{}),
               ...(Number.isFinite(entry.activityExpiresAt)&&entry.activityExpiresAt>0
                 ?{activityExpiresAt:entry.activityExpiresAt}:{}),
               ...facts,
@@ -249,9 +254,16 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
        checkedAt:verified.checkedAt},now(),STATUS_TTL_MS);
    const report=fresh?verified:null;
    const loomy=row.providerId==='loomy'&&Array.isArray(report?.benefits)?
-     report.benefits.map(offer=>({...offer,
-       ...(activityStore?.receipt?.(loomyAccount(row),offer)?.state?{
-         receiptState:activityStore.receipt(loomyAccount(row),offer).state}:{})})):null;
+     report.benefits.map(offer=>{
+       const receipt=activityStore?.receipt?.(loomyAccount(row),offer);
+       const proven=offer.claimed===true&&receipt?.state==='confirmed'
+         &&receipt.proof==='official_wallet_delta'
+         &&receipt.credit===offer.credit&&Number.isSafeInteger(receipt.verifiedAt);
+       return {...offer,
+         ...(receipt?.state?{receiptState:receipt.state}:{}),
+         ...(proven?{rewardVerified:true,rewardProof:'official_wallet_delta',
+           rewardVerifiedAt:receipt.verifiedAt}:{})};
+     }):null;
    const loomySummary=row.providerId==='loomy'&&activityStore?
      activityStore.summary(loomyAccount(row)):null;
       const confirmedFromHistory=history(row.id).some(x=>x.state==='success');
@@ -293,6 +305,11 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
         &&typeof report.activityRewardUnit==='string'?{
           activityRewardAmount:report.activityRewardAmount,
           activityRewardUnit:report.activityRewardUnit}:{}),
+      ...(report?.authVerified===true
+        &&report.activityRewardProof==='official_daily_grant_bill'
+        &&Number.isSafeInteger(report.activityRewardVerifiedAt)?{
+          activityRewardProof:'official_daily_grant_bill',
+          activityRewardVerifiedAt:report.activityRewardVerifiedAt}:{}),
       ...(Number.isFinite(report?.activityExpiresAt)&&report.activityExpiresAt>0
         ?{activityExpiresAt:report.activityExpiresAt}:{}),
       ...publicBalance(report),
@@ -419,11 +436,12 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
    try{
      const result=await sourcePack.claimLoomyActivities({
        sourceAccountId:row.sourceAccountId,
-       beforeClaim:offer=>authorized()&&activityStore.begin(account,offer),
-       onOutcome:(offer,state)=>authorized()&&activityStore.finish(account,offer,
-         state==='confirmed'?'confirmed':'pending_confirmation'),
-       onObserved:(offer,state)=>authorized()&&activityStore.finish(account,offer,
-         state==='confirmed'?'confirmed':'pending_confirmation')
+       beforeClaim:(offer,meta)=>authorized()&&activityStore.begin(account,offer,meta),
+       onOutcome:(offer,state,meta)=>authorized()&&activityStore.finish(account,offer,
+         state==='confirmed'?'confirmed':'pending_confirmation',meta),
+       onObserved:(offer,state,meta)=>authorized()&&activityStore.finish(account,offer,
+         state==='confirmed'?'confirmed':'pending_confirmation',meta),
+       previousReceipt:offer=>authorized()?activityStore.receipt(account,offer):null
      });
      if(!authorized())return {state:'account_changed'};
      if(result?.confirmed>0||result?.pending>0)
