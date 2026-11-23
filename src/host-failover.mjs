@@ -4,6 +4,7 @@ import {normalizeRules,normalizeMode,qualifies,canSwitch,allowsSelection,firstUs
   sameSelection} from './failover/rules.mjs';
 import {createStateStore,recordIntent,clearIntent,noteIncoming,requestDrive} from './failover/state.mjs';
 import {randomUUID} from 'node:crypto';
+import {allowsHostModel} from './host-model-selection.mjs';
 // Equivalent to DSH createUserMessage for a zero-content retry intent:
 // deepFreeze(structuredClone({...input,id:randomUUID(),role:'user'})).
 // No runtime import of @deepseek-ai/dsh-llm (absent in unpack-only profiles).
@@ -18,8 +19,10 @@ export function createOwnedRetryMessage(input){
 export function attachHostFailover(ctx,{configStore,now=()=>Date.now(),createUserMessage}={}){
  const states=createStateStore(),config=()=>configStore.get().hostFailover;
   const cfg=config();
-  let rules=normalizeRules({...cfg,enabled:cfg.enabled}),mode=normalizeMode(cfg.mode);
-  function refreshRules(){const next=config();rules=normalizeRules({...next,enabled:next.enabled});mode=normalizeMode(next.mode)}
+  const permittedRules=next=>({...next,priority:(next.priority??[])
+    .filter(row=>allowsHostModel(configStore.get(),row.provider,row.model))});
+  let rules=normalizeRules({...permittedRules(cfg),enabled:cfg.enabled}),mode=normalizeMode(cfg.mode);
+  function refreshRules(){const next=config();rules=normalizeRules({...permittedRules(next),enabled:next.enabled});mode=normalizeMode(next.mode)}
  let spent=normalizeExhausted(cfg.exhaustedRoutes??{},now(),cfg.exhaustionCooldownMs);
  const disposers=[];
  const log=(level,msg)=>ctx.logger?.[level]?.('native-router failover: '+msg);
@@ -44,7 +47,8 @@ export function attachHostFailover(ctx,{configStore,now=()=>Date.now(),createUse
     refreshRules();
     // 'off' disables per-step enforcement, NOT the owner's configured
     // priority allowlist for an automatically chosen backup target.
-    return rules.priority.some(item=>sameSelection(item,target))
+    return allowsHostModel(configStore.get(),target.provider,target.model)
+      &&rules.priority.some(item=>sameSelection(item,target))
       &&(mode==='off'||allowsSelection(target,rules,mode));
   }
   async function drive(state){

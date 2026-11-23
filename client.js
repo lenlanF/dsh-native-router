@@ -17,6 +17,8 @@ window.__ModuleLoader__.load({
 .dnr-shell .dnr-header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 20px;padding:0 0 16px;border-bottom:1px solid var(--dnr-border)}
 .dnr-shell .dnr-header-note{color:var(--dnr-muted);font-size:12px;line-height:1.5}
 .dnr-shell .dnr-version{border:1px solid var(--dnr-border);border-radius:8px;padding:3px 8px;color:var(--dnr-muted);font-variant-numeric:tabular-nums;font-size:11px;white-space:nowrap}
+.dnr-shell .dnr-checkin-channel-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:9px;margin:10px 0 12px}
+.dnr-shell .dnr-checkin-channel{border:1px solid var(--dnr-border);border-radius:10px;padding:12px;min-width:0;background:var(--dnr-surface)}
 .dnr-shell .dnr-checkin-tags{display:flex;flex-wrap:wrap;gap:7px;min-width:0}
 .dnr-shell .dnr-checkin-tag{display:inline-flex;align-items:center;gap:7px;flex-wrap:wrap;min-height:31px;padding:5px 9px;border-radius:8px;border:1px solid var(--dnr-border);background:var(--dnr-elevated);color:var(--dnr-ink);cursor:pointer;font-size:11.5px;line-height:1.35}
 .dnr-shell .dnr-checkin-tag strong{font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -441,7 +443,7 @@ window.__ModuleLoader__.load({
        onSourceLogin,onSourcePoll,onSourceDismissLogin,pendingLogin,onSourceRefresh,onSourceReuseLoomy,sourceBusy,
        loomySmsPhone,onLoomySmsPhone,loomySmsCode,onLoomySmsCode,loomySmsSent,onLoomySmsSend,onLoomySmsSubmit,
        hostModels,hostModelBusy,hostSelectedModel,onSelectHostModel,onHostModels,
-      hostCatalog,onRefreshHostCatalog,
+      hostCatalog,onRefreshHostCatalog,onHostModelSelection,
       manualHostModel,onManualHostModel,
       adoptionPreview,adoptionBusy,adoptionResults,credentialService,onPreviewAdoption,onAdoptAccount,
        verifyResults,verifyBusy,onVerifyAdopted}){
@@ -449,7 +451,31 @@ window.__ModuleLoader__.load({
       const hosts=reuse.hostProviders||[],available=(reuse.channels||[]).filter(x=>x.available);
       const accountLabels={online:'本次鉴权通过',recently_verified:'上次鉴权通过 · 自动复核中',not_checked:'首次鉴权排队中',expired:'授权已失效',pending:'等待确认',checking:'自动检查中',error:'连接检查异常',limited:'限流中',client_required:'需要原客户端操作'};
       const checkedAccounts=data?.accounts||[];
+      // Only genuine current/previously verified identities belong to this
+      // view. Group by channel, never conflate same display names.
+      const sessionGroups=new Map();
+      const addSession=row=>{
+        if(!row||!['online','recently_verified'].includes(row.connectionState))return;
+        const id=String(row.providerId||'').replace(/^own_/,'');
+        if(!id||!row.id)return;
+        const key=id+'\\0'+row.id;
+        if(!sessionGroups.has(id))sessionGroups.set(id,{id,
+          name:(data?.channels||[]).find(c=>c.id===row.providerId||c.id===id)?.name||id,
+          members:new Map()});
+        const members=sessionGroups.get(id).members;
+        const prior=members.get(key);
+        if(!prior||row.connectionState==='online'&&prior.connectionState!=='online')
+          members.set(key,row);
+      };
+      for(const row of checkedAccounts)addSession(row);
+      for(const row of data?.embeddedAccounts?.accounts||[])addSession(row);
+      const verifiedSessions=[...sessionGroups.values()].map(group=>({...group,
+        members:[...group.members.values()]})).filter(group=>group.members.length);
       const selectedHost=hostModelBusy||hostModels?.providerId||'';
+      const selectedIds=cfg?.hostModelSelection?.[selectedHost]??[];
+      const availableHostModels=hostModels?.availableModels??hostModels?.models??[];
+      const shownHostModels=selectedIds.length?availableHostModels.filter(m=>
+        selectedIds.includes(m.id)):availableHostModels;
       const hostLabel=id=>id==='workbuddy'?'WorkBuddy 国内':
         id==='workbuddy-global'?'WorkBuddy 国际':id;
       const tabs=[['sessions','本机登录态'],['host','宿主路由与模型'],['source','自主登录']];
@@ -496,15 +522,37 @@ window.__ModuleLoader__.load({
                 h('strong',null,selectedHost?'模型目录 · '+hostLabel(selectedHost):'模型目录'),
                 h(Button,{disabled:!selectedHost||!!hostModelBusy,
                   onClick:()=>onHostModels(selectedHost,false)},'重新获取模型'),
-                selectedHost?h('span',{style:css.mutedTag},'已发现 '+(hostModels?.models?.length??0)):null),
+                selectedHost?h('span',{style:css.mutedTag},'已显示 '+shownHostModels.length+' 个允许模型'):null),
               hostModels?.checkedAt?h('p',{style:css.small},
                 '最近更新：'+new Date(hostModels.checkedAt).toLocaleString()):null,
               hostModels?.changes?h('p',{style:css.small},
                 '本渠道变化：新增 '+hostModels.changes.added+' · 移除 '+hostModels.changes.removed+
                 ' · 资费更新 '+hostModels.changes.pricingChanged):null,
               hostModels?.state==='ready'?h('div',null,
-                h('p',{style:{...css.small,margin:'3px 0 9px'}},'展示宿主模型目录；原插件继续管理授权。'),
-                hostModels.models.length?hostModels.models.map(m=>h('div',{key:m.id,
+                h('p',{style:{...css.small,margin:'3px 0 9px'}},
+                  '模型使用范围：'+(selectedIds.length?
+                    '仅允许已选中的 '+selectedIds.length+' 个模型':'未指定，默认全部 '+availableHostModels.length+' 个模型')),
+                h('details',{className:'dnr-disclosure'},
+                  h('summary',{className:'dnr-disclosure-summary'},
+                    '指定本渠道可用模型 · '+(selectedIds.length?'已限制':'默认全部')),
+                  h('div',{className:'dnr-disclosure-body'},
+                    h('p',{style:css.small},'勾选后仅显示和经本插件路由使用指定模型。取消全部勾选将恢复默认全部；保存配置后生效。此设置不会修改其他 DSH 插件自身的账号权限。'),
+                    h(Button,{disabled:!selectedIds.length,
+                      onClick:()=>onHostModelSelection(selectedHost,[])},'恢复默认全部模型'),
+                    h('div',{style:{maxHeight:240,overflowY:'auto',marginTop:8}},
+                      availableHostModels.length?availableHostModels.map(model=>h('label',{
+                        key:model.id,style:{...css.itemRow,cursor:'pointer',alignItems:'center'}},
+                        h('input',{type:'checkbox',checked:selectedIds.includes(model.id),
+                          'aria-label':'允许宿主模型 '+model.id,
+                          onChange:e=>onHostModelSelection(selectedHost,
+                            e.target.checked?[...selectedIds,model.id]:
+                              selectedIds.filter(id=>id!==model.id))}),
+                        h('span',{style:{flex:'1 1 160px',minWidth:0,overflowWrap:'anywhere'}},
+                          model.name||model.id),
+                        h('span',{style:css.small},model.id))):
+                        h('p',{style:css.small},'官方模型目录暂不可用；请勿凭空新增模型')))),
+                h('p',{style:{...css.small,margin:'3px 0 9px'}},'展示已允许的宿主模型；原插件继续管理授权。'),
+                shownHostModels.length?shownHostModels.map(m=>h('div',{key:m.id,
                   style:{display:'grid',gridTemplateColumns:'minmax(0,1fr) auto',
                     alignItems:'center',gap:8,padding:'7px 0',borderBottom:'1px solid rgba(125,144,167,.12)'}},
                   h('div',{style:{minWidth:0}},
@@ -518,22 +566,31 @@ window.__ModuleLoader__.load({
                     m.pricing?h('span',{style:{...css.small,fontSize:10,textAlign:'right'}},
                       '输入 '+m.pricing.input+' / 输出 '+m.pricing.output+
                       '（来源价格，单位依渠道）'):null))):
-                  h('p',{style:css.small},'该插件没有公开模型目录；仍可从原插件界面核验可用模型。')):
+                  h('p',{style:css.small},selectedIds.length?
+                    '选中的模型未出现在最新官方目录；请在上方调整允许范围。':
+                    '该插件没有公开模型目录；仍可从原插件界面核验可用模型。')):
                 hostModels?.state==='unavailable'?h('p',{role:'status',style:css.small},
                   '原插件未提供可读取的模型目录，原 Provider 仍保持注册。'):
                 h('p',{style:css.small},'在左侧选择任意渠道，右侧直接显示对应模型，不再跳到页面底部。'))):null,
          subtab==='sessions'?h(React.Fragment,null,
-           h(Panel,{title:'本插件独立登录态 · 无需原渠道插件',
+           h(Panel,{title:'已核验本机登录态 · 按渠道聚合',
              actions:h(Button,{onClick:()=>onSubtab('source')},'管理自主登录')},
-             h('p',{style:css.small},'这里直接显示本插件自有账号池。来源账号存在不等于已经鉴权成功；原渠道插件停止不会自动删除自有授权。'),
-             data?.embeddedAccounts?.state==='ready'&&data.embeddedAccounts.accounts?.length?
-               data.embeddedAccounts.accounts.map((row,i)=>h('div',{key:row.providerId+':'+row.id,
-                 style:css.itemRow},
-                 h('strong',null,row.nickname||row.providerId+' 账号 '+(i+1)),
-                 h('span',{style:css.small},row.providerId+' · '+(row.enabled?'账号池已启用':'账号池已停用')),
-                 h('span',{style:css.mutedTag},Number.isFinite(row.balance)?
-                   '积分/余额 '+row.balance+' '+(row.balanceUnit||''):'余额待来源同步'))):
-               h('p',{style:css.small},'尚无可读取的独立账号。')),
+             h('p',{style:css.small},'仅列出当前或最近有官方身份核验记录的渠道。点击渠道查看账号；已过期的登录态不伪装为在线，原有自主授权仍由各渠道独立保管。'),
+             verifiedSessions.length?verifiedSessions.map(group=>h('details',{
+               key:group.id,className:'dnr-channel-group'},
+               h('summary',null,group.name+' · '+group.members.length+' 个已核验账号'),
+               h('div',{className:'dnr-disclosure-body'},
+                 group.members.map(row=>h('div',{key:row.id,style:css.itemRow},
+                   h('div',{style:{flex:'1 1 170px',minWidth:0}},
+                     h('strong',null,row.nickname||row.accountName||row.username||
+                       row.loginName||row.maskedPhone||'账号名待获取'),
+                     h('div',{style:css.small},
+                       row.connectionState==='online'?'当前鉴权通过':'历史核验通过 · 需要复核'),
+                     row.lastVerifiedAt?h('div',{style:css.small},
+                       '最近核验：'+new Date(row.lastVerifiedAt).toLocaleString()):null),
+                   h('span',{style:css.mutedTag},Number.isFinite(row.balance)?
+                     '总额度 '+row.balance+' '+(row.balanceUnit||''):'余额待官方查询')))))):
+               h('p',{style:css.small},'目前尚无已确认身份的本机登录态；发现来源不等于已登录。')),
            h(Panel,{title:'接管原插件账号 · 迁入本插件',
             actions:h('div',{style:{...css.line,margin:0}},
               h(Button,{disabled:!!adoptionBusy,onClick:onPreviewAdoption},
@@ -740,7 +797,8 @@ window.__ModuleLoader__.load({
             failure):null));
     }
     function AccountConsole({data,query,onQuery,run,setTab,busy,discovered,onAddProvider,
-      onManageAccounts,onOpenOwnedSource,selectedChannel,onSelectChannel,onRefresh,hasDraft}){
+      onManageAccounts,onOpenOwnedSource,selectedChannel,onSelectChannel,onRefresh,
+      hasDraft,loginWidgets={}}){
       const [batch,setBatch]=useState(null),[accountFilter,setAccountFilter]=useState('all');
       if(!data)return h(Panel,{title:'渠道账号'},'账号中心尚未连接 DSH Host。');
       const accounts=data.accounts||[];
@@ -992,10 +1050,14 @@ window.__ModuleLoader__.load({
                 if(window.confirm('确认导入该已授权账号？仅保存引用，导入后默认停用。'))
                   run('/channels/import',{providerId:channel.id,candidateId:candidate.id},
                     '账号授权已导入，请执行远端鉴权和实测对话');
-              }},'审核后导入'))));
+               }},'审核后导入'))),
+             loginWidgets[channel.id]?h('details',{className:'dnr-disclosure'},
+               h('summary',{className:'dnr-disclosure-summary'},
+                 '新增账号 / 重新登录 · '+channel.name),
+               h('div',{className:'dnr-disclosure-body'},loginWidgets[channel.id])):null);
         }));
     }
-    function ActivitiesConsole({data,busy,refresh}){
+    function ActivitiesConsole({data,busy,refresh,run}){
       const groups=Array.isArray(data?.channels)?data.channels:[];
       const summary=data?.summary??{};
       const stateText={valid:'有效 · 可自动执行',completed:'已完成',
@@ -1019,7 +1081,12 @@ window.__ModuleLoader__.load({
           data?.refreshState==='partial'||data?.refreshState==='unavailable'?
             h('p',{style:css.small},'部分来源尚未返回结果，活动状态仍需官方核验'):null),
         groups.length?groups.map(channel=>h(Panel,{key:channel.id,
-          title:channel.name+' · '+channel.activities.length+' 项'},
+          title:channel.name+' · '+channel.activities.length+' 项',
+          actions:channel.activityExecutorCount>0?h(Button,{disabled:!!busy,
+            onClick:()=>run('/activities/action',{
+              action:'run-channel',providerId:channel.id},
+              '已调用本渠道安全免费活动执行器；到账须等待官方账单复核')},
+            '手动核验并领取免费活动'):null},
           h('div',{className:'dnr-activity-scroll'},
             h('table',{className:'dnr-activity-table'},
               h('thead',null,h('tr',null,
@@ -1053,7 +1120,8 @@ window.__ModuleLoader__.load({
       sourceProvider,setSourceProvider,sourceCredits,sourceClaims,sourceBusy,onSourceStatus,onSourceClaim}){
       const [selectedCheckinChannel,setSelectedCheckinChannel]=React.useState('');
       if(!data)return h(Panel,{title:'每日积分任务中心'},'签到状态服务尚未连接 DSH Host。');
-      const accounts=data.accounts||[],groups=(data.groups||[]).filter(x=>x.accountCount>0);
+      const accounts=data.accounts||[],groups=(data.groups||[])
+        .filter(x=>x.accountCount>0&&x.supported>0);
       const supported=accounts.filter(a=>a.checkinSupported).length;
       const success=accounts.filter(a=>a.checkinState==='success').length;
       const pending=accounts.filter(a=>a.checkinState==='pending_confirmation').length;
@@ -1073,22 +1141,33 @@ window.__ModuleLoader__.load({
             ...['已签 '+success,'待确认 '+pending,'支持签到 '+supported,'账号 '+accounts.length]
               .map(x=>h('span',{key:x,style:css.mutedTag},x))),
           h('div',{style:{...css.small,marginBottom:7,fontWeight:650}},'各渠道今日签到'),
-          h('div',{className:'dnr-checkin-tags',role:'group','aria-label':'按渠道查看今日签到'},
-            groups.map(channel=>h('button',{key:channel.id,type:'button',
-              className:'dnr-checkin-tag',
-              'aria-pressed':selectedCheckinChannel===channel.id,
-              'data-confirmed':channel.success>0?'yes':'no',
-              title:channel.name+'：今日已签到 '+channel.success+' / '+channel.accountCount+
-                ' 账号；待确认 '+channel.pending+'，点击查看账号明细',
-              onClick:()=>setSelectedCheckinChannel(id=>
-                id===channel.id?'':channel.id)},
-              h('span',null,channel.name),
-              h('strong',null,'已签 '+channel.success+'/'+channel.accountCount)))),
+          h('div',{className:'dnr-checkin-channel-grid',
+            'aria-label':'有官方签到执行器的渠道'},
+            groups.length?groups.map(channel=>h('div',{key:channel.id,
+              className:'dnr-checkin-channel'},
+              h('div',{style:css.line},
+                h('strong',null,channel.name),
+                h('span',{style:css.mutedTag},'支持签到 '+channel.supported+' 个账号'),
+                h('span',{style:css.mutedTag},'今日 '+channel.success+' 已完成')),
+              h('div',{style:css.line},
+                h(Toggle,{label:'本渠道自动签到与免费活动',
+                  value:cfg.checkin?.channels?.[channel.id]!==false,
+                  onChange:v=>onSettings({channels:{...(cfg.checkin?.channels||{}),
+                    [channel.id]:v}})}),
+                h(Button,{disabled:!!busy||!!data.historyBlocked||!channel.supported,
+                  onClick:()=>run('/checkins/action',{
+                    action:'run-channel',providerId:channel.id},
+                    '已按渠道逐账号触发官方签到／免费活动，并刷新结果')},'手动执行本渠道'),
+                h(Button,{onClick:()=>setSelectedCheckinChannel(id=>
+                  id===channel.id?'':channel.id)},
+                  selectedCheckinChannel===channel.id?'收起账号':'查看账号')))):
+              h('p',{style:css.small},'当前没有已接入且具备真实签到执行器的渠道。')),
           h('p',{style:{...css.small,marginTop:8,marginBottom:0}},
             '每日签到只是积分任务的一部分；活动领取独立回查，积分到账以官方总余额为准。')),
         selectedGroup?h(Panel,{title:selectedGroup.name+' · 账号签到明细',
           actions:h(Button,{onClick:()=>setSelectedCheckinChannel('')},'收起明细')},
-          accounts.filter(a=>canonicalChannel(a.providerId)===selectedGroup.id)
+          accounts.filter(a=>canonicalChannel(a.providerId)===selectedGroup.id
+            &&a.checkinSupported===true)
             .map((a,i)=>h('div',{key:a.id,style:css.itemRow},
               h('div',{style:{flex:'1 1 190px',minWidth:0}},
                 h('strong',null,accountLabel(a)),
@@ -1114,7 +1193,7 @@ window.__ModuleLoader__.load({
           h('div',{style:css.line},
             h(Toggle,{label:'启用每日自动积分任务',value:cfg.checkin?.autoEnabled,
               onChange:v=>onSettings({autoEnabled:v})}),
-            h(Toggle,{label:'覆盖所有支持签到的来源账号',
+            h(Toggle,{label:'自动覆盖已验证的来源账号（仍受单渠道开关控制）',
               value:cfg.checkin?.autoSourceAccounts!==false,
               onChange:v=>onSettings({autoSourceAccounts:v})}),
             h(TextField,{label:'执行时间（HH:mm）',value:cfg.checkin?.runAt||'10:05',
@@ -1829,6 +1908,8 @@ window.__ModuleLoader__.load({
         finally{setModelBusy(false)}
       }
       const setCheckinSettings=change=>setCfg(old=>({...old,checkin:{...old.checkin,...change}}));
+      const setHostModelSelection=(providerId,ids)=>setCfg(old=>({...old,
+        hostModelSelection:{...(old.hostModelSelection||{}),[providerId]:ids}}));
       const setAccountAuto=(id,enabled)=>setCfg(old=>({...old,accounts:old.accounts.map(a=>a.id===id?{...a,autoCheckin:enabled}:a)}));
       const addNativeProvider=channel=>{
         setCfg(old=>old.providers.some(p=>p.id===channel.id)?old:{...old,providers:[...old.providers,
@@ -2079,19 +2160,11 @@ window.__ModuleLoader__.load({
          sessionReuse:{...old.sessionReuse,
            ...('enabled' in change?{enabled:change.enabled}:{}),
            ...('resetIgnored' in change?{ignoredIds:[]}:{})}}));
-       if(tab==='channels')content=h('div',null,
-          h(AccountConsole,{data:channelsView,
-           query:channelQuery,onQuery:setChannelQuery,run:runAction,setTab,
-           busy:actionBusy,discovered,onAddProvider:addNativeProvider,
-           showReferences:showReferenceChannels,onToggleReferences:setShowReferenceChannels,
-           selectedChannel:selectedAccountChannel,onSelectChannel:setSelectedAccountChannel,
-           onManageAccounts:channel=>{setManagedAccountProvider(channel.id);setTab('account-debug')},
-           onOpenOwnedSource:()=>{setReuseSubtab('source');setTab('reuse')},
-           onRefresh:refreshRuntime,
-           hasDraft:Boolean(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig))}),
-          h('details',{className:'dnr-disclosure'},
-           h('summary',{className:'dnr-disclosure-summary'},
-              '新增账号或重新登录 · 小米 / 豆包 / 秒悟 / 千问办公 / Amazon Quick（展开）'),
+       if(tab==='channels'){
+         // Build existing login UIs without rendering a second global
+         // channel. The five independent flows belong inside their channels.
+         const loginSuite=h('details',{className:'dnr-disclosure'},
+           h('summary',{className:'dnr-disclosure-summary'},'渠道授权操作'),
            h('div',{className:'dnr-disclosure-body'},
            h(Panel,{title:'小米 MiMo 会员 · 无需 MiMo 客户端进程'},
            h('p',{style:css.small},'即使没有安装或运行 MiMo Desktop，也能通过本插件独立浏览器登录会员账号；已有客户端会话也可一次性接管。授权后无需任何原客户端进程，独立保存会话、续期与推理；不使用商业 API Key。'),
@@ -2174,7 +2247,21 @@ window.__ModuleLoader__.load({
              awsQuickLogin?.status==='done'?
                h('p',{style:css.small},
                  '已确认独立账号并保存到 DSH 凭据库；可在上方账号列表查看额度及执行模型测试。'):null),
-            null)));
+             null));
+         const loginParts=loginSuite.props.children[1].props.children;
+         const loginWidgets=Object.fromEntries([
+           'own_mimo_desktop','own_doubao','own_meoo_web',
+           'own_qwenwork','own_aws_quick'
+         ].map((id,i)=>[id,loginParts[i]]));
+         content=h(AccountConsole,{data:channelsView,
+           query:channelQuery,onQuery:setChannelQuery,run:runAction,setTab,
+           busy:actionBusy,discovered,onAddProvider:addNativeProvider,
+           selectedChannel:selectedAccountChannel,onSelectChannel:setSelectedAccountChannel,
+           onManageAccounts:channel=>{setManagedAccountProvider(channel.id);setTab('account-debug')},
+           onOpenOwnedSource:()=>{setReuseSubtab('source');setTab('reuse')},
+           onRefresh:refreshRuntime,loginWidgets,
+           hasDraft:Boolean(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig))});
+       }
        if(tab==='reuse')content=h(ReuseConsole,{data:channelsView,cfg,         onReuseSettings:changeReuseSettings,run:runAction,busy:actionBusy,
           onRefresh:refreshRuntime,subtab:reuseSubtab,onSubtab:setReuseSubtab,
          embeddedPack:status?.embeddedPack,credentialService:status?.credentialService,modelProvider,
@@ -2187,7 +2274,8 @@ window.__ModuleLoader__.load({
           loomySmsCode,onLoomySmsCode:value=>setLoomySmsCode(value.replace(/\D/g,'').slice(0,8)),
           loomySmsSent,onLoomySmsSend:sourceSendLoomySms,onLoomySmsSubmit:sourceSubmitLoomySms,
           hostModels,hostModelBusy,hostSelectedModel,onSelectHostModel:setHostSelectedModel,
-          onHostModels:loadHostModels,hostCatalog,onRefreshHostCatalog:loadHostCatalog,manualHostModel:hostManualModel,
+          onHostModels:loadHostModels,hostCatalog,onRefreshHostCatalog:loadHostCatalog,
+          onHostModelSelection:setHostModelSelection,manualHostModel:hostManualModel,
           onManualHostModel:setHostManualModel,adoptionPreview,adoptionBusy,adoptionResults,
           verifyResults,verifyBusy,onVerifyAdopted:verifyAdopted,
           onPreviewAdoption:loadAdoptionPreview,onAdoptAccount:adoptOriginalAccount});
@@ -2198,7 +2286,8 @@ window.__ModuleLoader__.load({
           sourceCredits,sourceClaims,sourceBusy:sourceRpcBusy,
           onSourceStatus:sourceCheckinStatus,onSourceClaim:sourceClaimAll});
        if(tab==='activities')content=h(ActivitiesConsole,{
-         data:activitiesView,busy:activitiesBusy,refresh:refreshActivities});
+         data:activitiesView,busy:activitiesBusy||!!actionBusy,
+         refresh:refreshActivities,run:runAction});
        if(tab==='providers')content=h(Section,{title:'提供商注册表'},
          h('div',{style:css.line},h('input',{'aria-label':'筛选提供商',
            placeholder:'按名称、标识或协议筛选提供商',style:css.input,value:providerQuery,

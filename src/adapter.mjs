@@ -10,6 +10,7 @@ import {RoutingError} from './router.mjs';
 import {toSourceMessages,collectSourceDshStream} from './source-channel-driver.mjs';
 import {visibleTools} from './host-tools.mjs';
 import {createAutoFreePool} from './auto-free.mjs';
+import {allowsHostModel,filterHostRoutes} from './host-model-selection.mjs';
 
 export const PROVIDER='native-router';
 export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=process.env,vault,logger,channelDrivers=new Map(),hostProviderInventory,ownedPack}={}){
@@ -23,7 +24,7 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
        const p=cfg.providers.find(provider=>provider.id===a.providerId);
        return p?.protocol!=='native-channel'||verifiedAccount(a)===true;
      });
-     return cfg;
+     return filterHostRoutes(cfg);
    };
   let freeCursor=0;
   const pool=createAccountPool();
@@ -32,6 +33,10 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
   const driverFor=id=>channelDrivers instanceof Map?channelDrivers.get(id):channelDrivers?.[id];
   const transport=async arg=>{
     if(arg.provider.protocol==='dsh-host'){
+      // Fail closed even if a caller supplies a stale direct-model ID.
+      if(!allowsHostModel(configStore.get(),arg.provider.id,arg.model))
+        throw new UpstreamError('Model excluded by owner host allowlist',
+          {code:'MODEL_NOT_ALLOWED'});
       if(typeof hostProviderInventory?.streamHost!=='function')
         throw new UpstreamError('Original DSH provider is not connected',{code:'PROVIDER_NOT_READY'});
       try{

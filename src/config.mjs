@@ -106,6 +106,35 @@ export function normalizeConfig(source = {}) {
     if(seenFree.has(key))throw Error('Duplicate AutoFree model declaration');
     seenFree.add(key);
   }
+  // Provider-scoped owner allowlist. [] or absent means ALL discovered models.
+  // A selected model is an exact ID, never inferred from a display label.
+  const hostSelectionInput=source.hostModelSelection??{};
+  if(!hostSelectionInput||typeof hostSelectionInput!=='object'
+    ||Array.isArray(hostSelectionInput)||Object.keys(hostSelectionInput).length>160)
+    throw Error('Invalid host model selection');
+  const hostModelSelection={};
+  for(const [providerId,models] of Object.entries(hostSelectionInput)){
+    id(providerId,'host selection provider');
+    if(providerId==='native-router'||providerId.startsWith('native-router-source-')
+      ||!Array.isArray(models)||models.length>250)
+      throw Error('Invalid host model selection');
+    const cleaned=models.map(model=>{
+      if(typeof model!=='string'||!model.trim()||model.length>160
+        ||/[\u0000-\u001f]/.test(model))throw Error('Invalid selected host model');
+      return model.trim();
+    });
+    const distinct=[...new Set(cleaned)];
+    if(distinct.length)hostModelSelection[providerId]=distinct;
+  }
+  const channelsInput=source.checkin?.channels??{};
+  if(!channelsInput||typeof channelsInput!=='object'||Array.isArray(channelsInput)
+    ||Object.keys(channelsInput).length>100)throw Error('Invalid per-channel auto check-in');
+  const checkinChannels={};
+  for(const [providerId,enabled] of Object.entries(channelsInput)){
+    id(providerId,'check-in channel');
+    if(typeof enabled!=='boolean')throw Error('Invalid per-channel auto check-in setting');
+    checkinChannels[providerId.replace(/^own_/,'')]=enabled;
+  }
   const hf = source.hostFailover ?? {};
   const checkinInput=source.checkin ?? {};
   const zone=typeof checkinInput.timeZone==='string'?checkinInput.timeZone:'Asia/Shanghai';
@@ -115,6 +144,7 @@ export function normalizeConfig(source = {}) {
   return {
     version: 1, providers, accounts, routes,
     freePool:{providerIds:freeProviderIds,models:freeModels},
+    hostModelSelection,
     embeddedPack:{enabled:source.embeddedPack?.enabled===true},
     sessionReuse:{
       enabled:source.sessionReuse?.enabled===true,
@@ -128,7 +158,8 @@ export function normalizeConfig(source = {}) {
              &&['desktop-readonly','external-dsh-provider','own-source-pack'].includes(value)).slice(-200)),
     },
     checkin:{autoEnabled:checkinInput.autoEnabled===true,
-      autoSourceAccounts:checkinInput.autoSourceAccounts!==false,timeZone:zone,runAt},
+      autoSourceAccounts:checkinInput.autoSourceAccounts!==false,
+      channels:checkinChannels,timeZone:zone,runAt},
     hostFailover: {
       enabled: hf.enabled === true, mode: ['off','pinned','free'].includes(hf.mode) ? hf.mode : 'off',
       priority: Array.isArray(hf.priority) ? hf.priority : [], triggers: Array.isArray(hf.triggers) ? hf.triggers : undefined,

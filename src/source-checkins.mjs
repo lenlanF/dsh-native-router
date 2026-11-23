@@ -48,6 +48,7 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
   return {
    hidden,enabled,providerEnabled,
    autoCheckin:enabled&&providerEnabled&&cfg.checkin.autoSourceAccounts===true
+     &&cfg.checkin.channels?.[row.providerId]!==false
      &&(!imported||imported.autoCheckin===true),
   };
  }
@@ -312,6 +313,8 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
       autoCheckinEffective:state.autoCheckin&&state.enabled&&state.providerEnabled
         &&configStore.get().checkin.autoEnabled===true,
       checkinSupported:implemented,checkinAvailable:implemented,
+      activitiesSupported:row.providerId==='loomy'
+        &&typeof sourcePack?.claimLoomyActivities==='function',
       ...(loomy?{benefits:loomy,
         activityClaims:loomySummary}:{}),
       ...(row.providerId==='raccoon'?{
