@@ -5,6 +5,12 @@ import {publicAccountName} from './account-facts.mjs';
 // executor belong here. Never invent rewards from model quotas, marketing
 // banners, task counts, or a channel's aggregate wallet.
 const SOURCE_SIGNIN=new Set(SOURCE_DAILY_SIGNIN_PROVIDERS);
+const EMPTY_EXPLANATIONS=Object.freeze({
+ cline:'该渠道当前仅有官方余额查询，尚未发现独立的无感免费领取接口',
+ gemini:'官方额度按 5 小时／每周窗口自然恢复，不属于需要领取的活动',
+ doubao:'除每日签到外，其他活动尚无经过核验的纯接口领取闭环',
+ loomy:'只接入官方新手任务完成接口；需要实际生成或分享等可感操作的活动不执行',
+});
 const DIRECT_FREE_SIGNIN=new Set([
   'own_workbuddy-cn','own_workbuddy-global','own_doubao','own_lingxi']);
 const SAFE_END=Number.MAX_SAFE_INTEGER;
@@ -25,7 +31,7 @@ export function buildChannelActivityCatalog({config,accountRows=[],sourceRows=[]
     const key=channelKey(providerId);
     if(!key)return null;
     if(!channels.has(key))channels.set(key,{id:key,name:safeText(name)||key,
-      accountCount:0,activities:[]});
+      accountCount:0,activities:[],emptyReason:EMPTY_EXPLANATIONS[key]??null});
     else if(name&&channels.get(key).name===key)channels.get(key).name=safeText(name)||key;
     return channels.get(key);
   };
@@ -79,23 +85,30 @@ export function buildChannelActivityCatalog({config,accountRows=[],sourceRows=[]
     }
     const workbuddy=isWorkBuddy(account.providerId);
     const raccoon=source&&channel.id==='raccoon';
-    if(!workbuddy&&!raccoon)continue;
+    const loomy=source&&channel.id==='loomy';
+    if(!workbuddy&&!raccoon&&!loomy)continue;
     for(const benefit of Array.isArray(account.benefits)?account.benefits:[]){
-      if(!benefit||(workbuddy?!['gift','compensation'].includes(benefit.kind):
-          benefit.kind!=='raccoon_login')
+      if(!benefit||!(workbuddy?['gift','compensation'].includes(benefit.kind):
+          loomy?['first_message','pick_skill','generate_ppt','set_schedule',
+            'install_skill','configure_remote','create_soul','share_soul']
+            .some(key=>benefit.kind==='loomy_'+key):
+          benefit.kind==='raccoon_login')
         ||benefit.active!==true||typeof benefit.claimed!=='boolean')continue;
       const deadline=endOf(benefit.endAt);
       if(deadline!==null&&deadline<=now)continue;
       const amount=asAmount(benefit.credit);
       channel.activities.push({
         id:account.id+':'+benefit.kind,accountId:account.id,accountName:name,
-        name:kindTitle(benefit.kind),kind:benefit.kind,
+        name:loomy?safeText(benefit.name)||'免费新手活动':kindTitle(benefit.kind),
+        kind:benefit.kind,
         rewardAmount:amount,rewardUnit:amount!==null?'积分':null,
-        validity:benefit.claimed?'completed':account.activityClaims?.unconfirmed>0
-          ?'unverified':'valid',
+        validity:benefit.claimed?'completed':
+          (loomy?['submitted','pending_confirmation'].includes(benefit.receiptState):
+            account.activityClaims?.unconfirmed>0)?'unverified':'valid',
         endAt:deadline,execution:'automatic',
         progress:benefit.claimed?'官方确认已领取':
-          account.activityClaims?.unconfirmed>0?'领取回执待官方核实，不重发':
+          (loomy?['submitted','pending_confirmation'].includes(benefit.receiptState):
+            account.activityClaims?.unconfirmed>0)?'领取回执待官方核实，不重发':
           account.autoCheckinEffective?'待自动领取':'自动任务未开启',
       });
     }

@@ -62,6 +62,69 @@ test('one channel table each; only verified free automatic executors, not paid o
  assert.equal(channel(x,'zcode').activities.length,0);
  assert.ok(!JSON.stringify(x).includes('5000'));
 });
+test('Loomy official eight API-only activities are shown separately while Cline/Gemini do not fake sign-in',()=>{
+ const providerConfig={providers:[
+  {id:'own_loomy',name:'讯飞 Loomy',enabled:true},
+  {id:'own_cline',name:'Cline',enabled:true},
+  {id:'own_gemini',name:'Gemini',enabled:true}]};
+ const tasks=[
+  ['first_message',500,'发送你的第一条消息'],
+  ['pick_skill',1000,'试试选择一个技能'],
+  ['generate_ppt',1500,'生成第一份 PPT'],
+  ['set_schedule',1000,'设置定时任务'],
+  ['install_skill',1500,'在技能广场安装一个技能'],
+  ['configure_remote',1000,'配置远程控制'],
+  ['create_soul',1500,'创建你的第一个搭子'],
+  ['share_soul',2000,'把搭子分享给朋友']];
+ const accounts=[
+  {id:'loomy-a',providerId:'loomy',providerName:'讯飞 Loomy',
+   enabled:true,sourceAccount:true,nickname:'官方账号',
+   checkinSupported:true,checkinState:'success',
+   benefits:tasks.map(([key,credit,name])=>({kind:'loomy_'+key,credit,name,
+     active:true,claimed:key==='first_message'}))},
+  {id:'cline-a',providerId:'cline',nickname:'cline-wallet',enabled:true,
+   sourceAccount:true,checkinState:'unsupported',checkinSupported:false,
+   balance:10.5,balanceUnit:'USD'},
+  {id:'gemini-a',providerId:'gemini',nickname:'gemini-window',enabled:true,
+   sourceAccount:true,checkinState:'unsupported',checkinSupported:false,
+   balanceUnit:'%',quotaWindows:[{kind:'5h',left:80}]}];
+ const result=buildChannelActivityCatalog({config:providerConfig,
+  accountRows:accounts,now});
+ assert.equal(result.summary.activityCount,9,'8 onboarding + 1 proven Loomy daily source');
+ const loomy=channel(result,'loomy');
+ assert.equal(loomy.activities.filter(x=>x.kind.startsWith('loomy_')).length,8);
+ for(const [key,credit,name] of tasks){
+  const row=loomy.activities.find(x=>x.kind==='loomy_'+key);
+  assert.equal(row.rewardAmount,credit);
+  assert.equal(row.rewardUnit,'积分');
+  assert.equal(row.name,name);
+  assert.equal(row.endAt,null);
+ }
+ assert.equal(channel(result,'cline').activities.length,0);
+ assert.match(channel(result,'cline').emptyReason,/余额查询/);
+ assert.equal(channel(result,'gemini').activities.length,0);
+ assert.match(channel(result,'gemini').emptyReason,/自然恢复/);
+ assert.ok(!result.channels.some(c=>c.activities.some(a=>a.kind==='purchase')));
+});
+
+test('Loomy task-level pending receipt never incorrectly marks other free tasks unverified',()=>{
+ const state={providers:[{id:'own_loomy',name:'Loomy',enabled:true}]};
+ const result=buildChannelActivityCatalog({config:state,now,
+  accountRows:[{id:'loomy-x',providerId:'loomy',sourceAccount:true,
+   enabled:true,checkinSupported:true,checkinState:'success',
+   activityClaims:{confirmed:0,unconfirmed:1},
+   benefits:[
+    {kind:'loomy_first_message',name:'发送你的第一条消息',
+     active:true,claimed:false,credit:500,receiptState:'pending_confirmation'},
+    {kind:'loomy_pick_skill',name:'试试选择一个技能',
+     active:true,claimed:false,credit:1000},
+   ]}]});
+ const items=result.channels[0].activities;
+ assert.equal(items.find(x=>x.kind==='loomy_first_message').validity,'unverified');
+ assert.equal(items.find(x=>x.kind==='loomy_pick_skill').validity,'valid',
+   'one ambiguous POST does not taint every other activity on this account');
+});
+
 test('expired and disabled activities excluded; unsupported sign-in states never treated as eligible',()=>{
  const x=catalog([
   account('wb','own_workbuddy-cn',{checkinSupported:false,checkinState:'unsupported',
