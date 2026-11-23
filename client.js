@@ -136,10 +136,72 @@ window.__ModuleLoader__.load({
  .dnr-shell .dnr-channel-group>summary{min-height:55px}
  .dnr-shell .dnr-account-card{padding:12px}
 }
+
+/* DSH owns the app-level sidebar and modal width. The plugin MUST use one
+   content column; a second permanent 220px rail starves its account forms. */
+.dnr-shell{container:dnr-workspace / inline-size;width:100%;max-width:100%;min-width:0}
+.dnr-shell .dnr-layout{display:block;min-width:0;max-width:100%}
+.dnr-shell .dnr-main,.dnr-shell .dnr-page-body{width:100%;max-width:100%;min-width:0;overflow-wrap:anywhere}
+.dnr-shell .dnr-header{margin:0 0 9px;padding:0 0 9px}
+.dnr-shell .dnr-page-head{margin:0 0 9px}
+.dnr-shell .dnr-page-head h3{font-size:18px;margin:0 0 2px}
+.dnr-shell .dnr-rail{position:static;top:auto;display:flex;flex-wrap:nowrap;align-items:center;width:100%;max-width:100%;min-width:0;max-height:none;overflow-x:auto;overflow-y:hidden;gap:7px;padding:0 0 8px;margin:0 0 12px;border:0;border-bottom:1px solid var(--dnr-border);border-radius:0;background:transparent;scrollbar-width:thin}
+.dnr-shell .dnr-nav-group{display:flex;flex:0 0 auto;align-items:center;gap:3px;border:0;min-width:0}
+.dnr-shell .dnr-nav-group+.dnr-nav-group{margin:0;padding:0 0 0 8px;border-top:0;border-left:1px solid var(--dnr-border)}
+.dnr-shell .dnr-rail .dnr-nav-button{display:inline-flex;flex:0 0 auto;width:auto;min-width:0;min-height:36px;padding:6px 10px;font-size:12px;white-space:nowrap;border-radius:7px}
+.dnr-shell .dnr-rail .dnr-nav-button[aria-current="page"]{box-shadow:inset 0 -2px 0 var(--dnr-brand)}
+.dnr-shell .dnr-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 12px;width:100%;min-width:0;margin:0 0 11px;padding:8px 10px;border-radius:9px;border:1px solid var(--dnr-border);background:var(--dnr-surface)}
+.dnr-shell .dnr-toolbar .dnr-sync-status{display:flex;flex:1 1 185px;min-width:0;align-items:center;gap:6px;flex-wrap:wrap;padding:0;margin:0;border:0;border-radius:0;background:transparent}
+.dnr-shell .dnr-toolbar .dnr-sync-status .dnr-button{margin:0}
+.dnr-shell .dnr-toolbar .dnr-savebar{position:static;z-index:auto;bottom:auto;display:flex;flex:0 1 auto;align-items:center;justify-content:flex-start;gap:6px;flex-wrap:wrap;margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}
+.dnr-shell .dnr-toolbar .dnr-savebar .dnr-save-note{margin-left:0;font-size:11px;flex-basis:auto}
+.dnr-shell .dnr-toolbar .dnr-button{min-height:36px;padding:6px 10px;font-size:12px}
+.dnr-shell .dnr-panel,.dnr-shell .dnr-channel-group,.dnr-shell .dnr-account-card{max-width:100%;min-width:0}
+.dnr-shell .dnr-channel-group>summary{flex-wrap:wrap;justify-content:flex-start;column-gap:8px;row-gap:4px;padding:10px 12px;min-height:42px}
+.dnr-shell .dnr-channel-group>summary::after{margin-left:auto}
+.dnr-shell .dnr-channel-caption{flex:1 1 120px;min-width:0;overflow-wrap:anywhere;text-align:right}
+.dnr-shell .dnr-channel-group>.dnr-disclosure-body{padding:9px 10px}
+.dnr-shell .dnr-account-head{flex-wrap:wrap;gap:8px;margin-bottom:9px}
+.dnr-shell .dnr-account-identity{flex:1 1 200px}
+.dnr-shell .dnr-account-metrics{grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr))}
+.dnr-shell .dnr-account-card{padding:12px;margin:0 0 10px}
+.dnr-shell .dnr-account-card .dnr-button{max-width:100%;white-space:normal;text-align:center}
+.dnr-shell .dnr-panel-head>div{min-width:0}
+.dnr-shell .dnr-input-field,.dnr-shell .dnr-input-field select,.dnr-shell .dnr-input-field input{max-width:100%;min-width:0}
+.dnr-shell .dnr-save-note p{max-width:min(100%,440px)}
+/* Container width, NOT window width: DSH may have a 1500px browser and a
+   550px settings pane. In that case use one small native page chooser. */
+@container dnr-workspace (max-width:850px){
+ .dnr-shell .dnr-rail{display:none}
+ .dnr-shell .dnr-mobile-nav{display:flex;flex-direction:row;align-items:center;gap:10px;max-width:100%;min-width:0;margin:0 0 10px}
+ .dnr-shell .dnr-mobile-nav span{flex:0 0 auto;font-size:12px;color:var(--dnr-muted);white-space:nowrap}
+ .dnr-shell .dnr-mobile-nav select{flex:1 1 auto;width:auto;min-width:0;max-width:100%;min-height:39px;font-size:13px}
+ .dnr-shell .dnr-activity-scroll{overflow-x:visible;border:0}
+ .dnr-shell .dnr-activity-table{display:block;width:100%;min-width:0}
+ .dnr-shell .dnr-activity-table thead{display:none}
+ .dnr-shell .dnr-activity-table tbody{display:block}
+ .dnr-shell .dnr-activity-table tr{display:block;min-width:0;margin:0 0 9px;border:1px solid var(--dnr-border);border-radius:9px;overflow:hidden}
+ .dnr-shell .dnr-activity-table td{display:grid;grid-template-columns:minmax(80px,29%) minmax(0,1fr);align-items:start;gap:8px;min-width:0;padding:8px 10px;overflow-wrap:anywhere;white-space:normal}
+ .dnr-shell .dnr-activity-table td::before{content:attr(data-label);font-weight:600;color:var(--dnr-muted)}
+ .dnr-shell .dnr-activity-table td:first-child{display:block;min-width:0}
+ .dnr-shell .dnr-activity-table td:first-child::before,.dnr-shell .dnr-activity-table td.dnr-activity-empty::before{content:none}
+ .dnr-shell .dnr-activity-table td.dnr-activity-empty{display:block}
+}
+@container dnr-workspace (max-width:470px){
+ .dnr-shell .dnr-toolbar{align-items:stretch}
+ .dnr-shell .dnr-toolbar .dnr-sync-status{flex:1 1 100%}
+ .dnr-shell .dnr-toolbar .dnr-savebar{flex:1 1 100%}
+ .dnr-shell .dnr-toolbar .dnr-savebar .dnr-save-note{flex-basis:100%}
+ .dnr-shell .dnr-account-metrics{grid-template-columns:minmax(0,1fr)}
+ .dnr-shell .dnr-account-symbol{flex-basis:32px;width:32px;height:32px}
+ .dnr-shell .dnr-panel-head{display:flex;flex-wrap:wrap}
+ .dnr-shell .dnr-panel-head>div{display:flex;flex-wrap:wrap}
+ .dnr-shell .dnr-account-card{padding:10px}
+}
 @media (prefers-reduced-motion:reduce){.dnr-shell button{transition:none!important}}
 `;
     const css={
-      root:{color:'var(--dsw-alias-label-primary,var(--text,inherit))',maxWidth:1540,margin:'0 auto',padding:'16px clamp(10px,2vw,28px) 48px',lineHeight:1.6},
+      root:{color:'var(--dsw-alias-label-primary,var(--text,inherit))',width:'100%',maxWidth:'100%',minWidth:0,boxSizing:'border-box',margin:0,padding:'10px 8px 22px',lineHeight:1.6},
       title:{fontSize:21,fontWeight:740,letterSpacing:'-.025em',margin:'0 0 3px'},
       caption:{fontSize:12,opacity:.78,lineHeight:1.55,margin:'0 0 10px'},
       tabbar:{display:'flex',gap:6,flexWrap:'wrap',padding:'0 0 10px',borderBottom:'1px solid var(--dsw-alias-border-l2,rgba(130,144,166,.27))',marginBottom:11},
@@ -966,19 +1028,19 @@ window.__ModuleLoader__.load({
               h('tbody',null,
                 channel.activities.length?channel.activities.map(activity=>
                   h('tr',{key:activity.id},
-                    h('td',null,h('strong',null,activity.name),
+                    h('td',{'data-label':'活动名称'},h('strong',null,activity.name),
                       h('span',{className:'dnr-activity-account'},
                         activity.accountName||'账号名待获取')),
-                    h('td',{className:'dnr-activity-number'},
+                    h('td',{className:'dnr-activity-number','data-label':'免费奖励'},
                       Number.isFinite(activity.rewardAmount)&&activity.rewardUnit?
                         activity.rewardAmount.toLocaleString()+' '+activity.rewardUnit:
                         '官方未公布'),
-                    h('td',null,h('span',{
+                    h('td',{'data-label':'是否有效'},h('span',{
                       className:'dnr-activity-state',
                       'data-validity':activity.validity},
                       stateText[activity.validity]||'待官方核验')),
-                    h('td',null,endText(activity.endAt)),
-                    h('td',null,activity.progress||'待核实')))
+                    h('td',{'data-label':'到期时间'},endText(activity.endAt)),
+                    h('td',{'data-label':'执行状态'},activity.progress||'待核实')))
                 :h('tr',null,h('td',{colSpan:5,className:'dnr-activity-empty'},
                   channel.accountCount>0?
                     '暂无官方已核实到账的免费活动'+
@@ -2321,52 +2383,69 @@ window.__ModuleLoader__.load({
         h('p',{style:css.small},'高级模式会直接替换整份配置。仅保存提供商、账号引用与链条规则；不要填写 Token、密码或明文 API Key。'),
         h('textarea',{style:{...css.input,width:'100%',minHeight:400,fontFamily:'ui-monospace,monospace',fontSize:12},
           value:raw,onChange:e=>setRaw(e.target.value),'aria-label':'完整路由配置 JSON'})));
+        // DSH settings already has its own left rail. Never put a second
+        // persistent sidebar inside its independently sized plugin pane.
         return h('div',{className:'dnr-shell',style:css.root},
-         h('style',{dangerouslySetInnerHTML:{__html:UI_STYLES}}),
-         h('header',{className:'dnr-header'},
-           h('div',{style:{minWidth:0}},
-             h('h2',{style:css.title},'聚合路由'),
-              h('div',{className:'dnr-header-note'},'账号与积分 · 免费活动 · 模型与路由 · 自动任务')),
-               h('span',{className:'dnr-version'},status?.version??'版本校验中')),           h('div',{className:'dnr-layout'},            h('label',{className:'dnr-mobile-nav'},              h('span',null,'设置页面'),              h('select',{'aria-label':'选择设置页面',value:activeNav,                onChange:e=>setTab(e.target.value)},                navGroups.map(group=>h('optgroup',{key:group.name,label:group.name},
-                  group.ids.map(id=>h('option',{key:id,value:id},tabs.find(x=>x[0]===id)?.[1]||id)))))),            h('nav',{className:'dnr-rail','aria-label':'聚合路由设置导航'},
+          h('style',{dangerouslySetInnerHTML:{__html:UI_STYLES}}),
+          h('header',{className:'dnr-header'},
+            h('div',{style:{minWidth:0}},
+              h('h2',{style:css.title},'聚合路由'),
+              h('div',{className:'dnr-header-note'},
+                '账号与积分 · 免费活动 · 模型与路由 · 自动任务')),
+            h('span',{className:'dnr-version'},status?.version??'版本校验中')),
+          h('div',{className:'dnr-layout'},
+            h('label',{className:'dnr-mobile-nav'},
+              h('span',null,'切换功能'),
+              h('select',{'aria-label':'选择设置页面',value:activeNav,
+                onChange:e=>setTab(e.target.value)},
+                navGroups.map(group=>h('optgroup',{key:group.name,label:group.name},
+                  group.ids.map(id=>h('option',{key:id,value:id},
+                    tabs.find(x=>x[0]===id)?.[1]||id)))))),
+            h('nav',{className:'dnr-rail','aria-label':'聚合路由设置导航'},
               navGroups.map(group=>h('div',{key:group.name,className:'dnr-nav-group'},
-                h('details',{className:'dnr-subnav',open:group.name==='核心工作台'||
-                  group.ids.includes(activeNav)},
-                  h('summary',{className:'dnr-group-title'},group.name),
-                  h('div',{className:'dnr-subnav-items'},
-                    group.ids.map(id=>{
-                      const label=tabs.find(x=>x[0]===id)?.[1]||id;
-                      return h('button',{key:id,type:'button',className:'dnr-nav-button',
-                        'aria-current':activeNav===id?'page':undefined,
-                        title:label,onClick:()=>setTab(id)},label);
-                    })))))),
+                group.ids.map(id=>{
+                  const label=tabs.find(x=>x[0]===id)?.[1]||id;
+                  return h('button',{key:id,type:'button',className:'dnr-nav-button',
+                    'aria-current':activeNav===id?'page':undefined,
+                    title:label,onClick:()=>setTab(id)},label);
+                })))),
             h('main',{className:'dnr-main',id:'dnr-settings-content'},
               h('div',{className:'dnr-page-head'},
                 h('h3',null,pageTitle),h('p',null,pageNotes[tab]||'')),
               h('div',{className:'dnr-toast-stack'},
                 error?h('div',{role:'alert',className:'dnr-toast','data-kind':'error'},
                   h('span',null,error),
-                  h('button',{type:'button','aria-label':'关闭错误提示',onClick:()=>setError('')},'×')):null,
+                  h('button',{type:'button','aria-label':'关闭错误提示',
+                    onClick:()=>setError('')},'×')):null,
                 notice?h('div',{role:'status',className:'dnr-toast','data-kind':'success'},
                   h('span',null,notice),
-                  h('button',{type:'button','aria-label':'关闭提示',onClick:()=>setNotice('')},'×')):null),
-              h('div',{className:'dnr-sync-status',role:'status','aria-live':'polite'},
-                h('span',{className:'dnr-sync-dot','data-state':syncState,'aria-hidden':'true'}),
-                syncDescription,
-                lastSyncAt?h('span',null,' · 最近账号同步 '+new Date(lastSyncAt).toLocaleTimeString()):null,
-                h(Button,{onClick:()=>refreshRuntime(),ariaLabel:'只读刷新账号与运行数据'},'刷新显示')),
-              content,
-             h('footer',{className:'dnr-savebar'},
-               h(Button,{kind:'primary',disabled:busy,onClick:save},busy?'正在保存…':'保存配置'),
-               h(Button,{disabled:busy,onClick:()=>{
-                 if(unsaved&&!window.confirm('当前有未保存的修改。重新读取将丢弃草稿，确定继续？'))return;
-                 refresh();
-               }},'重新读取'),
-               h('span',{className:'dnr-status-inline','aria-live':'polite'},
-                 unsaved?'● 有未保存修改':'配置已载入'),
-               h('div',{className:'dnr-save-note'},
-                 h('details',null,h('summary',null,'生效说明'),
-                    h('p',null,'渠道初始化等配置可能需要重启 DSH；已运行中的任务不会被直接修改。')))))));    }
+                  h('button',{type:'button','aria-label':'关闭提示',
+                    onClick:()=>setNotice('')},'×')):null),
+              // Controls belong BEFORE the long account list. The previous
+              // bottom-sticky footer covered live account cards in DSH's modal.
+              h('div',{className:'dnr-toolbar'},
+                h('div',{className:'dnr-sync-status',role:'status','aria-live':'polite'},
+                  h('span',{className:'dnr-sync-dot','data-state':syncState,
+                    'aria-hidden':'true'}),
+                  syncDescription,
+                  lastSyncAt?h('span',null,' · '+new Date(lastSyncAt).toLocaleTimeString()):null,
+                  h(Button,{onClick:()=>refreshRuntime(),
+                    ariaLabel:'只读刷新账号与运行数据'},'刷新显示')),
+                h('div',{className:'dnr-savebar','aria-label':'配置操作'},
+                  h(Button,{kind:'primary',disabled:busy,onClick:save},
+                    busy?'正在保存…':'保存配置'),
+                  h(Button,{disabled:busy,onClick:()=>{
+                    if(unsaved&&!window.confirm('当前有未保存的修改。重新读取将丢弃草稿，确定继续？'))
+                      return;
+                    refresh();
+                  }},'重新读取'),
+                  h('span',{className:'dnr-status-inline','aria-live':'polite'},
+                    unsaved?'● 有未保存修改':'配置已载入'),
+                  h('details',{className:'dnr-save-note'},
+                    h('summary',null,'生效说明'),
+                    h('p',null,'渠道初始化等配置可能需要重启 DSH；已运行中的任务不会被直接修改。')))),
+              h('div',{className:'dnr-page-body'},content))));
+      }
     function apply(ctx){      const slots=ctx.slots;
       if(!slots?.register||!slots?.inject)return;
       const dispose=slots.inject('settings.section',()=>slots.register({
