@@ -1,5 +1,11 @@
 # Change Log
 
+## 1.0.0-rc.84 — 2026-11-23 — Amazon Quick 独立会员原生渠道
+
+- 新增 own_aws_quick：基于 MIT 协议自有双向 WebSocket 实现，支持单次本机 Quick 凭据接管与独立 OAuth PKCE 登录；凭据保存在 DSH 自有 vault，不依赖 Magpie 或 Quick Desktop 进程。
+- 四档动态模式真实协议、官方会员小时额度与身份只读查询、精确事务回滚/退出、DSH 原生模型调用接入；未知倍率不宣传免费，会员用量失败不虚报余额为零。
+- Amazon Quick 本地真实双向 WebSocket 模拟端到端 5/5 和全量回归 703/703 通过；真实 Amazon 账号/额度与模型云端推理尚未验证。发布前仍需打包、隐私审查和 CI，生产不自动升级。见 docs/AWS_QUICK_NATIVE.md。
+
 ## 1.0.0-rc.83 — 2026-11-23 — 已登录账号资料恢复、真实 UID 和权益领取去重
 
 - 只读核查 WorkBuddy v5.24.14 原档案具有 nickname/uid/uin；早期聚合路由接管遗漏部分公开账号字段。新增精确授权身份匹配的昵称一次性恢复，并在本插件私有 vault 独立保留，原插件卸载后仍可展示。模型与签到请求使用官方 UID，不把 UIN 当 UID。

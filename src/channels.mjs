@@ -16,7 +16,8 @@ export const REFERENCE_CHANNELS=Object.freeze([
   {id:'own_mimo_desktop',name:'小米 MiMo 会员 · 自有会话',auth:'本插件自主网页登录 / 已有会话一次性接管；无需原客户端进程',referenceCheckin:false},
   {id:'own_doubao',name:'豆包工作会员 · 自有会话',auth:'本插件独立浏览器扫码 / Cookie；无需豆包客户端进程',referenceCheckin:true},
   {id:'own_meoo_web',name:'秒悟网页版 · 自有会员会话',auth:'独立浏览器登录或 Cookie；官方用户、动态模型和积分核验',referenceCheckin:false},
-  {id:'own_qwenwork',name:'千问办公 · 独立会员账号',auth:'本插件设备码 PKCE 授权、原生 COSY 签名及动态倍率',referenceCheckin:false},
+   {id:'own_qwenwork',name:'千问办公 · 独立会员账号',auth:'本插件设备码 PKCE 授权、原生 COSY 签名及动态倍率',referenceCheckin:false},
+   {id:'own_aws_quick',name:'Amazon Quick · 自有会员账号',auth:'独立 OAuth PKCE / 一次性本机 Quick 凭据接管；四档动态模型、真实小时额度',referenceCheckin:false},
 ]);
 export const referenceChannel=(id)=>REFERENCE_CHANNELS.find(c=>c.id===id)??null;
 // A registered route is not an available login when its private vault or

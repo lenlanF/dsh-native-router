@@ -11,6 +11,7 @@ import {createPrivateOwnedDriver,PRIVATE_PROVIDERS} from './channels/private-own
 import {createMimoDesktopDriver,MIMO_DESKTOP_ID} from './channels/mimo-desktop.mjs';
 import {createDoubaoDriver} from './channels/doubao.mjs';
 import {createMeooWebDriver,MEOO_WEB_ID} from './channels/meoo-web.mjs';
+import {createAwsQuickDriver,AWS_QUICK_ID} from './channels/aws-quick.mjs';
 import {createQwenWorkDriver,QWENWORK_ID} from './channels/qwenwork.mjs';
 import {createPrivateOwnedAdoption} from './private-owned-adoption.mjs';
 import {createPrivatePackAdoption} from './private-pack-adoption.mjs';
@@ -62,6 +63,12 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
       builtInCleanup.push(registerNativeChannelDriver(QWENWORK_ID,
         createQwenWorkDriver({vault:ownedVault,fetchImpl,
           getAccounts:()=>ownStore.get().accounts})));
+     if(!channelDrivers&&!drivers.has(AWS_QUICK_ID)){
+      const quick=createAwsQuickDriver({vault:ownedVault,fetchImpl,
+        getAccounts:()=>ownStore.get().accounts});
+      builtInCleanup.push(registerNativeChannelDriver(AWS_QUICK_ID,quick));
+      builtInCleanup.push(()=>{void quick.dispose().catch(()=>{})});
+     }
      if(!channelDrivers){
       const ownedProfileArchive=createWorkbuddyVaultInventory();
       for(const region of ['cn','global']){
