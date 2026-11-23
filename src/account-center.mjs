@@ -557,16 +557,33 @@ export function createAccountCenter({
      // upstream checks. Errors are isolated to the affected account.
      async function worker(){
        while(cursor<targets.length&&!disposed){
-         const at=cursor++,account=targets[at];
-         // Query is account-scoped. A DSH reboot or opening Settings never
-         // starts a new official request while that exact credential binding
-         // has an unexpired persisted result, including a recent failure.
-         const previous=storedFor(account);
-         if(!force&&verificationWithinPeriod(previous,now(),autoVerifyMs)){
-           results[at]={state:previous.state,checkedAt:previous.checkedAt,
-             authVerified:previous.state==='online',cached:true};
-           continue;
-         }
+          const at=cursor++,account=targets[at];
+          const driver=driverFor(account.providerId);
+          const previous=storedFor(account);
+          // A persisted ONLINE proof is not a persisted profile or quota.
+          // After each Host restart, every native owned account starts with
+          // an empty in-memory snapshot; skipping this request caused
+          // "官方未返回" indefinitely despite a valid authenticated session.
+          let snapshot={};
+          try{snapshot=driver?.accountSnapshot?.(account)??{}}catch{}
+          const hydrated=Number.isFinite(snapshot.profileCheckedAt)||
+            Number.isFinite(snapshot.verifiedAt)||
+            Number.isFinite(snapshot.balanceCheckedAt)||
+            Number.isFinite(snapshot.quotaCheckedAt)||
+            Number.isFinite(snapshot.usageCheckedAt)||
+            Number.isFinite(snapshot.checkedAt);
+          const binding=account.id+'\0'+account.credentialRef;
+          const lastWarmup=profileWarmup.get(binding)??0;
+          const needsProfileHydration=previous?.state==='online'&&
+            typeof driver?.accountSnapshot==='function'&&!hydrated&&
+            (!lastWarmup||now()-lastWarmup>=Math.min(autoVerifyMs,60000));
+          if(!force&&verificationWithinPeriod(previous,now(),autoVerifyMs)
+              &&!needsProfileHydration){
+            results[at]={state:previous.state,checkedAt:previous.checkedAt,
+              authVerified:previous.state==='online',cached:true};
+            continue;
+          }
+          if(needsProfileHydration)profileWarmup.set(binding,Math.max(1,now()));
           const active=readOnlyPending.get(account.id);
           if(active?.credentialRef===account.credentialRef){
             results[at]=await active.promise;

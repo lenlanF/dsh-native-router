@@ -140,6 +140,22 @@ test('Meoo self-owned UID, credits, dynamic model catalog and full DSH route aft
  assert.equal(h.cfg.accounts.length,0);
  h.center.stop();
 });
+test('Meoo post-restart read-only account metadata uses only official identity and free member entitlement',async()=>{
+ const h=fixture();
+ const receipt=await h.center.addMeooCookie({cookie:COOKIE_A});
+ const owned=h.cfg.accounts[0];
+ const count=h.calls.length;
+ const status=await h.driver.refreshAccountStatus({account:owned});
+ assert.equal(status.authVerified,true);
+ assert.equal(status.state,'online');
+ assert.equal(h.driver.accountSnapshot(owned).nickname,'真实秒悟甲');
+ assert.equal(h.driver.accountSnapshot(owned).balance,227);
+ assert(h.calls.slice(count).some(c=>c.path==='/api/v1/user/me'));
+ assert(h.calls.slice(count).some(c=>c.path==='/api/mc/entitlement/get'));
+ assert(h.calls.slice(count).every(c=>c.method==='GET'),
+  'account restore may not create a project, generate a model reply or claim a reward');
+ h.center.stop();
+});
 test('Meoo users are isolated and rotated sessions retain their own remote user ID',async()=>{
  const h=fixture();
  const a=await h.center.addMeooCookie({cookie:COOKIE_A});

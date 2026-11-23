@@ -149,24 +149,33 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
   }finally{writes.delete(lock)}
  }
  function withFetch(extra={}){return {...extra,fetchImpl}}
- async function probe(account){
-  const cookie=await secret(account);
-  try{
-   const info=await fetchAccountInfo(cookie,withFetch({timeoutMs:12000}));
-   if(!info?.uid&&!info?.name)throw new UpstreamError('Doubao did not confirm account identity',{code:'UPSTREAM'});
-   const current=publicStatus.get(account.id)??{};
-   publicStatus.set(account.id,{...current,nickname:info.name||current.nickname,
-     uidConfirmed:Boolean(info.uid||info.name),verifiedAt:now()});
-   return info;
-  }catch(error){
-   if(error?.status===401||errorCode(error)==='710012001')
-    throw new UpstreamError('Doubao session expired',{code:'CREDENTIAL',status:401});
-   if(error?.status===429||errorCode(error)==='710022004')
-    throw new UpstreamError('Doubao risk control requires official confirmation',{code:'RATE_LIMIT',status:429});
-   throw new UpstreamError('Doubao official account probe failed',{code:'UPSTREAM'});
-  }
- }
- async function listModels({account}={}){
+  async function probe(account,signal){
+   const cookie=await secret(account);
+   try{
+    const info=await fetchAccountInfo(cookie,withFetch({timeoutMs:12000,signal}));
+    if(!info?.uid)throw new UpstreamError('Doubao official UID missing',{code:'UPSTREAM'});
+    let raw;try{raw=await vault.resolve(keyFor(account.id))}catch{}
+    const saved=typeof raw==='string'?raw:raw?.value;
+    let stored;try{stored=JSON.parse(saved)}catch{}
+    if(typeof stored?.uid==='string'&&stored.uid&&stored.uid!==info.uid)
+     throw new UpstreamError('Doubao owned identity changed',{code:'CREDENTIAL'});
+    if(!stored?.uid&&memberId(info.uid)!==account.id&&
+       legacyHashId(cookie)!==account.id)
+     throw new UpstreamError('Doubao account does not match member UID',{code:'CREDENTIAL'});
+    const current=publicStatus.get(account.id)??{};
+    const nickname=publicAccountName({nickname:info.name},current);
+    publicStatus.set(account.id,{...current,...(nickname?{nickname}:{}),
+      uidConfirmed:true,verifiedAt:now()});
+    return info;
+   }catch(error){
+    if(error?.code==='CREDENTIAL'||error?.status===401||errorCode(error)==='710012001')
+     throw new UpstreamError('Doubao session identity invalid',{code:'CREDENTIAL',status:401});
+    if(error?.status===429||errorCode(error)==='710022004')
+     throw new UpstreamError('Doubao risk control requires official confirmation',{code:'RATE_LIMIT',status:429});
+    throw new UpstreamError('Doubao official account probe failed',{code:'UPSTREAM'});
+   }
+   }
+   async function listModels({account}={}){
   const cookie=await secret(account);
   const models=await fetchModels(cookie,withFetch({timeoutMs:15000}));
   if(!Array.isArray(models))throw new UpstreamError('Doubao catalog invalid',{code:'MODEL'});
@@ -215,11 +224,10 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
    throw error;
   }
  }
- async function refresh({account}={}){
-  try{
-   await probe(account);
-   const models=await listModels({account});
-   const cookie=await secret(account);
+  async function refreshAccountStatus({account,signal}={}){
+   try{
+    await probe(account,signal);
+    const cookie=await secret(account);
     try{
       const q=await fetchQuota(cookie,withFetch({timeoutMs:12000}));
       const windows=(Array.isArray(q.windows)?q.windows:[]).filter(w=>
@@ -270,13 +278,24 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
       const prior=publicStatus.get(account.id)??{};
       publicStatus.set(account.id,{...prior,activityState:'unavailable'});
     }
-    return {state:models.length?'online':'pending',
-     message:models.length?'豆包工作账号及普通对话模型目录鉴权通过（真实推理待验收）':'账号已鉴权但无可用对话模型'};
-  }catch(error){
-   return {state:error?.status===401?'expired':error?.status===429?'limited':'error',
-     message:'豆包工作鉴权或目录暂不可用'};
+     return {state:'online',authVerified:true,checkedAt:now(),
+       message:'豆包官方身份、会员额度及活动状态已执行独立只读刷新'};
+   }catch(error){
+    return {state:error?.code==='CREDENTIAL'?'expired':
+       error?.status===429?'limited':'unavailable',authVerified:false,
+       message:'豆包官方账号资料暂不可核验，不影响历史合法登录凭据'};
+   }
   }
- }
+  async function refresh({account,signal}={}){
+    const facts=await refreshAccountStatus({account,signal});
+    if(facts.state!=='online')return facts;
+    try{
+      const models=await listModels({account,signal});
+      return {state:'online',message:models.length?
+        '豆包独立账号、权益及模型目录已确认（真实推理待验收）':
+        '豆包身份与权益已确认，官方暂未列出可用对话模型'};
+    }catch{return {state:'online',message:'豆包身份与权益已确认，但模型目录暂不可用'};}
+  }
  async function checkIn({account,date}={}){
   const cookie=await secret(account);
   try{
@@ -367,5 +386,5 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
   return {authMethod:'独立浏览器扫码登录 / Cookie',
     get runtimeReady(){return typeof vault?.resolve==='function'&&typeof vault?.set==='function'},
    addCookie,rollbackCandidate,completeCandidate,loginStatus,startLogin:()=>browser.start(),cancelLogin,
-   listModels,generate,refresh,login:refresh,logout,checkIn,accountSnapshot};
+    listModels,generate,refresh,refreshAccountStatus,login:refresh,logout,checkIn,accountSnapshot};
  }

@@ -140,8 +140,13 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
     if(!account.enabled||!provider.enabled){const e=new Error('账号已停用，不能签到');e.status=409;throw e}
     if(typeof driver?.checkIn!=='function'){const e=new Error('该渠道尚未实现真实签到及结果验证');e.status=501;throw e}
      const date=currentDate(),previous=latestFor(accountId,date);
-      const earlierSuccess=store.all().find(x=>x.accountId===accountId&&x.date===date&&x.state==='success');
-      if(earlierSuccess)return {alreadyConfirmed:true,record:earlierSuccess};
+     const earlierSuccess=store.all().find(x=>x.accountId===accountId&&x.date===date&&x.state==='success');
+     if(earlierSuccess)return {alreadyConfirmed:true,record:earlierSuccess};
+     // An official POST can have been accepted despite a closed connection.
+     // Manually pressing again must not double-claim a one-attempt daily grant.
+     if(previous?.state==='pending_confirmation'&&
+       (/^own_workbuddy-/.test(account.providerId)||account.providerId==='own_doubao'))
+       return {alreadyPending:true,record:previous};
      const publicAccount=accountCenter.list().accounts.find(a=>a.id===accountId);
      if(publicAccount?.upstreamCheckinDate===date&&
        ['claimed','already'].includes(publicAccount?.upstreamCheckinOutcome)){

@@ -161,6 +161,18 @@ export function createWorkBuddyMemberReader({fetchImpl=fetch,now=()=>Date.now(),
   }));
   return results.filter(Boolean);
  }
+ async function dailyStatus(auth,region,signal){
+  const envelope=await requestFor(auth,region,signal)(
+   '/v2/billing/meter/checkin-activity-status',{},signal);
+  const row=record(envelope.data);
+  if(!row||typeof row.active!=='boolean')
+   throw Error('WorkBuddy daily task status missing');
+  return {active:row.active,
+   checkedInToday:typeof row.today_checked_in==='boolean'?row.today_checked_in:null};
+ }
+ async function claimDaily(auth,region,signal){
+  return requestFor(auth,region,signal)('/v2/billing/meter/daily-checkin',{},signal);
+ }
  async function claimBenefit(auth,region,kind,signal){
   const route={compensation:'/billing/meter/claim-compensation',
    gift:'/billing/meter/claim-gift'}[kind];
@@ -175,5 +187,5 @@ export function createWorkBuddyMemberReader({fetchImpl=fetch,now=()=>Date.now(),
   return after.find(x=>x.kind===kind)?.claimed===true?
    {state:'success',kind,confirmed:true}:{state:'pending_confirmation',kind};
  }
- return {profile,credits,benefits,claimBenefit};
+ return {profile,credits,benefits,claimBenefit,dailyStatus,claimDaily};
 }

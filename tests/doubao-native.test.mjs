@@ -9,7 +9,7 @@ import {createConfigStore,normalizeConfig} from '../src/config.mjs';
 const COOKIE_A='sessionid=unit-testing-session-account-A-abcdefghijklmn; uid_tt=123456789; sessionid_ss=other123';
 const COOKIE_B='sessionid=unit-testing-session-account-B-abcdefghijklmn; uid_tt=987654321; sessionid_ss=other456';
 
-function mock({extraQuota=false,invalidQuota=false}={}){
+function mock({extraQuota=false,invalidQuota=false,modelUnavailable=false}={}){
  const stored=new Map(),calls=[];
  const vault={
   set:async(k,v)=>{stored.set(k,v)},
@@ -24,7 +24,9 @@ function mock({extraQuota=false,invalidQuota=false}={}){
   if(url.pathname==='/passport/account/info/v2/')
    return data({user_id_str:cookie.includes('unit-testing-session-account-B')?'user-2':'user-1',
     screen_name:'豆包测试用户'});
-  if(url.pathname==='/alice/slot/action_bar_v3/brief_list')
+   if(url.pathname==='/alice/slot/action_bar_v3/brief_list'&&modelUnavailable)
+     return new Response('',{status:503});
+   if(url.pathname==='/alice/slot/action_bar_v3/brief_list')
    return data({entry_list:[{action_bar_key:'coco_deep_thinking',active_switch_conf:{
     menu_conf_v2:{model_list:{item_list:[
      {model_item_key:'0',name:'豆包 快速',default_mode:'1',tag_list:[{text:'0.00x'}]},
@@ -57,6 +59,32 @@ function mock({extraQuota=false,invalidQuota=false}={}){
 const account=(receipt)=>({id:receipt.id,providerId:'own_doubao',credentialRef:receipt.credentialRef});
 const options={messages:[{role:'user',content:'你好'}]};
 
+test('Doubao member credits and activity refresh survive model catalog outage and never chat',async()=>{
+ const {driver,calls}=mock({modelUnavailable:true,extraQuota:true});
+ const receipt=await driver.addCookie({cookie:COOKIE_A}),owned=account(receipt);
+ const before=calls.length;
+ const proof=await driver.refreshAccountStatus({account:owned});
+ assert.equal(proof.authVerified,true);
+ assert.equal(proof.state,'online');
+ const facts=driver.accountSnapshot(owned);
+ assert.equal(facts.nickname,'豆包测试用户');
+ assert.equal(facts.balance,80);
+ assert.equal(facts.quotaWindows.length,2);
+ assert.equal(facts.planName,'豆包会员');
+ assert(calls.slice(before).some(x=>x.path==='/alice/ug/campaign/v3/detail'));
+ assert.equal(calls.slice(before).filter(x=>x.path==='/alice/slot/action_bar_v3/brief_list').length,0);
+ assert.equal(calls.filter(x=>x.path==='/chat/completion').length,0);
+ assert.equal((await driver.refresh({account:owned})).state,'online',
+  'member account information remains usable even if separately fetched model catalog fails');
+});
+test('Doubao saved member UID cannot be silently replaced by another login',async()=>{
+ const {driver,stored}=mock();
+ const receipt=await driver.addCookie({cookie:COOKIE_A}),owned=account(receipt);
+ const [key,value]=[...stored][0],doc=JSON.parse(value);
+ doc.uid='foreign-member';stored.set(key,JSON.stringify(doc));
+ assert.equal((await driver.refreshAccountStatus({account:owned})).state,'expired');
+ assert.equal(driver.accountSnapshot(owned).balance,undefined);
+});
 test('Doubao direct Cookie stays private and each account is bound to itself',async()=>{
  const {driver,stored,calls}=mock();
  const a=await driver.addCookie({cookie:COOKIE_A});

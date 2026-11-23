@@ -220,33 +220,36 @@ export function createMimoDesktopSessionTransport({
       // Desktop membership and API/Token Plan credit are different products.
       // This read-only endpoint uses the same mimopc session, not a paid API key.
       // A failed quota read never invalidates the proven member identity.
-      let quota={membershipState:'unavailable',balanceState:'not_supported'};
-      const quotaAbort=new AbortController(),stop=()=>quotaAbort.abort();
-      const timer=setTimeout(stop,7000);
-      if(signal?.aborted)stop();else signal?.addEventListener('abort',stop,{once:true});
+       // Subscription and naturally replenished 7-day usage are INDEPENDENT
+       // official reads. The old sequential 7-second shared timer silently
+       // aborted usage after a slow subscription response, hiding free quota.
+       const budget=new AbortController(),cancel=()=>budget.abort();
+       const timer=setTimeout(cancel,9500);
+       if(signal?.aborted)cancel();else signal?.addEventListener('abort',cancel,{once:true});
        try{
-        try{
-         const quotaResponse=await authorized(session,'/api/user/xiaomi/subscription/self',{
-        headers:{Accept:'application/json'}},quotaAbort.signal);
-       if(quotaResponse.ok)
-        quota=safeMembership(JSON.parse(await boundedText(quotaResponse,{max:65536})),now());
-       else if(quotaResponse.status===404)quota={membershipState:'not_supported',
-        balanceState:'not_supported'};
-      }catch{}
-       // The free seven-day natural replenishment is independent from a
-       // subscribed Desktop plan. The official account may say current=null
-       // while /api/user/usage still has a valid quota and reset date.
-       let usage={usageState:'unavailable'};
-       try{
-        const response=await authorized(session,'/api/user/usage',
-         {headers:{Accept:'application/json'}},quotaAbort.signal);
-        if(response.ok)
-         usage=parseMimoRollingUsage(JSON.parse(await boundedText(response,{max:65536})),now());
-        else if(response.status===404)usage={usageState:'not_supported'};
-       }catch{}
-       return {state:'online',authVerified:true,
-        ...(accountName?{accountName}:{}),...quota,...usage};
-      }finally{clearTimeout(timer);signal?.removeEventListener('abort',stop)}
+        const [quota,usage]=await Promise.all([
+         (async()=>{
+          try{
+           const res=await authorized(session,'/api/user/xiaomi/subscription/self',
+             {headers:{Accept:'application/json'}},budget.signal);
+           if(res.status===404)return {membershipState:'not_supported',balanceState:'not_supported'};
+           if(!res.ok)return {membershipState:'unavailable',balanceState:'not_supported'};
+           return safeMembership(JSON.parse(await boundedText(res,{max:65536})),now());
+          }catch{return {membershipState:'unavailable',balanceState:'not_supported'}}
+         })(),
+         (async()=>{
+          try{
+           const res=await authorized(session,'/api/user/usage',
+             {headers:{Accept:'application/json'}},budget.signal);
+           if(res.status===404)return {usageState:'not_supported'};
+           if(!res.ok)return {usageState:'unavailable'};
+           return parseMimoRollingUsage(JSON.parse(await boundedText(res,{max:65536})),now());
+          }catch{return {usageState:'unavailable'}}
+         })(),
+        ]);
+        return {state:'online',authVerified:true,
+         ...(accountName?{accountName}:{}),...quota,...usage};
+       }finally{clearTimeout(timer);signal?.removeEventListener('abort',cancel)}
      }catch(error){
       return {state:error?.code==='AUTH'||error?.code==='CREDENTIAL'?'expired':'error',
        authVerified:false};

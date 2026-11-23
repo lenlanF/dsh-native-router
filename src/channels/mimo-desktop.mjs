@@ -233,12 +233,18 @@ export function createMimoDesktopDriver({
      snapshots.set(account.id,{...snapshots.get(account.id),authVerified:false});
      return {state:remote.state==='expired'?'expired':remote.state==='error'?'error':'pending',
       message:'MiMo Desktop 当前未通过实时身份检查；已获取的账号名称只作历史参考'};
-    }catch{
-     snapshots.set(account?.id,{...snapshots.get(account?.id),authVerified:false});
-     return {state:'expired',message:'本插件自己的 MiMo Desktop 授权已缺失、过期或引用失效'};
-    }
+     }catch(error){
+      snapshots.set(account?.id,{...snapshots.get(account?.id),authVerified:false});
+      return {state:error?.code==='CREDENTIAL'||error?.code==='AUTH'?'expired':'error',
+       message:'MiMo 独立授权查询未完成；短暂网络故障不代表登录失效'};
+     }
    },
-  async listModels({account,signal}={}){
+   async refreshAccountStatus({account,signal}={}){
+    const reply=await this.refresh({account,signal});
+    return {state:reply.state,authVerified:reply.state==='online',
+      ...(reply.state==='online'?{checkedAt:now()}:{})};
+   },
+   async listModels({account,signal}={}){
    const session=await ownedSession(account);
    const state=await transport.probe({session,signal});
    return state.authVerified===true?supportedModels.map(id=>({id})):[];
