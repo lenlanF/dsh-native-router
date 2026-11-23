@@ -104,6 +104,27 @@ test('MiMo naturally refreshed free seven-day member allowance is visible withou
  assert(rig.calls.some(x=>x.url.endsWith('/api/user/usage')));
  assert(!rig.calls.some(x=>x.url.includes('/v1/')));
 });
+test('MiMo free weekly allowance is fetched concurrently despite slow subscription metadata',async()=>{
+ const rig=fixture({membership:null,allowance:{percent:84,resetDate:'2026-12-08'}});
+ let subscriptionFinished=false,usageStartedBeforeSubscription=false;
+ const delayed=async(url,init)=>{
+  if(url.endsWith('/api/user/xiaomi/subscription/self')){
+   await new Promise(resolve=>setTimeout(resolve,110));
+   subscriptionFinished=true;
+  }
+  if(url.endsWith('/api/user/usage'))
+   usageStartedBeforeSubscription=!subscriptionFinished;
+  return rig.fetchImpl(url,init);
+ };
+ const remote=createMimoDesktopSessionTransport({fetchImpl:delayed});
+ const info=await remote.probe({session:own});
+ assert.equal(info.authVerified,true);
+ assert.equal(info.membershipState,'not_subscribed');
+ assert.equal(info.usageState,'available');
+ assert.equal(info.usagePercentRemaining,84);
+ assert.equal(usageStartedBeforeSubscription,true,
+  'a slow subscription must not delay or starve seven-day free quota');
+});
 test('MiMo no active cycle is distinct from an actual zero-percent remaining quota',async()=>{
  const free=await fixture({allowance:{percent:100,resetDate:null}}).transport.probe({session:own});
  assert.equal(free.usageState,'no_cycle');

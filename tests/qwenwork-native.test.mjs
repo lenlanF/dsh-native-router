@@ -123,6 +123,24 @@ test('QwenWork device grant stays pending on 404 then commits only remotely veri
  assert.equal(again.account.alreadyOwned,true);
  h.center.stop();
 });
+test('QwenWork restart metadata rehydrates official username and quota without paid COSY model call',async()=>{
+ const h=rig();
+ h.center.startQwenLogin();
+ await h.center.pollQwenLogin();await h.center.pollQwenLogin();
+ const owned=h.cfg.accounts[0];
+ const start=h.calls.length;
+ const info=await h.driver.refreshAccountStatus({account:owned});
+ assert.equal(info.authVerified,true);
+ assert.equal(info.state,'online');
+ const row=h.driver.accountSnapshot(owned);
+ assert.equal(row.nickname,'Qwen Tester');
+ assert.equal(row.balance,100);
+ assert.equal(row.balanceUnit,'credits');
+ assert.equal(h.calls.slice(start).filter(x=>x.path.includes('account-context')).length,1);
+ assert.equal(h.calls.slice(start).filter(x=>x.path.includes('/algo/')||
+   x.path.includes('model/list')).length,0);
+ h.center.stop();
+});
 test('QwenWork dynamic COSY model and quota reply directly over native DSH without local shim',async()=>{
  const h=rig();
  h.center.startQwenLogin();

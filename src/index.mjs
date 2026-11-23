@@ -14,6 +14,7 @@ import {createMeooWebDriver,MEOO_WEB_ID} from './channels/meoo-web.mjs';
 import {createQwenWorkDriver,QWENWORK_ID} from './channels/qwenwork.mjs';
 import {createPrivateOwnedAdoption} from './private-owned-adoption.mjs';
 import {createPrivatePackAdoption} from './private-pack-adoption.mjs';
+import {createWorkbuddyVaultInventory} from './workbuddy-vault.mjs';
 import {createWorkbuddyVaultAdoption} from './workbuddy-vault-adoption.mjs';
 import {createExistingDshChannelFacade,createPreferredSourceFacade} from './existing-dsh-channels.mjs';
 import {createCheckinCenter,createCheckinStore} from './checkins.mjs';
@@ -61,11 +62,15 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
       builtInCleanup.push(registerNativeChannelDriver(QWENWORK_ID,
         createQwenWorkDriver({vault:ownedVault,fetchImpl,
           getAccounts:()=>ownStore.get().accounts})));
-    if(!channelDrivers)for(const region of ['cn','global']){
-     const owner='own_workbuddy-'+region;
-     if(!drivers.has(owner))builtInCleanup.push(registerNativeChannelDriver(owner,
-       createWorkBuddyDriver({env,fetchImpl,ownedRegion:region,ownedVault})));
-   }
+     if(!channelDrivers){
+      const ownedProfileArchive=createWorkbuddyVaultInventory();
+      for(const region of ['cn','global']){
+       const owner='own_workbuddy-'+region;
+       if(!drivers.has(owner))builtInCleanup.push(registerNativeChannelDriver(owner,
+         createWorkBuddyDriver({env,fetchImpl,ownedRegion:region,ownedVault,
+           ownedIdentityLookup:id=>ownedProfileArchive.ownedPublicName(owner,id)})));
+      }
+     }
    const embeddedPack=createEmbeddedChannelPack({ctx,getConfig:()=>ownStore.get(),env:env??process.env});
    const existingHostSource=createExistingDshChannelFacade({ctx,excludedHost:embeddedPack});
    const sourceFacade=createPreferredSourceFacade({own:embeddedPack,existing:existingHostSource});

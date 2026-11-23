@@ -45,15 +45,17 @@ function readDocument(file,region,expectedName){
   // For handoff, copy only server-native auth fields and safe account identity.
   // A field can be encrypted in the desktop original; such records do not pass
   // this parser's session validation and must use official client re-login.
-  const token={accessToken:auth.accessToken,refreshToken:auth.refreshToken,
-   domain:region==='cn'?'www.workbuddy.cn':'www.workbuddy.ai',
-   expiresAt:auth.expiresAt??0,
-   ...(auth.refreshExpiresAt!==undefined?{refreshExpiresAt:auth.refreshExpiresAt}:{}),
-   ...(auth.lastRefreshTime!==undefined?{lastRefreshTime:auth.lastRefreshTime}:{}),
-   ...('uid' in acct?{uid:String(acct.uid)}:{}),
-   ...('uin' in acct?{uin:String(acct.uin)}:{}),
-   ...('enterpriseId' in acct?{enterpriseId:String(acct.enterpriseId)}:{})};
-   return {id,region,token,label:publicAccountName(acct)}; }catch{return null}
+   const label=publicAccountName(acct);
+   const token={accessToken:auth.accessToken,refreshToken:auth.refreshToken,
+    domain:region==='cn'?'www.workbuddy.cn':'www.workbuddy.ai',
+    expiresAt:auth.expiresAt??0,
+    ...(auth.refreshExpiresAt!==undefined?{refreshExpiresAt:auth.refreshExpiresAt}:{}),
+    ...(auth.lastRefreshTime!==undefined?{lastRefreshTime:auth.lastRefreshTime}:{}),
+    ...('uid' in acct?{uid:String(acct.uid)}:{}),
+    ...('uin' in acct?{uin:String(acct.uin)}:{}),
+    ...('enterpriseId' in acct?{enterpriseId:String(acct.enterpriseId)}:{}),
+    ...(label?{nickname:label}:{})};
+   return {id,region,token,label}; }catch{return null}
 }
 export function createWorkbuddyVaultInventory({home=homedir()}={}){
  const root=join(home,'.dsh','workbuddy-vault');
@@ -86,5 +88,21 @@ export function createWorkbuddyVaultInventory({home=homedir()}={}){
   if(match.length!==1)return null;
    return {providerId,accountId,secret:JSON.stringify(match[0].token),
      ...(match[0].label?{label:match[0].label}:{})}; }
- return {discover,readCredential};
+  // One-time exact-owner public name recovery for historical adoption records.
+  // Never return or reuse the original token; the source may be uninstalled
+  // after the public profile has been copied to the owner's independent vault.
+  function ownedPublicName(ownedProviderId,ownedId){
+   const region=ownedProviderId==='own_workbuddy-cn'?'cn':
+    ownedProviderId==='own_workbuddy-global'?'global':null;
+   if(!region||!/^wbp_[a-f0-9]{24}$/.test(String(ownedId)))return '';
+   const providerId='workbuddy-'+region;
+   const matched=rows(region).filter(item=>{
+    const sourceId=workbuddyPublicId(region,item.id);
+    return 'wbp_'+digest('native-router-workbuddy-own\0'+providerId+'\0'+sourceId).slice(0,24)
+      ===ownedId;
+   });
+   if(matched.length!==1)return '';
+   return publicAccountName({nickname:matched[0].label});
+  }
+  return {discover,readCredential,ownedPublicName};
 }

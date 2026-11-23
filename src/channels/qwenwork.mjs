@@ -226,10 +226,14 @@ export function createQwenWorkDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
   try{
    const credential=await currentCredential(account,signal);
    const remote=await remoteContext(credential,signal);
-   snapshots.set(account.id,{...snapshots.get(account.id),
-    verifiedAt:now(),...(remote.balance!==undefined?{
-     balance:remote.balance,balanceUnit:remote.balanceUnit,
-     balanceState:'verified',balanceCheckedAt:now()}:{})});
+    snapshots.set(account.id,{...snapshots.get(account.id),
+     verifiedAt:now(),
+     ...(publicAccountName({nickname:remote.user?.name,username:remote.user?.username},
+       credential.user)?{nickname:publicAccountName({nickname:remote.user?.name,
+       username:remote.user?.username},credential.user)}:{}),
+     ...(remote.balance!==undefined?{
+      balance:remote.balance,balanceUnit:remote.balanceUnit,
+      balanceState:'available',balanceCheckedAt:now()}:{balanceState:'not_returned'})});
    return {state:'online',message:'千问办公自有账号已通过官方账号上下文鉴权，模型回复须另行完整验收'};
   }catch(e){return {state:e?.code==='CREDENTIAL'?'expired':'error',
     message:'千问办公自有身份未确认，登录目录不视为成功'};}
@@ -406,6 +410,11 @@ export function createQwenWorkDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
     modelInferenceVerifiedAt:proof.get(account?.id)?.at??null}),
   startLogin,pollLogin,loginStatus:status,cancelLogin,
   storeCredential,rollbackCandidate,completeCandidate,
-  refresh,login:refresh,listModels,generate,logout,
+   refresh,login:refresh,
+   async refreshAccountStatus({account,signal}={}){
+    const reply=await refresh({account,signal});
+    return {state:reply.state,authVerified:reply.state==='online',
+     ...(reply.state==='online'?{checkedAt:now()}:{})};
+   },listModels,generate,logout,
  };
 }

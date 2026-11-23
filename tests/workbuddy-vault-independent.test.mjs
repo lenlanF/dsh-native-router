@@ -5,6 +5,7 @@ import {join} from 'node:path';
 import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {createInstalledPluginInventory} from '../src/installed-plugin-inventory.mjs';
+import {createWorkbuddyVaultInventory} from '../src/workbuddy-vault.mjs';
 import {createWorkbuddyVaultAdoption,workbuddyOwnedId} from '../src/workbuddy-vault-adoption.mjs';
 import {createWorkBuddyDriver} from '../src/channels/workbuddy.mjs';
 import {freeEvidence} from '../src/auto-free.mjs';
@@ -14,7 +15,7 @@ import {createNativeRouterAdapter} from '../src/adapter.mjs';
 const sha=v=>createHash('sha256').update(v).digest('hex');
 const safeRoot=()=>mkdtempSync(join(tmpdir(),'dsh-workbuddy-own-test-'));
 const content=[{choices:[{delta:{content:'independent workbuddy'},finish_reason:'stop'}]}];
-function testRig(region,{benefitCampaign=false}={}){
+function testRig(region,{benefitCampaign=false,dailyActive=true,dailyClaimError=false}={}){
  const root=safeRoot();
  const domain=region==='cn'?'www.workbuddy.cn':'www.workbuddy.ai';
  const source='workbuddy-'+region,own='own_workbuddy-'+region;
@@ -25,7 +26,7 @@ function testRig(region,{benefitCampaign=false}={}){
   auth:{accessToken:'FAKE_WORKBUDDY_ACCESS_'+region,
    refreshToken:'FAKE_WORKBUDDY_REFRESH_'+region,
    expiresAt:Math.floor(Date.now()/1000)+7200,domain},
-  account:{uin,uid:uin,nickname:'Synthetic'}};
+   account:{uin,uid:'FAKE_UID_'+region,nickname:'Synthetic'}};
  writeFileSync(join(folder,id+'.json'),JSON.stringify(original));
  const plugins=join(root,'.dsh','profiles','desktop','node_modules','dsh-connect-workbuddy');
  mkdirSync(plugins,{recursive:true});
@@ -47,11 +48,16 @@ function testRig(region,{benefitCampaign=false}={}){
    ||(region==='cn'&&String(url).startsWith('https://www.codebuddy.cn/')));
   assert.ok(String(init.headers?.authorization??'').includes('FAKE_WORKBUDDY_ACCESS_'));
   assert.equal(init.headers?.['x-domain'],domain);
-  if(String(url).includes('/v2/billing/meter/checkin-activity-status'))
-    return new Response(JSON.stringify({code:0,data:{active:true,today_checked_in:checked}}),
+   if(String(url).includes('/v2/chat/completions')||
+     String(url).includes('/v2/billing/meter/'))
+    assert.equal(init.headers?.['x-user-id'],'FAKE_UID_'+region,
+      'signed official user ID must be the UID, never different UIN');
+   if(String(url).includes('/v2/billing/meter/checkin-activity-status'))
+     return new Response(JSON.stringify({code:0,data:{active:dailyActive,today_checked_in:checked}}),
       {status:200,headers:{'content-type':'application/json'}});
   if(String(url).includes('/v2/billing/meter/daily-checkin')){
-    checked=true;return new Response(JSON.stringify({code:0,data:{credit:10}}),
+     if(dailyClaimError)return new Response('',{status:503});
+     checked=true;return new Response(JSON.stringify({code:0,data:{credit:10}}),
       {status:200,headers:{'content-type':'application/json'}});
   }
    if(String(url).includes('/billing/meter/compensation-status'))
@@ -75,16 +81,97 @@ function testRig(region,{benefitCampaign=false}={}){
   }
   throw Error('Unexpected WorkBuddy upstream');
  };
- const driver=createWorkBuddyDriver({ownedRegion:region,ownedVault:vault,
-  makeCredentialRef:x=>x,fetchImpl});
+  const profileArchive=createWorkbuddyVaultInventory({home:root});
+  const driver=createWorkBuddyDriver({ownedRegion:region,ownedVault:vault,
+    makeCredentialRef:x=>x,fetchImpl,
+    ownedIdentityLookup:id=>profileArchive.ownedPublicName(own,id)});
  const adoption=createWorkbuddyVaultAdoption({inventory,configStore,vault,
-  makeCredentialRef:x=>x,drivers:new Map([[own,driver]])});
+   makeCredentialRef:x=>x,drivers:new Map([[own,driver]])});
  return {root,region,source,own,inventory,store,configStore,driver,adoption,hits,
-  get cfg(){return cfg},
-  destroyOriginal(){rmSync(folder,{recursive:true,force:true});
-    rmSync(plugins,{recursive:true,force:true})},
-  cleanup(){rmSync(root,{recursive:true,force:true})}};
+   get cfg(){return cfg},
+   destroyOriginal(){rmSync(folder,{recursive:true,force:true});
+     rmSync(plugins,{recursive:true,force:true})},
+   cleanup(){rmSync(root,{recursive:true,force:true})}};
 }
+test('historical WorkBuddy imported accounts recover exact public names into owner vault once and survive source deletion',async()=>{
+ const rig=testRig('cn');
+ try{
+  const found=await rig.inventory.scan();
+  const source=found.accounts.find(a=>a.providerId===rig.source);
+  assert(source);
+  const adopted=await rig.adoption.adopt({providerId:rig.source,
+   accountId:source.accountId,consent:true});
+  assert.equal(adopted.state,'stored_unverified');
+  const account=rig.cfg.accounts[0],key='NATIVE_ROUTER_WB_'+account.id.slice(4).toUpperCase();
+  const original=JSON.parse(rig.store.get(key));
+  assert.equal(original.nickname,'Synthetic');
+  delete original.nickname; // emulate rc.80/81 data already missing its nickname
+  rig.store.set(key,JSON.stringify(original));
+  const lookup=createWorkbuddyVaultInventory({home:rig.root});
+  assert.equal(lookup.ownedPublicName(rig.own,account.id),'Synthetic');
+  assert.equal(lookup.ownedPublicName('own_workbuddy-global',account.id),'');
+  assert.equal(lookup.ownedPublicName(rig.own,'wbp_'+'a'.repeat(24)),'');
+  let lookups=0,writes=0;
+  const ownerVault={
+   async resolve(ref){return {value:rig.store.get(ref)}},
+   async set(ref,value){writes++;rig.store.set(ref,value)},
+   async unset(ref){rig.store.delete(ref)},
+  };
+  const fixture=async(url,init)=>{
+   if(url.includes('/v3/config'))return new Response(JSON.stringify({code:0,data:{
+    models:[{id:'hy4-preview-f',name:'Fixture model',credits:'x0.00 credits'}]}}),{status:200});
+   if(url.includes('/v2/plugin/account')||url.includes('/v2/plugin/login/account'))
+    return new Response(JSON.stringify({code:12151,data:{}}),{status:200});
+   if(url.includes('/billing/meter/'))
+    return new Response(JSON.stringify({code:0,data:{Response:{Data:{Accounts:[]}}}}),{status:200});
+   throw Error('Unexpected route');
+  };
+  const driver=createWorkBuddyDriver({ownedRegion:'cn',ownedVault:ownerVault,
+   makeCredentialRef:x=>x,fetchImpl:fixture,
+   ownedIdentityLookup:id=>{lookups++;return lookup.ownedPublicName(rig.own,id)}});
+  await Promise.all([driver.listModels({account}),driver.refreshAccountStatus({account})]);
+  assert.equal(lookups,1,'two concurrent work flows share one public source lookup');
+  assert.equal(writes,1,'the sanitized public nickname is persisted exactly once');
+  assert.equal(JSON.parse(rig.store.get(key)).nickname,'Synthetic');
+  assert.equal(driver.accountSnapshot(account).accountName,'Synthetic');
+  rig.destroyOriginal();
+  assert.equal(lookup.ownedPublicName(rig.own,account.id),'');
+  const driverAfterUninstall=createWorkBuddyDriver({ownedRegion:'cn',ownedVault:ownerVault,
+   makeCredentialRef:x=>x,fetchImpl:fixture,
+   ownedIdentityLookup:()=>{throw Error('original source is completely gone')}});
+  await driverAfterUninstall.refreshAccountStatus({account});
+  assert.equal(driverAfterUninstall.accountSnapshot(account).accountName,'Synthetic');
+  assert.equal(writes,1,'uninstalled original plugin cannot cause a second handoff');
+ }finally{rig.cleanup()}
+});
+test('WorkBuddy reward-only success cannot be counted as verified daily sign-in',async()=>{
+ const r=testRig('cn',{benefitCampaign:true,dailyActive:false});
+ try{
+  const from=(await r.inventory.scan()).accounts.find(x=>x.providerId===r.source);
+  await r.adoption.adopt({providerId:r.source,accountId:from.accountId,consent:true});
+  r.destroyOriginal();
+  const reply=await r.driver.checkIn({account:r.cfg.accounts[0],date:'2026-11-23'});
+  assert.equal(reply.state,'no_task');
+  assert.equal(reply.confirmed,undefined);
+  assert.equal(reply.benefitClaimedCount,1);
+  assert.equal(r.hits.filter(url=>url.includes('/v2/billing/meter/daily-checkin')).length,0);
+  assert.equal(r.hits.filter(url=>url.includes('/billing/meter/claim-compensation')).length,1);
+ }finally{r.cleanup()}
+});
+test('WorkBuddy unconfirmed daily POST is not resent even when direct check-in is repeated',async()=>{
+ const r=testRig('cn',{dailyClaimError:true});
+ try{
+  const from=(await r.inventory.scan()).accounts.find(x=>x.providerId===r.source);
+  await r.adoption.adopt({providerId:r.source,accountId:from.accountId,consent:true});
+  r.destroyOriginal();
+  const a=r.cfg.accounts[0];
+  const first=await r.driver.checkIn({account:a,date:'2026-11-23'});
+  assert.equal(first.state,'pending_confirmation');
+  assert.equal(first.confirmed,undefined);
+  assert.equal((await r.driver.checkIn({account:a,date:'2026-11-23'})).state,'pending_confirmation');
+  assert.equal(r.hits.filter(url=>url.includes('/v2/billing/meter/daily-checkin')).length,1);
+ }finally{r.cleanup()}
+});
 test('WorkBuddy independently collects eligible compensation in opt-in check-in once',async()=>{
  const r=testRig('cn',{benefitCampaign:true});
  try{
@@ -97,7 +184,8 @@ test('WorkBuddy independently collects eligible compensation in opt-in check-in 
   const account=r.cfg.accounts[0],day='2026-11-23';
   const first=await r.driver.checkIn({account,date:day});
   assert.equal(first.confirmed,true);
-  assert.match(first.message,/活动奖励/);
+   assert.match(first.message,/活动权益/);
+   assert.equal(first.benefitClaimedCount,1);
   assert.equal(r.hits.filter(x=>x.includes('/billing/meter/claim-compensation')).length,1);
   const second=await r.driver.checkIn({account,date:day});
   assert.equal(second.confirmed,true);

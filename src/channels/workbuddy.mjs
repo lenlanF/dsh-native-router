@@ -98,8 +98,8 @@ export function createWorkBuddyDriver({
   env=process.env,now=()=>Date.now(),fetchImpl=fetch,
   fileIO={stat,readFile,mkdir,rename,writeFile,unlink},manifestPath=sourceManifestPath(defaultConfigPath()),
   authFiles,allowTestEndpoint,timeoutMs=30000,
-  ownedRegion=null,ownedVault=null,makeCredentialRef,
-}={}){
+   ownedRegion=null,ownedVault=null,makeCredentialRef,ownedIdentityLookup,
+ }={}){
   const listed=()=>Array.isArray(authFiles)?authFiles:possibleFiles(env);
   // Volatile session tokens are never copied to disk. Desktop files stay read-only.
   const tokenCache=new Map();
@@ -142,18 +142,40 @@ export function createWorkBuddyDriver({
     const ref=makeCredentialRef??ownCredentialRef;
     return ref('NATIVE_ROUTER_WB_'+id.slice(4).toUpperCase());
   }
-  async function readOwnedAuth(account){
+   const ownedIdentityPending=new Map();
+   async function readOwnedAuth(account){
     const match=OWNED_REF.exec(String(account?.credentialRef??''));
     if(!OWN_DOMAINS[ownedRegion]||!match||match[1]!=='own_workbuddy-'+ownedRegion
        ||account?.providerId!==match[1]||account?.id!==match[2])
       throw new UpstreamError('Invalid WorkBuddy independent account binding',{code:'CREDENTIAL'});
-    const resolved=await ownedVault?.resolve?.(await ownedCredentialRef(account.id));
-    let data;try{data=JSON.parse(resolved?.value??resolved)}catch{}
-    const expectedDomain=ownedRegion==='cn'?'www.workbuddy.cn':'www.workbuddy.ai';
-    if(data?.domain!==expectedDomain)throw new UpstreamError('WorkBuddy source region mismatch',{code:'CREDENTIAL'});
-    const auth=validateAuth({auth:data});
-    if(!auth)throw new UpstreamError('WorkBuddy private credential not usable',{code:'CREDENTIAL'});
-    return {...auth,endpoint:OWN_DOMAINS[ownedRegion]};
+     const name=await ownedCredentialRef(account.id);
+     const resolved=await ownedVault?.resolve?.(name);
+     let data;try{data=JSON.parse(resolved?.value??resolved)}catch{}
+     const expectedDomain=ownedRegion==='cn'?'www.workbuddy.cn':'www.workbuddy.ai';
+     if(data?.domain!==expectedDomain)throw new UpstreamError('WorkBuddy source region mismatch',{code:'CREDENTIAL'});
+     const auth=validateAuth({auth:data});
+     if(!auth)throw new UpstreamError('WorkBuddy private credential not usable',{code:'CREDENTIAL'});
+     // Historical imports could omit the public nickname. A single
+     // exact-owner lookup is shared by concurrent identity/model requests.
+     // Commit only this harmless public field in OUR private credential.
+     if(!auth.nickname&&typeof ownedIdentityLookup==='function'){
+      let pending=ownedIdentityPending.get(account.id);
+      if(!pending){
+       pending=(async()=>{
+        let recovered='';
+        try{recovered=publicAccountName({
+         nickname:await ownedIdentityLookup(account.id)})}catch{}
+        if(recovered){
+         try{await ownedVault?.set?.(name,JSON.stringify({...data,nickname:recovered}))}catch{}
+        }
+        return recovered;
+       })();
+       ownedIdentityPending.set(account.id,pending);
+      }
+      const recovered=await pending;
+      if(recovered)auth.nickname=recovered;
+     }
+     return {...auth,endpoint:OWN_DOMAINS[ownedRegion]};
   }
   async function writeOwnedRefresh(accountId,auth,cached){
     if(!ownedRegion)return;
@@ -222,7 +244,7 @@ export function createWorkBuddyDriver({
       hd['x-conversation-request-id']=randomUUID();
       hd['x-requested-with']='XMLHttpRequest';
       hd['x-product']='SaaS';
-      hd['x-user-id']=auth.accountId||auth.sub||'';
+       hd['x-user-id']=auth.uid||auth.accountId||auth.sub||'';
       if(!hd['x-user-id']){delete hd['x-user-id'];hd['x-no-user-id']='1'}
       if(!auth.enterprise){hd['x-no-enterprise-id']='1'}
       else{hd['x-enterprise-id']=auth.enterprise;hd['x-tenant-id']=auth.enterprise}
@@ -423,40 +445,42 @@ export function createWorkBuddyDriver({
       authVerified:!!creditRow||profileRow?.authVerified===true,
       ...next};
   }
-  async function workbuddyDailyCheckIn({account,date}={}){
-    if(!ownedRegion)return {state:'unsupported'};
-    if(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date))
-      return {state:'failed',message:'签到日期非法'};
-    const auth=await validSession(account);
-    if(auth.enterprise)return {state:'no_task',message:'企业账号无个人每日签到活动'};
-    const url=ownedRegion==='cn'?'https://www.codebuddy.cn':'https://www.workbuddy.ai';
-    const request=linkedSignal(undefined,Math.min(timeoutMs,15000));
-    const hd={authorization:'Bearer '+auth.access,accept:'application/json',
-      'content-type':'application/json',
-      ...(auth.accountId?{'x-user-id':auth.accountId}:{}),
-      'x-domain':ownedRegion==='cn'?'www.workbuddy.cn':'www.workbuddy.ai'};
-    const post=async path=>{
-      const response=await fetchImpl(url+path,{method:'POST',headers:hd,body:'{}',signal:request.signal});
-      if(!response.ok)return {ok:false};
-      let payload;try{payload=JSON.parse(await readResponse(response,request.signal))}catch{}
-      return {ok:payload?.code===0,data:payload?.data??{}};
-    };
-    try{
-      const statusPath='/v2/billing/meter/checkin-activity-status';
-      const before=await post(statusPath);
-      if(!before.ok)return {state:'failed',message:'WorkBuddy 今日签到状态无法验证'};
-      if(before.data?.today_checked_in===true)return {confirmed:true,date,
-        message:'WorkBuddy 上游确认今日已经签到'};
-      if(before.data?.active!==true)return {state:'no_task',message:'今日签到活动未开放'};
-      const claimed=await post('/v2/billing/meter/daily-checkin');
-      if(!claimed.ok)return {state:'failed',message:'WorkBuddy 签到请求未被上游接受'};
-      const after=await post(statusPath);
-      if(after.ok&&after.data?.today_checked_in===true)return {confirmed:true,date,
-        message:'WorkBuddy 今日签到已由上游二次确认'};
-      return {state:'pending_confirmation',accepted:true,message:'已请求签到，但尚未核实上游今日状态'};
-    }catch{return {state:'failed',message:'WorkBuddy 签到通信未成功'}}
-    finally{request.cleanup()}
-  }
+   const dailySubmissionAttempts=new Set();
+   async function workbuddyDailyCheckIn({account,date}={}){
+     if(!ownedRegion)return {state:'unsupported'};
+     if(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date))
+       return {state:'failed',message:'签到日期非法'};
+     const auth=await validSession(account);
+     if(auth.enterprise)return {state:'no_task',message:'企业账号无个人每日签到活动'};
+     const request=linkedSignal(undefined,Math.min(timeoutMs,15000));
+     let submitted=false;
+     try{
+       const before=await memberReader.dailyStatus(auth,ownedRegion,request.signal);
+       if(before.checkedInToday===true)return {confirmed:true,date,
+         message:'WorkBuddy 官方已确认今日签到'};
+       if(before.active!==true)return {state:'no_task',
+         message:'WorkBuddy 官方未开放今日签到'};
+       // Never create a claim from missing or unknown status.
+       if(before.checkedInToday!==false)return {state:'pending_confirmation',
+         message:'WorkBuddy 官方未明确报告尚未领取，禁止自动提交'};
+        const submissionKey=account.id+'\0'+date;
+        if(dailySubmissionAttempts.has(submissionKey))
+          return {state:'pending_confirmation',accepted:true,
+            message:'WorkBuddy 今日签到已提交过，等待官方确认不重复发送'};
+        dailySubmissionAttempts.add(submissionKey);
+        submitted=true;
+       await memberReader.claimDaily(auth,ownedRegion,request.signal);
+       const after=await memberReader.dailyStatus(auth,ownedRegion,request.signal);
+       if(after.checkedInToday===true)return {confirmed:true,date,
+         message:'WorkBuddy 官方二次回查确认每日签到成功'};
+       return {state:'pending_confirmation',accepted:true,
+         message:'WorkBuddy 已提交签到但官方尚未确认，停止重复请求'};
+     }catch{
+       return submitted?{state:'pending_confirmation',accepted:true,
+         message:'WorkBuddy 签到提交结果不明确，停止自动和手动重发'}:
+         {state:'failed',message:'WorkBuddy 签到状态只读核验暂不可用'};
+     }finally{request.cleanup()}
+   }
   // A user-triggered check-in, or the already opt-in automatic check-in
   // scheduler, also collects officially eligible account gifts/compensation.
   // It never guesses campaigns, never buys, and never retries a POST whose
@@ -485,13 +509,17 @@ export function createWorkBuddyDriver({
     // The display refresh is read-only and never re-sends a reward claim.
     if(available.some(x=>x.active&&!x.claimed))
       await fetchMemberFacts(account).catch(()=>{});
-    if(daily.confirmed||claimed>0)
-      return {confirmed:true,date,message:claimed?
-        'WorkBuddy 今日签到/活动奖励已读取官方确认 · 新增领取 '+claimed+' 项':
-        daily.message};
-    if(uncertain>0)return {state:'pending_confirmation',
-      message:'WorkBuddy 活动领取回执尚未确认，停止重复领取'};
-    return daily;
+     if(daily.confirmed)
+       return {...daily,...(claimed?{benefitClaimedCount:claimed,
+         message:daily.message+'；活动权益另确认 '+claimed+' 项'}:{})};
+     if(uncertain>0||daily.state==='pending_confirmation')
+       return {state:'pending_confirmation',benefitClaimedCount:claimed,
+         message:claimed?
+           '活动奖励已获官方确认 '+claimed+' 项，但每日签到尚未确认':
+           '每日签到或活动奖励回执尚未确认，停止重复领取'};
+     if(claimed>0)return {...daily,benefitClaimedCount:claimed,
+       message:'活动赠送已领取 '+claimed+' 项；每日签到仍未完成'};
+     return daily;
   }
   return {
     ...(ownedRegion?{checkIn:workbuddyCheckIn}:{}),

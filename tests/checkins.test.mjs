@@ -52,6 +52,25 @@ test('accepted response remains pending until remote confirms the actual same-da
  assert.equal(attempts,2,'same-day confirmed check-in must not run again');
  assert.equal(JSON.parse(readFileSync(rig.file,'utf8')).history.length,2);
 });
+test('owned WorkBuddy and Doubao pending daily rewards survive manual repeat without another POST',async t=>{
+ for(const providerId of ['own_workbuddy-cn','own_doubao']){
+  let attempts=0;
+  const settings={...sample,providers:sample.providers.map(x=>x.id==='alpha'?
+   {...x,id:providerId,name:providerId}:x),
+    accounts:sample.accounts.map(x=>x.providerId==='alpha'? {...x,providerId}:x),
+    routes:[]};
+  const rig=fixture(t,{config:settings,drivers:new Map([[providerId,{
+   checkIn:async()=>{attempts++;return {state:'pending_confirmation',accepted:true}}
+  }]])});
+  const first=await rig.center.run('a1');
+  assert.equal(first.record.state,'pending_confirmation');
+  const again=await rig.center.run('a1');
+  assert.equal(again.alreadyPending,true);
+  assert.equal(again.record.at,first.record.at);
+  assert.equal(attempts,1);
+  assert.equal(rig.store.all().length,1);
+ }
+});
 test('response marked success without same-day confirmation cannot become success',async t=>{
  const driver={checkIn:async()=>({state:'success',confirmed:false,message:'only an acceptance receipt'})};
  const rig=fixture(t,{drivers:new Map([['alpha',driver]])});

@@ -408,6 +408,12 @@ export function createMeooWebDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
     }
     return browser.cancel();
    },
-  refresh,login:refresh,listModels,generate,logout,
+   refresh,login:refresh,
+   async refreshAccountStatus({account,signal}={}){
+    const row=await refresh({account,signal});
+    return {state:row.state,authVerified:row.state==='online',
+      ...(row.state==='online'?{checkedAt:now()}:{})};
+   },
+   listModels,generate,logout,
  };
 }
