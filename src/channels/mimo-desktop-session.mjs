@@ -91,6 +91,36 @@ function parseServiceLogin(raw){
  return {location:payload.location,nonce:nonce??String(payload.nonce),
   ssecurity:payload.ssecurity};
 }
+function safeMembership(reading,now){
+  if(!reading||typeof reading!=='object'||reading.code!==0)
+    return {membershipState:'unavailable',balanceState:'not_supported'};
+  const root=reading.data??{},section=root.subscription??root;
+  if(!section||typeof section!=='object'||!Object.hasOwn(section,'current'))
+    return {membershipState:'unavailable',balanceState:'not_supported'};
+  const current=section.current;
+  if(current===null)return {membershipState:'not_subscribed',balanceState:'not_supported',
+    quotaCheckedAt:now};
+  if(!current||typeof current!=='object')
+    return {membershipState:'unavailable',balanceState:'not_supported'};
+  const rawPercent=current.percent;
+  const pct=Number(rawPercent);
+  const reliable=rawPercent!==null&&rawPercent!==undefined&&
+    (typeof rawPercent==='number'||typeof rawPercent==='string'&&rawPercent.trim()!=='')&&
+    Number.isFinite(pct)&&pct>=0&&pct<=100;
+  const code=typeof current.planCode==='string'&&/^[A-Za-z0-9._-]{1,48}$/.test(current.planCode)
+    ?current.planCode:'';
+  const tier=Number.isInteger(current.planTier)&&current.planTier>=1&&current.planTier<=4
+    ?current.planTier:null;
+  const rawReset=current.nextResetTime;
+  const reset=typeof rawReset==='number'&&Number.isFinite(rawReset)?
+    (rawReset<1e11?rawReset*1000:rawReset):
+    typeof rawReset==='string'&&rawReset.trim()?Date.parse(rawReset):NaN;
+  return {membershipState:'active',balanceState:'not_supported',
+    ...(code?{membershipPlanName:code}:tier?{membershipPlanName:'Desktop 会员等级 '+tier}:{}),
+    ...(reliable?{membershipPercentRemaining:pct}:{}),
+    ...(Number.isFinite(reset)&&reset>0?{membershipResetAt:reset}:{}),
+    quotaCheckedAt:now};
+}
 export function createMimoDesktopSessionTransport({
  fetchImpl=fetch,now=()=>Date.now(),ttlMs=SESSION_MS,timeoutMs=120000,
 }={}){
@@ -156,26 +186,43 @@ export function createMimoDesktopSessionTransport({
  }
  return {
   invalidate,
-  async probe({session,signal}={}){
-   try{
-    const response=await authorized(session,'/api/user/xiaomi/me',{
-     headers:{Accept:'application/json'}},signal);
-    if(!response.ok)return {state:response.status===401||response.status===403?'expired':'error',
-      httpStatus:response.status,authVerified:false};
-    const result=JSON.parse(await boundedText(response,{max:65536}));
-    // An empty JSON/HTTP200 doesn't prove a named, remote account session.
-    const user=result?.data?.user??result?.data;
-    const identity=user?.userId??user?.id??user?.user_id;
-    const verified=result?.code===0&&user&&typeof user==='object'
-      &&(typeof identity==='string'&&identity.trim()||Number.isSafeInteger(identity)&&identity>0);
-    const accountName=publicAccountName({nickname:user?.nickName,displayName:user?.displayName},user);
-    return {state:verified?'online':'pending',authVerified:!!verified,
-      ...(verified&&accountName?{accountName}:{})};
-   }catch(error){
-    return {state:error?.code==='AUTH'||error?.code==='CREDENTIAL'?'expired':'error',
-     authVerified:false};
-   }
-  },
+   async probe({session,signal}={}){
+     try{
+      const response=await authorized(session,'/api/user/xiaomi/me',{
+       headers:{Accept:'application/json'}},signal);
+      if(!response.ok)return {state:response.status===401||response.status===403?'expired':'error',
+       httpStatus:response.status,authVerified:false};
+      const result=JSON.parse(await boundedText(response,{max:65536}));
+      const user=result?.data?.user??result?.data;
+      const identity=user?.userId??user?.id??user?.user_id;
+      const verified=result?.code===0&&user&&typeof user==='object'
+        &&(typeof identity==='string'&&identity.trim()||Number.isSafeInteger(identity)&&identity>0);
+      if(!verified)return {state:'pending',authVerified:false};
+      const accountName=publicAccountName({
+       displayName:user?.displayName,nickname:user?.nickName,
+       name:user?.name,userName:user?.userName,username:user?.username},user);
+      // Desktop membership and API/Token Plan credit are different products.
+      // This read-only endpoint uses the same mimopc session, not a paid API key.
+      // A failed quota read never invalidates the proven member identity.
+      let quota={membershipState:'unavailable',balanceState:'not_supported'};
+      const quotaAbort=new AbortController(),stop=()=>quotaAbort.abort();
+      const timer=setTimeout(stop,7000);
+      if(signal?.aborted)stop();else signal?.addEventListener('abort',stop,{once:true});
+      try{
+       const quotaResponse=await authorized(session,'/api/user/xiaomi/subscription/self',{
+        headers:{Accept:'application/json'}},quotaAbort.signal);
+       if(quotaResponse.ok)
+        quota=safeMembership(JSON.parse(await boundedText(quotaResponse,{max:65536})),now());
+       else if(quotaResponse.status===404)quota={membershipState:'not_supported',
+        balanceState:'not_supported'};
+      }catch{}finally{clearTimeout(timer);signal?.removeEventListener('abort',stop)}
+      return {state:'online',authVerified:true,
+       ...(accountName?{accountName}:{}),...quota};
+     }catch(error){
+      return {state:error?.code==='AUTH'||error?.code==='CREDENTIAL'?'expired':'error',
+       authVerified:false};
+     }
+   },
   async generate({session,model,options={},signal}={}){
    validate(session);
    if(typeof model!=='string'||!MIMO_DESKTOP_ACCOUNT_MODELS.includes(model))

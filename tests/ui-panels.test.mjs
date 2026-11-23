@@ -315,15 +315,15 @@ test('real client render: channel account page exposes login, refresh, logout an
   assert.match(text,/华为云 CodeArts/);
   assert.match(text,/腾讯 WorkBuddy/);
   assert.match(text,/账号状态/);
-   assert.ok(rig.find(page,'button','校验').length>=1);  assert.ok(rig.find(page,'button','刷新').length>=1);
+   assert.ok(rig.find(page,'button','刷新账户资料').length>=1);
    assert.ok(rig.find(page,'button','解绑').length>=1);  assert.ok(rig.find(page,'button','停用').length>=1);
 });
 test('real client render: login button triggers account authentication probe, not a fake success',async()=>{
   const rig=createUiRig();await rig.init();
   rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
   let page=rig.render();
-   const login=rig.find(page,'button','校验')[0];  await login.props.onClick();
-  assert.ok(rig.mutations.some(m=>m.action==='login'));
+   const login=rig.find(page,'button','刷新账户资料')[0];await login.props.onClick();
+   assert.ok(rig.mutations.some(m=>m.action==='refresh'));
   page=rig.render();
  assert.match(rig.flatten(page).join(' '),/鉴权通过/);
 });
@@ -923,7 +923,7 @@ test('overview uses complete deduplicated source chips ordered verified connecte
  const hosts=[{providerId:'workbuddy',loginVerified:false},{providerId:'workbuddy-global',loginVerified:false}];
  const rig=createUiRig(new Map(),null,{state:'disabled'},{},hosts);await rig.init();
  rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
- await rig.find(rig.render(),'button','校验')[0].props.onClick();
+  await rig.find(rig.render(),'button','刷新账户资料')[0].props.onClick();
  rig.find(rig.render(),'button','总览')[0].props.onClick();
  const page=rig.render();
  const chips=uiNodes(page,node=>node.props?.className==='dnr-route-chip');
@@ -955,7 +955,7 @@ test('account names and verified source credits lead; technical ID is folded int
   rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
   const page=rig.render(),lines=rig.flatten(page).join(' ');
   assert.match(lines,/Readable Qoder User/);
-  assert.match(lines,/余额：83 积分/);
+   assert.match(lines,/83 积分/);
   assert.equal((lines.match(/Readable Qoder User/g)||[]).length,1,
     'the raw pool and unified account must never appear as two account cards');
   assert.equal(rig.find(page,'button','查看待接入渠道').length,0);
@@ -963,6 +963,36 @@ test('account names and verified source credits lead; technical ID is folded int
   const disclosures=uiNodes(page,node=>node.type==='details');
   assert.ok(disclosures.some(node=>rig.flatten(node).join(' ').includes('内部账号：a1')),
     'technical ID should be folded into native details');
+});
+test('native account cards show real Xiaomi membership and Doubao quota windows without inventing wallet balances',async()=>{
+ const inventory={ok:true,channels:[
+  {id:'mimo_desktop',name:'小米 MiMo Desktop',adapterReady:true,authMethod:'会员自有登录'},
+  {id:'doubao',name:'豆包工作',adapterReady:true,authMethod:'网页登录'}],
+ accounts:[
+  {id:'sp_333',providerId:'mimo_desktop',nickname:'真实小米昵称',enabled:true,configuredEnabled:true,
+   connectionState:'online',weight:1,managed:true,runtimeMode:'owned',credentialKind:'driver',
+   membershipState:'active',membershipPercentRemaining:77.5,membershipPlanName:'plus',balanceState:'not_supported'},
+  {id:'db_333',providerId:'doubao',nickname:'真实豆包名称',enabled:true,configuredEnabled:true,
+   connectionState:'online',weight:1,managed:true,runtimeMode:'owned',credentialKind:'driver',
+   quotaWindows:[{kind:'package',label:'主套餐',total:100,used:20,left:80},
+    {kind:'week',label:'每周',total:20,used:8,left:12}],
+   balance:80,balanceUnit:'主套餐',balanceState:'available',planName:'豆包会员'}
+ ],pools:[],embeddedAccounts:{state:'disabled',accounts:[]}};
+ const rig=createUiRig(new Map(),null,{state:'disabled'},{},[],
+   undefined,()=>true,inventory);
+ await rig.init();
+ rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
+ const page=rig.render(),rendered=rig.flatten(page).join(' ');
+ const cards=uiNodes(page,x=>x.props?.className==='dnr-account-card');
+ assert.equal(cards.length,2);
+ assert.match(rendered,/真实小米昵称/);
+ assert.match(rendered,/真实豆包名称/);
+ assert.match(rendered,/77\.5% 剩余/);
+ assert.match(rendered,/80 \/ 100/);
+ assert.match(rendered,/12 \/ 20/);
+ assert.match(rendered,/豆包会员/);
+ assert.doesNotMatch(rendered,/账号1|账号 1|余额待来源同步|余额：92/);
+ assert.equal(rig.find(page,'button','刷新账户资料').length,2);
 });
 test('provider search filters by name ID and protocol and defaults every disclosure closed',async()=>{
  const rig=createUiRig();await rig.init();

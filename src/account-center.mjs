@@ -14,8 +14,8 @@ export function createAccountCenter({
    getSourceStatus=()=>({state:'unavailable'}),verificationStore,autoVerifyMs=AUTO_VERIFY_MS,
    readOnlyTimeoutMs=8000,readOnlyConcurrency=4,}={}){
   if(!configStore?.get||!configStore?.replace)throw Error('ConfigStore must support get and replace');
-  const checks=new Map(),pending=new Set(),discoverCache=new Map(),
-   inferenceProof=new Map(),inferenceFailures=new Map(),readOnlyPending=new Map();
+   const checks=new Map(),pending=new Set(),discoverCache=new Map(),profileWarmup=new Map(),
+    inferenceProof=new Map(),inferenceFailures=new Map(),readOnlyPending=new Map();
   let automaticTimer=null,initialTimer=null,autoBusy=false,disposed=false;
   const storedFor=account=>verificationStore?.get?.(account)??null;
   function checkFor(account){
@@ -87,8 +87,14 @@ export function createAccountCenter({
           let live={};
           try{live=typeof driver?.accountSnapshot==='function'?
             driver.accountSnapshot(account)??{}:{}}catch{}
-          const name=publicAccountName(live,account);
-          const balance=publicBalance(live);
+             const name=publicAccountName(live,account);
+             const balance=publicBalance(live);
+             const quotaWindows=Array.isArray(live.quotaWindows)?live.quotaWindows.slice(0,12)
+               .filter(x=>x&&typeof x.label==='string'&&Number.isFinite(x.left)
+                 &&x.left>=0&&Number.isFinite(x.total)&&x.total>=0)
+               .map(x=>({kind:x.kind,label:x.label.slice(0,50),
+                 total:x.total,used:x.used,left:x.left,
+                 ...(Number.isFinite(x.endAt)?{endAt:x.endAt}:{})})):[];
           const lastProof=inferenceProof.get(account.id);
           const lastFailure=inferenceFailures.get(account.id);
           const persistentProof=verificationStore?.getModelTest?.(account);
@@ -98,9 +104,15 @@ export function createAccountCenter({
           const bestProof=Math.max(verifiedAt??0,persistentProof?.at??0,
            Number.isFinite(live.modelInferenceVerifiedAt)&&live.modelInferenceVerifiedAt>0?
             live.modelInferenceVerifiedAt:0);
-          return {id:account.id,providerId:account.providerId,providerName:provider.name,
-            ...(name?{nickname:name}:{}),
-             ...balance,
+           return {id:account.id,providerId:account.providerId,providerName:provider.name,
+             ...(name?{nickname:name,profileState:'verified'}:{profileState:'not_returned'}),
+             ...balance,quotaWindows,
+             ...(typeof live.planName==='string'&&live.planName?{planName:live.planName.slice(0,72)}:{}),
+             ...(typeof live.membershipPlanName==='string'&&live.membershipPlanName?{membershipPlanName:live.membershipPlanName.slice(0,72)}:{}),
+             ...(typeof live.membershipState==='string'?{membershipState:live.membershipState}:{}),
+             ...(Number.isFinite(live.membershipPercentRemaining)?{membershipPercentRemaining:live.membershipPercentRemaining}:{}),
+             ...(Number.isFinite(live.membershipResetAt)?{membershipResetAt:live.membershipResetAt}:{}),
+             ...(Number.isFinite(live.quotaCheckedAt)?{quotaCheckedAt:live.quotaCheckedAt}:{}),
              modelInferenceVerifiedAt:failedAt&&failedAt>=bestProof?null:bestProof||null,
              modelTestFailedAt:failedAt??null,
             upstreamCheckinDate:live.checkinDate??null,
@@ -486,15 +498,36 @@ export function createAccountCenter({
     // starts. A not-yet-mounted PRIVATE pack is not an authentication failure:
     // defer the verification and preserve the last known bound status.
     if(driver?.isSourceBridge===true&&driver.runtimeReady!==true)continue;
-    const last=storedFor(account);
-    // Bound persisted timestamps survive a DSH restart. Check the SAME
-    // period used by startup and settings-page read-only health calls.
-    if(pending.has(account.id)||readOnlyPending.get(account.id)?.credentialRef===account.credentialRef
-      ||verificationWithinPeriod(last,now(),autoVerifyMs))continue;
-    attempted++;
-    try{await verify(account.id)}catch{}
-   }
-  }finally{autoBusy=false}
+    const last=storedFor(account),fresh=verificationWithinPeriod(last,now(),autoVerifyMs);
+    const cacheKey=account.id+'\0'+account.credentialRef;
+    if(pending.has(account.id)||
+       readOnlyPending.get(account.id)?.credentialRef===account.credentialRef)continue;
+    // Persistent verification proves an earlier login, but the driver snapshot
+    // is memory-only. Without this one-time hydration, the whole page shows
+    // "account 1 / balance unknown" after every DSH restart for up to 30 min.
+    if(fresh){
+     let facts={};
+     try{facts=driver?.accountSnapshot?.(account)??{}}catch{}
+     const named=Boolean(publicAccountName(facts));
+     const metadataIncomplete=!named||
+       ['own_mimo_desktop','own_doubao'].includes(account.providerId)
+       && !Number.isFinite(facts.balance)&&
+          facts.membershipState===undefined&&
+          facts.balanceState!=='not_supported'&&
+          facts.balanceState!=='not_returned';
+     const lastWarmup=profileWarmup.get(cacheKey)??0;
+     if(typeof driver?.accountSnapshot==='function'&&metadataIncomplete&&
+        (lastWarmup===0||now()-lastWarmup>=autoVerifyMs)){
+      profileWarmup.set(cacheKey,now());
+      attempted++;
+      try{await verify(account.id)}catch{}
+     }
+     continue;
+    }
+     attempted++;
+     try{await verify(account.id)}catch{}
+    }
+   }finally{autoBusy=false}
   return {attempted};
  }
    async function refreshReadOnly({force=false}={}){

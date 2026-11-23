@@ -5,7 +5,8 @@ const opaqueName=/^(?:sp|pr|wb|ca)_[a-f0-9]{20,}$/i;
 const generatedName=/^(?:账号\s*#?\s*\d+|account\s*#?\s*\d+|id:.+|.+\s*[·•-]\s*(?:独立账号|本机账号\s*#?\d+|来源账号)|.+\s*本机账号\s*#?\d+|.+\s*账号\s*#?\d+|.+\s+来源账号)$/iu;
 export function publicAccountName(...sources){
   for(const source of sources){
-    if(!source||typeof source!=='object')continue;    for(const key of ['displayName','accountName','username','userName','nickname','label']){
+     if(!source||typeof source!=='object')continue;
+     for(const key of ['displayName','accountName','username','userName','nickname','nickName','screenName','name','label']){
       const value=source[key];
       if(typeof value!=='string')continue;
       const name=value.trim();
@@ -22,9 +23,9 @@ export function publicAccountName(...sources){
 export function credentialPublicIdentity(payload){
   if(!payload||typeof payload!=='object'||Array.isArray(payload))return {};
   const label=publicAccountName({
-    accountName:payload.account_name??payload.user_name??payload.accountName,
-    username:payload.username,displayName:payload.display_name,
-    nickname:payload.nickname,
+     accountName:payload.account_name??payload.user_name??payload.accountName,
+     username:payload.username,displayName:payload.display_name,
+     nickname:payload.nickname,nickName:payload.nickName,name:payload.name,
   },payload.account,payload.profile);  const phone=typeof payload.phone==='string'&&/^\d{11}$/.test(payload.phone)?
     payload.phone.replace(/^(\d{3})\d{4}(\d{4})$/,'$1****$2'):'';
   return {...(label?{accountName:label}:{}),

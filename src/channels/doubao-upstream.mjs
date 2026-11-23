@@ -199,16 +199,13 @@ function readMessage(payload) {
 }
 
 function parseAmount(value) {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value !== 'string') return 0
-  const cleaned = value.replace(/[^\d.-]/g, '')
-  const parsed = Number(parsedFloat(cleaned))
-  return Number.isFinite(parsed) ? parsed : 0
-}
-
-function parsedFloat(text) {
-  const value = Number.parseFloat(text)
-  return Number.isFinite(value) ? value : 0
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value
+  if (typeof value !== 'string') return null
+  const trimmed=value.trim()
+  // An unknown, unlimited or malformed source balance is NOT a verified zero.
+  if(!trimmed||!/^\d[\d,]*(?:\.\d+)?$/.test(trimmed))return null
+  const parsed=Number(trimmed.replaceAll(',',''))
+  return Number.isFinite(parsed)&&parsed>=0?parsed:null
 }
 
 // 5 小时窗口 / 周额度 / 活动赠送，三类窗口字段一样，只是 window_type 不同。
@@ -226,6 +223,7 @@ function readWindows(section, fallbackLabel) {
     for (const limit of limits) {
       const total = parseAmount(limit?.total_amount)
       const used = parseAmount(limit?.used_amount)
+      if(total===null||used===null)continue
       const percent = Number(limit?.used_percent)
       out.push({
         kind: WINDOW_KINDS[limit?.window_type] ?? 'other',

@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createMimoDesktopSessionTransport} from '../src/channels/mimo-desktop-session.mjs';
 const own={region:'cn',passToken:'owner-desktop-private-pass-123',userId:'account-101'};
-function fixture({invalidRedirect=false,auth=0,expectedModel='mimo-v2.6-pro'}={}){
+function fixture({invalidRedirect=false,auth=0,expectedModel='mimo-v2.6-pro',
+  membership={planCode:'plus',planTier:2,percent:77.5,nextResetTime:'2026-11-30T00:00:00Z'},
+  missingMembership=false,malformedMembership=false}={}){
  const calls=[];let handshakes=0;
  const fetchImpl=async(url,init={})=>{
   calls.push({url,init});
@@ -24,9 +26,13 @@ function fixture({invalidRedirect=false,auth=0,expectedModel='mimo-v2.6-pro'}={}
   assert.ok(url.startsWith('https://mimo-server-cn.xiaomimimo.com/'));
   assert.equal(init.headers.Cookie?.includes('private-service-session-123'),true);
   assert.equal(init.headers.Cookie?.includes('owner-desktop-private-pass'),false);
-  if(url.endsWith('/api/user/xiaomi/me'))
-   return new Response(JSON.stringify({code:0,data:{userId:'account-101'}}),{status:200});
-  assert.ok(url.endsWith('/api/route/chat/completions'));
+   if(url.endsWith('/api/user/xiaomi/me'))
+    return new Response(JSON.stringify({code:0,data:{userId:'account-101',nickName:'真实小米账户'}}),{status:200});
+   if(url.endsWith('/api/user/xiaomi/subscription/self'))
+    return missingMembership?new Response('',{status:404}):
+     new Response(JSON.stringify(malformedMembership?{code:0,data:{}}:
+       {code:0,data:{current:membership}}),{status:200});
+   assert.ok(url.endsWith('/api/route/chat/completions'));
   assert.equal(init.method,'POST');
   assert.equal(JSON.parse(init.body).model,'xiaomi/'+expectedModel);
   if(auth&&handshakes===1)return new Response('',{status:401});
@@ -49,6 +55,40 @@ test('real Desktop passToken SSO path (mock server) verifies account and perform
  assert.equal(rig.handshakes,1,'SSO should be cached for the same adopted account');
  assert.equal(rig.calls.filter(x=>x.url.includes('/api/route/chat/completions')).length,1);
  assert.equal(JSON.stringify(reply).includes(own.passToken),false);
+});
+test('MiMo Desktop exposes official member quota separate from API Token Plan',async()=>{
+ const rig=fixture();
+ const profile=await rig.transport.probe({session:own});
+ assert.equal(profile.state,'online');
+ assert.equal(profile.accountName,'真实小米账户');
+ assert.equal(profile.membershipState,'active');
+ assert.equal(profile.membershipPlanName,'plus');
+ assert.equal(profile.membershipPercentRemaining,77.5);
+ assert.equal(profile.membershipResetAt,Date.parse('2026-11-30T00:00:00Z'));
+ assert.equal(profile.balanceState,'not_supported');
+ assert(rig.calls.some(c=>c.url.endsWith('/api/user/xiaomi/subscription/self')));
+ assert(!rig.calls.some(c=>c.url.includes('token-plan-')||c.url.includes('/v1/platform/')));
+});
+test('MiMo no active Desktop subscription is not the same as zero API wallet',async()=>{
+ const rig=fixture({membership:null});
+ const profile=await rig.transport.probe({session:own});
+ assert.equal(profile.state,'online');
+ assert.equal(profile.membershipState,'not_subscribed');
+ assert.equal('membershipPercentRemaining' in profile,false);
+ assert.equal('balance' in profile,false);
+});
+test('MiMo quota API unavailable and null percentage never become a false 0% label',async()=>{
+ const unavailable=await fixture({missingMembership:true}).transport.probe({session:own});
+ assert.equal(unavailable.state,'online');
+ assert.equal(unavailable.membershipState,'not_supported');
+ assert.equal('membershipPercentRemaining' in unavailable,false);
+ const unknown=await fixture({membership:{planCode:'plus',percent:null}}).transport.probe({session:own});
+ assert.equal(unknown.state,'online');
+ assert.equal(unknown.membershipState,'active');
+ assert.equal('membershipPercentRemaining' in unknown,false);
+ const malformed=await fixture({malformedMembership:true}).transport.probe({session:own});
+ assert.equal(malformed.state,'online');
+ assert.equal(malformed.membershipState,'unavailable');
 });
 test('all advertised MiMo V2.6 member models use only private desktop session and account-service endpoint',async()=>{
  for(const model of ['mimo-v2.6-pro','mimo-v2.6-flash','mimo-v2.6-pro-ultraspeed']){
