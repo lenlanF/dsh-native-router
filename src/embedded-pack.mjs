@@ -274,7 +274,10 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
     if(!Array.isArray(rows))throw Error('Invalid upstream account pool');
      const accounts=rows.filter(row=>row&&sourceAllowed(row.provider)
        &&typeof row.id==='string'&&row.id.length>0&&row.id.length<=100).slice(0,200).map(row=>{
-        const rawName=publicAccountName({nickname:row.nickname});
+        // Private source AccountPool can expose the owner's accountName or
+        // username while holding a generated nickname (e.g. '账号1'). Keep
+        // these sanitized public fields, but the roster is NOT auth proof.
+        const rawName=publicAccountName(row);
        const marker=String(row.credentialRef??'');
        // Distinguish login provenance. Migrated plugin credentials are not
        // user-performed autonomous logins merely because they live in our pool.

@@ -7,6 +7,7 @@ import {UpstreamError,safeRetryAfter} from '../failure.mjs';
 import {toChatMessages} from '../protocol.mjs';
 import {visibleTools,openAiTools} from '../host-tools.mjs';
 import {validateModelCalls} from '../provider/openai.mjs';
+import {publicAccountName} from '../account-facts.mjs';
 
 // Loomy and ZCode are handled by the existing pinned MIT channel-pack.
 // Lingxi is absent from that upstream source and needs its own adapter.
@@ -133,13 +134,45 @@ export function createPrivateOwnedDriver({providerId,vault,makeCredentialRef,
    throw new UpstreamError('Channel transport unavailable',{code:'UPSTREAM'});
   }finally{bound.close()}
  }
- async function lingxiModels(sid,signal){
-  const base=endpointOverride.lingxi??'https://lingxi.kdocs.cn';
-  const response=await send(base+'/api/aioffice/v1/sessions/plans',
-   {headers:buildLingxiHeaders(sid,base)},signal);
-  if(!response.ok)throw httpFailure(response,'Lingxi');
-  return planModels(JSON.parse(await readCapped(response,signal)));
- }
+  const accountBases=()=>endpointOverride.lingxi?[endpointOverride.lingxi]:
+    ['https://lingxi.kdocs.cn','https://lingxi.wps.cn'];
+  // A cookie may belong to either official cluster. Try both ONLY for
+  // read-only GETs after 401, 5xx or transport failure, never 403/429.
+  async function lingxiRead(sid,path,signal){
+    const bases=accountBases();
+    for(let i=0;i<bases.length;i++){
+      const base=bases[i];let response;
+      try{response=await send(base+path,
+        {headers:buildLingxiHeaders(sid,base)},signal)}
+      catch{if(i+1<bases.length&&!signal?.aborted)continue;return null}
+      if(!response.ok){
+        if((response.status===401||response.status>=500)
+          &&i+1<bases.length&&!signal?.aborted)continue;
+        return null;
+      }
+      try{
+        const json=JSON.parse(await readCapped(response,signal));
+        const code=json?.code;
+        const validCode=code===undefined||code===null||code===0||
+          ['Success','success','OK','ok','0'].includes(code);
+        if(json?.result==='UserUnauthorized'||!validCode){
+          // HTTP 200 with an application-level rejection must not publish
+          // a spoofed account name or phantom quota. Only an explicit
+          // upstream auth rejection can try the second official cluster.
+          if((json?.result==='UserUnauthorized'||code==='UserUnauthorized')
+            &&i+1<bases.length&&!signal?.aborted)continue;
+          return null;
+        }
+        return json;
+      }catch{return null}
+    }
+    return null;
+  }
+  async function lingxiModels(sid,signal){
+    const data=await lingxiRead(sid,'/api/aioffice/v1/sessions/plans',signal);
+    if(!data)throw new UpstreamError('Lingxi official model directory unavailable',{code:'UPSTREAM'});
+    return planModels(data);
+  }
  async function* modelsIterator(account,signal){
   const secret=await secretFor(account);
   const models=await lingxiModels(secret,signal);
@@ -246,33 +279,37 @@ export function createPrivateOwnedDriver({providerId,vault,makeCredentialRef,
         taskStatus:'claimable',claimDate:day?.date??upstreamDate??null}:
       {checkinOutcome:'unknown',checkinDate:null,taskStatus:'unavailable'};
   }
-  async function readAccountStatus(account,signal){
+   async function readAccountStatus(account,signal){
     const sid=await secretFor(account);
-    const base=endpointOverride.lingxi??'https://lingxi.kdocs.cn';
-    const headers=buildLingxiHeaders(sid,base);
     const timeout=new AbortController();
-    const clock=setTimeout(()=>timeout.abort(),9000);
+    const clock=setTimeout(()=>timeout.abort(),9500);
     clock.unref?.();
     const abort=()=>timeout.abort();
     if(signal?.aborted)abort();else signal?.addEventListener?.('abort',abort,{once:true});
-    const read=async(path)=>{
-      try{
-        const res=await send(base+path,{headers},timeout.signal);
-        if(!res.ok)return null;
-        const json=JSON.parse(await readCapped(res,timeout.signal));
-        return json?.result==='UserUnauthorized'?null:json;
-      }catch{return null}
-    };
     try{
-      const [credits,task]=await Promise.all([
-        read('/api/public/v1/credits/balance?credit_type=total'),
-        read('/api/public/v1/tasks')]);
-      if(!credits&&!task)return {state:'unavailable'};
+      // Official account/profile returns id and name. A wallet or task may
+      // work even when this separate read is temporarily unavailable.
+      const [credits,task,profile]=await Promise.all([
+        lingxiRead(sid,'/api/public/v1/credits/balance?credit_type=total',timeout.signal),
+        lingxiRead(sid,'/api/public/v1/tasks',timeout.signal),
+        lingxiRead(sid,'/api/public/v1/account/profile',timeout.signal)]);
+      if(!credits&&!task&&!profile)return {state:'unavailable',authVerified:false};
+      const identity=profile?.data&&typeof profile.data==='object'
+        &&!Array.isArray(profile.data)?profile.data:null;
+      const rawId=identity?.id;
+      const officialIdentity=Boolean(
+        typeof rawId==='string'&&rawId.trim()&&rawId.length<=128
+          ||Number.isSafeInteger(rawId)&&rawId>0);
+      const nickname=officialIdentity?publicAccountName(identity):'';
       const date=beijingDate(),balance=balanceFrom(credits);
-      return {state:'ready',checkedAt:Date.now(),
-        ...(balance!==null?{balance,balanceUnit:'积分',balanceCheckedAt:Date.now()}:{}),
-        ...(task?taskFrom(task,date):
-          {checkinOutcome:'unknown',checkinDate:null,taskStatus:'unknown'})};
+      const daily=task?taskFrom(task,date):
+        {checkinOutcome:'unknown',checkinDate:null,taskStatus:'unknown'};
+      const authVerified=officialIdentity||balance!==null
+        ||['claimed','claimable'].includes(daily.taskStatus);
+      return {state:'ready',authVerified,checkedAt:now(),
+        ...(nickname?{nickname,profileCheckedAt:now()}:{}),
+        ...(balance!==null?{balance,balanceUnit:'积分',balanceCheckedAt:now()}:{}),
+        ...daily};
     }finally{
       clearTimeout(clock);
       signal?.removeEventListener?.('abort',abort);

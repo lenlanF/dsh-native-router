@@ -235,8 +235,11 @@ export function createMimoDesktopDriver({
       message:'MiMo Desktop 当前未通过实时身份检查；已获取的账号名称只作历史参考'};
      }catch(error){
       snapshots.set(account?.id,{...snapshots.get(account?.id),authVerified:false});
-      return {state:error?.code==='CREDENTIAL'||error?.code==='AUTH'?'expired':'error',
-       message:'MiMo 独立授权查询未完成；短暂网络故障不代表登录失效'};
+      // A private DSH Credentials read failure is NOT an upstream HTTP 401.
+      // The locally stored session may still be valid after Host recovery.
+      // Only the official probe's explicit 'expired'/AUTH can revoke it.
+      return {state:error?.code==='AUTH'?'expired':'error',
+       message:'MiMo 独立授权查询未完成；本地凭据服务或网络故障不代表官方登录失效'};
      }
    },
    async refreshAccountStatus({account,signal}={}){
