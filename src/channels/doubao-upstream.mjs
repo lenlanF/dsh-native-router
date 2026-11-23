@@ -338,9 +338,15 @@ export function readCheckinState(task) {
   }
 }
 
+// Only the original activity group discovered by the same signed-in browser.
+const safeCampaignCode=value=>typeof value==='string'
+  &&/^[A-Za-z0-9_-]{1,100}$/.test(value);
 export async function fetchCampaignDetail(cookieHeader, group, options) {
   const data = await post('/alice/ug/campaign/v3/detail', cookieHeader, { campaign_group_code: group }, options)
-  const tasks = Array.isArray(data?.tasks) ? data.tasks : []
+  const tasks = [
+    ...(Array.isArray(data?.tasks) ? data.tasks : []),
+    ...(Array.isArray(data?.milestones) ? data.milestones : []),
+  ].slice(0,100)
   return {
     group: String(data?.campaign_code ?? group),
     tasks: tasks.map(task => ({
@@ -357,6 +363,39 @@ export async function fetchCampaignDetail(cookieHeader, group, options) {
   }
 }
 
+// Completed (task_status=2) campaign items may have a separate, zero-cost
+// claim operation. Never execute the task itself; only already-earned rewards.
+// Source: MIT Muverix/Auto-Signin-Hub signin/doubao.py. The claim response
+// is not wallet proof; the caller MUST compare independent official quota.
+export function completedDoubaoRewards(detail){
+  if(!detail||!Array.isArray(detail.tasks))return [];
+  const daily=findDailyCheckin(detail.tasks);
+  return detail.tasks.filter(x=>x!==daily&&[2,3].includes(x.status)&&
+    safeCampaignCode(x.code)&&safeCampaignCode(x.group)&&
+    x.group===detail.group).map(x=>{
+      const reward=Array.isArray(x.reward)?x.reward:[];
+      const first=reward[0];
+      const amount=first?.reward_amount;
+      const points=typeof amount==='number'?amount:
+        typeof amount==='string'&&/^\d+(?:\.\d+)?$/.test(amount.trim())?
+        Number(amount):NaN;
+      return {code:x.code,group:x.group,name:x.title?.trim().slice(0,80)||'已完成免费任务',
+        claimed:x.status===3,
+        ...(Number.isFinite(points)&&points>0&&points<1e10?{credit:points}:{})};
+    }).filter(x=>Number.isFinite(x.credit)).slice(0,40);
+}
+export async function claimCompletedDoubaoReward(cookieHeader,group,code,options={}){
+  if(!safeCampaignCode(group)||!safeCampaignCode(code))
+    throw new DoubaoError('BAD_CAMPAIGN','活动标识不合法');
+  // No arbitrary upstream path or session identity is ever accepted.
+  const payload=await post('/alice/ug/campaign/item/reward/claim/',cookieHeader,{
+    task_id:'',campaign_group_code:group,campaign_item_code:code,
+    AgwCommonParam:{},
+  },options);
+  if(payload?.biz_error&&Object.keys(payload.biz_error).length)
+    throw new DoubaoError('CLAIM_REJECTED','官方未接受任务奖励领取');
+  return {accepted:true};
+}
 // 每日签到任务在活动组里按名字找。找不到就是「今天没有可签的任务」，
 // 不是错误——很多账号是任务型活动（做一件事领额度），没有签到卡。
 export function findDailyCheckin(tasks) {

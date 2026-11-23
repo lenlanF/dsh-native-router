@@ -164,6 +164,7 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
           checkinSupported:sourceRow.checkinSupported,
           activitiesSupported:sourceRow.activitiesSupported===true,
           checkinAvailable:sourceRow.checkinAvailable,checkinState:sourceRow.checkinState,
+          activityClaimable:sourceRow.activityClaimable===true,
           checkinAt:sourceRow.checkinAt,checkinMessage:sourceRow.checkinMessage,
           ...(Number.isFinite(sourceRow.activityRewardAmount)&&sourceRow.activityRewardAmount>=0
             &&typeof sourceRow.activityRewardUnit==='string'?{
@@ -301,13 +302,19 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
       throw Error('Invalid activity channel');
     const accounts=snapshot().accounts.filter(row=>
       row.providerId?.replace(/^own_/,'')===selected&&row.enabled!==false
-      &&row.activitiesSupported===true).slice(0,32);
+      &&(row.activitiesSupported===true||row.checkinSupported===true)).slice(0,32);
     const results=[];
     for(const row of accounts){
       try{
-        const outcome=sourceCenter?.has(row.id)
-          ?await sourceCenter.runFreeActivities(row.id,{source})
-          :await runActivities(row.id,{source});
+        // The source pack's ten DAILY free-claim providers are genuine
+        // activity executors too. In rc93 this path accidentally only
+        // called Loomy/WorkBuddy extra tasks, silently skipping them.
+        // run() already preserves per-account official eligibility, receipts
+        // and repeat-claim protection. It also runs Loomy bonus tasks.
+        const outcome=row.checkinSupported===true?
+          await run(row.id,{source}):
+          sourceCenter?.has(row.id)?await sourceCenter.runFreeActivities(row.id,{source}):
+            await runActivities(row.id,{source});
         results.push({accountId:row.id,...outcome});
       }catch(error){results.push({accountId:row.id,state:'unavailable',
         message:publicAccountFailureMessage(error)})}

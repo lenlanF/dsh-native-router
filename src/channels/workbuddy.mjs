@@ -12,6 +12,7 @@ import {UpstreamError,safeRetryAfter} from '../failure.mjs';
 import {defaultConfigPath} from '../config.mjs';
 import {publicAccountName} from '../account-facts.mjs';
 import {createWorkBuddyMemberReader} from './workbuddy-members.mjs';
+import {createWorkBuddyGrowthReader} from './workbuddy-growth.mjs';
 import {ownCredentialRef} from '../credential-ref.mjs';
 
 const AUTH_FILES=['workbuddy-desktop.info','workbuddy-desktop-ai.info'];
@@ -415,19 +416,26 @@ export function createWorkBuddyDriver({
     return 'UNCLASSIFIED_SSE';
   }
   const memberReader=createWorkBuddyMemberReader({fetchImpl,now,baseOverride:allowTestEndpoint});
+  const growthReader=createWorkBuddyGrowthReader({fetchImpl,baseOverride:allowTestEndpoint});
   const memberSnapshots=new Map(),benefitInflight=new Set();
   async function fetchMemberFacts(account,signal){
     const auth=await validSession(account,signal);
     const region=ownedRegion??(auth.endpoint===DOMAIN_INTL?'global':'cn');
-    const [profile,credits,benefits]=await Promise.allSettled([
+    const [profile,credits,benefits,growth]=await Promise.allSettled([
       memberReader.profile(auth,region,signal),
       memberReader.credits(auth,region,signal),
       memberReader.benefits(auth,region,signal),
+      // This endpoint is independently implemented and verified for the CN
+      // personal Growth Center only; Global is intentionally not guessed.
+      region==='cn'&&!auth.enterprise?growthReader.discover(auth,region,signal):[],
     ]);
     const latest=memberSnapshots.get(account.id)??{};
     const profileRow=profile.status==='fulfilled'?profile.value:{};
     const creditRow=credits.status==='fulfilled'?credits.value:null;
     const benefitsRow=benefits.status==='fulfilled'?benefits.value:null;
+    const growthRows=growth.status==='fulfilled'?growth.value.map(({_target,...row})=>row):[];
+    const publicBenefits=benefitsRow?[...benefitsRow,...growthRows]:
+      growthRows.length?growthRows:null;
     const name=publicAccountName(profileRow,{displayName:auth.nickname},account);
     const next={...latest,
       ...(name?{accountName:name}:{}),
@@ -435,8 +443,8 @@ export function createWorkBuddyDriver({
         balanceState:Number.isFinite(latest.balance)?'available':'not_returned',
         creditFetchState:'unavailable',
       }),
-      ...(benefitsRow?{benefits:benefitsRow,
-        availableBenefits:benefitsRow.filter(x=>x.active&&!x.claimed).length,
+      ...(publicBenefits?{benefits:publicBenefits,
+        availableBenefits:publicBenefits.filter(x=>x.active&&!x.claimed).length,
         benefitsCheckedAt:now()}:{}),
       profileCheckedAt:now(),
     };
@@ -491,8 +499,11 @@ export function createWorkBuddyDriver({
      try{auth=await validSession(account)}
      catch{return {state:'unavailable',confirmed:0,pending:0,eligible:0}}
      if(auth.enterprise)return {state:'no_task',confirmed:0,pending:0,eligible:0};
-     const available=await memberReader.benefits(auth,ownedRegion).catch(()=>null);
-     if(!available)return {state:'unavailable',confirmed:0,pending:0,eligible:0};
+     const standard=await memberReader.benefits(auth,ownedRegion).catch(()=>null);
+     const growth=ownedRegion==='cn'?await growthReader.discover(auth,ownedRegion).catch(()=>null):[];
+     if(standard===null&&growth===null)
+       return {state:'unavailable',confirmed:0,pending:0,eligible:0};
+     const available=standard??[];
      // A claimed status only proves task completion, not spendable points.
      // Require the official wallet's exact positive increase as well.
      const balance=async()=>{
@@ -542,10 +553,48 @@ export function createWorkBuddyDriver({
        try{await onOutcome?.(benefit,state,meta)}catch{}
        if(state!=='confirmed')break;
      }
-     if(eligible.length)await fetchMemberFacts(account).catch(()=>{});
+     // Already-earned Growth Center tasks and arrived Buddy gifts are
+     // eligible for a zero-cost claim. No acceptance of unfinished tasks,
+     // lottery, energy spending, travel dispatch or purchases. A ledger
+     // record is durably written before each POST, keyed to this exact owner.
+     const growthRows=Array.isArray(growth)?growth:[];
+     for(const offer of growthRows.filter(x=>x.claimed===true)){
+       let old=null;
+       try{old=await previousReceipt?.(offer)}catch{}
+       if(!old||old.state==='confirmed'||!Number.isFinite(old.baselineBalance))continue;
+       const wallet=await balance();
+       if(!credited(old.baselineBalance,wallet,offer.credit))continue;
+       try{await onObserved?.(offer,'confirmed',{
+         credit:offer.credit,proof:'official_wallet_delta',verifiedAt:now()})}catch{}
+     }
+     if(!pending)for(const offer of growthRows.filter(x=>x.active&&!x.claimed)){
+       let old=null;
+       try{old=await previousReceipt?.(offer)}catch{}
+       if(old){skipped++;continue} // ambiguous previous POST: never retry
+       const previousBalance=await balance();
+       if(!Number.isFinite(previousBalance)||!Number.isFinite(offer.credit)
+         ||offer.credit<=0){skipped++;continue}
+       let approved=false;
+       try{approved=await beforeClaim?.(offer,{baselineBalance:previousBalance})===true}catch{}
+       if(!approved){skipped++;continue}
+       let state='pending_confirmation',meta={};
+       try{
+         const result=await growthReader.claim(auth,ownedRegion,offer);
+         const currentBalance=await balance();
+         if(result.confirmed===true&&result.credit===offer.credit
+           &&credited(previousBalance,currentBalance,offer.credit)){
+           state='confirmed';meta={credit:offer.credit,
+             proof:'official_wallet_delta',verifiedAt:now()};confirmed++;
+         }else pending++;
+       }catch{pending++}
+       try{await onOutcome?.(offer,state,meta)}catch{}
+       if(state!=='confirmed')break;
+     }
+     if(eligible.length||growthRows.length)await fetchMemberFacts(account).catch(()=>{});
      return {state:pending?'pending_confirmation':confirmed?'confirmed':
-       eligible.length?'skipped':'no_task',
-       confirmed,pending,skipped,eligible:eligible.length};
+       eligible.length||growthRows.length?'skipped':'no_task',
+       confirmed,pending,skipped,eligible:eligible.length+
+         growthRows.filter(x=>x.active&&!x.claimed).length};
    }
    // Preserve the direct-driver combined action for existing integrations;
    // DSH owner explicitly opts out and runs activities through its own ledger.

@@ -9,6 +9,12 @@ const KINDS=new Set(['gift','compensation','raccoon_login',
  ...['first_message','pick_skill','generate_ppt','set_schedule','install_skill',
  'configure_remote','create_soul','share_soul'].map(key=>'loomy_'+key)]);
 const STATES=new Set(['submitted','confirmed','pending_confirmation']);
+// WorkBuddy Growth Center task/travel IDs are hashed before they become
+// public receipt kinds: no arbitrary path, task code or user identifier is
+// allowed inside this persisted journal.
+const allowedKind=kind=>typeof kind==='string'&&(
+  KINDS.has(kind)||/^workbuddy_growth_(?:task|travel)_[a-f0-9]{24}$/.test(kind)
+  ||/^doubao_task_[a-f0-9]{24}$/.test(kind));
 // Never discard an old one-shot receipt: doing so could re-submit an
 // already-claimed activity on older accounts. Full journal fails closed.
 const MAX=10000;
@@ -16,7 +22,7 @@ const hash=v=>createHash('sha256').update(v).digest('hex');
 const numeric=x=>Number.isFinite(x)&&x>=0?x:null;
 const valid=r=>r&&/^[a-f0-9]{64}$/.test(r.key)
   &&/^[a-f0-9]{64}$/.test(r.binding)
-  &&KINDS.has(r.kind)&&STATES.has(r.state)&&Number.isSafeInteger(r.at)&&r.at>0
+  &&allowedKind(r.kind)&&STATES.has(r.state)&&Number.isSafeInteger(r.at)&&r.at>0
   &&(r.credit===undefined||Number.isFinite(r.credit)&&r.credit>=0&&r.credit<=1e9)
   &&(r.baselineBalance===undefined||Number.isFinite(r.baselineBalance)&&r.baselineBalance>=0&&r.baselineBalance<=1e12)
   &&(r.proof===undefined||r.proof==='official_wallet_delta')
@@ -53,7 +59,7 @@ export function createActivityClaimStore({path=join(dirname(defaultConfigPath())
      account.credentialRef].join('\\0')):'';
  const keyOf=(account,offer)=>{
   if(typeof account?.providerId!=='string'||typeof account?.id!=='string'
-    ||typeof account?.credentialRef!=='string'||!KINDS.has(offer?.kind))return '';
+    ||typeof account?.credentialRef!=='string'||!allowedKind(offer?.kind))return '';
   const expiry=numeric(offer.endAt)??0,credit=numeric(offer.credit)??0;
   return hash([account.providerId,account.id,account.credentialRef,
     offer.kind,expiry,credit].join('\0'));
@@ -67,7 +73,9 @@ export function createActivityClaimStore({path=join(dirname(defaultConfigPath())
    if(rows.some(r=>r.key===key)||rows.length>=MAX)return false;
    const entry={key,binding:bindingOf(account),kind:offer.kind,state:'submitted',at:now(),
      ...(typeof offer.kind==='string'
-        &&(offer.kind.startsWith('loomy_')||['gift','compensation'].includes(offer.kind))
+        &&(offer.kind.startsWith('loomy_')||offer.kind.startsWith('workbuddy_growth_')
+          ||offer.kind.startsWith('doubao_task_')
+          ||['gift','compensation'].includes(offer.kind))
         &&Number.isFinite(baselineBalance)&&baselineBalance>=0&&baselineBalance<=1e12
        ?{baselineBalance}:{})};
    persist([...rows,entry]);
@@ -82,7 +90,9 @@ export function createActivityClaimStore({path=join(dirname(defaultConfigPath())
      ...(state==='confirmed'&&Number.isFinite(credit)&&credit>=0&&credit<=1e9
        ?{credit}:{}),
      ...(state==='confirmed'
-       &&(r.kind.startsWith('loomy_')||['gift','compensation'].includes(r.kind))
+       &&(r.kind.startsWith('loomy_')||r.kind.startsWith('workbuddy_growth_')
+         ||r.kind.startsWith('doubao_task_')
+         ||['gift','compensation'].includes(r.kind))
        &&proof==='official_wallet_delta'&&Number.isFinite(r.baselineBalance)
        &&Number.isSafeInteger(verifiedAt)&&verifiedAt>0
        ?{proof,verifiedAt}:{})}:r);
