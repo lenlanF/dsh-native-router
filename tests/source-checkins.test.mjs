@@ -7,25 +7,45 @@ import {SOURCE_DAILY_SIGNIN_PROVIDERS} from '../src/embedded-pack.mjs';
 
 const NOW=Date.parse('2026-11-17T02:06:00Z');
 function fixture({rows=[],enabled=true,autoSourceAccounts=true,
-  handler=async()=>({confirmed:true,message:'status confirmed'}),normalAccounts=[],runAt='10:05',statusQuery}={}){ let at=NOW;
+  channels={},independentChannels=[],handler=async()=>({confirmed:true,message:'status confirmed'}),
+  normalAccounts=[],runAt='10:05',statusQuery}={}){ let at=NOW;
  const calls=[],records=[];
  const src={status:()=>({state:'mounted'}),
    async listAccounts(){return {state:'ready',accounts:rows.map(row=>({...row}))}},
     async checkinAccount(arg){calls.push(arg);return handler(arg)},
     ...(statusQuery?{readSourceStatuses:statusQuery}:{})}; const providerIds=[...new Set(normalAccounts.map(row=>row.providerId))];
  const providers=providerIds.map(id=>({id,protocol:'native-channel',models:[]}));
- const cfg=normalizeConfig({providers,accounts:normalAccounts,checkin:{
-   autoEnabled:enabled,autoSourceAccounts,timeZone:'Asia/Shanghai',runAt
- }});
- const configStore={get:()=>structuredClone(cfg),replace:()=>{}};
+ let cfg=normalizeConfig({providers,accounts:normalAccounts,checkin:{
+   autoEnabled:enabled,autoSourceAccounts,channels,independentChannels,timeZone:'Asia/Shanghai',runAt
+  }});
+  const configStore={get:()=>structuredClone(cfg),replace:()=>{}};
  const accountCenter={list:()=>({accounts:[],channels:[]}),find:()=>{throw Error('not configured')},
   driverFor:()=>undefined};
  const store={all:()=>structuredClone(records),append:r=>(records.push(r),structuredClone(r))};
  const center=createCheckinCenter({configStore,accountCenter,sourcePack:src,store,
   now:()=>at,intervalMs:60000});
- return {center,calls,records,src,setNow:value=>{at=value}};
+ return {center,calls,records,src,setNow:value=>{at=value},
+  setChannels:(channels,independentChannels=[])=>{
+   cfg=normalizeConfig({...cfg,checkin:{...cfg.checkin,channels,independentChannels}});
+  }};
 }
 const row=(providerId,id='acct-1',enabled=true)=>({id,providerId,nickname:providerId+' account',enabled});
+
+test('one source channel temporarily enabled works without global auto and restores off after test',async()=>{
+ const h=fixture({enabled:false,rows:[row('loomy','one'),row('qoder','two')],
+   channels:{loomy:true,qoder:false},independentChannels:['loomy']});
+ try{
+  await h.center.refreshSources();
+  const initial=h.center.snapshot().accounts;
+  assert.equal(initial.find(x=>x.providerId==='loomy').autoCheckinEffective,true);
+  assert.equal(initial.find(x=>x.providerId==='qoder').autoCheckinEffective,false);
+  assert.equal((await h.center.tick()).attempted,1);
+  assert.deepEqual(h.calls.map(x=>x.providerId),['loomy']);
+  h.setChannels({loomy:false,qoder:false});
+  assert.equal((await h.center.tick()).skipped,'disabled');
+  assert.equal(h.calls.length,1,'restoring original source toggle prohibits later claims');
+ }finally{h.center.stop()}
+});
 
 test('source sign-in receipt and persisted history never store upstream credential-looking text',async()=>{
  const secret='wps_sid=SECRET_SOURCE_COOKIE_VALUE_XYZ';

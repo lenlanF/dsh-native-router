@@ -474,6 +474,31 @@ test('only verified sign-in executors expose channel auto switch and manual run'
 });
 
 
+test('single channel toggle persists independent opt-in under global off and restores exact original state',async()=>{
+ const driver={checkIn:async()=>({state:'no_task'})};
+ const rig=createUiRig(new Map([['alpha',driver],['local',driver]]));
+ await rig.init();
+ assert.equal(rig.cfg.checkin.autoEnabled,false);
+ rig.find(rig.render(),'button','每日积分任务')[0].props.onClick();
+ const toggles=()=>rig.find(rig.render(),'label','本渠道自动签到与免费活动')
+   .map(label=>label.children[0]);
+ assert.equal(toggles().length,2);
+ assert.ok(toggles().every(input=>input.props.checked===false));
+ toggles()[0].props.onChange({target:{checked:true}});
+ assert.equal(toggles()[0].props.checked,true);
+ assert.equal(toggles()[1].props.checked,false);
+ await rig.find(rig.render(),'button','保存配置')[0].props.onClick();
+ assert.equal(rig.cfg.checkin.autoEnabled,false);
+ assert.equal(rig.cfg.checkin.channels.alpha,true);
+ assert.deepEqual(Array.from(rig.cfg.checkin.independentChannels),['alpha']);
+ toggles()[0].props.onChange({target:{checked:false}});
+ await rig.find(rig.render(),'button','保存配置')[0].props.onClick();
+ assert.equal(rig.cfg.checkin.autoEnabled,false);
+ assert.equal(rig.cfg.checkin.channels.alpha,false);
+ assert.deepEqual(Array.from(rig.cfg.checkin.independentChannels),[]);
+ assert.ok(toggles().every(input=>input.props.checked===false));
+});
+
 test('upstream read-only account preview shows source states without falsely enabling login actions',async()=>{
  const preview={state:'ready',accounts:[{id:'wb-9',providerId:'workbuddy',nickname:'Test WorkBuddy',
   enabled:true,connectionState:'not_checked'},{id:'lm-8',providerId:'loomy',nickname:'Test Loomy',

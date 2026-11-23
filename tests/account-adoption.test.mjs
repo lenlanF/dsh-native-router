@@ -161,7 +161,8 @@ test('adopted account keeps its own daily check-in binding after the original so
  const state=await center.refresh();
  assert.equal(state.length,1);
  assert.equal(state[0].checkinSupported,true);
- assert.equal(state[0].autoCheckin,true);
+  assert.equal(state[0].autoCheckin,false,
+    'adopted account can be signed manually but global-off never activates it without consent');
  const opaqueId=sourceAccountOpaqueId('qoder',own.id);
  const result=await center.run(opaqueId);
  assert.equal(result.record.state,'success');
