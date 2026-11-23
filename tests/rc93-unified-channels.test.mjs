@@ -59,6 +59,30 @@ test('host model allowlist: absence means all; selected IDs are exact, and not i
  assert.throws(()=>normalizeConfig({checkin:{channels:{'workbuddy-cn':'true'}}}),
   /Invalid per-channel auto check-in/);
 });
+test('host AutoFree cache invalidates immediately when selected model IDs change',async()=>{
+ const {createAutoFreePool}=await import('../src/auto-free.mjs');
+ let selections={},calls=0;
+ let cfg=normalizeConfig({freePool:{models:[
+  {providerId:'workbuddy',model:'free-flash',free:true},
+  {providerId:'workbuddy',model:'other-free',free:true}]},
+  hostModelSelection:selections});
+ const inventory={status:()=>({hostProviders:[{providerId:'workbuddy'}]}),
+  listHostModels:async()=>{calls++;return {state:'ready',models:[
+   {id:'free-flash',name:'Flash'},{id:'other-free',name:'Other'}]}}};
+ const pool=createAutoFreePool({hostProviderInventory:inventory,
+  getConfig:()=>cfg,ttlMs:900000});
+ await pool.refresh();
+ assert.deepEqual(pool.tiers().map(x=>x.model).sort(),['free-flash','other-free']);
+ assert.equal(calls,1);
+ cfg=normalizeConfig({...cfg,hostModelSelection:{workbuddy:['free-flash']}});
+ await pool.refresh();
+ assert.deepEqual(pool.tiers().map(x=>x.model),['free-flash']);
+ assert.equal(calls,2,'a changed allowlist invalidates a 15-minute cache immediately');
+ cfg=normalizeConfig({...cfg,hostModelSelection:{}});
+ await pool.refresh();
+ assert.deepEqual(pool.tiers().map(x=>x.model).sort(),['free-flash','other-free']);
+ assert.equal(calls,3);
+});
 test('per-channel auto-off blocks background execution but not explicit manual sign-in',async()=>{
  const v=rig({channelAuto:false});
  try{
