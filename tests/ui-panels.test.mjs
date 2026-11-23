@@ -211,7 +211,9 @@ test('channel activity page shows a separate five-column table per provider and 
  assert.match(text,/活动名称.*免费奖励.*是否有效.*到期时间.*执行状态/);
  assert.match(text,/官方活动赠送积分.*160 积分.*有效 · 可自动执行/);
  assert.match(text,/官方补偿积分.*官方未公布.*已完成/);
- assert.match(text,/暂无官方已核实到账的免费活动/);
+ assert.match(text,/暂无官方确认可领取或已到账的免费活动/);
+ assert.match(text,/全局自动免费活动已关闭/);
+ assert.match(text,/手动核验及领取仍可执行/);
  assert.doesNotMatch(text,/活动明细组成|消费充值|邀请码任务/);
  const tables=[];
  const visit=node=>{if(Array.isArray(node))return node.forEach(visit);

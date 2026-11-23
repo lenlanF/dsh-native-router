@@ -421,24 +421,37 @@ export function createWorkBuddyDriver({
   async function fetchMemberFacts(account,signal){
     const auth=await validSession(account,signal);
     const region=ownedRegion??(auth.endpoint===DOMAIN_INTL?'global':'cn');
-    const [profile,credits,benefits,growth]=await Promise.allSettled([
+    const [profile,credits,benefits,growth,daily]=await Promise.allSettled([
       memberReader.profile(auth,region,signal),
       memberReader.credits(auth,region,signal),
       memberReader.benefits(auth,region,signal),
       // This endpoint is independently implemented and verified for the CN
       // personal Growth Center only; Global is intentionally not guessed.
       region==='cn'&&!auth.enterprise?growthReader.discover(auth,region,signal):[],
+      !auth.enterprise?memberReader.dailyStatus(auth,region,signal):null,
     ]);
     const latest=memberSnapshots.get(account.id)??{};
     const profileRow=profile.status==='fulfilled'?profile.value:{};
     const creditRow=credits.status==='fulfilled'?credits.value:null;
     const benefitsRow=benefits.status==='fulfilled'?benefits.value:null;
     const growthRows=growth.status==='fulfilled'?growth.value.map(({_target,...row})=>row):[];
+    const dailyRow=daily.status==='fulfilled'?daily.value:null;
+    const dailyAvailable=dailyRow?.active===true&&
+      dailyRow.checkedInToday===false;
     const publicBenefits=benefitsRow?[...benefitsRow,...growthRows]:
       growthRows.length?growthRows:null;
     const name=publicAccountName(profileRow,{displayName:auth.nickname},account);
     const next={...latest,
       ...(name?{accountName:name}:{}),
+      ...(dailyRow?{
+        activityState:dailyRow.active!==true?'not_offered':
+          dailyRow.checkedInToday===true?'claimed':
+          dailyAvailable?'claimable':'not_confirmed',
+        activityActive:dailyRow.active===true,
+        activityClaimable:dailyAvailable,
+        activityCheckedAt:now(),
+      }:{activityState:'unavailable',activityActive:false,
+        activityClaimable:false,activityCheckedAt:now()}),
       ...(creditRow??{
         balanceState:Number.isFinite(latest.balance)?'available':'not_returned',
         creditFetchState:'unavailable',

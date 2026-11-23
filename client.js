@@ -852,7 +852,7 @@ window.__ModuleLoader__.load({
       const active=accounts.filter(a=>a.configuredEnabled).length;
       const online=accounts.filter(a=>a.connectionState==='online').length;
        const displayBalance=a=>Number.isFinite(a.balance)?
-         '余额：'+a.balance+(a.balanceUnit?' '+a.balanceUnit:''):
+         '余额：'+a.balance+(a.balanceUnit?' '+a.balanceUnit:'（官方未提供单位）'):
          a.balanceState==='not_supported'?'余额：平台未提供此项数据':'余额：尚未取得有效数据';
        return h(React.Fragment,null,
         h(Panel,{title:'全部渠道 · 账号状态',
@@ -932,7 +932,7 @@ window.__ModuleLoader__.load({
                    h('strong',{className:'dnr-account-metric-value'},
                      Number.isFinite(account.balance)?
                        account.balance.toLocaleString()+
-                         (account.balanceUnit?' '+account.balanceUnit:''):
+                         (account.balanceUnit?' '+account.balanceUnit:'（单位待核实）'):
                        account.balanceState==='not_supported'?'平台暂无可读取的余额':
                        account.balanceState==='not_returned'?'官方本次未返回':
                        account.balanceState==='unavailable'?'官方额度暂不可读取':'尚未取得'),
@@ -1057,7 +1057,7 @@ window.__ModuleLoader__.load({
                h('div',{className:'dnr-disclosure-body'},loginWidgets[channel.id])):null);
         }));
     }
-    function ActivitiesConsole({data,busy,refresh,run}){
+    function ActivitiesConsole({data,cfg,busy,refresh,run}){
       const groups=Array.isArray(data?.channels)?data.channels:[];
       const summary=data?.summary??{};
       const stateText={valid:'有效 · 可自动执行',completed:'已完成',
@@ -1070,7 +1070,12 @@ window.__ModuleLoader__.load({
         h(Panel,{title:'免费自动活动总览',
           actions:h(Button,{disabled:!!busy,onClick:refresh},
             busy?'核验中…':'刷新官方活动')},
-          h('p',{style:css.small},'仅展示真实账号已由官方任务状态与积分账单／钱包变动双重证明到账的免费活动。接口可调用、任务可领、请求成功、模拟测试通过及待确认奖励均不进入列表；其余仅由后台安全核验。'),
+          h('p',{style:css.small},'免费活动分两级验证：「有效 · 可领取」是官方账号明确给出资格，但尚未证明到账；「已完成」必须核实官方任务及账单／余额正增量。仅有接口或本地模拟测试不能视为真实领取。'),
+          cfg?.checkin?.autoEnabled!==true?h('div',{role:'status',
+            style:{...css.card,margin:'8px 0 12px'}},
+            h('strong',null,'全局自动免费活动已关闭'),
+            h('p',{style:{...css.small,margin:'4px 0 0'}},
+              '不会自动签到或领取。单渠道与账号开关无法覆盖全局关闭状态；手动核验及领取仍可执行。')):null,
           h('div',{style:css.line},
             h('span',{style:css.mutedTag},'渠道 '+(summary.channelCount??groups.length)),
             h('span',{style:css.mutedTag},'符合条件活动 '+(summary.activityCount??0)),
@@ -1110,7 +1115,7 @@ window.__ModuleLoader__.load({
                     h('td',{'data-label':'执行状态'},activity.progress||'待核实')))
                 :h('tr',null,h('td',{colSpan:5,className:'dnr-activity-empty'},
                   channel.accountCount>0?
-                    '暂无官方已核实到账的免费活动'+
+                    '暂无官方确认可领取或已到账的免费活动'+
                       (channel.emptyReason?'；'+channel.emptyReason:''):
                     '尚无已接入账号或官方到账证据，活动列表为空'))))))):
           h(Panel,{title:'渠道活动'},'尚未取得渠道配置'));
@@ -1137,6 +1142,11 @@ window.__ModuleLoader__.load({
         data.historyBlocked?h('div',{role:'alert',style:css.error},data.historyError):null,
         h(Panel,{title:'今日积分任务 · '+data.today+' ('+data.timeZone+')',
           actions:h(Button,{disabled:!!busy,onClick:refresh},'同步签到状态')},
+          cfg.checkin?.autoEnabled!==true?h('div',{role:'status',
+            style:{...css.card,margin:'6px 0 10px'}},
+            h('strong',null,'全局自动签到已关闭'),
+            h('p',{style:{...css.small,margin:'4px 0 0'}},
+              '当前不会自动签到或自动领取奖励。渠道及单账号自动开关仅为预设，不会自行触发；手动执行仍可用。')):null,
           h('div',{style:css.line},
             ...['已签 '+success,'待确认 '+pending,'支持签到 '+supported,'账号 '+accounts.length]
               .map(x=>h('span',{key:x,style:css.mutedTag},x))),
@@ -2137,7 +2147,7 @@ window.__ModuleLoader__.load({
          channels:'按渠道管理账号，优先展示总积分、余额和最近有效核验信息',
          reuse:'沿用原插件登录态，独立授权与宿主路由互不干扰',
          checkins:'按账号与渠道核对真实签到回执及执行计划',
-         activities:'仅展示具有官方到账证据的免费活动',
+         activities:'分别展示官方确认可领取、已核实到账的免费活动',
          providers:'维护来源名称与协议，授权仍由对应渠道处理',
          pool:'自动发现可用模型并明确免费依据',
          routes:'人工制定模型优先级与跨来源降级链条',
@@ -2286,7 +2296,7 @@ window.__ModuleLoader__.load({
           sourceCredits,sourceClaims,sourceBusy:sourceRpcBusy,
           onSourceStatus:sourceCheckinStatus,onSourceClaim:sourceClaimAll});
        if(tab==='activities')content=h(ActivitiesConsole,{
-         data:activitiesView,busy:activitiesBusy||!!actionBusy,
+         data:activitiesView,cfg,busy:activitiesBusy||!!actionBusy,
          refresh:refreshActivities,run:runAction});
        if(tab==='providers')content=h(Section,{title:'提供商注册表'},
          h('div',{style:css.line},h('input',{'aria-label':'筛选提供商',

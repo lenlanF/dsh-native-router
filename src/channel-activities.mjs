@@ -1,15 +1,14 @@
 import {SOURCE_DAILY_SIGNIN_PROVIDERS} from './embedded-pack.mjs';
 import {publicAccountName} from './account-facts.mjs';
 
-// The public activity table is an EVIDENCE view, not a speculative task
-// inventory. Only actual per-account credited rewards backed by a fresh
-// official wallet/bill proof may be displayed. The private scheduler may
-// still discover/attempt free tasks, but unproven ones stay OFF the page.
+// Evidence grades: authenticated official offer eligibility ('valid') versus
+// verified wallet/billing credit ('completed'). Never count an offer or a
+// successful model test as a credited free reward.
 const SOURCE_SIGNIN=new Set(SOURCE_DAILY_SIGNIN_PROVIDERS);
 const EMPTY_EXPLANATIONS=Object.freeze({
  cline:'该渠道当前仅有官方余额查询，尚未发现独立的无感免费领取接口',
  gemini:'官方额度按 5 小时／每周窗口自然恢复，不属于需要领取的活动',
- doubao:'除每日签到外，其他活动尚无经过核验的纯接口领取闭环',
+ doubao:'仅自动领取官方已完成且可核实赠送额度的任务；未完成任务不会代做',
  loomy:'只接入官方新手任务完成接口；需要实际生成或分享等可感操作的活动不执行',
 });
 const DIRECT_FREE_SIGNIN=new Set([
@@ -141,7 +140,8 @@ export function buildChannelActivityCatalog({config,accountRows=[],sourceRows=[]
         kind:benefit.kind,rewardAmount:asAmount(benefit.credit),
         rewardUnit:Number.isFinite(benefit.credit)?doubao?'平台赠送额度':'积分':null,
         validity:'valid',endAt:deadline,execution:'automatic',
-        progress:'官方账户确认活动待领取 · 尚未证明积分入账'});
+        progress:doubao?'官方确认可领取 · 赠送额度尚未证明到账':
+          '官方账户确认活动待领取 · 尚未证明积分入账'});
     }
     for(const benefit of Array.isArray(account.benefits)?account.benefits:[]){
       if(!benefit||!(workbuddy?['gift','compensation'].includes(benefit.kind)

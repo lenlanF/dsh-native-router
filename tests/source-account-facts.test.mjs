@@ -43,6 +43,22 @@ test('private source pack does not add incompatible packages across different cu
  assert.equal(row.balanceState,'not_returned');
 });
 
+test('Loomy wallet recovers its OFFICIAL points unit only from fully reconciled same-unit buckets',()=>{
+ const pkg=[{name:'每日赠送',unit:'积分',remaining:110},
+   {name:'永久积分',unit:'积分',remaining:280}];
+ const wallet=total=>sourceAccountFacts({providerId:'loomy',
+   balanceRow:{balance:{total,packages:pkg}}});
+ assert.equal(wallet(390).balanceUnit,'积分');
+ assert.equal(wallet(390).balance,390);
+ assert.equal(wallet(391).balanceUnit,undefined,
+   'mismatched official totals are not enough to assert one wallet unit');
+ assert.equal(sourceAccountFacts({providerId:'loomy',
+   balanceRow:{balance:{total:390,packages:[pkg[0],
+     {...pkg[1],unit:'token'}]}}}).balanceUnit,undefined);
+ assert.equal(sourceAccountFacts({providerId:'codearts',
+   balanceRow:{balance:{total:390,packages:[]}}}).balanceUnit,undefined,
+   'do not guess CodeArts units without official bucket information');
+});
 test('account name is the fallback when the official profile omits nickname',()=>{
  const row=sourceAccountFacts({providerId:'codearts',
   identity:{account_name:'customer-team-login'},
