@@ -19,6 +19,7 @@ import {createWorkbuddyVaultInventory} from './workbuddy-vault.mjs';
 import {createWorkbuddyVaultAdoption} from './workbuddy-vault-adoption.mjs';
 import {createExistingDshChannelFacade,createPreferredSourceFacade} from './existing-dsh-channels.mjs';
 import {createCheckinCenter,createCheckinStore} from './checkins.mjs';
+import {createChannelActivityCenter} from './channel-activities.mjs';
 import {getNativeChannelDrivers,onNativeChannelDriverChange,registerNativeChannelDriver} from './driver-registry.mjs';
 import {createWorkBuddyDriver} from './channels/workbuddy.mjs';
 import {createCodeArtsDriver} from './channels/codearts.mjs';
@@ -138,6 +139,8 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
     store:checkinStore??createCheckinStore({path:ownStore.path?join(dirname(ownStore.path),'checkins.json'):undefined}),
      sourcePack:embeddedPack,logger:ctx.logger,verificationStore});
    const sourceHealth=()=>checkinCenter.sourceSnapshot?.()??[];
+   const activityCenter=createChannelActivityCenter({configStore:ownStore,
+     accountCenter,checkinCenter});
    const sourceVerified=(providerId,id)=>sourceHealth().some(a=>
      a.id===id&&a.providerId===providerId&&a.connectionState==='online'&&a.enabled);
    // A verified private QR account is eligible even while the separate
@@ -197,7 +200,8 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
       const mountSecureRoutes=connectionCtx=>{
         connectionCtx.effect?.(()=>registerAuthenticatedRouterRoutes(connectionCtx,
            {configStore:ownStore,adapter:ownAdapter,accountCenter,checkinCenter,embeddedPack,sessionReuse,
-            accountAdoption,hostProviderInventory:existingHostSource,credentialsBridge}));
+            accountAdoption,hostProviderInventory:existingHostSource,credentialsBridge,
+            activityCenter}));
       };
       ctx.inject(['connection'],mountSecureRoutes);
       if(typeof ctx.registry?.delete==='function')

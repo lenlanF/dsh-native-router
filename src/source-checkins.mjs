@@ -186,6 +186,12 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
               authVerified:entry.authVerified===true,
               ...(typeof entry.claimable==='boolean'?{claimable:entry.claimable}:{}),
               ...(entry.noClaimablePlans===true?{noClaimablePlans:true}:{}),
+              ...(Number.isFinite(entry.activityRewardAmount)&&entry.activityRewardAmount>=0
+                &&typeof entry.activityRewardUnit==='string'?{
+                  activityRewardAmount:entry.activityRewardAmount,
+                  activityRewardUnit:entry.activityRewardUnit}:{}),
+              ...(Number.isFinite(entry.activityExpiresAt)&&entry.activityExpiresAt>0
+                ?{activityExpiresAt:entry.activityExpiresAt}:{}),
               ...facts,
               ...(Number.isFinite(entry.expiringPoints)&&entry.expiringPoints>0
                 &&entry.balanceUnit==='积分'?{expiringPoints:entry.expiringPoints,
@@ -235,7 +241,15 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
       autoCheckinEffective:state.autoCheckin&&state.enabled&&state.providerEnabled
         &&configStore.get().checkin.autoEnabled===true,
       checkinSupported:implemented,checkinAvailable:implemented,
+      ...(report?.active===false?{activityActive:false}:
+        report?.active===true?{activityActive:true}:{}),
       checkinState:accountState,checkinAt:report?.checkedAt??recent?.at??null,
+      ...(Number.isFinite(report?.activityRewardAmount)&&report.activityRewardAmount>=0
+        &&typeof report.activityRewardUnit==='string'?{
+          activityRewardAmount:report.activityRewardAmount,
+          activityRewardUnit:report.activityRewardUnit}:{}),
+      ...(Number.isFinite(report?.activityExpiresAt)&&report.activityExpiresAt>0
+        ?{activityExpiresAt:report.activityExpiresAt}:{}),
       ...publicBalance(report),
       ...(Number.isFinite(report?.expiringPoints)&&report.expiringPoints>0
         &&report.balanceUnit==='积分'?{expiringPoints:report.expiringPoints,

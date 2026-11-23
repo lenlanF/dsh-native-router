@@ -143,8 +143,16 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
           checkinSupported:sourceRow.checkinSupported,
           checkinAvailable:sourceRow.checkinAvailable,checkinState:sourceRow.checkinState,
           checkinAt:sourceRow.checkinAt,checkinMessage:sourceRow.checkinMessage,
+          ...(Number.isFinite(sourceRow.activityRewardAmount)&&sourceRow.activityRewardAmount>=0
+            &&typeof sourceRow.activityRewardUnit==='string'?{
+              activityRewardAmount:sourceRow.activityRewardAmount,
+              activityRewardUnit:sourceRow.activityRewardUnit}:{}),
+          ...(Number.isFinite(sourceRow.activityExpiresAt)&&sourceRow.activityExpiresAt>0
+            ?{activityExpiresAt:sourceRow.activityExpiresAt}:{}),
           autoCheckin:sourceRow.autoCheckin,
           autoCheckinEffective:sourceRow.autoCheckinEffective===true,sourceAccount:true,
+          ...(typeof sourceRow.activityActive==='boolean'?{
+            activityActive:sourceRow.activityActive}:{}),
           // The standalone source pool owns the actual login state. The
           // imported static card must not show online/enabled when its real
           // source member was disabled, expired or became rate limited.
@@ -316,5 +324,5 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
   }
    function stop(){if(timer){clearInterval(timer);timer=null}sourceCenter?.stop()}
     return {snapshot,sourceSnapshot:()=>sourceCenter?.snapshot()??[],run,runActivities,tick,start,stop,
-      store,activityStore,refreshSources:()=>sourceCenter?.refresh()??Promise.resolve([])};
+      store,activityStore,refreshSources:options=>sourceCenter?.refresh(options)??Promise.resolve([])};
 }
