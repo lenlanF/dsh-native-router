@@ -17,7 +17,10 @@ const numeric=x=>Number.isFinite(x)&&x>=0?x:null;
 const valid=r=>r&&/^[a-f0-9]{64}$/.test(r.key)
   &&/^[a-f0-9]{64}$/.test(r.binding)
   &&KINDS.has(r.kind)&&STATES.has(r.state)&&Number.isSafeInteger(r.at)&&r.at>0
-  &&(r.credit===undefined||Number.isFinite(r.credit)&&r.credit>=0&&r.credit<=1e9);
+  &&(r.credit===undefined||Number.isFinite(r.credit)&&r.credit>=0&&r.credit<=1e9)
+  &&(r.baselineBalance===undefined||Number.isFinite(r.baselineBalance)&&r.baselineBalance>=0&&r.baselineBalance<=1e12)
+  &&(r.proof===undefined||r.proof==='official_wallet_delta')
+  &&(r.verifiedAt===undefined||Number.isSafeInteger(r.verifiedAt)&&r.verifiedAt>0);
 export function createActivityClaimStore({path=join(dirname(defaultConfigPath()),'reward-claims.json'),
  now=()=>Date.now()}={}){
  let rows=[],blocked=false;
@@ -58,22 +61,31 @@ export function createActivityClaimStore({path=join(dirname(defaultConfigPath())
  return {
   get blocked(){return blocked},
   get error(){return blocked?'历史活动回执损坏或不可写，已禁止重复领取':null},
-  begin(account,offer){
+  begin(account,offer,{baselineBalance}={}){
    const key=keyOf(account,offer);
    if(!key||blocked)return false;
    if(rows.some(r=>r.key===key)||rows.length>=MAX)return false;
-   const entry={key,binding:bindingOf(account),kind:offer.kind,state:'submitted',at:now()};
+   const entry={key,binding:bindingOf(account),kind:offer.kind,state:'submitted',at:now(),
+     ...(typeof offer.kind==='string'
+        &&(offer.kind.startsWith('loomy_')||['gift','compensation'].includes(offer.kind))
+        &&Number.isFinite(baselineBalance)&&baselineBalance>=0&&baselineBalance<=1e12
+       ?{baselineBalance}:{})};
    persist([...rows,entry]);
    return true;
   },
-  finish(account,offer,state,{credit}={}){
+  finish(account,offer,state,{credit,proof,verifiedAt}={}){
    const key=keyOf(account,offer);
    if(!key||!STATES.has(state)||blocked)return false;
    const index=rows.findIndex(r=>r.key===key);
    if(index<0)return false;
    const next=rows.map((r,i)=>i===index?{...r,state,
      ...(state==='confirmed'&&Number.isFinite(credit)&&credit>=0&&credit<=1e9
-       ?{credit}:{} )}:r);
+       ?{credit}:{}),
+     ...(state==='confirmed'
+       &&(r.kind.startsWith('loomy_')||['gift','compensation'].includes(r.kind))
+       &&proof==='official_wallet_delta'&&Number.isFinite(r.baselineBalance)
+       &&Number.isSafeInteger(verifiedAt)&&verifiedAt>0
+       ?{proof,verifiedAt}:{})}:r);
    persist(next);
    return true;
   },
@@ -85,7 +97,10 @@ export function createActivityClaimStore({path=join(dirname(defaultConfigPath())
    const key=keyOf(account,offer);
    const row=key?rows.find(r=>r.key===key):null;
    return row?{state:row.state,at:row.at,
-     ...(Number.isFinite(row.credit)?{credit:row.credit}:{})}:null;
+     ...(Number.isFinite(row.credit)?{credit:row.credit}:{}),
+     ...(Number.isFinite(row.baselineBalance)?{baselineBalance:row.baselineBalance}:{}),
+     ...(row.proof==='official_wallet_delta'&&Number.isFinite(row.verifiedAt)?
+       {proof:row.proof,verifiedAt:row.verifiedAt}:{})}:null;
   },
   summary(account){
    const binding=bindingOf(account);

@@ -878,7 +878,7 @@ window.__ModuleLoader__.load({
         h(Panel,{title:'免费自动活动总览',
           actions:h(Button,{disabled:!!busy,onClick:refresh},
             busy?'核验中…':'刷新官方活动')},
-          h('p',{style:css.small},'只执行后台无感的官方查询／任务完成／领取接口；需要实际发送、分享、生成、付款、验证码或界面操作的任务直接跳过。所有完成状态必须有官方回查，奖励和到期时间不推测。'),
+          h('p',{style:css.small},'仅展示真实账号已由官方任务状态与积分账单／钱包变动双重证明到账的免费活动。接口可调用、任务可领、请求成功、模拟测试通过及待确认奖励均不进入列表；其余仅由后台安全核验。'),
           h('div',{style:css.line},
             h('span',{style:css.mutedTag},'渠道 '+(summary.channelCount??groups.length)),
             h('span',{style:css.mutedTag},'符合条件活动 '+(summary.activityCount??0)),
@@ -913,9 +913,9 @@ window.__ModuleLoader__.load({
                     h('td',null,activity.progress||'待核实')))
                 :h('tr',null,h('td',{colSpan:5,className:'dnr-activity-empty'},
                   channel.accountCount>0?
-                    '暂无符合条件的免费自动活动'+
+                    '暂无官方已核实到账的免费活动'+
                       (channel.emptyReason?'；'+channel.emptyReason:''):
-                    '尚无已接入账号，暂无符合条件的免费自动活动'))))))):
+                    '尚无已接入账号或官方到账证据，活动列表为空'))))))):
           h(Panel,{title:'渠道活动'},'尚未取得渠道配置'));
     }
 

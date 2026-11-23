@@ -1,9 +1,10 @@
 import {SOURCE_DAILY_SIGNIN_PROVIDERS} from './embedded-pack.mjs';
 import {publicAccountName} from './account-facts.mjs';
 
-// Only activities with an already-implemented, no-purchase, official claim
-// executor belong here. Never invent rewards from model quotas, marketing
-// banners, task counts, or a channel's aggregate wallet.
+// The public activity table is an EVIDENCE view, not a speculative task
+// inventory. Only actual per-account credited rewards backed by a fresh
+// official wallet/bill proof may be displayed. The private scheduler may
+// still discover/attempt free tasks, but unproven ones stay OFF the page.
 const SOURCE_SIGNIN=new Set(SOURCE_DAILY_SIGNIN_PROVIDERS);
 const EMPTY_EXPLANATIONS=Object.freeze({
  cline:'该渠道当前仅有官方余额查询，尚未发现独立的无感免费领取接口',
@@ -22,6 +23,24 @@ const isWorkBuddy=id=>/^own_workbuddy-(?:cn|global)$/.test(id);
 const excluded=new Set(['unsupported','client_required','no_task','disabled']);
 const safeText=(value,length=80)=>typeof value==='string'&&value.trim()?
   value.trim().slice(0,length):'';
+const dayInBeijing=at=>new Intl.DateTimeFormat('en-CA',{
+  timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'
+}).format(new Date(at));
+const validAt=(at,now)=>Number.isSafeInteger(at)&&at>0&&at<=now;
+const provenDaily=(account,now)=>account?.checkinState==='success'
+  &&account?.activityRewardProof==='official_daily_grant_bill'
+  &&account?.sourceAccount===true&&channelKey(account.providerId)==='raccoon'
+  &&validAt(account.activityRewardVerifiedAt,now)
+  &&dayInBeijing(account.activityRewardVerifiedAt)===dayInBeijing(now)
+  &&asAmount(account.activityRewardAmount)>0
+  &&account.activityRewardUnit==='积分';
+const provenBenefit=(account,benefit,now)=>benefit?.claimed===true
+  &&benefit.rewardVerified===true
+  &&benefit.rewardProof==='official_wallet_delta'
+  &&(account?.sourceAccount===true&&channelKey(account.providerId)==='loomy'
+    ||isWorkBuddy(account?.providerId))
+  &&validAt(benefit.rewardVerifiedAt,now)
+  &&asAmount(benefit.credit)>0;
 const kindTitle=kind=>kind==='gift'?'官方活动赠送积分':
   kind==='compensation'?'官方补偿积分':'小浣熊桌面登录免费积分奖励';
 
@@ -65,10 +84,7 @@ export function buildChannelActivityCatalog({config,accountRows=[],sourceRows=[]
     const eligible=signer&&(!doubao||
       ['claimable','claimed'].includes(account.activityState))
       &&(!source||SOURCE_SIGNIN.has(channelKey(account.providerId)));
-    if(eligible){
-      const done=account.checkinState==='success'||doubao&&account.activityState==='claimed';
-      const confirmedActive=done||doubao&&account.activityState==='claimable'
-        ||account.checkinState==='running';
+    if(eligible&&provenDaily(account,now)){
       const officialAmount=asAmount(account.activityRewardAmount);
       const officialUnit=safeText(account.activityRewardUnit,18);
       channel.activities.push({
@@ -76,11 +92,9 @@ export function buildChannelActivityCatalog({config,accountRows=[],sourceRows=[]
         name:doubao?'每日签到免费奖励':'每日签到 / 免费奖励领取',
         kind:'daily',rewardAmount:officialAmount,
         rewardUnit:officialAmount!==null?officialUnit:null,
-        validity:done?'completed':confirmedActive?'valid':'unverified',
+        validity:'completed',
         endAt:endOf(account.activityExpiresAt),execution:'automatic',
-        progress:done?'已完成':account.checkinState==='pending_confirmation'?
-          '等待官方确认':account.checkinState==='running'?'执行中':
-          account.autoCheckinEffective?'自动执行中':'自动任务未开启',
+        progress:'官方每日积分账单确认已到账',
       });
     }
     const workbuddy=isWorkBuddy(account.providerId);
@@ -93,7 +107,7 @@ export function buildChannelActivityCatalog({config,accountRows=[],sourceRows=[]
             'install_skill','configure_remote','create_soul','share_soul']
             .some(key=>benefit.kind==='loomy_'+key):
           benefit.kind==='raccoon_login')
-        ||benefit.active!==true||typeof benefit.claimed!=='boolean')continue;
+        ||benefit.active!==true||!provenBenefit(account,benefit,now))continue;
       const deadline=endOf(benefit.endAt);
       if(deadline!==null&&deadline<=now)continue;
       const amount=asAmount(benefit.credit);
@@ -102,14 +116,9 @@ export function buildChannelActivityCatalog({config,accountRows=[],sourceRows=[]
         name:loomy?safeText(benefit.name)||'免费新手活动':kindTitle(benefit.kind),
         kind:benefit.kind,
         rewardAmount:amount,rewardUnit:amount!==null?'积分':null,
-        validity:benefit.claimed?'completed':
-          (loomy?['submitted','pending_confirmation'].includes(benefit.receiptState):
-            account.activityClaims?.unconfirmed>0)?'unverified':'valid',
+        validity:'completed',
         endAt:deadline,execution:'automatic',
-        progress:benefit.claimed?'官方确认已领取':
-          (loomy?['submitted','pending_confirmation'].includes(benefit.receiptState):
-            account.activityClaims?.unconfirmed>0)?'领取回执待官方核实，不重发':
-          account.autoCheckinEffective?'待自动领取':'自动任务未开启',
+        progress:'官方任务状态与积分钱包增量双重核验',
       });
     }
   }

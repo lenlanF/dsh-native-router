@@ -95,11 +95,12 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
     try{
       const result=await driver.claimActivities({
         account,date:currentDate(),
-        beforeClaim:offer=>authorized()&&activityStore.begin(account,offer),
-        onOutcome:(offer,state)=>activityStore.finish(account,offer,
-          state==='confirmed'&&authorized()?'confirmed':'pending_confirmation'),
-        onObserved:(offer,state)=>authorized()&&activityStore.finish(account,offer,
-          state==='confirmed'?'confirmed':'pending_confirmation'),
+        beforeClaim:(offer,meta)=>authorized()&&activityStore.begin(account,offer,meta),
+        onOutcome:(offer,state,meta)=>activityStore.finish(account,offer,
+          state==='confirmed'&&authorized()?'confirmed':'pending_confirmation',meta),
+        onObserved:(offer,state,meta)=>authorized()&&activityStore.finish(account,offer,
+          state==='confirmed'?'confirmed':'pending_confirmation',meta),
+        previousReceipt:offer=>authorized()?activityStore.receipt(account,offer):null,
       });
       return authorized()?{state:result?.state??'unavailable',
         confirmed:result?.confirmed??0,pending:result?.pending??0,
@@ -125,7 +126,21 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
           implemented,confirmed:verified,claimable});
        const sourceName=a.upstreamCheckinSource==='live-readonly'?
          '灵犀上游任务中心':'原灵犀插件同账号签到记录';
-       return {...a,autoCheckin:entry.account.autoCheckin===true,
+       // A remote claimed flag is NOT official credited-points evidence.
+       // Only the durable account-bound before/after wallet proof may turn
+       // a particular gift or compensation activity into a visible row.
+       const verifiedBenefits=Array.isArray(a.benefits)?a.benefits.map(offer=>{
+         const receipt=activityStore.receipt(entry.account,offer);
+         const verified=offer.claimed===true&&receipt?.state==='confirmed'
+           &&receipt.proof==='official_wallet_delta'
+           &&Number.isSafeInteger(receipt.verifiedAt)
+           &&receipt.credit===offer.credit;
+         return {...offer,...(verified?{
+           rewardVerified:true,rewardProof:'official_wallet_delta',
+           rewardVerifiedAt:receipt.verifiedAt}:{})};
+       }):null;
+       return {...a,...(verifiedBenefits?{benefits:verifiedBenefits}:{}),
+         autoCheckin:entry.account.autoCheckin===true,
          autoCheckinEffective:cfg.checkin.autoEnabled&&entry.account.autoCheckin===true,
          checkinState:state,checkinAt:recent?.at??a.balanceCheckedAt??null,
            checkinMessage:verified?(historyConfirmed?
@@ -149,6 +164,10 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
             &&typeof sourceRow.activityRewardUnit==='string'?{
               activityRewardAmount:sourceRow.activityRewardAmount,
               activityRewardUnit:sourceRow.activityRewardUnit}:{}),
+          ...(sourceRow.activityRewardProof==='official_daily_grant_bill'
+            &&Number.isSafeInteger(sourceRow.activityRewardVerifiedAt)?{
+              activityRewardProof:sourceRow.activityRewardProof,
+              activityRewardVerifiedAt:sourceRow.activityRewardVerifiedAt}:{}),
           ...(Number.isFinite(sourceRow.activityExpiresAt)&&sourceRow.activityExpiresAt>0
             ?{activityExpiresAt:sourceRow.activityExpiresAt}:{}),
           autoCheckin:sourceRow.autoCheckin,

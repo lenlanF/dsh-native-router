@@ -24,6 +24,7 @@ test('Loomy source accounts perform all 8 API-only bonuses per account and remai
   const completed=Object.fromEntries(accounts.map(id=>[id,
     Object.fromEntries(keySet.map(key=>[key,false]))]));
   const postCounts={member_A:0,member_B:0},methods=[];
+  const wallet={member_A:0,member_B:0};
   const sourcePack={
    status:()=>({state:'mounted'}),
    listAccounts:async()=>({state:'ready',accounts:accounts.map(id=>({
@@ -37,16 +38,18 @@ test('Loomy source accounts perform all 8 API-only bonuses per account and remai
        credit:LOOMY_FREE_TASKS[key].points,claimed:completed[id][key]}))
     }))};
    },
-   async claimLoomyActivities({sourceAccountId,beforeClaim,onOutcome,onObserved}){
+   async claimLoomyActivities({sourceAccountId,beforeClaim,onOutcome,onObserved,previousReceipt}){
     const id=sourceAccountId;
     return claimLoomyFreeTasks({credential:{access_token:['FAKE',id,'TOKEN'].join('_')},
      fetchImpl:async(url,options)=>{
       methods.push(options.method);
-      if(options.method==='GET')return ok({tasks:completed[id]});
+      if(options.method==='GET')return url.includes('/points/records')?
+        ok({balance:wallet[id]}):ok({tasks:completed[id]});
       const key=JSON.parse(options.body).key;
       postCounts[id]++;completed[id][key]=true;
+      wallet[id]+=LOOMY_FREE_TASKS[key].points;
       return ok({balance:0});
-     },beforeClaim,onOutcome,onObserved});
+     },beforeClaim,onOutcome,onObserved,previousReceipt,now:()=>at});
    }
   };
   const accountCenter={find:()=>{throw Error('no owned account')},
@@ -72,6 +75,10 @@ test('Loomy source accounts perform all 8 API-only bonuses per account and remai
   assert.ok(entries.every(x=>x.benefits.length===8&&
     x.benefits.every(y=>y.claimed)));
   assert.ok(entries.every(x=>x.activityClaims.confirmed===8));
+  assert.ok(entries.every(x=>x.benefits.every(y=>y.rewardVerified===true
+    &&y.rewardProof==='official_wallet_delta')));
+  assert.equal(wallet.member_A,10000);
+  assert.equal(wallet.member_B,10000);
   assert.equal(readFileSync(claims,'utf8').includes('member_A'),false);
   center.stop();
   at+=3600000;center=mount();

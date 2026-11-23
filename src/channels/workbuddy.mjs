@@ -484,7 +484,8 @@ export function createWorkBuddyDriver({
    // Reward claims are independent of daily sign-in. A durable Host receipt
    // is written before every eligible official POST; never blindly replay an
    // ambiguous activity claim after DSH restart.
-   async function workbuddyClaimActivities({account,date,beforeClaim,onOutcome,onObserved}={}){
+   async function workbuddyClaimActivities({account,date,beforeClaim,onOutcome,
+     onObserved,previousReceipt}={}){
      if(!ownedRegion||!account)return {state:'unsupported',confirmed:0,pending:0,eligible:0};
      let auth;
      try{auth=await validSession(account)}
@@ -492,32 +493,54 @@ export function createWorkBuddyDriver({
      if(auth.enterprise)return {state:'no_task',confirmed:0,pending:0,eligible:0};
      const available=await memberReader.benefits(auth,ownedRegion).catch(()=>null);
      if(!available)return {state:'unavailable',confirmed:0,pending:0,eligible:0};
-      // A previous POST may have been accepted while its response was lost.
-      // Reconcile only an existing durable receipt against a new official
-      // 'claimed:true' observation; never repeat the original POST.
-      for(const benefit of available){
-        if(benefit?.claimed!==true||!['gift','compensation'].includes(benefit.kind))continue;
-        try{await onObserved?.(benefit,'confirmed')}catch{}
-      }
+     // A claimed status only proves task completion, not spendable points.
+     // Require the official wallet's exact positive increase as well.
+     const balance=async()=>{
+       try{const data=await memberReader.credits(auth,ownedRegion);
+         return data?.balanceState==='available'&&Number.isFinite(data.balance)
+           &&data.balance>=0?data.balance:null;
+       }catch{return null}
+     };
+     const credited=(before,after,points)=>Number.isFinite(before)
+       &&Number.isFinite(after)&&Number.isFinite(points)&&points>0
+       &&Math.abs(after-before-points)<0.000001;
+     for(const benefit of available){
+       if(benefit?.claimed!==true||!['gift','compensation'].includes(benefit.kind))continue;
+       let receipt=null;
+       try{receipt=await previousReceipt?.(benefit)}catch{}
+       if(receipt?.state==='confirmed'||!Number.isFinite(receipt?.baselineBalance))continue;
+       const current=await balance();
+       if(!credited(receipt.baselineBalance,current,benefit.credit))continue;
+       try{await onObserved?.(benefit,'confirmed',{
+         credit:benefit.credit,proof:'official_wallet_delta',verifiedAt:now()})}catch{}
+     }
      const eligible=available.filter(b=>b?.active&&!b.claimed
        &&['gift','compensation'].includes(b.kind));
      let confirmed=0,pending=0,skipped=0;
      for(const benefit of eligible){
        const key=[account.id,benefit.kind,benefit.endAt??0,benefit.credit??0].join(':');
        if(benefitInflight.has(key)){skipped++;continue}
+       const previousBalance=await balance();
+       if(!Number.isFinite(previousBalance)||!Number.isFinite(benefit.credit)
+          ||benefit.credit<=0){skipped++;continue}
        if(typeof beforeClaim==='function'){
          let approved=false;
-         try{approved=await beforeClaim(benefit)===true}catch{}
+         try{approved=await beforeClaim(benefit,
+           {baselineBalance:previousBalance})===true}catch{}
          if(!approved){skipped++;continue}
        }
        benefitInflight.add(key);
-       let state='pending_confirmation';
+       let state='pending_confirmation',meta={};
        try{
          const outcome=await memberReader.claimBenefit(auth,ownedRegion,benefit.kind);
-         if(outcome.confirmed===true){state='confirmed';confirmed++}
-         else pending++;
+         const afterBalance=await balance();
+         if(outcome.confirmed===true&&credited(previousBalance,afterBalance,benefit.credit)){
+           state='confirmed';meta={credit:benefit.credit,
+             proof:'official_wallet_delta',verifiedAt:now()};confirmed++;
+         }else pending++;
        }catch{pending++}
-       try{await onOutcome?.(benefit,state)}catch{}
+       try{await onOutcome?.(benefit,state,meta)}catch{}
+       if(state!=='confirmed')break;
      }
      if(eligible.length)await fetchMemberFacts(account).catch(()=>{});
      return {state:pending?'pending_confirmation':confirmed?'confirmed':

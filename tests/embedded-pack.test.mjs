@@ -72,6 +72,7 @@ test('Loomy official API-only tasks are read and claimed by exact owned source a
    'install_skill','configure_remote','create_soul','share_soul'];
  const states=Object.fromEntries(ids.map(id=>[id,
    Object.fromEntries(keys.map(key=>[key,false]))]));
+ const wallets={'loomy-member-a':0,'loomy-member-b':0};
  const pool={listAllAccounts:async()=>ids.map(id=>({
    id,provider:'loomy',enabled:true,credentialRef:refs[id]}))};
  let livePool,posts=0;
@@ -90,11 +91,15 @@ test('Loomy official API-only tasks are read and claimed by exact owned source a
    const id=ids.find(x=>init.headers?.token===tokens[x]);
    assert.ok(id,'exact owned account token');
    if(init.method==='GET')return new Response(JSON.stringify({
-     code:'000000',data:{tasks:states[id]}}),{status:200});
+     code:'000000',data:_url.includes('/points/records')?
+       {balance:wallets[id]}:{tasks:states[id]}}),{status:200});
    assert.equal(init.method,'POST');
    const key=JSON.parse(init.body).key;
    assert.ok(Object.hasOwn(states[id],key));
    posts++;states[id][key]=true;
+   wallets[id]+=({first_message:500,pick_skill:1000,generate_ppt:1500,
+     set_schedule:1000,install_skill:1500,configure_remote:1000,
+     create_soul:1500,share_soul:2000})[key];
    return new Response(JSON.stringify({code:'000000',data:{balance:0}}),{status:200});
  };
  const bridge=createEmbeddedChannelPack({ctx:{inject(_names,fn){fn(scope)}},

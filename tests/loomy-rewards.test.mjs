@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readLoomyFreeTasks,claimLoomyFreeTasks,LOOMY_FREE_TASKS}
+import {readLoomyFreeTasks,readLoomyWallet,claimLoomyFreeTasks,LOOMY_FREE_TASKS}
  from '../src/channels/loomy-rewards.mjs';
 import {createActivityClaimStore} from '../src/activity-claims.mjs';
 
@@ -26,10 +26,13 @@ test('Loomy GET task snapshot only includes exact official boolean states',async
 });
 test('Loomy silent official POST complete verifies every offer by fresh task GET, with durable no-repeat ledger',async()=>{
  const statuses=Object.fromEntries(Object.keys(LOOMY_FREE_TASKS).map(k=>[k,false]));
- let posts=0;const calls=[];
+ let posts=0,balance=0;const calls=[];
  const fetchImpl=async (url,opts)=>{
   calls.push({url,method:opts.method});
-  assert.ok(url.startsWith('https://loomyad.xunfei.cn/api/v1/onboarding/tasks'));
+  assert.ok(url.startsWith('https://loomyad.xunfei.cn/api/v1/'));
+  if(url.includes('/points/records')){
+    assert.equal(opts.method,'GET');return ok({balance})
+  }
   assert.equal(opts.redirect,'error');
   assert.equal(opts.headers.token,credential.access_token);
   if(opts.method==='GET')return ok({tasks:statuses,earned:Object.entries(statuses)
@@ -38,19 +41,23 @@ test('Loomy silent official POST complete verifies every offer by fresh task GET
   const body=JSON.parse(opts.body);assert.deepEqual(Object.keys(body),['key']);
   assert.ok(Object.hasOwn(LOOMY_FREE_TASKS,body.key));posts++;
   statuses[body.key]=true;
-  return ok({alreadyCompleted:false,balance:0});
+  balance+=LOOMY_FREE_TASKS[body.key].points;
+  return ok({alreadyCompleted:false,balance});
  };
  const store=createActivityClaimStore({path:null});
  const account={providerId:'own_loomy',id:'source_test_loomy',
   credentialRef:'source:loomy:account'};
  const claim=()=>claimLoomyFreeTasks({credential,fetchImpl,
-  beforeClaim:offer=>store.begin(account,offer),
-  onOutcome:(offer,state)=>store.finish(account,offer,state),
-  onObserved:(offer,state)=>store.finish(account,offer,state)});
+  beforeClaim:(offer,meta)=>store.begin(account,offer,meta),
+  onOutcome:(offer,state,meta)=>store.finish(account,offer,state,meta),
+  onObserved:(offer,state,meta)=>store.finish(account,offer,state,meta),
+  previousReceipt:offer=>store.receipt(account,offer)});
  const result=await claim();
  assert.equal(result.state,'confirmed');
  assert.equal(result.confirmed,8);assert.equal(result.pending,0);
  assert.equal(posts,8);assert.equal(store.summary(account).confirmed,8);
+ assert.equal(store.receipt(account,{kind:'loomy_first_message',credit:500}).proof,
+   'official_wallet_delta');
  const again=await claim();
  assert.equal(again.state,'no_task');
  assert.equal(posts,8,'previous confirmed points cannot post twice');
@@ -59,16 +66,20 @@ test('Loomy silent official POST complete verifies every offer by fresh task GET
    .test(c.url)));
 });
 test('Loomy failed remote POST is treated as pending and not replayed even after status polling',async()=>{
- const statuses={first_message:false};let posts=0,readCount=0;
+ const statuses={first_message:false};let posts=0,readCount=0,balance=0;
  const fetchImpl=async(url,opts)=>{
-  if(opts.method==='GET'){readCount++;return ok({tasks:statuses})}
+  if(opts.method==='GET'){
+    readCount++;return url.includes('/points/records')?ok({balance}):ok({tasks:statuses})
+  }
   posts++;return new Response('',{status:503});
  };
  const store=createActivityClaimStore({path:null});
  const account={providerId:'own_loomy',id:'one',credentialRef:'source:loomy:one'};
- const opts={credential,fetchImpl,beforeClaim:offer=>store.begin(account,offer),
-  onOutcome:(offer,state)=>store.finish(account,offer,state),
-  onObserved:(offer,state)=>store.finish(account,offer,state)};
+ const opts={credential,fetchImpl,
+  beforeClaim:(offer,meta)=>store.begin(account,offer,meta),
+  onOutcome:(offer,state,meta)=>store.finish(account,offer,state,meta),
+  onObserved:(offer,state,meta)=>store.finish(account,offer,state,meta),
+  previousReceipt:offer=>store.receipt(account,offer)};
  const first=await claimLoomyFreeTasks(opts);
  assert.equal(first.pending,1);assert.equal(posts,1);
  assert.equal(store.summary(account).unconfirmed,1);
@@ -76,7 +87,12 @@ test('Loomy failed remote POST is treated as pending and not replayed even after
  assert.equal(retry.confirmed,0);assert.equal(posts,1);
  statuses.first_message=true;
  await claimLoomyFreeTasks(opts);
- assert.equal(store.summary(account).confirmed,1);
+ assert.equal(store.summary(account).confirmed,0,
+   'task checkbox without wallet points must never be confirmed');
+ balance=500;
+ await claimLoomyFreeTasks(opts);
+ assert.equal(store.summary(account).confirmed,1,
+   'fresh wallet gain after ambiguous POST reconciles the durable receipt');
  assert.equal(posts,1);assert.ok(readCount>2);
 });
 test('Loomy stops after the first rejected API-only completion, never floods the other seven offers',async()=>{
@@ -84,13 +100,29 @@ test('Loomy stops after the first rejected API-only completion, never floods the
  let posts=0;
  const result=await claimLoomyFreeTasks({credential,
   fetchImpl:async(_url,opts)=>{
-   if(opts.method==='GET')return ok({tasks});
+   if(opts.method==='GET')return _url.includes('/points/records')?
+     ok({balance:0}):ok({tasks});
    posts++;
    return new Response(JSON.stringify({code:'TASK_REQUIRES_REAL_ACTION'}),{status:400});
   },beforeClaim:()=>true});
  assert.equal(result.state,'pending_confirmation');
  assert.equal(result.pending,1);
  assert.equal(posts,1,'a rejected simulated completion must not trigger the rest');
+});
+
+test('no official wallet statement means zero task completion POSTs',async()=>{
+ let posts=0;
+ const result=await claimLoomyFreeTasks({credential,
+   fetchImpl:async(url,opts)=>{
+     if(opts.method==='POST')posts++;
+     return url.includes('/points/records')?new Response('',{status:503}):
+       ok({tasks:{first_message:false}});
+   },beforeClaim:()=>true});
+ assert.equal(result.state,'unavailable');
+ assert.equal(posts,0);
+ assert.deepEqual(await readLoomyWallet({credential,
+   fetchImpl:async()=>new Response('unexpected',{status:503})}),
+   {state:'unavailable'});
 });
 
 test('Loomy rejects non-official envelope and unusable access tokens without submitting rewards',async()=>{
