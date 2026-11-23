@@ -26,8 +26,25 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
     numeric(structured?.credit_balance)??numeric(structured?.points)??
     (trusted?numeric(structured?.total):null)??
     numeric(single?.remaining)??numeric(single?.balance);
+  // A multi-bucket wallet may omit its top-level unit despite the vendor
+  // explicitly labeling *every* spendable bucket (e.g. Loomy gift/purchased
+  // points). Infer only when all units match AND their official remaining
+  // values reconcile exactly to the independently returned wallet total.
+  // Never use a guessed provider default or sum mixed units/overlapping quotas.
+  const reconciledUnit=packages.length>0&&balanceValue!==null&&
+    packages.every(x=>record(x)&&safeUnit(x.unit)
+      &&numeric(x.remaining)!==null)
+    &&new Set(packages.map(x=>safeUnit(x.unit))).size===1
+    &&Math.abs(packages.reduce((sum,x)=>sum+x.remaining,0)-balanceValue)<0.000001
+    ?safeUnit(packages[0].unit):null;
+  // One official package can also label the total when its own remaining
+  // is omitted (the source API reports a single unit and the total). If
+  // remaining is present but differs from total, do not assume a unit.
+  const soleUnit=single&&balanceValue!==null&&
+    (numeric(single.remaining)===null||
+      Math.abs(single.remaining-balanceValue)<0.000001)?safeUnit(single.unit):null;
   const unit=safeUnit(balanceRow?.balanceUnit)??safeUnit(structured?.unit)??
-    safeUnit(single?.unit);
+    reconciledUnit??soleUnit;
   const liveStatus=!statusRow?.error&&status!==null&&(
     typeof status.todayCheckedIn==='boolean'||
     Array.isArray(status.checkinDates)||

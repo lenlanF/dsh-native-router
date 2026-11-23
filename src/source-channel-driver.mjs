@@ -7,6 +7,7 @@ import {visibleTools} from './host-tools.mjs';
 import {flattenContent} from './protocol.mjs';
 import {validateModelCalls} from './provider/openai.mjs';
 import {SOURCE_PACK_PROVIDERS} from './embedded-pack.mjs';
+import {publicAccountName} from './account-facts.mjs';
 
 const MAX_OUTPUT_BYTES=16*1024*1024;
 const MAX_TOOL_CALLS=8;
@@ -171,7 +172,14 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
       ?remote.accounts:[]).filter(row=>row?.accountId===selected.id);
     if(matched.length!==1)return {state:'unavailable',authVerified:false};
     const {accountId,...facts}=matched[0];
-    const result={...facts,state:'ready',
+    // The owned private pack's exact authorized account roster may know the
+    // member name even when its *status* endpoint omits a nickname. rc94
+    // discarded that identity and rendered '账号名待获取' despite a verified
+    // self-owned login. Never use an unverified/placeholder roster label.
+    const verifiedName=facts.authVerified===true
+      ?publicAccountName(facts,selected):'';
+    const result={...facts,
+      ...(verifiedName?{nickname:verifiedName}:{}),state:'ready',
       checkedAt:remote.checkedAt??Date.now()};
     liveFacts.set(account.id,result);
     return result;

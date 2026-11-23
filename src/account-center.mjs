@@ -171,6 +171,15 @@ export function createAccountCenter({
               ...(['claimed','claimable','not_confirmed','not_offered','unavailable'].includes(live.activityState)?
                 {activityState:live.activityState}:{}),
               ...(Number.isFinite(live.activityCheckedAt)?{activityCheckedAt:live.activityCheckedAt}:{}),
+              // The official entitlement must be fresh; an old positive
+              // flag must not survive a failed read-only refresh or restart.
+              ...(typeof live.activityClaimable==='boolean'
+                &&Number.isSafeInteger(live.activityCheckedAt)
+                &&live.activityCheckedAt<=now()
+                &&now()-live.activityCheckedAt<=15*60*1000
+                ?{activityClaimable:live.activityClaimable}:{}),
+              ...(typeof live.activityActive==='boolean'?
+                {activityActive:live.activityActive}:{}),
               ...(Number.isInteger(live.activityTaskCount)&&live.activityTaskCount>=0
                 &&live.activityTaskCount<=99?{activityTaskCount:live.activityTaskCount}:{}),
               ...(live.activityTaskExecutionState==='requires_verified_executor'
