@@ -40,7 +40,8 @@ function mock({extraQuota=false,invalidQuota=false,modelUnavailable=false}={}){
        window_limits:[{window_type:2,total_amount:'20',used_amount:'8'}]}]}}:{})});
   if(url.pathname==='/alice/user/launch')return data({ug_campaign_info:{campaign_group_code:'daily'}});
   if(url.pathname==='/alice/ug/campaign/v3/detail')return data({campaign_code:'daily',tasks:[{
-   task_key:'daily_check_in',task_kind:'daily_signin',checked_in_today:false}]});
+   task_key:'daily_check_in',task_kind:'daily_signin',checked_in_today:false},
+   {campaign_code:'activity-one',task_kind:'share_event',title:'参加积分活动',task_status:0}]});
   if(url.pathname==='/chat/completion'){
    assert.equal(opts.method,'POST');
    const body=JSON.parse(opts.body);
@@ -71,6 +72,8 @@ test('Doubao member credits and activity refresh survive model catalog outage an
  assert.equal(facts.balance,80);
  assert.equal(facts.quotaWindows.length,2);
  assert.equal(facts.planName,'豆包会员');
+ assert.equal(facts.activityTaskCount,1,'non-signin campaign must not be silently ignored');
+ assert.equal(facts.activityTaskExecutionState,'requires_verified_executor');
  assert(calls.slice(before).some(x=>x.path==='/alice/ug/campaign/v3/detail'));
  assert.equal(calls.slice(before).filter(x=>x.path==='/alice/slot/action_bar_v3/brief_list').length,0);
  assert.equal(calls.filter(x=>x.path==='/chat/completion').length,0);

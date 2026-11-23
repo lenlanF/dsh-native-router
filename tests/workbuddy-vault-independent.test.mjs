@@ -158,6 +158,28 @@ test('WorkBuddy reward-only success cannot be counted as verified daily sign-in'
   assert.equal(r.hits.filter(url=>url.includes('/billing/meter/claim-compensation')).length,1);
  }finally{r.cleanup()}
 });
+test('WorkBuddy activity adapter operates after confirmed daily sign-in without reposting sign-in',async()=>{
+ const r=testRig('cn',{benefitCampaign:true});
+ try{
+  const found=(await r.inventory.scan()).accounts.find(x=>x.providerId===r.source);
+  await r.adoption.adopt({providerId:r.source,accountId:found.accountId,consent:true});
+  const account=r.cfg.accounts[0];
+  const daily=await r.driver.checkIn({account,date:'2026-11-23',includeActivities:false});
+  assert.equal(daily.confirmed,true);
+  assert.equal(r.hits.filter(x=>x.includes('/billing/meter/claim-compensation')).length,0,
+    'daily check-in must use the durable reward ledger');
+  const claims=[];
+  const rewards=await r.driver.claimActivities({account,date:'2026-11-23',
+   beforeClaim:offer=>{claims.push({kind:offer.kind,stage:'begin'});return true},
+   onOutcome:(offer,state)=>claims.push({kind:offer.kind,stage:state})});
+  assert.equal(rewards.confirmed,1);
+  assert.deepEqual(claims,[{kind:'compensation',stage:'begin'},
+   {kind:'compensation',stage:'confirmed'}]);
+  assert.equal(r.hits.filter(x=>x.includes('/billing/meter/claim-compensation')).length,1);
+  assert.equal(r.hits.filter(x=>x.includes('/v2/billing/meter/daily-checkin')).length,1);
+ }finally{r.cleanup()}
+});
+
 test('WorkBuddy unconfirmed daily POST is not resent even when direct check-in is repeated',async()=>{
  const r=testRig('cn',{dailyClaimError:true});
  try{

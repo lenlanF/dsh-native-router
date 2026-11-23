@@ -24,6 +24,12 @@ test('WorkBuddy personal billing uses exact cycle balances, not misleading pool 
  assert.equal(info.quotaWindows[0].kind,'monthly');
  assert.equal(info.quotaWindows[0].endAt,Date.parse('2026-12-01T00:00:00Z'));
  assert.equal(info.quotaWindows[1].kind,'grant');
+ assert.equal(info.expiringPoints,undefined,'eight-day-out gifts are not due within seven days');
+ const approaching=parseWorkBuddyCredits({data:personal()},{now:Date.parse('2026-11-27T00:00:00Z')});
+ assert.equal(approaching.expiringPoints,81.23,'only officially dated near-expiry credits aggregate');
+ assert.equal(approaching.expiringAt,Date.parse('2026-12-01T00:00:00Z'));
+ const later=parseWorkBuddyCredits({data:personal()},{now:Date.parse('2026-11-29T00:00:00Z')});
+ assert.equal(later.expiringPoints,121.98,'when both expire within seven days count each wallet bucket once');
 });
 test('WorkBuddy enterprise usage reads limit minus USED credit, never empty personal balance',()=>{
  const info=parseWorkBuddyCredits({data:{Data:{limitNum:5000,credit:1234,

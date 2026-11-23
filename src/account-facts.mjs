@@ -6,7 +6,7 @@ const generatedName=/^(?:账号\s*#?\s*\d+|account\s*#?\s*\d+|id:.+|.+\s*[·•-
 export function publicAccountName(...sources){
   for(const source of sources){
      if(!source||typeof source!=='object')continue;
-     for(const key of ['displayName','accountName','username','userName','nickname','nickName','screenName','name','label']){
+     for(const key of ['displayName','nickname','nickName','screenName','accountName','account_name','username','userName','user_name','loginName','login_name','accountLogin','login','email','name','label']){
       const value=source[key];
       if(typeof value!=='string')continue;
       const name=value.trim();

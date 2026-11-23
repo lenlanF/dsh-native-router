@@ -262,12 +262,17 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
       if(group){
         const detail=await fetchCampaignDetail(cookie,group,withFetch({timeoutMs:12000}));
         const daily=findDailyCheckin(detail.tasks||[]);
+        // Non-daily campaign tasks have independent conditions and are not
+        // fulfilled by the simple daily check-in claim endpoint.
+        const extra=(detail.tasks||[]).filter(task=>task!==daily);
         const prior=publicStatus.get(account.id)??{};
         const date=beijingDate(now());
         const verified=daily?.checkedInToday===true,claimable=daily?.checkedInToday===false;
         publicStatus.set(account.id,{...prior,
           activityState:verified?'claimed':claimable?'claimable':'not_confirmed',
           activityCheckedAt:now(),
+          activityTaskCount:Math.min(extra.length,99),
+          activityTaskExecutionState:extra.length?'requires_verified_executor':'none',
           ...(verified||claimable?{checkinDate:date,
             checkinOutcome:verified?'already':'claimable'}:{})});
       }else{

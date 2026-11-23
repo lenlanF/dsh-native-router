@@ -2,6 +2,7 @@ import {readFileSync,existsSync,mkdirSync,writeFileSync,renameSync,unlinkSync} f
 import {dirname,join} from 'node:path';
 import {defaultConfigPath} from './config.mjs';
 import {createSourceCheckinCenter} from './source-checkins.mjs';
+import {createActivityClaimStore} from './activity-claims.mjs';
 import {checkinDisplayState,expiredCheckinConfirmation} from './account-facts.mjs';
 import {checkinGroups,latestConfirmedDate} from './checkin-summary.mjs';
 import {publicCheckinMessage,publicAccountFailureMessage} from './public-diagnostics.mjs';
@@ -52,15 +53,60 @@ export function createCheckinStore({path=join(dirname(defaultConfigPath()),'chec
   };
 }
 export function createCheckinCenter({configStore,accountCenter,store=createCheckinStore(),
-   now=()=>Date.now(),logger,intervalMs=60000,sourcePack,verificationStore}={}){
+   now=()=>Date.now(),logger,intervalMs=60000,sourcePack,verificationStore,
+   activityStore=createActivityClaimStore()}={}){
    if(!configStore?.get||!accountCenter?.find)throw Error('Config and account center are required');
-   const pending=new Set();
+   const pending=new Set(),activityLastProbe=new Map();
    let timer=null,running=null;
    const sourceCenter=sourcePack?createSourceCheckinCenter({sourcePack,configStore,store,now,logger,
      verificationStore}):null;
   const currentDate=()=>todayKey(now(),configStore.get().checkin.timeZone);
   function latestFor(accountId,date=currentDate()){
     return store.all().filter(x=>x.accountId===accountId&&x.date===date).at(-1)??null;
+  }
+  const activityPending=new Set();
+  const activityFor=accountId=>{
+    try{return activityStore.summary(accountCenter.find(accountId).account)}
+    catch{return {confirmed:0,unconfirmed:0,lastAt:null}}
+  };
+  // This workflow is independent of the one-time daily sign-in result:
+  // new eligible gifts can appear AFTER an already-successful daily sign-in.
+  async function runActivities(accountId,{source='manual'}={}){
+    if(store.blocked||activityStore.blocked)return {state:'blocked'};
+    const {account,provider,driver}=accountCenter.find(accountId);
+    const cfg=configStore.get();
+    if(!account.enabled||!provider.enabled||typeof driver?.claimActivities!=='function')
+      return {state:'unsupported'};
+    if(source==='auto'&&(!cfg.checkin.autoEnabled||account.autoCheckin!==true))
+      return {state:'disabled'};
+    if(activityPending.has(accountId))return {state:'busy'};
+    const probeKey=account.id+'\\0'+account.credentialRef;
+    if(source==='auto'&&activityLastProbe.has(probeKey)
+      &&now()-activityLastProbe.get(probeKey)<30*60*1000)
+      return {state:'cached'};
+    activityLastProbe.set(probeKey,now());
+    const authorized=()=>{
+      const current=configStore.get();
+      return current.accounts.some(a=>a.id===account.id&&a.providerId===provider.id
+        &&a.credentialRef===account.credentialRef&&a.enabled===true)
+        &&current.providers.some(p=>p.id===provider.id&&p.enabled===true);
+    };
+    activityPending.add(accountId);
+    try{
+      const result=await driver.claimActivities({
+        account,date:currentDate(),
+        beforeClaim:offer=>authorized()&&activityStore.begin(account,offer),
+        onOutcome:(offer,state)=>activityStore.finish(account,offer,
+          state==='confirmed'&&authorized()?'confirmed':'pending_confirmation'),
+      });
+      return authorized()?{state:result?.state??'unavailable',
+        confirmed:result?.confirmed??0,pending:result?.pending??0,
+        eligible:result?.eligible??0}:{state:'account_changed'};
+    }catch(error){
+      logger?.warn?.('native-router activity claim unavailable: '+
+        publicAccountFailureMessage(error));
+      return {state:'unavailable'};
+    }finally{activityPending.delete(accountId)}
   }
   function snapshot(){
     const cfg=configStore.get(),today=currentDate(),roster=accountCenter.list();
@@ -87,6 +133,8 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
               recent?publicCheckinMessage(recent.state):
                 (implemented?'今日签到状态尚未核实':'未接入本渠道签到执行器'),
          checkinSupported:implemented,
+         activitiesSupported:typeof driver?.claimActivities==='function',
+         activityClaims:activityFor(a.id),
        };
     });
      for(const sourceRow of sourceCenter?.snapshot()??[]){
@@ -108,6 +156,9 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
             ...(sourceRow.balanceUnit?{balanceUnit:sourceRow.balanceUnit}:{}),
             balanceCheckedAt:sourceRow.balanceCheckedAt}:{}),
           balanceState:sourceRow.balanceState,
+          ...(Number.isFinite(sourceRow.expiringPoints)&&sourceRow.expiringPoints>0
+            &&sourceRow.balanceUnit==='积分'?{expiringPoints:sourceRow.expiringPoints,
+            ...(Number.isFinite(sourceRow.expiringAt)?{expiringAt:sourceRow.expiringAt}:{})}:{}),
           ...(sourceRow.maskedPhone?{maskedPhone:sourceRow.maskedPhone}:{}),
         });
        else accounts.push(sourceRow);
@@ -127,6 +178,7 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
       const groups=checkinGroups(accounts,roster.channels);
      return {today,timeZone:cfg.checkin.timeZone,autoEnabled:cfg.checkin.autoEnabled,
        autoSourceAccounts:cfg.checkin.autoSourceAccounts,
+       rewardHistoryBlocked:activityStore.blocked,
       historyBlocked:store.blocked===true,historyError:store.error??null,
       runAt:cfg.checkin.runAt,groups,accounts,
         history:history.slice(-80).reverse().map(item=>({...item,
@@ -138,26 +190,34 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
     if(pending.has(accountId)){const e=new Error('本账号签到正在执行');e.status=409;throw e}
     const {account,provider,driver}=accountCenter.find(accountId);
     if(!account.enabled||!provider.enabled){const e=new Error('账号已停用，不能签到');e.status=409;throw e}
-    if(typeof driver?.checkIn!=='function'){const e=new Error('该渠道尚未实现真实签到及结果验证');e.status=501;throw e}
+    if(typeof driver?.checkIn!=='function'){
+      if(typeof driver?.claimActivities==='function')
+        return {activities:await runActivities(accountId,{source})};
+      const e=new Error('该渠道未提供可验证的积分任务执行器');e.status=501;throw e;
+    }
      const date=currentDate(),previous=latestFor(accountId,date);
      const earlierSuccess=store.all().find(x=>x.accountId===accountId&&x.date===date&&x.state==='success');
-     if(earlierSuccess)return {alreadyConfirmed:true,record:earlierSuccess};
+     if(earlierSuccess)return {alreadyConfirmed:true,record:earlierSuccess,
+       activities:await runActivities(accountId,{source})};
      // An official POST can have been accepted despite a closed connection.
      // Manually pressing again must not double-claim a one-attempt daily grant.
      if(previous?.state==='pending_confirmation'&&
        (/^own_workbuddy-/.test(account.providerId)||account.providerId==='own_doubao'))
-       return {alreadyPending:true,record:previous};
+       return {alreadyPending:true,record:previous,
+         activities:await runActivities(accountId,{source})};
      const publicAccount=accountCenter.list().accounts.find(a=>a.id===accountId);
      if(publicAccount?.upstreamCheckinDate===date&&
        ['claimed','already'].includes(publicAccount?.upstreamCheckinOutcome)){
        const record=store.append({date,accountId,providerId:provider.id,
          state:'success',message:'上游/原插件确认今日已签到',at:now(),source:'status'});
-       return {alreadyConfirmed:true,record};
+       return {alreadyConfirmed:true,record,
+         activities:await runActivities(accountId,{source})};
      }
      pending.add(accountId);
     let state='failed',message='签到未确认';
     try{
-      const reply=await driver.checkIn({account,provider,date,source});
+      const reply=await driver.checkIn({account,provider,date,source,
+        includeActivities:false});
       if(reply?.confirmed===true&&reply?.date===date){
          state='success';message=publicCheckinMessage('success');
       }else if(reply?.state==='no_task'){
@@ -186,7 +246,8 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
     const record=store.append({date,accountId,providerId:provider.id,state,message,
       at:now(),source});
     logger?.info?.('native-router checkin '+provider.id+'/'+accountId+': '+state);
-    return {alreadyConfirmed:false,record};
+    return {alreadyConfirmed:false,record,
+      activities:await runActivities(accountId,{source})};
   }
   async function tick(){
     if(store.blocked)return {skipped:'history_blocked'};
@@ -225,7 +286,16 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
          const sourceResult=await sourceCenter.tick();
          results.push(...sourceResult.results??[]);
        }
-       return {attempted:results.length,results};
+       // A successful sign-in must NOT terminate later eligible activity
+       // discovery; WorkBuddy compensation/gift campaigns can appear any time.
+       const rewards=[];
+       for(const account of cfg.accounts){
+         if(!account.enabled||account.autoCheckin!==true)continue;
+         if(typeof accountCenter.driverFor(account.providerId)?.claimActivities!=='function')continue;
+         const outcome=await runActivities(account.id,{source:'auto'});
+         if(outcome.confirmed||outcome.pending)rewards.push({accountId:account.id,...outcome});
+       }
+       return {attempted:results.length,results,rewards};
     })().finally(()=>{running=null});
     return running;
   }
@@ -245,5 +315,6 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
     void tick().catch(()=>logger?.warn?.('checkin startup check unavailable'));    return stop;
   }
    function stop(){if(timer){clearInterval(timer);timer=null}sourceCenter?.stop()}
-    return {snapshot,sourceSnapshot:()=>sourceCenter?.snapshot()??[],run,tick,start,stop,store,refreshSources:()=>sourceCenter?.refresh()??Promise.resolve([])};
+    return {snapshot,sourceSnapshot:()=>sourceCenter?.snapshot()??[],run,runActivities,tick,start,stop,
+      store,activityStore,refreshSources:()=>sourceCenter?.refresh()??Promise.resolve([])};
 }

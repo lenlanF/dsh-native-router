@@ -84,6 +84,29 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
       &&/^zcode-v3-start-plan-[a-z0-9-]+$/i.test(pkg.officialPlanId)):[];
   const zcodeFlashRows=zcodePlanRows.filter(pkg=>/^glm-5\.3-flash$/i.test(pkg.officialName??''));
   const giftedBalance=[...giftByPlan.values()].reduce((sum,value)=>sum+value,0);
+  // Show near-expiry points only when the complete same-unit package list
+  // reconciles to the official spendable balance; never add overlapping
+  // quota windows or mixed-currency package limits.
+  const expirySummary=(()=>{
+    if(unit!=='积分'||balanceValue===null||!packages.length)return null;
+    const entries=packages.map(pkg=>{
+      const left=numeric(pkg?.remaining);
+      const u=safeUnit(pkg?.unit);
+      const raw=pkg?.expiredTime??pkg?.expiresAt??pkg?.endAt;
+      const end=typeof raw==='number'&&raw>0?
+        raw<1e11?raw*1000:raw:
+        typeof raw==='string'&&raw.includes('T')?Date.parse(raw):NaN;
+      return {left,unit:u,end};
+    });
+    if(entries.some(x=>x.left===null||x.unit!=='积分'))return null;
+    const sum=entries.reduce((a,x)=>a+x.left,0);
+    if(Math.abs(sum-balanceValue)>0.0001)return null;
+    const near=entries.filter(x=>Number.isFinite(x.end)&&x.end>observedAt
+      &&x.end<=observedAt+7*86400000&&x.left>0);
+    return near.length?{expiringPoints:Math.round(
+      near.reduce((a,x)=>a+x.left,0)*1e4)/1e4,
+      expiringAt:Math.min(...near.map(x=>x.end))}:null;
+  })();
   return {
     ...(nickname?{nickname}:{}),
     ...(providerId==='loomy'&&loomyDailyGift>0?{loomyDailyGift}:{}),      ...(providerId==='zcode'?{
@@ -98,6 +121,7 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
             ?Math.min(structured.previewStartPlanCount,100):null,
       }:{}),
       ...(providerId==='zcode'&&giftedBalance>0?{giftedBalance}:{}),
+     ...(expirySummary??{}),
      ...(balanceValue!==null?{balance:balanceValue,
       ...(unit?{balanceUnit:unit}:{}),balanceCheckedAt:observedAt}:{}),
     balanceState:balanceValue!==null?'available':

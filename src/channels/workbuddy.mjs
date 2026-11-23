@@ -481,48 +481,61 @@ export function createWorkBuddyDriver({
          {state:'failed',message:'WorkBuddy 签到状态只读核验暂不可用'};
      }finally{request.cleanup()}
    }
-  // A user-triggered check-in, or the already opt-in automatic check-in
-  // scheduler, also collects officially eligible account gifts/compensation.
-  // It never guesses campaigns, never buys, and never retries a POST whose
-  // outcome is uncertain (the upstream may already have credited it).
-  async function workbuddyCheckIn({account,date}={}){
-    const daily=await workbuddyDailyCheckIn({account,date});
-    if(!ownedRegion||daily.state==='client_required')return daily;
-    let auth;try{auth=await validSession(account)}catch{return daily}
-    if(auth.enterprise)return daily;
-    const region=ownedRegion,available=await memberReader.benefits(auth,region).catch(()=>[]);
-    let claimed=0,uncertain=0;
-    for(const benefit of available){
-      if(!benefit?.active||benefit.claimed||
-        !['gift','compensation'].includes(benefit.kind))continue;
-      const key=account.id+'\0'+benefit.kind+'\0'+date;
-      if(benefitInflight.has(key)){uncertain++;continue}
-      // Remains locked for the day even if a network error leaves outcome
-      // ambiguous; refresh metadata before ANY later deliberate re-claim.
-      benefitInflight.add(key);
-      try{
-        const outcome=await memberReader.claimBenefit(auth,region,benefit.kind);
-        if(outcome.confirmed===true)claimed++;
-        else if(outcome.state==='pending_confirmation')uncertain++;
-      }catch{uncertain++}
-    }
-    // The display refresh is read-only and never re-sends a reward claim.
-    if(available.some(x=>x.active&&!x.claimed))
-      await fetchMemberFacts(account).catch(()=>{});
-     if(daily.confirmed)
-       return {...daily,...(claimed?{benefitClaimedCount:claimed,
-         message:daily.message+'；活动权益另确认 '+claimed+' 项'}:{})};
-     if(uncertain>0||daily.state==='pending_confirmation')
-       return {state:'pending_confirmation',benefitClaimedCount:claimed,
-         message:claimed?
-           '活动奖励已获官方确认 '+claimed+' 项，但每日签到尚未确认':
-           '每日签到或活动奖励回执尚未确认，停止重复领取'};
-     if(claimed>0)return {...daily,benefitClaimedCount:claimed,
-       message:'活动赠送已领取 '+claimed+' 项；每日签到仍未完成'};
+   // Reward claims are independent of daily sign-in. A durable Host receipt
+   // is written before every eligible official POST; never blindly replay an
+   // ambiguous activity claim after DSH restart.
+   async function workbuddyClaimActivities({account,date,beforeClaim,onOutcome}={}){
+     if(!ownedRegion||!account)return {state:'unsupported',confirmed:0,pending:0,eligible:0};
+     let auth;
+     try{auth=await validSession(account)}
+     catch{return {state:'unavailable',confirmed:0,pending:0,eligible:0}}
+     if(auth.enterprise)return {state:'no_task',confirmed:0,pending:0,eligible:0};
+     const available=await memberReader.benefits(auth,ownedRegion).catch(()=>null);
+     if(!available)return {state:'unavailable',confirmed:0,pending:0,eligible:0};
+     const eligible=available.filter(b=>b?.active&&!b.claimed
+       &&['gift','compensation'].includes(b.kind));
+     let confirmed=0,pending=0,skipped=0;
+     for(const benefit of eligible){
+       const key=[account.id,benefit.kind,benefit.endAt??0,benefit.credit??0].join(':');
+       if(benefitInflight.has(key)){skipped++;continue}
+       if(typeof beforeClaim==='function'){
+         let approved=false;
+         try{approved=await beforeClaim(benefit)===true}catch{}
+         if(!approved){skipped++;continue}
+       }
+       benefitInflight.add(key);
+       let state='pending_confirmation';
+       try{
+         const outcome=await memberReader.claimBenefit(auth,ownedRegion,benefit.kind);
+         if(outcome.confirmed===true){state='confirmed';confirmed++}
+         else pending++;
+       }catch{pending++}
+       try{await onOutcome?.(benefit,state)}catch{}
+     }
+     if(eligible.length)await fetchMemberFacts(account).catch(()=>{});
+     return {state:pending?'pending_confirmation':confirmed?'confirmed':
+       eligible.length?'skipped':'no_task',
+       confirmed,pending,skipped,eligible:eligible.length};
+   }
+   // Preserve the direct-driver combined action for existing integrations;
+   // DSH owner explicitly opts out and runs activities through its own ledger.
+   async function workbuddyCheckIn({account,date,includeActivities=true}={}){
+     const daily=await workbuddyDailyCheckIn({account,date});
+     if(includeActivities===false||daily.state==='client_required')return daily;
+     const rewards=await workbuddyClaimActivities({account,date});
+     if(daily.confirmed)return {...daily,...(rewards.confirmed?{
+       benefitClaimedCount:rewards.confirmed,
+       message:daily.message+'；活动权益另确认 '+rewards.confirmed+' 项'}:{})};
+     if(rewards.pending>0||daily.state==='pending_confirmation')
+       return {state:'pending_confirmation',benefitClaimedCount:rewards.confirmed,
+         message:'每日签到或活动奖励待官方确认，不重复领取'};
+     if(rewards.confirmed>0)return {...daily,benefitClaimedCount:rewards.confirmed,
+       message:'活动赠送已领取 '+rewards.confirmed+' 项；每日签到仍需单独确认'};
      return daily;
-  }
-  return {
-    ...(ownedRegion?{checkIn:workbuddyCheckIn}:{}),
+   }
+   return {
+     ...(ownedRegion?{checkIn:workbuddyCheckIn,
+       claimActivities:workbuddyClaimActivities}:{}),
     authMethod:ownedRegion?'WorkBuddy 自有凭据 · 已与原 DSH 插件分离':
        'WorkBuddy 桌面客户端登录态（只读引用）',
     async discover(){

@@ -118,6 +118,9 @@ export function createAccountCenter({
            return {id:account.id,providerId:account.providerId,providerName:provider.name,
              ...(name?{nickname:name,profileState:'verified'}:{profileState:'not_returned'}),
              ...balance,quotaWindows,
+             ...(Number.isFinite(live.expiringPoints)&&live.expiringPoints>0
+               &&balance.balanceUnit==='积分'?{expiringPoints:live.expiringPoints,
+               ...(Number.isFinite(live.expiringAt)?{expiringAt:live.expiringAt}:{})}:{}),
              ...(typeof live.planName==='string'&&live.planName?{planName:live.planName.slice(0,72)}:{}),
              ...(typeof live.membershipPlanName==='string'&&live.membershipPlanName?{membershipPlanName:live.membershipPlanName.slice(0,72)}:{}),
              ...(typeof live.membershipState==='string'?{membershipState:live.membershipState}:{}),
@@ -138,6 +141,10 @@ export function createAccountCenter({
               ...(['claimed','claimable','not_confirmed','not_offered','unavailable'].includes(live.activityState)?
                 {activityState:live.activityState}:{}),
               ...(Number.isFinite(live.activityCheckedAt)?{activityCheckedAt:live.activityCheckedAt}:{}),
+              ...(Number.isInteger(live.activityTaskCount)&&live.activityTaskCount>=0
+                &&live.activityTaskCount<=99?{activityTaskCount:live.activityTaskCount}:{}),
+              ...(live.activityTaskExecutionState==='requires_verified_executor'
+                ?{activityTaskExecutionState:'requires_verified_executor'}:{}),
               modelInferenceVerifiedAt:failedAt&&failedAt>=bestProof?null:bestProof||null,
              modelTestFailedAt:failedAt??null,
             upstreamCheckinDate:live.checkinDate??null,

@@ -329,14 +329,14 @@ test('real client render: login button triggers account authentication probe, no
 });
 test('real client check-in summary uses compact channel tags, and only the selected channel expands',async()=>{
   const rig=createUiRig();await rig.init();
-  rig.find(rig.render(),'button','每日签到')[0].props.onClick();
+  rig.find(rig.render(),'button','每日积分任务')[0].props.onClick();
   let page=rig.render();
   let texts=rig.flatten(page).join(' ');
-  assert.match(texts,/今日签到/);
+  assert.match(texts,/今日积分任务/);
   assert.match(texts,/各渠道今日签到/);
   assert.match(texts,/alpha 已签 0\/2/);
   assert.match(texts,/local 已签 0\/1/);
-  assert.equal(rig.find(page,'button','立即签到').length,0,
+  assert.equal(rig.find(page,'button','执行积分任务').length,0,
     'channel account actions must not crowd the page before selection');
   assert.doesNotMatch(texts,/华为云 CodeArts/,
     'channels without a configured account do not occupy a tag');
@@ -347,10 +347,10 @@ test('real client check-in summary uses compact channel tags, and only the selec
   page=rig.render();
   texts=rig.flatten(page).join(' ');
   assert.match(texts,/alpha · 账号签到明细/);
-  assert.equal(rig.find(page,'button','立即签到').length,2);
-  assert.ok(rig.find(page,'button','立即签到').every(x=>x.props.disabled===true));
+  assert.equal(rig.find(page,'button','执行积分任务').length,2);
+  assert.ok(rig.find(page,'button','执行积分任务').every(x=>x.props.disabled===true));
   rig.find(page,'button','收起明细')[0].props.onClick();
-  assert.equal(rig.find(rig.render(),'button','立即签到').length,0);
+  assert.equal(rig.find(rig.render(),'button','执行积分任务').length,0);
 });
 
 
@@ -540,7 +540,7 @@ test('Loomy can reauthorize an existing owned account without creating a duplica
 });
 test('source checkin reads per-account status; bulk claim requires explicit choice and fresh recheck',async()=>{
  const source={state:'mounted',rpcReady:true,channelCount:13,channels:['qoder','workbuddy']};
- const rig=createUiRig(new Map(),{state:'ready',accounts:[]},source);await rig.init(); rig.find(rig.render(),'button','每日签到')[0].props.onClick();
+ const rig=createUiRig(new Map(),{state:'ready',accounts:[]},source);await rig.init(); rig.find(rig.render(),'button','每日积分任务')[0].props.onClick();
  let page=rig.render();
  assert.equal(rig.mutations.filter(row=>row.kind==='source-rpc').length,0);
  const claimButton=rig.find(page,'button','批量领取（该渠道所有账号）')[0];
@@ -566,7 +566,7 @@ test('disabled channel pack exposes no source login, source checkin or bulk clai
   rig.find(rig.render(),'button','自主登录')[0].props.onClick();
   let page=rig.render();
   assert.equal(rig.find(page,'button','发起扫码/网页登录').length,0);
- rig.find(page,'button','每日签到')[0].props.onClick();
+ rig.find(page,'button','每日积分任务')[0].props.onClick();
  page=rig.render();
  assert.equal(rig.find(page,'button','查询来源签到状态').length,0);
  assert.equal(rig.find(page,'button','批量领取（该渠道所有账号）').length,0);
@@ -988,9 +988,8 @@ test('native account cards show real Xiaomi membership and Doubao quota windows 
  assert.match(rendered,/真实小米昵称/);
  assert.match(rendered,/真实豆包名称/);
  assert.match(rendered,/77\.5% 剩余/);
- assert.match(rendered,/80 \/ 100/);
- assert.match(rendered,/12 \/ 20/);
- assert.match(rendered,/豆包会员/);
+  assert.match(rendered,/80 主套餐/);
+  assert.ok(!rendered.includes('80 / 100')&&!rendered.includes('12 / 20'));
  assert.doesNotMatch(rendered,/账号1|账号 1|余额待来源同步|余额：92/);
  assert.equal(rig.find(page,'button','刷新账户资料').length,2);
 });
@@ -1002,7 +1001,8 @@ test('native account page renders WorkBuddy monthly grant and independent MiMo f
   {id:'wbp_abcdef',providerId:'own_workbuddy-cn',nickname:'WorkBuddy 正式会员',
    connectionState:'online',enabled:true,configuredEnabled:true,weight:1,
    runtimeMode:'owned',credentialKind:'driver',
-   balance:121.98,balanceState:'available',balanceUnit:'积分',
+    balance:121.98,balanceState:'available',balanceUnit:'积分',
+    expiringPoints:81.23,expiringAt:Date.parse('2026-11-27T00:00:00Z'),
    quotaWindows:[{kind:'monthly',label:'月基础积分',left:81.23,total:500,used:418.77},
     {kind:'grant',label:'活动赠送',left:40.75,total:100,used:59.25}],
    benefits:[{kind:'compensation',active:true,claimed:false,credit:300}]},
@@ -1018,10 +1018,10 @@ test('native account page renders WorkBuddy monthly grant and independent MiMo f
  const page=rig.render(),text=rig.flatten(page).join(' ');
  assert.match(text,/WorkBuddy 正式会员/);
  assert.match(text,/121\.98 积分/);
- assert.match(text,/81\.23 \/ 500/);
- assert.match(text,/40\.75 \/ 100/);
+  assert.ok(text.includes('未来 7 天将过期积分 81.23 积分'));
+  assert.ok(!text.includes('81.23 / 500')&&!text.includes('40.75 / 100'));
  assert.match(text,/可领取 补偿积分 · 300 积分/);
- assert.match(text,/MiMo 免费七日额度/);
+  assert.match(text,/MiMo 七日自然恢复额度/);
  assert.match(text,/70% 剩余/);
  assert.doesNotMatch(text,/官方未返回|账号1|账号 1|余额待来源同步/);
 });
@@ -1046,8 +1046,8 @@ test('account UI renders partial official quota windows, account units and indep
  const rig=createUiRig(new Map(),null,{state:'disabled'}, {},[],undefined,()=>true,inventory);
  await rig.init();rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
  const view=rig.flatten(rig.render()).join(' ');
- assert.ok(view.includes('3 剩余')&&view.includes('Agent Hours'));
- assert.ok(view.includes('4 / 10 已用')&&view.includes('Research Hours')); assert.match(view,/18\.5 credits/,'independent wallet remains visible alongside MiMo membership');
+  assert.ok(!view.includes('Agent Hours')&&!view.includes('Research Hours'));
+  assert.ok(view.includes('18.5 credits'),'independent wallet remains visible alongside membership');
  assert.match(view,/42 credits/,'WorkBuddy preserves official units rather than inventing points');
  assert.equal((view.match(/42 credits/g)||[]).length,1,'WorkBuddy total cannot be shown twice');
  assert.doesNotMatch(view,/NaN|undefined|42 积分/);

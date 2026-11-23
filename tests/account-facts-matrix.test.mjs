@@ -42,7 +42,9 @@ test('every enumerated source uses one read-only identity and balance contract w
   assert.equal(publicAccountName({nickname:'账号 1'},{nickname:'ZCode · 独立账号'}),'');
   assert.equal(publicAccountName({nickname:'sp_'+'a'.repeat(24)}),'');
   assert.equal(publicAccountName({nickname:'My Real Name'}),'My Real Name');
-  assert.equal(publicAccountName({username:'abc',nickname:'obsolete'}),'abc');
+  assert.equal(publicAccountName({username:'abc',nickname:'Preferred Member'}),'Preferred Member');
+  assert.equal(publicAccountName({account_name:'平台登录账户'}),'平台登录账户');
+  assert.equal(publicAccountName({loginName:'backup-login'}),'backup-login');
   assert.equal(publicBalance({balanceState:'not_supported'}).balanceState,'not_supported');
 });
 

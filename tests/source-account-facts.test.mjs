@@ -42,3 +42,28 @@ test('private source pack does not add incompatible packages across different cu
  assert.equal('balance' in row,false);
  assert.equal(row.balanceState,'not_returned');
 });
+
+test('account name is the fallback when the official profile omits nickname',()=>{
+ const row=sourceAccountFacts({providerId:'codearts',
+  identity:{account_name:'customer-team-login'},
+  balanceRow:{balance:{total:73,unit:'积分'}}});
+ assert.equal(row.nickname,'customer-team-login');
+ assert.equal(row.balance,73);
+});
+test('source wallet shows only reconciled points due within seven days, never overlapping quotas',()=>{
+ const observedAt=Date.parse('2026-11-23T00:00:00Z');
+ const pkg=[
+  {unit:'积分',remaining:60,expiredTime:'2026-11-26T00:00:00Z'},
+  {unit:'积分',remaining:40,expiredTime:'2026-12-15T00:00:00Z'}];
+ const read=total=>sourceAccountFacts({providerId:'loomy',observedAt,
+  balanceRow:{balance:{total,unit:'积分',packages:pkg}}});
+ const row=read(100);
+ assert.equal(row.balance,100);
+ assert.equal(row.expiringPoints,60);
+ assert.equal(row.expiringAt,Date.parse('2026-11-26T00:00:00Z'));
+ assert.equal(read(130).expiringPoints,undefined,
+  'do not present expiring rewards from unreconciled packages');
+ assert.equal(sourceAccountFacts({providerId:'zcode',observedAt,
+  balanceRow:{balance:{total:100,unit:'token',packages:pkg}}}).expiringPoints,undefined,
+   'never disguise tokens as expiring points');
+});
