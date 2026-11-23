@@ -121,6 +121,22 @@ function safeMembership(reading,now){
     ...(Number.isFinite(reset)&&reset>0?{membershipResetAt:reset}:{}),
     quotaCheckedAt:now};
 }
+export function parseMimoRollingUsage(doc,now=Date.now()){
+  if(doc?.code!==0||!doc?.data||typeof doc.data!=='object')
+    return {usageState:'unavailable'};
+  const u=doc.data,raw=u.percent;
+  if(typeof raw!=='number'||!Number.isFinite(raw)||raw<0||raw>100)
+    return {usageState:'unavailable'};
+  if(u.resetDate===null||u.resetDate===undefined||u.resetDate==='')
+    return {usageState:'no_cycle'};
+  if(typeof u.resetDate!=='string')return {usageState:'unavailable'};
+  const reset=/^\d{4}-\d{2}-\d{2}$/.test(u.resetDate)
+    ?Date.parse(u.resetDate+'T00:00:00+08:00'):
+    Date.parse(u.resetDate);
+  if(!Number.isFinite(reset)||reset<=0)return {usageState:'unavailable'};
+  return {usageState:'available',usagePercentRemaining:raw,
+    usageResetAt:reset,usageCheckedAt:now};
+}
 export function createMimoDesktopSessionTransport({
  fetchImpl=fetch,now=()=>Date.now(),ttlMs=SESSION_MS,timeoutMs=120000,
 }={}){
@@ -208,16 +224,29 @@ export function createMimoDesktopSessionTransport({
       const quotaAbort=new AbortController(),stop=()=>quotaAbort.abort();
       const timer=setTimeout(stop,7000);
       if(signal?.aborted)stop();else signal?.addEventListener('abort',stop,{once:true});
-      try{
-       const quotaResponse=await authorized(session,'/api/user/xiaomi/subscription/self',{
+       try{
+        try{
+         const quotaResponse=await authorized(session,'/api/user/xiaomi/subscription/self',{
         headers:{Accept:'application/json'}},quotaAbort.signal);
        if(quotaResponse.ok)
         quota=safeMembership(JSON.parse(await boundedText(quotaResponse,{max:65536})),now());
        else if(quotaResponse.status===404)quota={membershipState:'not_supported',
         balanceState:'not_supported'};
-      }catch{}finally{clearTimeout(timer);signal?.removeEventListener('abort',stop)}
-      return {state:'online',authVerified:true,
-       ...(accountName?{accountName}:{}),...quota};
+      }catch{}
+       // The free seven-day natural replenishment is independent from a
+       // subscribed Desktop plan. The official account may say current=null
+       // while /api/user/usage still has a valid quota and reset date.
+       let usage={usageState:'unavailable'};
+       try{
+        const response=await authorized(session,'/api/user/usage',
+         {headers:{Accept:'application/json'}},quotaAbort.signal);
+        if(response.ok)
+         usage=parseMimoRollingUsage(JSON.parse(await boundedText(response,{max:65536})),now());
+        else if(response.status===404)usage={usageState:'not_supported'};
+       }catch{}
+       return {state:'online',authVerified:true,
+        ...(accountName?{accountName}:{}),...quota,...usage};
+      }finally{clearTimeout(timer);signal?.removeEventListener('abort',stop)}
      }catch(error){
       return {state:error?.code==='AUTH'||error?.code==='CREDENTIAL'?'expired':'error',
        authVerified:false};

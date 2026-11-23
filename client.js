@@ -740,12 +740,27 @@ window.__ModuleLoader__.load({
                        '账号来源待确认'))),
                  h(StateTag,{value:account.connectionState})),
                h('div',{className:'dnr-account-metrics'},
-                 account.membershipState?h('div',{className:'dnr-account-metric'},
+                  account.usageState?h('div',{className:'dnr-account-metric'},
+                    h('span',{className:'dnr-account-metric-label'},'MiMo 免费七日额度 · 自然恢复'),
+                    h('strong',{className:'dnr-account-metric-value'},
+                      account.usageState==='available'&&Number.isFinite(account.usagePercentRemaining)?
+                        account.usagePercentRemaining+'% 剩余':
+                      account.usageState==='no_cycle'?'当前没有可用七日额度':
+                      account.usageState==='not_supported'?'此会话暂不支持读取':'暂未取得有效额度'),
+                    account.usageResetAt?h('span',{className:'dnr-account-metric-note'},
+                      '下次自动恢复 '+new Date(account.usageResetAt).toLocaleString()):null):null,
+                  account.providerId?.includes('workbuddy')&&Number.isFinite(account.balance)?
+                    h('div',{className:'dnr-account-metric'},
+                      h('span',{className:'dnr-account-metric-label'},'WorkBuddy 实际可用总积分'),
+                      h('strong',{className:'dnr-account-metric-value'},account.balance.toLocaleString()+' 积分'),
+                      account.balanceCheckedAt?h('span',{className:'dnr-account-metric-note'},
+                        '核实 '+new Date(account.balanceCheckedAt).toLocaleString()):null):null,
+                  account.membershipState?h('div',{className:'dnr-account-metric'},
                    h('span',{className:'dnr-account-metric-label'},'MiMo Desktop 会员额度'),
                    h('strong',{className:'dnr-account-metric-value'},
                      account.membershipState==='active'&&Number.isFinite(account.membershipPercentRemaining)?
                       account.membershipPercentRemaining+'% 剩余':
-                     account.membershipState==='not_subscribed'?'未查询到有效会员套餐':
+                      account.membershipState==='not_subscribed'?'免费账户 · 没有付费订阅':
                      account.membershipState==='not_supported'?'官方未开放该项数据':'暂时无法取得'),
                    account.membershipPlanName?h('span',{className:'dnr-account-metric-note'},account.membershipPlanName):null,
                    account.membershipResetAt?h('span',{className:'dnr-account-metric-note'},
@@ -753,7 +768,8 @@ window.__ModuleLoader__.load({
                  (account.quotaWindows||[]).map((window,i)=>
                    h('div',{key:account.id+'-quota-'+i,className:'dnr-account-metric'},
                      h('span',{className:'dnr-account-metric-label'},
-                       (window.kind==='5h'?'5 小时':window.kind==='week'?'本周':
+                        (window.kind==='5h'?'5 小时':window.kind==='week'?'本周':
+                         window.kind==='monthly'?'月度':
                         window.kind==='package'?'套餐':window.kind==='grant'?'赠送':'平台')+
                        ' · '+window.label),
                      h('strong',{className:'dnr-account-metric-value'},
@@ -761,7 +777,7 @@ window.__ModuleLoader__.load({
                      h('span',{className:'dnr-account-metric-note'},
                        '剩余 / 总额度'+(window.endAt?' · 截止 '+new Date(
                          window.endAt<1e11?window.endAt*1000:window.endAt).toLocaleDateString():'')))),
-                 !account.membershipState&&!(account.quotaWindows||[]).length?
+                   !account.membershipState&&!account.usageState&&!(account.quotaWindows||[]).length?
                    h('div',{className:'dnr-account-metric'},
                      h('span',{className:'dnr-account-metric-label'},'官方余额 / 可用额度'),
                      h('strong',{className:'dnr-account-metric-value'},
@@ -785,8 +801,15 @@ window.__ModuleLoader__.load({
                    h('span',null,'登录状态待核验'),
                  account.backupSources?.length?h('span',null,
                    '备援账号 '+account.backupSources.length):null),
-               h('div',{style:css.line},
-                 account.checkinState?h('span',{style:css.mutedTag},
+                h('div',{style:css.line},
+                  account.activityState&&account.providerId?.includes('doubao')?h('span',{style:css.mutedTag},
+                    '豆包活动：'+({claimed:'今日已领取',claimable:'今日可领取',not_offered:'当前无开放活动',
+                      not_confirmed:'等待官方任务状态',unavailable:'活动状态未同步'}[account.activityState]||'待确认')):null,
+                  (account.benefits||[]).filter(b=>b.active&&!b.claimed).map(b=>
+                    h('span',{key:account.id+'-reward-'+b.kind,style:css.mutedTag},
+                      '可领取 '+(b.kind==='gift'?'官方活动赠送':'补偿积分')+
+                      (Number.isFinite(b.credit)?' · '+b.credit+' 积分':''))),
+                  account.checkinState?h('span',{style:css.mutedTag},
                    '今日签到：'+(checkinLabels[account.checkinState]||account.checkinState)):null,
                  account.autoCheckin===true?h('span',{style:css.mutedTag},
                    account.autoCheckinEffective===false?'自动签到：全局开关关闭':'账号已允许自动签到'):null,
@@ -913,7 +936,7 @@ window.__ModuleLoader__.load({
               onChange:v=>onSettings({runAt:v})}),
             h(TextField,{label:'时区',value:cfg.checkin?.timeZone||'Asia/Shanghai',
               onChange:v=>onSettings({timeZone:v})})),
-          h('p',{style:css.small},'自动开关只影响领取执行；已登录来源的只读签到查询不会被关闭。')),
+           h('p',{style:css.small},'启用后按每个账号的独立开关执行：WorkBuddy 自动领取已确认符合资格的每日签到、活动赠送与补偿积分；豆包只领取官方明确可签的任务，领取后回查，不确定时不重试；MiMo 七日免费额度由官方自然恢复，无需签到或消耗模型次数。未启用时只读查询照常运行。')),
         embeddedPack?.state==='mounted'?h(Panel,{title:'来源渠道 · 状态与手动领取'},
           h('div',{style:css.line},
             h(Select,{label:'来源渠道',value:sourceProvider,onChange:setSourceProvider,

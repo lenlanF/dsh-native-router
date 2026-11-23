@@ -202,7 +202,11 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
            ['claimed','already'].includes(publicAccount.upstreamCheckinOutcome))continue;
          const records=store.all().filter(r=>r.accountId===account.id&&r.date===today);
          const recent=records.at(-1);
-          if(records.some(x=>x.state==='success')||recent?.state==='client_required')continue;
+           if(records.some(x=>x.state==='success')||recent?.state==='client_required')continue;
+           // An unconfirmed official grant may already have consumed today's
+           // only attempt; don't blindly re-submit after an hour or restart.
+           if(recent?.state==='pending_confirmation'&&
+             (/^own_workbuddy-/.test(account.providerId)||account.providerId==='own_doubao'))continue;
          // Historic no_task was incorrectly returned for an already-claimed
          // Lingxi task; permit a bounded retry if source still reports unclaimed.
          if(recent?.state==='no_task'&&account.providerId!=='own_lingxi')continue;

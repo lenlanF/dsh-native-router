@@ -13,14 +13,18 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
   const status=record(statusRow?.status);
   const raw=balanceRow?.balance,structured=record(raw);
   const packages=Array.isArray(structured?.packages)?structured.packages:[];
-  // A single explicitly denominated package represents one remaining
-  // balance. Multiple packages can have different currencies/periods: never
-  // add them together or invent a common unit when no aggregate was given.
+  // Each trusted native source pack's billing `total` is its explicitly
+  // returned aggregate SPENDABLE balance (CodeArts/ZCode/Loomy), unlike
+  // WorkBuddy's `CapacitySize` or a subscription capacity. Never infer a
+  // total by summing packages of incompatible currency or product type.
   const single=packages.length===1&&record(packages[0])&&safeUnit(packages[0].unit)
     ?packages[0]:null;
+  const trusted=remoteBalanceProviders.has(providerId);
   const balanceValue=balanceRow?.error?null:
-    numeric(raw)??numeric(structured?.remaining)??numeric(structured?.balance)??
-    numeric(structured?.credits)??numeric(structured?.total)??
+    numeric(raw)??numeric(structured?.remaining)??numeric(structured?.available)??
+    numeric(structured?.balance)??numeric(structured?.credits)??
+    numeric(structured?.credit_balance)??numeric(structured?.points)??
+    (trusted?numeric(structured?.total):null)??
     numeric(single?.remaining)??numeric(single?.balance);
   const unit=safeUnit(balanceRow?.balanceUnit)??safeUnit(structured?.unit)??
     safeUnit(single?.unit);
@@ -37,8 +41,10 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
     !balanceRow?.error&&balanceValue!==null;
   const authEvidence=liveStatus?'authenticated_upstream_status':
     liveBalance?'authenticated_upstream_balance':'not_verified';
-  const nickname=publicAccountName(identity?.status,identity,
-    statusRow?.status,statusRow,balanceRow);
+   const nickname=publicAccountName(identity?.status,identity,
+     identity?.profile,identity?.user,identity?.account,identity?.data,
+     statusRow?.status,statusRow,status?.profile,status?.user,
+     statusRow?.profile,balanceRow?.profile,balanceRow?.user,balanceRow);
   // The isolated Loomy source pack calls the official points API and returns
   // two distinct buckets: "永久积分" may be purchased, whereas "每日赠送"
   // consists solely of free daily credit. Never equate aggregate balance
