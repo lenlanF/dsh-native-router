@@ -1,6 +1,6 @@
 {
   "name": "dsh-native-router",
-  "version": "1.0.0-rc.80", "private": false, "type": "module",  "license": "MIT",  "engines": {"node": ">=22.10.0"},  "keywords": ["deepseek-harness", "dsh", "cordis", "model-routing", "autofree", "model-pool", "failover"],  "description": "Native DSH provider reuse, independent login, dynamic free model pool, manual model chains, and agent failover",  "main": "./src/index.mjs",
+  "version": "1.0.0-rc.81", "private": false, "type": "module",  "license": "MIT",  "engines": {"node": ">=22.10.0"},  "keywords": ["deepseek-harness", "dsh", "cordis", "model-routing", "autofree", "model-pool", "failover"],  "description": "Native DSH provider reuse, independent login, dynamic free model pool, manual model chains, and agent failover",  "main": "./src/index.mjs",
   "exports": {
     ".": "./src/index.mjs",
     "./cordis.patch.yml": "./cordis.patch.yml",
@@ -30,6 +30,7 @@
     "docs/CROSS_CHANNEL_ACCEPTANCE.md",
     "docs/WORKBUDDY_NATIVE.md",
     "docs/MEOO_QWENWORK_NATIVE.md",
+    "docs/RC81_ACCOUNT_DISPLAY_ACCEPTANCE.md",
     "docs/RC80_CROSS_CHANNEL_AUDIT.md",
     "vendor/channel-pack/pack-native.js",
     "vendor/channel-pack/pack-runtime.mjs",

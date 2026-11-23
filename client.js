@@ -76,6 +76,24 @@ window.__ModuleLoader__.load({
 .dnr-shell .dnr-panel details[open]>summary{margin-bottom:8px}
 .dnr-shell .dnr-mobile-nav{display:none}
 .dnr-shell .dnr-mobile-nav select{min-width:0;width:100%;min-height:39px;border:1px solid var(--dnr-border);border-radius:8px;background:var(--dnr-elevated);color:var(--dnr-ink);padding:7px 10px}
+.dnr-shell .dnr-account-card{min-width:0;border:1px solid var(--dnr-border);border-radius:12px;background:var(--dnr-surface);padding:14px 16px;margin:11px 0;overflow-wrap:anywhere}
+.dnr-shell .dnr-account-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px;min-width:0}
+.dnr-shell .dnr-account-identity{display:flex;gap:10px;align-items:center;min-width:0;flex:1}
+.dnr-shell .dnr-account-symbol{display:inline-grid;place-items:center;flex:0 0 39px;width:39px;height:39px;border:1px solid var(--dnr-border);border-radius:11px;background:var(--dnr-elevated);font-size:17px;font-weight:750;color:var(--dnr-ink)}
+.dnr-shell .dnr-account-title{display:flex;flex-direction:column;gap:2px;min-width:0}
+.dnr-shell .dnr-account-name{font-size:15px;font-weight:750;line-height:1.35;overflow-wrap:anywhere}
+.dnr-shell .dnr-account-hint{font-size:12px;color:var(--dnr-muted);line-height:1.45}
+.dnr-shell .dnr-account-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,175px),1fr));gap:8px;margin-bottom:11px}
+.dnr-shell .dnr-account-metric{min-width:0;display:flex;flex-direction:column;gap:4px;padding:9px 11px;border:1px solid var(--dnr-border);border-radius:9px;background:var(--dnr-elevated)}
+.dnr-shell .dnr-account-metric-label{font-size:11px;line-height:1.45;color:var(--dnr-muted);font-weight:600}
+.dnr-shell .dnr-account-metric-value{font-size:16px;line-height:1.35;font-weight:750;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.dnr-shell .dnr-account-metric-note{font-size:11px;color:var(--dnr-muted);line-height:1.45}
+.dnr-shell .dnr-account-hints{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:9px;color:var(--dnr-muted);font-size:11px}
+.dnr-shell .dnr-account-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:10px}
+.dnr-shell .dnr-account-actions .dnr-button{min-height:40px;padding:7px 12px}
+.dnr-shell .dnr-account-card details{border-top:1px solid var(--dnr-border);margin:10px 0 0;padding-top:9px}
+.dnr-shell .dnr-account-card details summary{font-size:12px;color:var(--dnr-muted);min-height:32px;display:flex;align-items:center}
+@media(max-width:520px){.dnr-shell .dnr-account-card{padding:12px}.dnr-shell .dnr-account-head{gap:6px}.dnr-shell .dnr-account-metrics{grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr))}.dnr-shell .dnr-account-actions .dnr-button{flex:1 1 130px}}
 @media (max-width:920px){.dnr-shell .dnr-layout{grid-template-columns:156px minmax(0,1fr);gap:9px}.dnr-shell .dnr-rail{padding:5px}.dnr-shell .dnr-nav-button{padding:6px 8px}}
 @media (max-width:760px){.dnr-shell .dnr-layout{display:block}.dnr-shell .dnr-rail{display:none}.dnr-shell .dnr-mobile-nav{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}.dnr-shell .dnr-mobile-nav span{color:var(--dnr-muted);font-size:11px}.dnr-shell .dnr-panel-head{align-items:flex-start}.dnr-shell .dnr-savebar{position:sticky;bottom:0}}
 @media (max-width:520px){.dnr-shell .dnr-nav-group{grid-template-columns:repeat(2,minmax(0,1fr))}.dnr-shell .dnr-savebar{gap:6px}.dnr-shell .dnr-savebar .dnr-save-note{flex-basis:100%;margin-left:0}.dnr-shell .dnr-header-note{flex-basis:100%}.dnr-shell .dnr-panel-head{display:block}.dnr-shell .dnr-panel-head>div{margin-top:7px}}
@@ -707,26 +725,66 @@ window.__ModuleLoader__.load({
             h('div',{style:css.line},
               h('span',{style:css.small},'登录方式：'+(channel.authMethod||'由来源管理')),
               pool?h('span',{style:css.small},'自动候选 '+pool.enabled+' · 已验证 '+pool.verified):null),
-            members.map((account,accountIndex)=>h('div',{key:account.id,style:{...css.itemRow,display:'block'}},
-              h('div',{style:{...css.line,justifyContent:'space-between',marginBottom:5}},
-                 h('strong',null,account.nickname||account.maskedPhone||account.username||'名称待获取'),
-                 h(StateTag,{value:account.connectionState})),               h('div',{style:css.line},
-                 h('span',{style:css.mutedTag},displayBalance(account)),
-                   h('span',{style:css.mutedTag},
-                     account.runtimeMode==='owned'?
-                       account.connectionState==='online'?'独立接管 · 已验证':'独立接管 · 待验证':
-                     account.sourceKind==='autonomous'?'本插件自主登录':
-                     account.runtimeMode==='linked'||account.sourceKind==='reused'?
-                       '原来源引用 · 尚未独立接管':'来源待确认'),                  account.backupSources?.length?h('span',{style:css.mutedTag},
-                   '另有 '+account.backupSources.length+' 个同账号备援'):null,
-                 account.balanceCheckedAt?h('span',{style:css.small},
-                    '余额更新 '+new Date(account.balanceCheckedAt).toLocaleString()):null,
-                  account.modelInferenceVerifiedAt?h('span',{style:css.mutedTag},
-                    '模型实测成功 · '+new Date(account.modelInferenceVerifiedAt).toLocaleString()):
-                    account.modelTestFailedAt?h('span',{style:css.mutedTag},
-                      '最近实测失败 · '+new Date(account.modelTestFailedAt).toLocaleString()):
-                    account.connectionState==='online'?h('span',{style:css.small},
-                      '只读鉴权通过，模型推理尚未实测'):null),
+             members.map((account,accountIndex)=>h('div',{key:account.id,className:'dnr-account-card'},
+               h('div',{className:'dnr-account-head'},
+                 h('div',{className:'dnr-account-identity'},
+                   h('span',{className:'dnr-account-symbol','aria-hidden':'true'},
+                     (channel.name||'渠').trim().slice(0,1)||'渠'),
+                   h('div',{className:'dnr-account-title'},
+                     h('strong',{className:'dnr-account-name'},
+                       account.nickname||account.maskedPhone||account.username||
+                       '官方暂未返回账号昵称'),
+                     h('span',{className:'dnr-account-hint'},
+                       account.runtimeMode==='owned'?'本插件独立持有授权':
+                       account.sourceKind==='reused'?'复用来源 · 原授权有效':
+                       '账号来源待确认'))),
+                 h(StateTag,{value:account.connectionState})),
+               h('div',{className:'dnr-account-metrics'},
+                 account.membershipState?h('div',{className:'dnr-account-metric'},
+                   h('span',{className:'dnr-account-metric-label'},'MiMo Desktop 会员额度'),
+                   h('strong',{className:'dnr-account-metric-value'},
+                     account.membershipState==='active'&&Number.isFinite(account.membershipPercentRemaining)?
+                      account.membershipPercentRemaining+'% 剩余':
+                     account.membershipState==='not_subscribed'?'未查询到有效会员套餐':
+                     account.membershipState==='not_supported'?'官方未开放该项数据':'暂时无法取得'),
+                   account.membershipPlanName?h('span',{className:'dnr-account-metric-note'},account.membershipPlanName):null,
+                   account.membershipResetAt?h('span',{className:'dnr-account-metric-note'},
+                     '重置 '+new Date(account.membershipResetAt).toLocaleString()):null):null,
+                 (account.quotaWindows||[]).map((window,i)=>
+                   h('div',{key:account.id+'-quota-'+i,className:'dnr-account-metric'},
+                     h('span',{className:'dnr-account-metric-label'},
+                       (window.kind==='5h'?'5 小时':window.kind==='week'?'本周':
+                        window.kind==='package'?'套餐':window.kind==='grant'?'赠送':'平台')+
+                       ' · '+window.label),
+                     h('strong',{className:'dnr-account-metric-value'},
+                       window.left.toLocaleString()+' / '+window.total.toLocaleString()),
+                     h('span',{className:'dnr-account-metric-note'},
+                       '剩余 / 总额度'+(window.endAt?' · 截止 '+new Date(
+                         window.endAt<1e11?window.endAt*1000:window.endAt).toLocaleDateString():'')))),
+                 !account.membershipState&&!(account.quotaWindows||[]).length?
+                   h('div',{className:'dnr-account-metric'},
+                     h('span',{className:'dnr-account-metric-label'},'官方余额 / 可用额度'),
+                     h('strong',{className:'dnr-account-metric-value'},
+                       Number.isFinite(account.balance)?
+                         account.balance.toLocaleString()+(account.balanceUnit?' '+account.balanceUnit:''):
+                       account.balanceState==='not_supported'?'平台未提供':
+                       account.balanceState==='not_returned'?'官方本次未返回':'尚未取得'),
+                     account.balanceCheckedAt?h('span',{className:'dnr-account-metric-note'},
+                       '更新于 '+new Date(account.balanceCheckedAt).toLocaleString()):null):null,
+                 account.planName?h('div',{className:'dnr-account-metric'},
+                    h('span',{className:'dnr-account-metric-label'},'当前套餐'),
+                    h('strong',{className:'dnr-account-metric-value'},account.planName)):null),
+               h('div',{className:'dnr-account-hints'},
+                 account.quotaCheckedAt?h('span',null,
+                   '额度更新 '+new Date(account.quotaCheckedAt).toLocaleString()):null,
+                 account.modelInferenceVerifiedAt?h('span',null,
+                   '模型实测成功 · '+new Date(account.modelInferenceVerifiedAt).toLocaleString()):
+                 account.modelTestFailedAt?h('span',null,
+                   '最近实测失败 · '+new Date(account.modelTestFailedAt).toLocaleString()):
+                 account.connectionState==='online'?h('span',null,'身份鉴权通过 · 推理尚待实测'):
+                   h('span',null,'登录状态待核验'),
+                 account.backupSources?.length?h('span',null,
+                   '备援账号 '+account.backupSources.length):null),
                h('div',{style:css.line},
                  account.checkinState?h('span',{style:css.mutedTag},
                    '今日签到：'+(checkinLabels[account.checkinState]||account.checkinState)):null,
@@ -755,12 +813,12 @@ window.__ModuleLoader__.load({
                    '复用原渠道授权，保存于本插件私有池；这不是一次新自主登录':
                    '本插件自主登录授权；是否可用以来源鉴权为准'),
                  h(Button,{onClick:onOpenOwnedSource},'管理来源授权池')):               h('div',{style:{...css.line,marginBottom:0}},
-                 h(Button,{disabled:!!busy||!account.loginAvailable||!account.configuredEnabled,
-                   onClick:()=>run('/channels/accounts/action',{action:'login',accountId:account.id},
-                     '已请求账号连接验证')},'校验'),
-                 h(Button,{disabled:!!busy||!account.refreshAvailable||!account.configuredEnabled,
-                   onClick:()=>run('/channels/accounts/action',{action:'refresh',accountId:account.id},
-                     '账号状态已刷新')},'刷新'),
+                  h(Button,{disabled:!!busy||!account.refreshAvailable||!account.configuredEnabled,
+                    kind:'primary',onClick:()=>run('/channels/accounts/action',
+                      {action:'refresh',accountId:account.id},'已重新查询官方账号身份和额度')},'刷新账户资料'),
+                  !account.refreshAvailable&&account.loginAvailable?h(Button,{disabled:!!busy||!account.configuredEnabled,
+                    onClick:()=>run('/channels/accounts/action',{action:'login',accountId:account.id},
+                      '已请求账号连接验证')},'校验身份'):null,
                  account.modelTestAvailable?h(ModelTestConsole,{account,busy,run,hasDraft}):null,
                  h(Button,{disabled:!!busy,onClick:()=>run('/channels/accounts/action',
                    {action:'enable',accountId:account.id,enabled:!account.configuredEnabled},
@@ -1692,7 +1750,20 @@ window.__ModuleLoader__.load({
            ...('enabled' in change?{enabled:change.enabled}:{}),
            ...('resetIgnored' in change?{ignoredIds:[]}:{})}}));
        if(tab==='channels')content=h('div',null,
-         h(Panel,{title:'小米 MiMo 会员 · 无需 MiMo 客户端进程'},
+          h(AccountConsole,{data:channelsView,
+           query:channelQuery,onQuery:setChannelQuery,run:runAction,setTab,
+           busy:actionBusy,discovered,onAddProvider:addNativeProvider,
+           showReferences:showReferenceChannels,onToggleReferences:setShowReferenceChannels,
+           selectedChannel:selectedAccountChannel,onSelectChannel:setSelectedAccountChannel,
+           onManageAccounts:channel=>{setManagedAccountProvider(channel.id);setTab('account-debug')},
+           onOpenOwnedSource:()=>{setReuseSubtab('source');setTab('reuse')},
+           onRefresh:refreshRuntime,
+           hasDraft:Boolean(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig))}),
+          h('details',{className:'dnr-disclosure'},
+           h('summary',{className:'dnr-disclosure-summary'},
+             '新增账号或重新登录 · 小米 / 豆包 / 秒悟 / 千问办公（展开）'),
+           h('div',{className:'dnr-disclosure-body'},
+           h(Panel,{title:'小米 MiMo 会员 · 无需 MiMo 客户端进程'},
            h('p',{style:css.small},'即使没有安装或运行 MiMo Desktop，也能通过本插件独立浏览器登录会员账号；已有客户端会话也可一次性接管。授权后无需任何原客户端进程，独立保存会话、续期与推理；不使用商业 API Key。'),
            h('div',{style:css.line},
              h(Button,{disabled:mimoBusy,onClick:scanMimo},mimoBusy?'扫描中…':'复用本机已登录会话'),
@@ -1741,15 +1812,7 @@ window.__ModuleLoader__.load({
                 h('a',{href:qwenLogin.loginUrl,target:'_blank',rel:'noopener noreferrer',
                   style:{fontWeight:600,wordBreak:'break-all'}},'打开千问办公官方账号授权页'),
                 h('span',{style:css.small},'必须在官方网页完成选择；本插件只显示公开授权地址')):null),
-h(AccountConsole,{data:channelsView,
-          query:channelQuery,onQuery:setChannelQuery,run:runAction,setTab,
-          busy:actionBusy,discovered,onAddProvider:addNativeProvider,
-           showReferences:showReferenceChannels,onToggleReferences:setShowReferenceChannels,
-           selectedChannel:selectedAccountChannel,onSelectChannel:setSelectedAccountChannel,
-            onManageAccounts:channel=>{setManagedAccountProvider(channel.id);setTab('account-debug')},
-            onOpenOwnedSource:()=>{setReuseSubtab('source');setTab('reuse')},
-            onRefresh:refreshRuntime,
-            hasDraft:Boolean(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig))}));
+           null)));
        if(tab==='reuse')content=h(ReuseConsole,{data:channelsView,cfg,         onReuseSettings:changeReuseSettings,run:runAction,busy:actionBusy,
           onRefresh:refreshRuntime,subtab:reuseSubtab,onSubtab:setReuseSubtab,
          embeddedPack:status?.embeddedPack,credentialService:status?.credentialService,modelProvider,

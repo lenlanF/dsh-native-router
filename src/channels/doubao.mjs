@@ -220,13 +220,33 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
    await probe(account);
    const models=await listModels({account});
    const cookie=await secret(account);
-   try{
-    const q=await fetchQuota(cookie,withFetch({timeoutMs:12000}));
-    const remaining=(q.windows??[]).filter(w=>Number.isFinite(w.left)).reduce((s,w)=>s+w.left,0);
-    const status=publicStatus.get(account.id)??{};
-    publicStatus.set(account.id,{...status,
-      ...q.windows?.length?{balance:remaining,balanceUnit:'额度',balanceCheckedAt:now()}:{}});
-   }catch{}
+    try{
+      const q=await fetchQuota(cookie,withFetch({timeoutMs:12000}));
+      const windows=(Array.isArray(q.windows)?q.windows:[]).filter(w=>
+       w&&typeof w.label==='string'&&Number.isFinite(w.total)&&w.total>=0
+       &&Number.isFinite(w.used)&&w.used>=0&&Number.isFinite(w.left)&&w.left>=0)
+       .slice(0,12).map(w=>({kind:['5h','week','grant','package'].includes(w.kind)?w.kind:'other',
+         label:w.label.slice(0,50),total:w.total,used:w.used,left:w.left,
+         ...(Number.isFinite(w.endAt)&&w.endAt>0?{endAt:w.endAt}:{})}));
+      // These independent quota windows MUST NOT be summed: five-hour, weekly
+      // and purchased package limits are overlapping periods, not a wallet.
+      const primary=windows.find(w=>w.kind==='package')??
+        windows.find(w=>w.kind==='grant')??windows.find(w=>w.kind==='week')??windows[0];
+      const old=publicStatus.get(account.id)??{};
+      publicStatus.set(account.id,{...old,
+        planName:typeof q.planName==='string'?q.planName.slice(0,72):'',
+        quotaWindows:windows,quotaCheckedAt:now(),
+        ...(primary?{balance:primary.left,balanceUnit:primary.label||'平台额度',
+         balanceCheckedAt:now(),balanceState:'available'}:
+         {balanceState:'not_returned'})});
+     }catch{
+      const old=publicStatus.get(account.id)??{};
+      // Keep previously verified numeric quota with its historical timestamp,
+      // but never pretend a failed refresh is the latest official value.
+      publicStatus.set(account.id,{...old,
+       balanceState:Number.isFinite(old.balance)?'available':'not_returned',
+       quotaRefreshState:'unavailable'});
+     }
    return {state:models.length?'online':'pending',
      message:models.length?'豆包工作账号及普通对话模型目录鉴权通过（真实推理待验收）':'账号已鉴权但无可用对话模型'};
   }catch(error){

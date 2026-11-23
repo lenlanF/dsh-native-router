@@ -9,7 +9,7 @@ import {createConfigStore,normalizeConfig} from '../src/config.mjs';
 const COOKIE_A='sessionid=unit-testing-session-account-A-abcdefghijklmn; uid_tt=123456789; sessionid_ss=other123';
 const COOKIE_B='sessionid=unit-testing-session-account-B-abcdefghijklmn; uid_tt=987654321; sessionid_ss=other456';
 
-function mock(){
+function mock({extraQuota=false,invalidQuota=false}={}){
  const stored=new Map(),calls=[];
  const vault={
   set:async(k,v)=>{stored.set(k,v)},
@@ -29,9 +29,13 @@ function mock(){
     menu_conf_v2:{model_list:{item_list:[
      {model_item_key:'0',name:'豆包 快速',default_mode:'1',tag_list:[{text:'0.00x'}]},
      {model_item_key:'5',name:'工作任务 Pro',default_mode:'3'}]}}}}]});
-  if(url.pathname==='/alice/commerce/sale/subscription/quota/summary/')
-   return data({window_limit_section:{window_limit_groups:[{feature_group_name:'主套餐',
-    window_limits:[{window_type:4,total_amount:'100',used_amount:'20',used_percent:20}]}]}});
+   if(url.pathname==='/alice/commerce/sale/subscription/quota/summary/')
+    return data({current_subscription:{display:{product_name:'豆包会员'}},
+     window_limit_section:{window_limit_groups:[{feature_group_name:'主套餐',
+      window_limits:[{window_type:4,total_amount:invalidQuota?'不限':'100',
+       used_amount:invalidQuota?'未知':'20',used_percent:20}]}]},
+     ...(extraQuota?{incentive_quota_section:{window_limit_groups:[{feature_group_name:'每周',
+       window_limits:[{window_type:2,total_amount:'20',used_amount:'8'}]}]}}:{})});
   if(url.pathname==='/alice/user/launch')return data({ug_campaign_info:{campaign_group_code:'daily'}});
   if(url.pathname==='/alice/ug/campaign/v3/detail')return data({campaign_code:'daily',tasks:[{
    task_key:'daily_check_in',task_kind:'daily_signin',checked_in_today:false}]});
@@ -72,6 +76,30 @@ test('Doubao direct Cookie stays private and each account is bound to itself',as
  await assert.rejects(driver.generate({account:{...account(a),id:b.id},model:'0',options}),/binding/i);
  await driver.logout({account:account(a)});
  assert.equal(stored.size,1);
+});
+test('Doubao multiple independent quota windows stay separate and cannot be added as one wallet',async()=>{
+ const {driver}=mock({extraQuota:true});
+ const receipt=await driver.addCookie({cookie:COOKIE_A});
+ const bound=account(receipt);
+ assert.equal((await driver.refresh({account:bound})).state,'online');
+ const row=driver.accountSnapshot(bound);
+ assert.equal(row.nickname,'豆包测试用户');
+ assert.equal(row.balance,80,'package quota must stay 80, not 80+12');
+ assert.equal(row.balanceUnit,'主套餐');
+ assert.equal(row.quotaWindows.length,2);
+ assert.deepEqual(row.quotaWindows.map(w=>[w.kind,w.left]),[['package',80],['week',12]]);
+ assert.equal(row.planName,'豆包会员');
+ assert(Number.isFinite(row.quotaCheckedAt));
+});
+test('Doubao unknown numeric quota strings do not fabricate zero wallet amount',async()=>{
+ const {driver}=mock({invalidQuota:true});
+ const receipt=await driver.addCookie({cookie:COOKIE_A});
+ const bound=account(receipt);
+ assert.equal((await driver.refresh({account:bound})).state,'online');
+ const row=driver.accountSnapshot(bound);
+ assert.equal(row.quotaWindows.length,0);
+ assert.equal(row.balanceState,'not_returned');
+ assert.equal('balance' in row,false);
 });
 test('Doubao independent account provisioning never writes cookies to config',async()=>{
  const dir=mkdtempSync(join(tmpdir(),'router-doubao-test-'));

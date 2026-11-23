@@ -58,6 +58,40 @@ test('previously verified WorkBuddy remains known after reload and auto-rechecks
   assert.equal(probes,4);
  }finally{rmSync(home,{recursive:true,force:true})}
 });
+test('restart warms account name and quotas once even when persisted auth remains fresh',async()=>{
+ const cfg=makeConfig(),account=cfg.accounts[0];
+ const store=createAccountVerificationStore(),clock=Date.now();
+ store.set(account,{state:'online',at:clock});
+ let requests=0;
+ const build=()=>{
+  const snapshots=new Map();
+  const driver={
+   async refresh({account}){
+    requests++;
+    snapshots.set(account.id,{accountName:'官方已验证会员昵称',
+     balance:81,balanceUnit:'积分',balanceCheckedAt:clock});
+    return {state:'online'};
+   },
+   accountSnapshot:account=>snapshots.get(account.id)??{},
+  };
+  const configStore={get:()=>structuredClone(cfg),replace:v=>normalizeConfig(v)};
+  return createAccountCenter({configStore,verificationStore:store,
+   drivers:new Map([[account.providerId,driver]]),now:()=>clock});
+ };
+ const before=build();
+ assert.equal(before.list().accounts[0].connectionState,'online');
+ assert.equal(before.list().accounts[0].nickname,undefined,'post-restart memory is initially empty');
+ assert.equal((await before.autoCheckDue()).attempted,1);
+ assert.equal(before.list().accounts[0].nickname,'官方已验证会员昵称');
+ assert.equal(before.list().accounts[0].balance,81);
+ assert.equal((await before.autoCheckDue()).attempted,0,'do not query upstream on every page render');
+ before.stop();
+ const after=build();
+ assert.equal((await after.autoCheckDue()).attempted,1,
+  'a fresh Host lifetime must reconstruct its ephemeral public profile');
+ assert.equal(requests,2);
+ after.stop();
+});
 test('credential reference change invalidates earlier approval, and disable clears cached state',async()=>{
  const account=makeConfig().accounts[0],store=createAccountVerificationStore(),clock=Date.now();
  store.set(account,{state:'online',at:clock});

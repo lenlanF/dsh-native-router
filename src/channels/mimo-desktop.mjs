@@ -145,10 +145,21 @@ export function createMimoDesktopDriver({
   catch{return false}
  }
  const browser=loginFactory({
-  onSession:async session=>{
-   if(!await verifyMembership(session))throw fail('AUTH');
-   return persistOwnedSession(session,{allowExisting:true});
-  },
+   onSession:async session=>{
+    const remote=await transport.probe({session});
+    if(remote.authVerified!==true)throw fail('AUTH');
+    const receipt=await persistOwnedSession(session,{allowExisting:true});
+    snapshots.set(receipt.id,{...snapshots.get(receipt.id),
+     authVerified:true,profileCheckedAt:now(),balanceState:'not_supported',
+     ...(remote.accountName?{accountName:remote.accountName}:{}),
+     ...(remote.membershipState?{membershipState:remote.membershipState}:{}),
+     ...(remote.membershipPlanName?{membershipPlanName:remote.membershipPlanName}:{}),
+     ...(Number.isFinite(remote.membershipPercentRemaining)?
+       {membershipPercentRemaining:remote.membershipPercentRemaining}:{}),
+     ...(Number.isFinite(remote.membershipResetAt)?{membershipResetAt:remote.membershipResetAt}:{}),
+     ...(Number.isFinite(remote.quotaCheckedAt)?{quotaCheckedAt:remote.quotaCheckedAt}:{})});
+    return receipt;
+   },
   verifySession:verifyMembership,
   onRollback:account=>rollbackCandidate({account}),
  });
@@ -192,23 +203,33 @@ export function createMimoDesktopDriver({
    return {id:imported.id,credentialRef:imported.credentialRef};
   },
   rollbackCandidate,
-  async refresh({account,signal}={}){
-   try{
-    const session=await ownedSession(account);
-    const remote=await transport.probe({session,signal});
-    if(remote.authVerified===true){
-     snapshots.set(account.id,{authVerified:true,
-      ...(typeof remote.accountName==='string'?{accountName:remote.accountName}:{})});
-     return {state:'online',message:'本插件自有 MiMo Desktop 会话已通过服务器身份核验；模型推理需单独实测'};
+   async refresh({account,signal}={}){
+    try{
+     const session=await ownedSession(account);
+     const remote=await transport.probe({session,signal});
+     if(remote.authVerified===true){
+      snapshots.set(account.id,{...snapshots.get(account.id),
+       authVerified:true,profileCheckedAt:now(),
+       ...(typeof remote.accountName==='string'&&remote.accountName?
+        {accountName:remote.accountName}:{}),
+       balanceState:'not_supported',
+       membershipState:remote.membershipState??'unavailable',
+       ...(typeof remote.membershipPlanName==='string'?{membershipPlanName:remote.membershipPlanName}:{}),
+       ...(Number.isFinite(remote.membershipPercentRemaining)?
+        {membershipPercentRemaining:remote.membershipPercentRemaining}:{}),
+       ...(Number.isFinite(remote.membershipResetAt)?{membershipResetAt:remote.membershipResetAt}:{}),
+       ...(Number.isFinite(remote.quotaCheckedAt)?{quotaCheckedAt:remote.quotaCheckedAt}:{})});
+      return {state:'online',message:'MiMo Desktop 账号信息已核验；会员额度与 API Token Plan 分开显示'};
+     }
+     // A temporary remote outage must not discard a previously verified name.
+     snapshots.set(account.id,{...snapshots.get(account.id),authVerified:false});
+     return {state:remote.state==='expired'?'expired':remote.state==='error'?'error':'pending',
+      message:'MiMo Desktop 当前未通过实时身份检查；已获取的账号名称只作历史参考'};
+    }catch{
+     snapshots.set(account?.id,{...snapshots.get(account?.id),authVerified:false});
+     return {state:'expired',message:'本插件自己的 MiMo Desktop 授权已缺失、过期或引用失效'};
     }
-    snapshots.delete(account.id);
-    return {state:remote.state==='expired'?'expired':remote.state==='error'?'error':'pending',
-     message:'MiMo Desktop 会话未通过实时身份核验；不提供虚假已登录状态'};
-   }catch{
-    snapshots.delete(account?.id);
-    return {state:'expired',message:'本插件自己的 MiMo Desktop 授权已缺失、过期或引用失效'};
-   }
-  },
+   },
   async listModels({account,signal}={}){
    const session=await ownedSession(account);
    const state=await transport.probe({session,signal});
