@@ -120,7 +120,11 @@ test('Amazon Quick existing login is once adopted into DSH and routed through th
    messages:[{role:'user',content:'Hello'}]}))events.push(e);
   assert.equal(events.at(-1)?.type,'finish');
   assert.equal(events.some(e=>e.type==='text-delta'&&/echo/.test(e.text)),true);
-  assert.equal(r.center.list().accounts[0].nickname,'Quick Personal');
+   assert.equal(r.center.list().accounts[0].nickname,'Quick Personal');
+   assert.equal(r.center.list().accounts[0].balance,3,
+    'official member allowance must be visible through normal DSH account inventory');
+   assert.equal(r.center.list().accounts[0].quotaWindows.length,1,
+    'subscription hour window must be retained by AccountCenter public filtering');
   await r.center.logout(saved.id);
   assert.equal(r.records.size,0);
   assert.equal(r.cfg.accounts.length,0);
