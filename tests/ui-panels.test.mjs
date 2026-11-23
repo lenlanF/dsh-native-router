@@ -210,7 +210,10 @@ test('channel activity page shows a separate five-column table per provider and 
   if(!node||typeof node!=='object')return;
   if(node.type==='table')tables.push(node);visit(node.children)};
  visit(page);
- assert.equal(tables.length,2,'each channel must render its own accessible table');
+  assert.equal(tables.length,2,'each channel must render its own accessible table');
+  for(const label of ['活动名称','免费奖励','是否有效','到期时间','执行状态'])
+    assert.ok(uiNodes(page,node=>node.type==='td'&&node.props?.['data-label']===label).length,
+      'compact activity cards must identify '+label);
  const refresh=rig.find(page,'button','刷新官方活动')[0];
  assert.ok(refresh&&!refresh.props.disabled);
  await refresh.props.onClick();
@@ -263,16 +266,17 @@ test('account workspace keeps cached account name and balance visible with prove
  filter.props.onClick();
  root=rig.render();
  assert.match(rig.flatten(root).join(' '),/准确的账户名称/);
- const nav=rig.find(root,'nav','')[0];
- const advanced=[];
- const walk=node=>{if(Array.isArray(node))return node.forEach(walk);
-  if(!node||typeof node!=='object')return;
-  if(node.type==='details'&&node.props?.className==='dnr-subnav')advanced.push(node);
-  walk(node.children)};
- walk(root);
- assert.equal(advanced.length,4);
- assert.equal(advanced.filter(n=>n.props.open===true).length,1,
-  'only primary five workflows are open by default');
+  const compact=uiNodes(root,node=>node.type==='select'
+    &&node.props?.['aria-label']==='选择设置页面')[0];
+  assert.ok(compact,'DSH embedded pane exposes a native compact module picker');
+  assert.equal(uiNodes(compact,node=>node.type==='option').length,10,
+    'all modules stay accessible without a second sidebar');
+  const toolbar=uiNodes(root,node=>node.props?.className==='dnr-toolbar')[0];
+  const main=uiNodes(root,node=>node.props?.className==='dnr-main')[0];
+  const body=uiNodes(root,node=>node.props?.className==='dnr-page-body')[0];
+  assert.ok(toolbar&&main&&body);
+  assert.ok(main.children.indexOf(toolbar)<main.children.indexOf(body),
+    'save controls are BEFORE the long account content, never bottom overlay');
 });
 
 test('built-in account panel can inspect explicit free evidence and run a real-model adapter test without a browser',async()=>{
@@ -861,7 +865,16 @@ test('WorkBuddy-style page shell keeps all ten settings destinations, scoped the
  assert.match(stylesheet,/@media \(max-width:760px\)/);
  assert.match(stylesheet,/@media \(max-width:520px\)/);
  assert.match(stylesheet,/:focus-visible/);
- assert.match(stylesheet,/prefers-reduced-motion/);
+  assert.match(stylesheet,/prefers-reduced-motion/);
+  assert.ok(stylesheet.includes('container:dnr-workspace / inline-size'),
+    'layout follows the plugin pane, not global viewport');
+  assert.ok(stylesheet.includes('@container dnr-workspace (max-width:850px)'));
+  assert.ok(stylesheet.includes('.dnr-shell .dnr-layout{display:block;'),
+    'one content column inside DSH');
+  assert.ok(stylesheet.includes('.dnr-shell .dnr-toolbar .dnr-savebar{position:static;'),
+    'save controls must not obscure account details');
+  assert.ok(stylesheet.includes('.dnr-shell .dnr-rail{display:none}'),
+    'compact mode hides the redundant second navigation');
  const nav=uiNodes(page,node=>node.type==='nav')[0];
  assert.equal(nav?.props?.['aria-label'],'聚合路由设置导航');
  const buttons=uiNodes(nav,node=>node.type==='button');
