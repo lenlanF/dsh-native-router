@@ -1,5 +1,15 @@
 # Change Log
 
+## 1.0.0-rc.96 — 2026-11-23 — 真实 DSH 宿主、原渠道并存及会话状态验收
+
+- 修复隔离 DSH Host 验收脚本遗漏正式发行必需的 `vendor/channel-pack/pack-runtime.mjs`，之前出现 `import_standalone_runtime/missing_module` 属于测试夹具缺文件，而不是实际生产发现缺依赖。
+- 更新旧宿主集成测试要求：现架构必须同时挂载聚合路由自有 13 个别名与已有 Qoder Provider，保留私有账户服务、不得覆盖原账号池，已安装账号仅可只读发现、需要明确本人接管，不再因旧版断言要求自动导入。
+- 使用真 Cordis / LlmRuntime / WebServer / Connection 环境在 E:\Temp 运行一轮经聚合路由 Qoder 合成 Provider 模型的完整 text-delta/finish；已选模型在聚合路由可见、另一个未选中模型仅原 Provider 可见；卸载原 Provider 保持注册，凭据读取/写入均 0 次。
+- 独立来源 SourcePool 两合成账号精确选择、拒绝不安全降级及真实 DSH AgentLoop 的合成任务、故障切换、会话继续也通过，外部模型/工具扣费 0。
+- 额外执行 `verify-packed-distribution.ps1`，将正式 npm tgz 独立安装到 E:\Temp 一次性目录，使用真实 Node 22.16 DSH SDK 验证注册、卸载、受保护 RPC、13 个别名、宿主碰撞和零账号调用，32 项依赖安装、全部验收 PASS；证明不只源码工作树能运行。
+- 区分来源适配器已挂载、账号被扫描发现和官方身份真实验证；复用管理界面不会再用“渠道可检测”冒充已登录，增加独立状态字段及回归测试。
+- 本轮隔离调用实际运行 DSH Host 组件，但不是用户真实云模型/免费活动已到账；尚存的旧式全局 AccountPool 验收脚本仍待按私有作用域重构。详见 docs/RC96_REAL_DSH_HOST_ACCEPTANCE.md。
+
 ## 1.0.0-rc.95 — 2026-11-23 — 基于已安装版本的真实账号、免费活动资格与积分展示修复
 
 - 对已安装 rc.94 实施只读匿名审计，实查九个 Provider／十个自有账号，6/10 有真实名称，8/10 有官方余额缓存，Loomy/CodeArts 两项缺可信单位，MiMo/豆包缺可信数字额度；身份 online 记录不等于正式模型调用成功。当前全局自动签到关闭、今日无新签到与活动回执，未暗自开启或实际扣费。

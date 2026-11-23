@@ -56,7 +56,7 @@ foreach($file in Get-ChildItem -LiteralPath $sourceRoot -Recurse -File){
 }
 $vendorTarget=Join-Path $root 'vendor\channel-pack'
 New-Item -ItemType Directory -Path $vendorTarget -Force|Out-Null
-foreach($file in @('pack.js','pack-native.js','qoder-auth-wasm.wasm')){
+foreach($file in @('pack.js','pack-native.js','pack-runtime.mjs','qoder-auth-wasm.wasm')){
  Copy-Item -LiteralPath (Join-Path $project ('vendor\channel-pack\'+$file)) -Destination (Join-Path $vendorTarget $file) -Force
 }
 $toolDir=Join-Path $root 'tools'
