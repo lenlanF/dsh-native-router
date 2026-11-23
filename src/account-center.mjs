@@ -885,6 +885,69 @@ export function createAccountCenter({
     async function cancelQwenLogin(){
       return await driverFor('own_qwenwork')?.cancelLogin?.()??{status:'idle'};
     }
+    // One-off local session adoption or browser OAuth. No Magpie runtime and
+    // no AWS commercial API access key; DSH owns the binding and refresh.
+    async function commitAwsQuickAccount(receipt){
+      const id=String(receipt?.id??''),pid='own_aws_quick';
+      if(receipt?.providerId!==pid||!/^aq_[a-f0-9]{28}$/.test(id)||
+         receipt.credentialRef!=='driver:'+pid+':'+id)
+        throw Error('Invalid Amazon Quick owner receipt');
+      const cfg=configStore.get(),driver=driverFor(pid);
+      if(driver?.independentProvider!==pid)throw Error('Amazon Quick native driver unavailable');
+      const previous=cfg.accounts.find(a=>a.id===id);
+      if(previous){
+        if(previous.providerId!==pid||previous.credentialRef!==receipt.credentialRef)
+          throw Error('Amazon Quick owner account collision');
+        driver.completeCandidate?.({account:receipt});
+        return {id,providerId:pid,alreadyOwned:true};
+      }
+      if(cfg.providers.some(p=>p.id===pid&&p.protocol!=='native-channel'))
+        throw Error('Amazon Quick Provider ID already belongs to another protocol');
+      const providers=cfg.providers.some(p=>p.id===pid)?cfg.providers:
+        [...cfg.providers,{id:pid,name:'Amazon Quick · 独立自有会员',
+          protocol:'native-channel',models:[],enabled:true,supportsTools:true}];
+      const account={id,providerId:pid,credentialRef:receipt.credentialRef,
+        enabled:true,autoCheckin:false,weight:1};
+      try{configStore.replace({...cfg,providers,accounts:[...cfg.accounts,account]})}
+      catch(error){
+        await driver.rollbackCandidate?.({account:{...account,
+          ...(receipt.rollbackToken?{rollbackToken:receipt.rollbackToken}:{})}});
+        throw error;
+      }
+      driver.completeCandidate?.({account:receipt});
+      adapter?.invalidateCatalog?.();
+      return {id,providerId:pid,stored:true};
+    }
+    async function importAwsQuickLocal(){
+      const driver=driverFor('own_aws_quick');
+      if(driver?.runtimeReady!==true||typeof driver.importLocal!=='function')
+        throw Error('Amazon Quick private vault unavailable');
+      const staged=await driver.importLocal();
+      try{return await commitAwsQuickAccount(staged)}
+      catch(error){await driver.rollbackCandidate?.({account:staged});throw error}
+    }
+    async function startAwsQuickLogin(){
+      const driver=driverFor('own_aws_quick');
+      if(driver?.runtimeReady!==true||typeof driver.startLogin!=='function')
+        throw Error('Amazon Quick OAuth unavailable');
+      return driver.startLogin();
+    }
+    async function pollAwsQuickLogin(){
+      const driver=driverFor('own_aws_quick');
+      if(!driver?.pollLogin)throw Error('Amazon Quick login status unavailable');
+      const status=await driver.pollLogin();
+      if(status.status!=='done'||!status.account)return status;
+      try{return {...status,account:await commitAwsQuickAccount(status.account)}}
+      catch(error){try{await driver.cancelLogin?.()}catch{}throw error}
+    }
+    async function submitAwsQuickLogin({callbackUrl}={}){
+      const driver=driverFor('own_aws_quick');
+      if(typeof driver?.submitLogin!=='function')throw Error('Amazon Quick callback unavailable');
+      return driver.submitLogin({callbackUrl});
+    }
+    async function cancelAwsQuickLogin(){
+      return await driverFor('own_aws_quick')?.cancelLogin?.()??{status:'idle'};
+    }
     function start(){
       // Runtime startup must NEVER consult original-plugin files, metadata or
       // account pools. One-time migration belongs to explicit adoption only.
@@ -905,5 +968,5 @@ export function createAccountCenter({
   if(initialTimer)clearTimeout(initialTimer);
   automaticTimer=null;initialTimer=null;
  }
-  return {list,verify,verifyModel,listTestModels,setEnabled,logout,discover,importCandidate,refreshAll,refreshReadOnly,autoCheckDue,start,stop,drivers,driverFor,find,commitMimoDesktopAccount,startMimoLogin,pollMimoLogin,cancelMimoLogin,ensureDoubaoProvider,addDoubaoCookie,startDoubaoLogin,pollDoubaoLogin,cancelDoubaoLogin,commitMeooAccount,addMeooCookie,startMeooLogin,pollMeooLogin,cancelMeooLogin,commitQwenAccount,startQwenLogin,pollQwenLogin,cancelQwenLogin};
+  return {list,verify,verifyModel,listTestModels,setEnabled,logout,discover,importCandidate,refreshAll,refreshReadOnly,autoCheckDue,start,stop,drivers,driverFor,find,commitMimoDesktopAccount,startMimoLogin,pollMimoLogin,cancelMimoLogin,ensureDoubaoProvider,addDoubaoCookie,startDoubaoLogin,pollDoubaoLogin,cancelDoubaoLogin,commitMeooAccount,addMeooCookie,startMeooLogin,pollMeooLogin,cancelMeooLogin,commitQwenAccount,startQwenLogin,pollQwenLogin,cancelQwenLogin,commitAwsQuickAccount,importAwsQuickLocal,startAwsQuickLogin,pollAwsQuickLogin,submitAwsQuickLogin,cancelAwsQuickLogin};
 }

@@ -1095,6 +1095,9 @@ window.__ModuleLoader__.load({
            [meooCookie,setMeooCookie]=useState(''),[meooBusy,setMeooBusy]=useState(false),
            [meooLogin,setMeooLogin]=useState(null),
            [qwenBusy,setQwenBusy]=useState(false),[qwenLogin,setQwenLogin]=useState(null),
+           [awsQuickBusy,setAwsQuickBusy]=useState(false),
+           [awsQuickLogin,setAwsQuickLogin]=useState(null),
+           [awsQuickCallback,setAwsQuickCallback]=useState(''),
            [providerQuery,setProviderQuery]=useState('');
        const refreshRuntime=useCallback(async()=>{
          const response=await fetch(URL+'/status',{cache:'no-store'});
@@ -1218,7 +1221,34 @@ window.__ModuleLoader__.load({
            },1800);
            return ()=>{disposed=true;clearInterval(timer)};
          },[qwenLogin?.status,refresh]);
-        useEffect(()=>{
+         useEffect(()=>{
+           if(awsQuickLogin?.status!=='waiting')return;
+           let disposed=false,active=false;
+           const timer=setInterval(async()=>{
+             if(active)return;active=true;
+             try{
+               const response=await fetch(URL+'/channels/aws-quick/login',{
+                 method:'POST',headers:{'content-type':'application/json'},
+                 body:JSON.stringify({action:'poll'})});
+               const data=await response.json();
+               if(disposed||!response.ok||!data.ok)return;
+               const next=data.result;
+               if(next.status==='done'){
+                 setAwsQuickLogin(next);
+                 setNotice('Amazon Quick 官方身份已确认，DSH 自有授权和账号已保存。模型实际可用性需完成推理测试。');
+                 await refresh();
+               }else if(['error','expired','canceled','discovery_saved'].includes(next.status)){
+                 setAwsQuickLogin(next);
+                 setNotice(next.status==='discovery_saved'?
+                   '已保存当前 AWS 租户发现信息，请再次点击开始账号授权。':'');
+                 if(next.status!=='discovery_saved')setError('Amazon Quick 授权未完成；可以重新开始 OAuth 登录。');
+               }
+             }catch{/* Do not invent authentication completion from transport errors. */}
+             finally{active=false}
+           },1800);
+           return ()=>{disposed=true;clearInterval(timer)};
+         },[awsQuickLogin?.status,refresh]);
+         useEffect(()=>{
           if(tab!=='reuse'||reuseSubtab!=='host')return;
           const first=hostModels?.providerId||
             channelsView?.sessionReuse?.hostProviders?.[0]?.providerId;
@@ -1723,7 +1753,63 @@ window.__ModuleLoader__.load({
            headers:{'content-type':'application/json'},body:JSON.stringify({action:'cancel'})}).catch(()=>{});
          setQwenLogin(null);
        }
-  async function save(){
+       async function awsQuickRequest(action,callbackUrl){
+         const response=await fetch(URL+'/channels/aws-quick/login',{method:'POST',
+           headers:{'content-type':'application/json'},
+           body:JSON.stringify({action,...(action==='submit'?{callbackUrl}:{})})});
+         const data=await response.json();
+         if(!response.ok||!data.ok)throw Error(data.error||'Amazon Quick 自有授权未能完成');
+         return data.result;
+       }
+       async function startAwsQuick(){
+         if(awsQuickBusy)return;
+         if(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig)){
+           setError('请先保存配置草稿，再申请 Amazon Quick 登录。');return;
+         }
+         setAwsQuickBusy(true);setError('');setNotice('');
+         try{
+           const state=await awsQuickRequest('start');
+           setAwsQuickLogin(state);
+           setNotice('已创建独立 OAuth PKCE 授权，请用自己的 Amazon Quick 账号在官方页面登录。');
+         }catch(e){setError(String(e?.message??e))}
+         finally{setAwsQuickBusy(false)}
+       }
+       async function submitAwsQuickCallback(){
+         if(awsQuickBusy||!awsQuickCallback.trim())return;
+         setAwsQuickBusy(true);setError('');setNotice('');
+         try{
+           const state=await awsQuickRequest('submit',awsQuickCallback.trim());
+           setAwsQuickCallback('');
+           setAwsQuickLogin(state);
+           if(state.status==='discovery_saved')
+             setNotice('已保存 AWS 授权发现信息。点击重新开始 OAuth，即可进入正式授权。');
+           else setNotice('已提交官方回调，正在核验身份并保存 DSH 自有授权。');
+         }catch(e){setError(String(e?.message??e))}
+         finally{setAwsQuickBusy(false)}
+       }
+       async function cancelAwsQuick(){
+         await awsQuickRequest('cancel').catch(()=>{});
+         setAwsQuickLogin(null);setAwsQuickCallback('');
+       }
+       async function importAwsQuickLocal(){
+         if(awsQuickBusy)return;
+         if(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig)){
+           setError('请先保存配置草稿再接管本机 Amazon Quick 账号。');return;
+         }
+         setAwsQuickBusy(true);setError('');setNotice('');
+         try{
+           const response=await fetch(URL+'/channels/aws-quick/import-local',{
+             method:'POST',headers:{'content-type':'application/json'},
+             body:JSON.stringify({consent:true})});
+           const data=await response.json();
+           if(!response.ok||!data.ok)
+             throw Error(data.error||'未找到已登录且身份可确认的 Amazon Quick 客户端');
+           setNotice('已将本机登录态一次性转为 DSH 自有凭据，原客户端卸载后仍能独立续期。');
+           await refresh();
+         }catch(e){setError(String(e?.message??e))}
+         finally{setAwsQuickBusy(false)}
+       }
+   async function save(){
         setBusy(true);setError('');setNotice('');
         try{
           const value=tab==='advanced'?JSON.parse(raw):cfg;
@@ -1784,7 +1870,7 @@ window.__ModuleLoader__.load({
            hasDraft:Boolean(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig))}),
           h('details',{className:'dnr-disclosure'},
            h('summary',{className:'dnr-disclosure-summary'},
-             '新增账号或重新登录 · 小米 / 豆包 / 秒悟 / 千问办公（展开）'),
+              '新增账号或重新登录 · 小米 / 豆包 / 秒悟 / 千问办公 / Amazon Quick（展开）'),
            h('div',{className:'dnr-disclosure-body'},
            h(Panel,{title:'小米 MiMo 会员 · 无需 MiMo 客户端进程'},
            h('p',{style:css.small},'即使没有安装或运行 MiMo Desktop，也能通过本插件独立浏览器登录会员账号；已有客户端会话也可一次性接管。授权后无需任何原客户端进程，独立保存会话、续期与推理；不使用商业 API Key。'),
@@ -1835,7 +1921,39 @@ window.__ModuleLoader__.load({
                 h('a',{href:qwenLogin.loginUrl,target:'_blank',rel:'noopener noreferrer',
                   style:{fontWeight:600,wordBreak:'break-all'}},'打开千问办公官方账号授权页'),
                 h('span',{style:css.small},'必须在官方网页完成选择；本插件只显示公开授权地址')):null),
-           null)));
+           h(Panel,{title:'Amazon Quick · 独立会员渠道'},
+             h('p',{style:css.small},
+               '通过自己的 Amazon Quick 登录账号完成 OAuth PKCE，或一次性接管本机已登录的 Quick 桌面凭据。DSH 自己存储和续期授权，不依赖 Magpie、原插件或 Quick outpost 进程。四个模式 fast / balanced / smart / advanced 由 Quick 服务端动态选择真实模型。该项目采用非官方内部协议，存在服务条款与账号限制风险，费率未知不标免费。'),
+             h('div',{style:css.line},
+               h(Button,{kind:'primary',disabled:awsQuickBusy||
+                 awsQuickLogin?.status==='waiting',onClick:startAwsQuick},
+                 awsQuickBusy?'处理中…':'Amazon Quick 自主 OAuth 登录'),
+               h(Button,{disabled:awsQuickBusy,onClick:importAwsQuickLocal},
+                 '一次性接管本机已登录 Quick'),
+               awsQuickLogin?.status==='waiting'?
+                 h(Button,{onClick:cancelAwsQuick},'取消授权'):null),
+             awsQuickLogin?.status==='waiting'&&typeof awsQuickLogin.loginUrl==='string'&&
+               /^https:\/\/(?:quick\.aws\.com\/sn(?:\?|$)|oidc\.[a-z0-9-]+\.amazonaws\.com\/authorize\?)/.test(awsQuickLogin.loginUrl)?
+               h('div',{style:{...css.line,marginTop:8}},
+                 h('a',{href:awsQuickLogin.loginUrl,target:'_blank',
+                   rel:'noopener noreferrer',style:{wordBreak:'break-all',fontWeight:600}},
+                   '打开 Amazon Quick 官方账号授权页')):null,
+             awsQuickLogin?.status==='waiting'?
+               h('div',{style:css.line},
+                 h('input',{type:'password',autoComplete:'off',
+                   'aria-label':'Amazon Quick 官方回调完整地址',
+                   placeholder:'其他电脑或无法访问回调端口时，粘贴官方返回的完整回调 URL',
+                   style:css.input,value:awsQuickCallback,
+                   onChange:e=>setAwsQuickCallback(e.target.value.slice(0,12000))}),
+                 h(Button,{disabled:awsQuickBusy||!awsQuickCallback.trim(),
+                   onClick:submitAwsQuickCallback},'提交回调地址')):null,
+             awsQuickLogin?.status==='discovery_saved'?
+               h('p',{style:css.small},
+                 '已记住 AWS 租户发现信息。点击“自主 OAuth 登录”进入第二步授权。'):null,
+             awsQuickLogin?.status==='done'?
+               h('p',{style:css.small},
+                 '已确认独立账号并保存到 DSH 凭据库；可在上方账号列表查看额度及执行模型测试。'):null),
+            null)));
        if(tab==='reuse')content=h(ReuseConsole,{data:channelsView,cfg,         onReuseSettings:changeReuseSettings,run:runAction,busy:actionBusy,
           onRefresh:refreshRuntime,subtab:reuseSubtab,onSubtab:setReuseSubtab,
          embeddedPack:status?.embeddedPack,credentialService:status?.credentialService,modelProvider,

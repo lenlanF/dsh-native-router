@@ -453,6 +453,55 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
           error:result?.status==='error'?'千问办公设备码授权未完成':null}});
       }catch{return json(res,409,{ok:false,error:'千问办公自有授权暂不可用'})}
     });
+    // Amazon Quick owner grant: OAuth callback never enters public config or
+    // response body. One-time source credential import is a separate opt-in.
+    mount('/channels/aws-quick/login',async(req,res)=>{
+      if(!isLoopback(req)||!sameOrigin(req))
+        return json(res,403,{ok:false,error:'Owner browser access required'});
+      if(req.method!=='POST')
+        return json(res,405,{ok:false,error:'Method not allowed'});
+      try{
+        const body=await readJson(req);
+        if(!['start','poll','submit','cancel'].includes(body?.action))
+          return json(res,400,{ok:false,error:'Invalid Amazon Quick login action'});
+        if(body.action==='submit'&&(typeof body.callbackUrl!=='string'||
+          body.callbackUrl.length>12000))
+          return json(res,400,{ok:false,error:'Invalid OAuth callback'});
+        const status=body.action==='start'?await accountCenter.startAwsQuickLogin():
+          body.action==='poll'?await accountCenter.pollAwsQuickLogin():
+          body.action==='submit'?await accountCenter.submitAwsQuickLogin({
+            callbackUrl:body.callbackUrl}):await accountCenter.cancelAwsQuickLogin();
+        const url=status?.status==='waiting'?status.loginUrl:'';
+        if(url&&!/^https:\/\/(?:quick\.aws\.com\/sn(?:\?|$)|oidc\.[a-z0-9-]+\.amazonaws\.com\/authorize\?)/.test(url))
+          return json(res,503,{ok:false,error:'Unexpected Amazon Quick sign-in origin'});
+        return json(res,200,{ok:true,result:{
+          status:status?.status??'error',at:status?.at??0,
+          ...(url?{loginUrl:url}:{}),
+          ...(status?.hint?{hint:String(status.hint).slice(0,180)}:{}),
+          account:status?.account?.id?{id:status.account.id,
+            providerId:'own_aws_quick'}:null,
+          error:status?.status==='error'?'Amazon Quick 网页授权未完成':null}});
+      }catch{
+        return json(res,409,{ok:false,
+          error:'Amazon Quick 自有授权尚未通过身份核验，请使用官方账号授权'});
+      }
+    });
+    mount('/channels/aws-quick/import-local',async(req,res)=>{
+      if(!isLoopback(req)||!sameOrigin(req))
+        return json(res,403,{ok:false,error:'Owner browser access required'});
+      if(req.method!=='POST')
+        return json(res,405,{ok:false,error:'Method not allowed'});
+      try{
+        const body=await readJson(req);
+        if(body?.consent!==true)
+          return json(res,400,{ok:false,error:'Explicit local account consent is required'});
+        const result=await accountCenter.importAwsQuickLocal();
+        return json(res,200,{ok:true,result:{id:result.id,
+          providerId:'own_aws_quick',
+          alreadyOwned:result.alreadyOwned===true,stored:result.stored===true}});
+      }catch{return json(res,409,{ok:false,
+        error:'本机 Amazon Quick 登录凭据未获官方身份确认；未写入账号池'})}
+    });
     mount('/channels/import',async(req,res)=>{
       if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{error:'Access rejected'});
       if(req.method!=='POST')return json(res,405,{error:'Method not allowed'});
