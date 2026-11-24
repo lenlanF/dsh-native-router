@@ -4,6 +4,7 @@ import {publicAccountName,upstreamCheckedInToday,credentialPublicIdentity,public
 import {sourceAccountFacts} from './source-account-facts.mjs';
 import {installSourceAccountSelection} from './source-account-selection.mjs';
 import {ownCredentialRef} from './credential-ref.mjs';
+import {startRaccoonAuthorizeFlow} from './channels/raccoon-authorize.mjs';
 import {readRaccoonLoginTask,triggerRaccoonFreeDaily} from './channels/raccoon-rewards.mjs';
 import {readLoomyFreeTasks,claimLoomyFreeTasks} from './channels/loomy-rewards.mjs';// The bundled MIT derivative runs INSIDE the DSH Cordis host. No external
 // OpenAI gateway, agent-resume daemon or independent check-in scheduler.
@@ -37,6 +38,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
  loadPack=loadPinnedPack,modelTimeoutMs=20000,
  raccoonTaskVerifier=null,raccoonDailyTrigger=null,raccoonFetchImpl=fetch,
  loomyFetchImpl=fetch}={}){
+  const raccoonLoginFlows=new Set();
   let state='disabled',reason='',errorStage='',errorKind='',disposed=false,activeScope=null,injectedCallback=null;
    let privateSourcePool=null,privateSourceCheckins=null,privateSourceCatalog=null,loadedPack=null;
     let sourcePhase='',modelAdapterStates={},privateSourceRpcReady=false;
@@ -153,6 +155,14 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
        // Keep our own pool strictly scoped to this injected Host scope.
        // Do NOT register arbitrary extra services in the global DSH registry.
        const options={disableOpencode:true};
+        options.nativeRouterRaccoonLogin=async()=>{
+          if(disposed||scope!==mountedScope())throw Error('Raccoon authorization unavailable');
+          const flow=await startRaccoonAuthorizeFlow();
+          if(disposed){flow.close();throw Error('Raccoon authorization stopped')}
+          raccoonLoginFlows.add(flow);
+          void flow.result.finally(()=>raccoonLoginFlows.delete(flow)).catch(()=>{});
+          return flow;
+        };
         if(nativeOwned){
           options.nativeRouterModelEligibility=id=>modelEligibility(id);
          options.nativeRouterRpcReady=ready=>{
@@ -737,7 +747,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
    // Account-scoped read-only identity, check-in and balance bridge.
    // Reuse the same upstream implementations as the standalone channels;
    // never confuse "no credit plan" with authentication failure.
-   async function readSourceStatuses(providerId){
+   async function readSourceStatuses(providerId,accountId){
      if(!SOURCE_PACK_PROVIDERS.includes(providerId)||!sourceAllowed(providerId))
        return {state:'unsupported',accounts:[]};
      const scope=mountedScope();
@@ -750,7 +760,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
        try{
          const timeout=Symbol('timeout');
          const reply=await Promise.race([
-           Promise.resolve().then(()=>ops[method](providerId)),
+            Promise.resolve().then(()=>ops[method](providerId,accountId)),
            new Promise(resolve=>{timer=setTimeout(()=>resolve(timeout),
               providerId==='zcode'?18000:8000);timer.unref?.()}),
          ]);
@@ -768,7 +778,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
      const lookup=rows=>new Map((rows??[]).filter(row=>safeId(row?.accountId??row?.id))
        .map(row=>[row.accountId??row.id,row]));
      const statusMap=lookup(statuses),balanceMap=lookup(balances),identityMap=lookup(identities);
-     const allIds=new Set([...statusMap.keys(),...balanceMap.keys(),...identityMap.keys()]);
+      const allIds=new Set([...statusMap.keys(),...balanceMap.keys(),...identityMap.keys()].filter(id=>accountId===undefined||id===accountId));
       // The first migration may copy public identity to the owned account
       // record. Normal operation MUST query OUR channel pack against the
       // provider API; it must not scrape either the original plugin's saved
@@ -870,6 +880,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
            active:typeof exact?.active==='boolean'?exact.active:null});     }     return {state:'ready',accounts,checkedAt:Date.now()};
    } function dispose(){    if(disposed)return;
     disposed=true;
+    for(const flow of raccoonLoginFlows)flow.close();raccoonLoginFlows.clear();
     selectionGuard?.restore();selectionGuard=null;
      activeScope=null;privateSourcePool=null;privateSourceCheckins=null;privateSourceCatalog=null;loadedPack=null;    sourcePhase='';modelAdapterStates={};privateSourceRpcReady=false;
     sourceErrorType='';sourceErrorLocation='';state='disposed';reason='';

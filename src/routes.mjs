@@ -374,6 +374,24 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
       try{
         const body=await readJson(req);
         if(body?.action==='refresh-all')return json(res,200,{ok:true,...await accountCenter.refreshAll()});
+        if(body?.action==='refresh-selected'){
+          if(!Array.isArray(body.providerIds)||!body.providerIds.length||body.providerIds.length>64||
+             body.providerIds.some(id=>typeof id!=='string'||!/^[A-Za-z0-9_-]{1,80}$/.test(id)))
+            return json(res,400,{ok:false,error:'Invalid selected channels'});
+          const ids=[...new Set(body.providerIds)];
+          const native=await accountCenter.refreshAll({providerIds:ids,skipVerified:true});
+          const sources=checkinCenter?.sourceSnapshot?.()??[];
+          let skipped=0,attempted=0;
+          for(const providerId of ids){
+             const members=sources.filter(row=>row.providerId===providerId&&row.enabled);
+             if(!embeddedPack?.status?.()?.channels?.includes(providerId)&&!members.length)continue;
+             const refreshed=await checkinCenter?.refreshSources?.({onlyProviderId:providerId,skipVerified:true})??[];
+             const knownOnline=new Set(members.filter(row=>row.connectionState==='online').map(row=>row.id));
+             const selected=refreshed.filter(row=>row.providerId===providerId&&row.enabled);
+             skipped+=selected.filter(row=>knownOnline.has(row.id)).length;
+             attempted+=selected.filter(row=>!knownOnline.has(row.id)).length;
+           }
+           return json(res,200,{ok:true,...native,attempted:native.attempted+attempted,skipped:(native.skipped??0)+skipped});        }
          if(typeof body?.accountId!=='string'||body.accountId.length>80)
            return json(res,400,{ok:false,error:'Invalid account ID'});
         let result;

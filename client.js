@@ -36,7 +36,7 @@ window.__ModuleLoader__.load({
 .dnr-shell .dnr-page-head{margin:1px 0 12px;min-width:0}
 .dnr-shell .dnr-page-head h3{font-size:21px;font-weight:750;margin:0 0 4px}
 .dnr-shell .dnr-page-head p{font-size:12px;color:var(--dnr-muted);margin:0;line-height:1.5}
-.dnr-shell .dnr-button{appearance:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:0;min-height:40px;border:1px solid var(--dnr-border);border-radius:9px;padding:8px 12px;background:transparent;color:var(--dnr-ink);font-size:13px;font-weight:600;line-height:1.4;cursor:pointer;transition:background-color .14s,border-color .14s}
+.dnr-shell .dnr-button{appearance:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:0;min-height:30px;border:1px solid var(--dnr-border);border-radius:7px;padding:4px 9px;background:transparent;color:var(--dnr-ink);font-size:13px;font-weight:600;line-height:1.4;cursor:pointer;transition:background-color .14s,border-color .14s}
 .dnr-shell .dnr-button:hover:not(:disabled){border-color:var(--dsw-alias-label-dimmed,#888);background:var(--dnr-elevated)}
 .dnr-shell .dnr-button:active:not(:disabled){background:var(--dnr-surface)}
 .dnr-shell .dnr-button:disabled{opacity:.43;cursor:not-allowed}
@@ -92,10 +92,10 @@ window.__ModuleLoader__.load({
 .dnr-shell .dnr-account-metric-note{font-size:11px;color:var(--dnr-muted);line-height:1.45}
 .dnr-shell .dnr-account-hints{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:9px;color:var(--dnr-muted);font-size:11px}
 .dnr-shell .dnr-account-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:10px}
-.dnr-shell .dnr-account-actions .dnr-button{min-height:40px;padding:7px 12px}
+.dnr-shell .dnr-account-actions .dnr-button{min-height:30px;padding:4px 9px}
 .dnr-shell .dnr-account-card details{border-top:1px solid var(--dnr-border);margin:10px 0 0;padding-top:9px}
 .dnr-shell .dnr-account-card details summary{font-size:12px;color:var(--dnr-muted);min-height:32px;display:flex;align-items:center}
-.dnr-shell .dnr-activity-scroll{overflow-x:auto;border:1px solid var(--dnr-border);border-radius:9px;max-width:100%}\n.dnr-shell .dnr-activity-table{width:100%;min-width:645px;border-collapse:collapse;font-size:12px;line-height:1.55}\n.dnr-shell .dnr-activity-table th{text-align:left;background:var(--dnr-elevated);color:var(--dnr-muted);font-weight:700;font-size:11px;white-space:nowrap}\n.dnr-shell .dnr-activity-table th,.dnr-shell .dnr-activity-table td{padding:10px 12px;border-bottom:1px solid var(--dnr-border);vertical-align:middle}\n.dnr-shell .dnr-activity-table tr:last-child td{border-bottom:0}\n.dnr-shell .dnr-activity-table td:first-child{min-width:175px}\n.dnr-shell .dnr-activity-account{display:block;color:var(--dnr-muted);font-size:11px;margin-top:2px;overflow-wrap:anywhere}\n.dnr-shell .dnr-activity-number{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}\n.dnr-shell .dnr-activity-state{display:inline-flex;border-radius:7px;border:1px solid var(--dnr-border);padding:2px 7px;white-space:nowrap}\n.dnr-shell .dnr-activity-state[data-validity='valid']{border-color:var(--dsw-alias-positive-primary,#44b790)}\n.dnr-shell .dnr-activity-state[data-validity='unverified']{color:var(--dnr-muted)}\n.dnr-shell .dnr-activity-empty{text-align:center!important;color:var(--dnr-muted);padding:18px!important}\n@media(max-width:520px){.dnr-shell .dnr-account-card{padding:12px}.dnr-shell .dnr-account-head{gap:6px}.dnr-shell .dnr-account-metrics{grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr))}.dnr-shell .dnr-account-actions .dnr-button{flex:1 1 130px}}
+.dnr-shell .dnr-activity-scroll{overflow-x:auto;border:1px solid var(--dnr-border);border-radius:9px;max-width:100%}\n.dnr-shell .dnr-activity-table{width:100%;min-width:645px;border-collapse:collapse;font-size:12px;line-height:1.55}\n.dnr-shell .dnr-activity-table th{text-align:left;background:var(--dnr-elevated);color:var(--dnr-muted);font-weight:700;font-size:11px;white-space:nowrap}\n.dnr-shell .dnr-activity-table th,.dnr-shell .dnr-activity-table td{padding:10px 12px;border-bottom:1px solid var(--dnr-border);vertical-align:middle}\n.dnr-shell .dnr-activity-table tr:last-child td{border-bottom:0}\n.dnr-shell .dnr-activity-table td:first-child{min-width:175px}\n.dnr-shell .dnr-activity-account{display:block;color:var(--dnr-muted);font-size:11px;margin-top:2px;overflow-wrap:anywhere}\n.dnr-shell .dnr-activity-number{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}\n.dnr-shell .dnr-activity-state{display:inline-flex;border-radius:7px;border:1px solid var(--dnr-border);padding:2px 7px;white-space:nowrap}\n.dnr-shell .dnr-activity-state[data-validity='valid']{border-color:var(--dsw-alias-positive-primary,#44b790)}\n.dnr-shell .dnr-activity-state[data-validity='unverified']{color:var(--dnr-muted)}\n.dnr-shell .dnr-activity-empty{text-align:center!important;color:var(--dnr-muted);padding:18px!important}\n@media(max-width:520px){.dnr-shell .dnr-account-card{padding:12px}.dnr-shell .dnr-account-head{gap:6px}.dnr-shell .dnr-account-metrics{grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr))}.dnr-shell .dnr-account-actions .dnr-button{flex:0 1 auto}}
 @media (max-width:920px){.dnr-shell .dnr-layout{grid-template-columns:156px minmax(0,1fr);gap:9px}.dnr-shell .dnr-rail{padding:5px}.dnr-shell .dnr-nav-button{padding:6px 8px}}
 @media (max-width:760px){.dnr-shell .dnr-layout{display:block}.dnr-shell .dnr-rail{display:none}.dnr-shell .dnr-mobile-nav{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}.dnr-shell .dnr-mobile-nav span{color:var(--dnr-muted);font-size:11px}.dnr-shell .dnr-panel-head{align-items:flex-start}.dnr-shell .dnr-savebar{position:sticky;bottom:0}}
 @media (max-width:520px){.dnr-shell .dnr-nav-group{grid-template-columns:repeat(2,minmax(0,1fr))}.dnr-shell .dnr-savebar{gap:6px}.dnr-shell .dnr-savebar .dnr-save-note{flex-basis:100%;margin-left:0}.dnr-shell .dnr-header-note{flex-basis:100%}.dnr-shell .dnr-panel-head{display:block}.dnr-shell .dnr-panel-head>div{margin-top:7px}}
@@ -106,7 +106,7 @@ window.__ModuleLoader__.load({
 .dnr-shell .dnr-sync-dot[data-state="ready"]{background:var(--dsw-alias-positive-primary,#35ad7b)}
 .dnr-shell .dnr-sync-dot[data-state="partial"]{background:#bd902d}
 .dnr-shell .dnr-sync-dot[data-state="offline"]{background:var(--dsw-alias-danger-primary,#c85a68)}
-.dnr-shell .dnr-channel-group{margin:12px 0;border:1px solid var(--dnr-border);border-radius:13px;min-width:0;background:var(--dnr-surface);overflow:clip}
+.dnr-shell .dnr-channel-group{margin:12px 0;border:1px solid var(--dnr-border);border-left:3px solid var(--dnr-brand);border-radius:10px;min-width:0;background:var(--dnr-surface);overflow:clip}
 .dnr-shell .dnr-channel-group>summary{list-style:none;cursor:pointer;padding:15px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:55px}
 .dnr-shell .dnr-channel-group>summary::-webkit-details-marker{display:none}
 .dnr-shell .dnr-channel-group>summary::after{content:'展开';font-size:12px;color:var(--dnr-muted);margin-left:auto}
@@ -157,6 +157,11 @@ window.__ModuleLoader__.load({
 .dnr-shell .dnr-toolbar .dnr-sync-status .dnr-button{margin:0}
 .dnr-shell .dnr-toolbar .dnr-savebar{position:static;z-index:auto;bottom:auto;display:flex;flex:0 1 auto;align-items:center;justify-content:flex-start;gap:6px;flex-wrap:wrap;margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}
 .dnr-shell .dnr-toolbar .dnr-savebar .dnr-save-note{margin-left:0;font-size:11px;flex-basis:auto}
+.dnr-shell .dnr-source-channel-list{display:grid;gap:8px;margin-top:8px}
+.dnr-shell .dnr-source-channel{border:1px solid var(--dnr-border);border-left:3px solid var(--dnr-brand);border-radius:9px;padding:9px;background:var(--dnr-surface);min-width:0}
+.dnr-shell .dnr-source-channel-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.dnr-shell .dnr-inline-source-result{margin-top:8px;padding:8px;border-top:1px solid var(--dnr-border);min-width:0;overflow-wrap:anywhere}
+.dnr-shell .dnr-source-login-actions{display:flex;flex-wrap:wrap;gap:6px}
 .dnr-shell .dnr-toolbar .dnr-button{min-height:36px;padding:6px 10px;font-size:12px}
 .dnr-shell .dnr-panel,.dnr-shell .dnr-channel-group,.dnr-shell .dnr-account-card{max-width:100%;min-width:0}
 .dnr-shell .dnr-channel-group>summary{flex-wrap:wrap;justify-content:flex-start;column-gap:8px;row-gap:4px;padding:10px 12px;min-height:42px}
@@ -303,13 +308,35 @@ window.__ModuleLoader__.load({
           ready:pack?.modelAdapterReady?.includes(id)===true,
           blocked:pack?.modelAdapterUnready?.includes(id)===true,
           pending:pendingLogin?.providerId===id};
-      }).sort((a,b)=>(b.count>0)-(a.count>0)||a.name.localeCompare(b.name,'zh-CN'));
+       }).sort((a,b)=>a.name.localeCompare(b.name,'zh-CN')||a.id.localeCompare(b.id));
+      function sourceLoginPanel(){return h('div',{className:'dnr-inline-source-result','aria-label':'当前渠道授权选项'},          pendingLogin?h('div',{style:{...css.card,padding:10}},
+            h('span',{style:css.small},pendingLogin.mode==='sms-reauth'
+              ?'现有 Loomy 账号 · 原账号重新授权，不会创建重复账号'
+               :'当前渠道：'+pendingLogin.providerId+' · 等待官方授权确认'),
+             pendingLogin.mode==='sms-reauth'?null:pendingLogin.loginUrl?h('div',{style:css.line},
+               h('a',{href:pendingLogin.loginUrl,target:'_blank',rel:'noopener noreferrer'},
+                 pendingLogin.providerId==='raccoon'?'打开官方网页授权（扫码/短信）':'打开授权链接（先核对域名）')):h('p',{style:css.small},'来源未提供安全授权链接，不能自动打开'),
+              pendingLogin.mode==='sms-reauth'?null:h(Button,{disabled:!!sourceBusy,onClick:onSourcePoll},'检查登录结果'),             h(Button,{disabled:!!sourceBusy,onClick:onSourceDismissLogin,
+               title:'只结束本页面的授权跟踪，不移除或退出渠道账号'},'结束本次授权跟踪')):null,
+          pendingLogin?.providerId==='loomy'?h('div',{style:{...css.card,padding:10}},
+            h('p',{style:css.small},'微信扫码不可用时，可使用 Loomy 官方短信验证码备用登录；短信仅用于这次账号授权。'),
+            h('div',{style:css.line},
+              h('input',{type:'tel',inputMode:'numeric',autoComplete:'tel',maxLength:11,
+                'aria-label':'Loomy 手机号',placeholder:'11 位手机号',style:css.input,
+                value:loomySmsPhone,onChange:e=>onLoomySmsPhone(e.target.value)}),
+              h(Button,{disabled:!!sourceBusy||!/^1[3-9]\d{9}$/.test(loomySmsPhone),
+                onClick:onLoomySmsSend},'发送官方短信验证码')),
+            h('div',{style:css.line},
+              h('input',{type:'text',inputMode:'numeric',autoComplete:'one-time-code',maxLength:8,
+                'aria-label':'Loomy 短信验证码',placeholder:'短信验证码',style:css.input,
+                value:loomySmsCode,onChange:e=>onLoomySmsCode(e.target.value)}),
+              h(Button,{disabled:!!sourceBusy||!loomySmsSent||!/^\d{4,8}$/.test(loomySmsCode),
+                onClick:onLoomySmsSubmit},'核验短信并完成登录'))):null);}
       const packLabel={disabled:'默认关闭',blocked:'安全门禁阻止',waiting_host_services:'等待宿主',loading:'加载中',mounted:live?'自主登录已就绪':'渠道已挂载，登录接口等待中',failed:'挂载失败',host_disposed:'宿主已释放',disposed:'已释放',unavailable:'不可用'}[pack?.state]||'状态未知';
        return h(Panel,{title:'渠道授权池 · 自主登录与原授权接管'},
         h('div',{style:css.line},
           h('strong',null,packLabel),
-           h('span',{style:css.mutedTag},'可自主授权 '+(pack?.channelCount??13)+' 个'),
-           pack?.state==='mounted'?h('span',{style:css.mutedTag},
+           h('span',{style:css.mutedTag},'来源渠道 '+(pack?.channelCount??13)+' 个'),           pack?.state==='mounted'?h('span',{style:css.mutedTag},
              '模型路由 '+(pack?.modelAdapterReady?.length??0)+'/13 已就绪'):null),
          pack?.reason?h('p',{role:pack?.state==='failed'?'alert':undefined,style:css.small},
            pack.reason+(pack?.errorStage?'（失败阶段：'+pack.errorStage+'）':'')+
@@ -325,74 +352,36 @@ window.__ModuleLoader__.load({
             h('div',{style:{...css.line,justifyContent:'space-between'}},
               h('strong',null,'全部独立来源 · '+sourceChannels.length+' 渠道'),
               h('span',{style:css.small},'已登记账号和已鉴权账号分开计数，空渠道不代表授权成功')),
-            h('div',{style:{maxHeight:390,overflowY:'auto',scrollbarWidth:'thin'}},
-              visibleSources.map(item=>h('div',{key:item.id,'data-source-provider':item.id,
-                style:{...css.itemRow,gap:9}},
-                h('div',{style:{flex:'1 1 170px',minWidth:0}},
-                  h('div',{style:{...css.line,marginBottom:2}},
-                    h('strong',null,item.name),
-                    h('span',{style:css.small},item.id)),
-                  h('div',{style:{...css.line,marginBottom:0}},
-                    h('span',{style:css.mutedTag},upstream?.state!=='ready'?'账号池尚未读取':
-                      item.count===0?'尚无独立账号':'登记 '+item.count+' 个 / 官方鉴权 '+item.verified+' 个'),
-                    h('span',{style:css.mutedTag},item.ready?'适配器已就绪':
-                      item.blocked?'适配器异常':'模型适配器待确认'),
-                    item.pending?h('span',{style:css.mutedTag},'授权待确认'):null)),
-                h('div',{className:'dnr-source-login-actions',style:{...css.line,marginBottom:0}},
-                  h(Button,{disabled:!live||!!busy||!!sourceBusy,
-                    title:'选择 '+item.name+' 查询模型',
-                    onClick:()=>setModelProvider(item.id)},'选择'),
-                  h(Button,{disabled:!live||!!busy||!!sourceBusy||!!pendingLogin,
-                    title:'在本插件自有来源池授权 '+item.name,
-                    onClick:()=>onSourceLogin(item.id)},'自主登录')))))):null,
-         pack?.skippedProviders?.length?h('details',null,
+             h('div',{className:'dnr-source-channel-list'},
+               visibleSources.map(item=>h('section',{key:item.id,'data-source-provider':item.id,className:'dnr-source-channel'},
+                 h('div',{className:'dnr-source-channel-head'},
+                   h('div',{style:{flex:'1 1 160px',minWidth:0}},
+                     h('div',{style:{...css.line,marginBottom:2}},h('strong',null,item.name),h('span',{style:css.small},item.id)),
+                     h('div',{style:{...css.line,marginBottom:0}},
+                       h('span',{style:css.mutedTag},upstream?.state!=='ready'?'账号池尚未读取':
+                         item.count===0?'尚无独立账号':'登记 '+item.count+' 个 / 官方鉴权 '+item.verified+' 个'),
+                       h('span',{style:css.mutedTag},item.ready?'适配器已就绪':item.blocked?'适配器异常':'模型适配器待确认'),
+                       item.pending?h('span',{style:css.mutedTag},'授权待确认'):null)),
+                   h('div',{className:'dnr-source-login-actions'},
+                     h(Button,{disabled:!live||!!busy||!!modelBusy,onClick:()=>onModels(item.id)},
+                       modelBusy&&selectedSource===item.id?'查询中…':'查询模型'),
+                      h(Button,{disabled:!live||!!busy||!!sourceBusy||!!pendingLogin||item.id==='gemini',
+                        title:item.id==='gemini'?'Google Code Assist 不支持第三方 OAuth 客户端':'在本插件自有来源池授权 '+item.name,onClick:()=>onSourceLogin(item.id)},'自主登录'))),
+                  item.id==='gemini'?h('p',{style:css.small},'Google Code Assist 第三方 OAuth 受官方限制；保留合规宿主接入，不发起无效授权。'):null,
+                  pendingLogin?.providerId===item.id?sourceLoginPanel():null,
+                  models?.state==='ready'&&models.providerId===item.id?h('div',{className:'dnr-inline-source-result',style:{maxHeight:260,overflowY:'auto'}},
+                    h('p',{style:css.small},'模型 '+models.models.length+' 项 · 免费标记需核实'),
+                    models.models.map(m=>h('div',{key:m.id,style:css.line},h('strong',null,m.name),h('span',{style:css.small},m.id),m.upstreamFreeLabel?h('span',{style:css.mutedTag},'来源标记免费 · 未核实'):null))):null)))):null,         pack?.skippedProviders?.length?h('details',null,
            h('summary',{style:{cursor:'pointer',fontSize:12}},
              '宿主已有 '+pack.skippedProviders.length+' 个同名原渠道 · 自主登录仍可用'),
-           h('p',{style:css.small},pack.skippedProviders.join('、')+'：原插件可继续复用，此处可自主登录到独立账号池，模型调用不会覆盖原插件。')):null,        live?h('div',null,
-          h('div',{style:css.line},
-            h(Select,{label:'来源渠道',value:selectedSource,onChange:setModelProvider,
-              options:sourceChannels.map(id=>({value:id,label:
-                (channelCatalog?.find(c=>c.id===id)?.name||id)+' · '+id}))}),
-            h(Button,{disabled:!selectedSource||!!busy||!!modelBusy||!!sourceBusy,onClick:()=>onModels(selectedSource)},
-              modelBusy?'模型查询中…':'查询模型'),
-             h(Button,{disabled:!selectedSource||!!busy||!!sourceBusy||!!pendingLogin,onClick:()=>onSourceLogin(selectedSource)},'发起扫码/网页登录')),
-          pendingLogin?h('div',{style:{...css.card,padding:10}},
-            h('span',{style:css.small},pendingLogin.mode==='sms-reauth'
-              ?'现有 Loomy 账号 · 原账号重新授权，不会创建重复账号'
-              :'待授权渠道：'+pendingLogin.providerId+' / '+pendingLogin.accountId),
-            pendingLogin.mode==='sms-reauth'?null:pendingLogin.loginUrl?h('div',{style:css.line},
-              h('a',{href:pendingLogin.loginUrl,target:'_blank',rel:'noopener noreferrer'},
-                '打开授权链接（先核对域名）')):h('p',{style:css.small},'来源未提供安全授权链接，不能自动打开'),
-             pendingLogin.mode==='sms-reauth'?null:h(Button,{disabled:!!sourceBusy,onClick:onSourcePoll},'检查登录结果'),
-             h(Button,{disabled:!!sourceBusy,onClick:onSourceDismissLogin,
-               title:'只结束本页面的授权跟踪，不移除或退出渠道账号'},'结束本次授权跟踪')):null,
-          pendingLogin?.providerId==='loomy'?h('div',{style:{...css.card,padding:10}},
-            h('p',{style:css.small},'微信扫码不可用时，可使用 Loomy 官方短信验证码备用登录；短信仅用于这次账号授权。'),
-            h('div',{style:css.line},
-              h('input',{type:'tel',inputMode:'numeric',autoComplete:'tel',maxLength:11,
-                'aria-label':'Loomy 手机号',placeholder:'11 位手机号',style:css.input,
-                value:loomySmsPhone,onChange:e=>onLoomySmsPhone(e.target.value)}),
-              h(Button,{disabled:!!sourceBusy||!/^1[3-9]\d{9}$/.test(loomySmsPhone),
-                onClick:onLoomySmsSend},'发送官方短信验证码')),
-            h('div',{style:css.line},
-              h('input',{type:'text',inputMode:'numeric',autoComplete:'one-time-code',maxLength:8,
-                'aria-label':'Loomy 短信验证码',placeholder:'短信验证码',style:css.input,
-                value:loomySmsCode,onChange:e=>onLoomySmsCode(e.target.value)}),
-              h(Button,{disabled:!!sourceBusy||!loomySmsSent||!/^\d{4,8}$/.test(loomySmsCode),
-                onClick:onLoomySmsSubmit},'核验短信并完成登录'))):null,
-          models?.state==='ready'&&models.providerId===selectedSource?h('div',{style:{...css.card,maxHeight:300,overflowY:'auto'}},
-            h('p',{style:css.small},'模型 '+models.models.length+' 项；免费标记未经核实，需用户自行审核导入账号并配置模型链。'),
-            models.models.map(m=>h('div',{key:m.id,style:{...css.line,marginBottom:5}},
-              h('strong',null,m.name),h('span',{style:css.small},m.id),
-              m.upstreamFreeLabel?h('span',{style:css.small},'来源标记免费 · 未核实'):null))):null
-        ):h('p',{style:css.small},
-          pack?.state==='mounted'?'来源包已加载，但尚未确认 DSH Connection 登录接口成功注册；请重新读取状态，未确认前不会发起登录。':
-          '启用并保存配置、重启 DSH 后可进行自主登录、刷新与模型查询。'),
+           h('p',{style:css.small},pack.skippedProviders.join('、')+'：原插件可继续复用，此处可自主登录到独立账号池。')):null,
+         !live?h('p',{style:css.small},'来源服务尚未就绪，请核查宿主状态。'):null,
         upstream?.state==='ready'?h('div',null,
            h('p',{style:css.small},'来源池共 '+rows.length+' 条记录：自主登录与原授权接管均在此管理，来源不会因此被当作二次登录。'),
-          h('div',{style:{maxHeight:320,overflowY:'auto'}},
-            rows.map(row=>h('div',{key:row.providerId+':'+row.id,className:'dnr-source-entry'},
-              h('div',{style:{flex:'1 1 205px',minWidth:0}},
+           h('div',{className:'dnr-source-channel-list'},
+             [...new Set(rows.map(row=>row.providerId))].sort().map(providerId=>h('section',{key:providerId,className:'dnr-source-channel'},
+              h('strong',{style:{fontSize:12}},channelCatalog?.find(c=>c.id===providerId)?.name||providerId),
+              rows.filter(row=>row.providerId===providerId).map(row=>h('div',{key:row.providerId+':'+row.id,className:'dnr-source-entry'},              h('div',{style:{flex:'1 1 205px',minWidth:0}},
                 h('div',{style:{...css.line,marginBottom:2}},
                    h('strong',null,row.providerId),
                    h('span',{style:{fontSize:12,overflowWrap:'anywhere'}},
@@ -420,8 +409,7 @@ window.__ModuleLoader__.load({
                   if(window.confirm('确认永久移除来源账号 '+row.id+' ？此操作调用上游账号池删除接口，并尝试清除本地保存的来源凭据；不等于撤销云端授权。若本插件仍引用该渠道账号则拒绝删除。'))
                     run('/channels/embedded/account-remove',{providerId:row.providerId,accountId:row.id,
                        acknowledgedSourceCredentialDeletion:true},'来源账号已从上游账号池移除；云端授权撤销需到官方服务检查。');
-                }},'退出来源账号（尝试清凭据）')))))):null,
-        upstream?.state==='error'?h('p',{style:css.small},'来源账号池读取失败；未修改任何账号。'):null,
+                 }},'退出来源账号（尝试清凭据）')))))))):null,        upstream?.state==='error'?h('p',{style:css.small},'来源账号池读取失败；未修改任何账号。'):null,
         upstream?.state==='unavailable'&&live?h('p',{style:css.small},'来源账号池暂不可读取。'):null
       );
     }
@@ -801,7 +789,7 @@ window.__ModuleLoader__.load({
     function AccountConsole({data,query,onQuery,run,setTab,busy,discovered,onAddProvider,
       onManageAccounts,onOpenOwnedSource,selectedChannel,onSelectChannel,onRefresh,
       hasDraft,loginWidgets={}}){
-      const [batch,setBatch]=useState(null),[accountFilter,setAccountFilter]=useState('all');
+       const [batch,setBatch]=useState(null),[accountFilter,setAccountFilter]=useState('all'),[verifyChannels,setVerifyChannels]=useState([]);
       if(!data)return h(Panel,{title:'渠道账号'},'账号中心尚未连接 DSH Host。');
       const accounts=data.accounts||[];
       async function runFreeBatch(){
@@ -861,8 +849,7 @@ window.__ModuleLoader__.load({
            actions:h('div',{style:css.line},
              h(Button,{kind:'primary',disabled:!!busy||batch?.running,
                onClick:()=>onRefresh?.()},'只读刷新账号数据'),
-             h(Button,{disabled:!!busy||batch?.running,onClick:()=>run('/channels/accounts/action',
-               {action:'refresh-all'},'已逐账号检查官方身份')},'逐账号验证'),
+              h(Button,{disabled:!!busy||batch?.running||!verifyChannels.length,onClick:()=>run('/channels/accounts/action',{action:'refresh-selected',providerIds:verifyChannels},'已验证所选渠道')},'验证所选 '+verifyChannels.length+' 渠道'),
              h('details',{className:'dnr-small-action'},
                h('summary',{style:css.small},'高级模型测试'),
                h(Button,{disabled:!!busy||batch?.running||hasDraft,
@@ -885,7 +872,16 @@ window.__ModuleLoader__.load({
               .map(([id,label])=>h('button',{key:id,type:'button',
                 className:'dnr-button','aria-pressed':accountFilter===id,
                 onClick:()=>setAccountFilter(id)},label))),
-          h('label',{className:'dnr-input-field',style:{...css.field,maxWidth:350}},
+           h('details',{style:{...css.card,padding:8}},
+             h('summary',{style:{cursor:'pointer',fontSize:12}},'勾选待鉴权渠道 · 已选 '+verifyChannels.length),
+             h('div',{style:css.line},
+               h(Button,{onClick:()=>setVerifyChannels(allChannels.filter(c=>accounts.some(a=>a.providerId===c.id&&a.enabled&&a.connectionState!=='online')).map(c=>c.id))},'选择待验证渠道'),
+               h(Button,{onClick:()=>setVerifyChannels([])},'清空')),
+             h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,150px),1fr))',gap:5}},
+               allChannels.map(c=>h('label',{key:c.id,style:{display:'flex',gap:6,alignItems:'center',minHeight:28}},
+                 h('input',{type:'checkbox',checked:verifyChannels.includes(c.id),onChange:e=>{const checked=e.target.checked;setVerifyChannels(old=>checked?[...new Set([...old,c.id])]:old.filter(id=>id!==c.id))}}),c.name))),
+             h('p',{style:css.small},'只验证所选渠道未通过鉴权的启用账号。')),
+           h('label',{className:'dnr-input-field',style:{...css.field,maxWidth:350}},
             h('span',{style:css.small},'筛选渠道（默认全部）'),
             h('select',{style:css.input,value:selectedChannel||'all',
               onChange:e=>onSelectChannel(e.target.value)},
@@ -1393,6 +1389,7 @@ window.__ModuleLoader__.load({
            [awsQuickCallback,setAwsQuickCallback]=useState(''),
            [providerQuery,setProviderQuery]=useState('');
        const refreshSequence=useRef(0);
+       const sourcePollActive=useRef(false),sourceLoginGeneration=useRef(0),sourceModelGeneration=useRef(0);
        const [syncState,setSyncState]=useState('loading');
        const [lastSyncAt,setLastSyncAt]=useState(null);
        const refreshRuntime=useCallback(async({light=false}={})=>{
@@ -1581,6 +1578,11 @@ window.__ModuleLoader__.load({
           },5*60*1000);
           return ()=>clearInterval(timer);
         },[tab,reuseSubtab,hostModels?.providerId]);
+       useEffect(()=>{
+         if(!pendingSourceLogin||pendingSourceLogin.mode==='sms-reauth'||sourceRpcBusy||typeof setInterval!=='function')return;
+         const timer=setInterval(()=>sourcePollLogin({quiet:true}),4000);
+         return ()=>clearInterval(timer);
+       },[pendingSourceLogin,sourceRpcBusy]);
         // Visiting the adoption tab scans metadata only; no account migration.
       useEffect(()=>{
         if(tab==='reuse'&&reuseSubtab==='sessions')void loadAdoptionPreview();
@@ -1687,7 +1689,7 @@ window.__ModuleLoader__.load({
             setDiscovered(old=>({...old,[body.providerId]:[]}));
             setNotice('账号引用已导入并启用；还需完成服务端鉴权及真实模型回复验收。');
           }
-          else if(path==='/channels/accounts/action'&&body.action==='refresh-all')setNotice('已检查 '+data.attempted+' 个可验证账号，各账号的真实结果见上方。');
+           else if(path==='/channels/accounts/action'&&['refresh-all','refresh-selected'].includes(body.action))setNotice('已检查 '+data.attempted+' 个账号，跳过 '+(data.skipped??0)+' 个已有在线证明的账号。');
           else if(path==='/channels/accounts/action'&&body.action==='model-test'){
             if(data.result?.state==='verified')setNotice('真实回复成功：'+data.result.modelId+
               ' · '+(data.result.responsePreview||'完成')+'；已记录到对应账号。');
@@ -1745,7 +1747,7 @@ window.__ModuleLoader__.load({
       }
       async function sourceLogin(providerId){
         if(pendingSourceLogin){setError('已有渠道授权待确认，请先完成或结束本次跟踪');return}
-        if(!window.confirm('确认在隔离来源渠道包中为 '+providerId+' 创建新的授权流程？授权链接只供你手动核对并打开，不会自动跳转。'))return;
+         // Clicking the channel login button explicitly starts its own authorization.
         setSourceRpcBusy('login');setError('');setNotice('');
         try{
           const result=await callSourceRpc('account.create',{provider:providerId});
@@ -1754,25 +1756,22 @@ window.__ModuleLoader__.load({
           const loginUrl=safeSourceLoginUrl(result.loginUrl);
           setPendingSourceLogin({providerId,accountId:result.accountId,loginUrl});
           setLoomySmsPhone('');setLoomySmsCode('');setLoomySmsSent(false);
-          setNotice(loginUrl?'已创建来源授权流程。请核对链接域名，打开授权后手动点击检查登录结果。':
-            '来源授权流程已建立，但返回的授权链接不符合安全要求，未自动打开。');
-           await refreshRuntime();
-        }catch(error){setError(String(error?.message??error))}
+           sourceLoginGeneration.current++;
+           setNotice(loginUrl?'已创建 '+providerId+' 授权，请在当前渠道卡片打开官方页面；完成后自动确认并鉴权。':
+             '来源授权流程已建立，但返回的授权链接不符合安全要求，未自动打开。');        }catch(error){setError(String(error?.message??error))}
         finally{setSourceRpcBusy('')}
       }
       function sourceDismissLogin(){
         if(!pendingSourceLogin)return;
         if(!window.confirm('确定结束当前页面的授权跟踪？仅清除界面待确认状态，不会删除来源账号或凭据；已建账号仍可在来源账号池管理。'))return;
-        setPendingSourceLogin(null);
-        setLoomySmsPhone('');setLoomySmsCode('');setLoomySmsSent(false);
+         sourceLoginGeneration.current++;setPendingSourceLogin(null);        setLoomySmsPhone('');setLoomySmsCode('');setLoomySmsSent(false);
         setNotice('已结束本页授权跟踪，来源账号池未修改。');
       }
       function sourceReuseLoomyAccount(account){
         if(account?.providerId!=='loomy'||account.enabled!==true
           ||typeof account.id!=='string'||!/^[-_a-zA-Z0-9]{1,100}$/.test(account.id))return;
         if(pendingSourceLogin){setError('已有授权待确认，不能覆盖另一账号的待授权状态');return;}
-        setPendingSourceLogin({providerId:'loomy',accountId:account.id,mode:'sms-reauth'});
-        setLoomySmsPhone('');setLoomySmsCode('');setLoomySmsSent(false);
+         sourceLoginGeneration.current++;setPendingSourceLogin({providerId:'loomy',accountId:account.id,mode:'sms-reauth'});        setLoomySmsPhone('');setLoomySmsCode('');setLoomySmsSent(false);
         setNotice('准备为现有 Loomy 账号重新授权，未自动申请短信，也未创建新账号。');
       }
       async function sourceSendLoomySms(){
@@ -1802,32 +1801,39 @@ window.__ModuleLoader__.load({
             provider:'loomy',accountId:pending.accountId,code:loomySmsCode});
           if(result.done!==true)throw Error('官方未确认验证码');
           setLoomySmsCode('');setLoomySmsPhone('');setLoomySmsSent(false);
-          setPendingSourceLogin(null);
-          setNotice('Loomy 官方短信认证已成功保存；模型调用仍须另外验收。');
-          await refreshRuntime();await refreshAutoFree();
-        }catch{setLoomySmsCode('');setError('Loomy 验证码未通过或授权未完成。');}
+           sourceLoginGeneration.current++;setPendingSourceLogin(null);
+           setNotice('Loomy 官方短信认证已保存，正在自动执行首次鉴权。');
+           await authenticateNewSource(pending.providerId);        }catch{setLoomySmsCode('');setError('Loomy 验证码未通过或授权未完成。');}
         finally{setSourceRpcBusy('')}
       }
-      async function sourcePollLogin(){
-        const pending=pendingSourceLogin;
-        if(!pending)return;
-        setSourceRpcBusy('poll');setError('');setNotice('');
-        try{
-          const result=await callSourceRpc('login.poll',{accountId:pending.accountId});
-          if(result.done!==true){
-            setNotice('来源授权尚未完成；并未认定该账号已连接。');return;
-          }
-          if(result.success!==true)throw Error('来源账号未能完成授权，请从原渠道确认');
-          setPendingSourceLogin(null);
-          setLoomySmsCode('');setLoomySmsPhone('');setLoomySmsSent(false);
-          setNotice('来源端确认已保存登录凭据，新账号已经成为独立来源；在线推理和签到仍需核验。');
+       async function authenticateNewSource(providerId){
+         try{
+           const response=await fetch(URL+'/channels/accounts/action',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'refresh-selected',providerIds:[providerId]})});
+           if(!response.ok)throw Error('首次鉴权暂未完成');
            await refreshRuntime();
-          await refreshAutoFree();
-        }catch(error){setError(String(error?.message??error))}
-        finally{setSourceRpcBusy('')}
-      }
-      async function sourceRefreshAccount(account){
-        setSourceRpcBusy('refresh');setError('');setNotice('');
+         }catch{setError(providerId+' 授权已保存，首次鉴权暂未完成；后台将按正常周期复核。')}
+       }
+       async function sourcePollLogin(options={}){
+         const quiet=options.quiet===true,pending=pendingSourceLogin;
+         if(!pending||pending.mode==='sms-reauth'||sourcePollActive.current||sourceRpcBusy)return;
+         const generation=sourceLoginGeneration.current;
+         sourcePollActive.current=true;
+         if(!quiet){setSourceRpcBusy('poll');setError('');}
+         try{
+           const result=await callSourceRpc('login.poll',{accountId:pending.accountId});
+           if(generation!==sourceLoginGeneration.current)return;
+           if(result.done!==true){
+             if(!quiet)setNotice(pending.providerId+' 尚未完成官方授权。');return;
+           }
+           sourceLoginGeneration.current++;setPendingSourceLogin(null);
+           setLoomySmsCode('');setLoomySmsPhone('');setLoomySmsSent(false);
+           if(result.success!==true){setError(pending.providerId+' 授权未完成或已过期，可在原渠道卡片重新发起。');return;}
+           setNotice(pending.providerId+' 官方授权已保存，正在自动执行首次鉴权。');
+           await authenticateNewSource(pending.providerId);
+         }catch(error){if(!quiet&&generation===sourceLoginGeneration.current)setError(String(error?.message??error))}
+         finally{sourcePollActive.current=false;if(!quiet)setSourceRpcBusy('')}
+       }
+       async function sourceRefreshAccount(account){        setSourceRpcBusy('refresh');setError('');setNotice('');
         try{
           const result=await callSourceRpc('account.refresh',{accountId:account.id});
           if(result.success!==true)throw Error('来源未确认续期成功');
@@ -1940,18 +1946,20 @@ window.__ModuleLoader__.load({
          }catch(error){if(!silent)setError(String(error?.message??error))}
          finally{if(!silent)setHostModelBusy('')}
         }
-        async function loadUpstreamModels(providerId){        setModelBusy(true);setError('');setEmbeddedModels(null);
-        try{
-          const response=await fetch(URL+'/channels/embedded/models',{
-            method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({providerId}),
-          });
-          const data=await response.json();
-          if(!response.ok||!data.ok)throw Error(data.error||'来源模型查询失败');
-          setEmbeddedModels(data.result);
-        }catch(error){setError(String(error?.message??error))}
-        finally{setModelBusy(false)}
-      }
-      const setCheckinSettings=change=>setCfg(old=>({...old,checkin:{...old.checkin,...change}}));
+         async function loadUpstreamModels(providerId){
+         const generation=++sourceModelGeneration.current;
+         setModelProvider(providerId);setModelBusy(true);setError('');setEmbeddedModels(null);
+         try{
+           const response=await fetch(URL+'/channels/embedded/models',{
+             method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({providerId}),
+           });
+           const data=await response.json();
+           if(generation!==sourceModelGeneration.current)return;
+           if(!response.ok||!data.ok)throw Error(data.error||'来源模型查询失败');
+           setEmbeddedModels({...data.result,providerId});
+         }catch(error){if(generation===sourceModelGeneration.current)setError(String(error?.message??error))}
+         finally{if(generation===sourceModelGeneration.current)setModelBusy(false)}
+       }      const setCheckinSettings=change=>setCfg(old=>({...old,checkin:{...old.checkin,...change}}));
       const setHostModelSelection=(providerId,ids)=>setCfg(old=>({...old,
         hostModelSelection:{...(old.hostModelSelection||{}),[providerId]:ids}}));
       const setAccountAuto=(id,enabled)=>setCfg(old=>({...old,accounts:old.accounts.map(a=>a.id===id?{...a,autoCheckin:enabled}:a)}));

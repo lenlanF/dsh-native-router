@@ -31,6 +31,24 @@ function fixture({rows=[],enabled=true,autoSourceAccounts=true,
 }
 const row=(providerId,id='acct-1',enabled=true)=>({id,providerId,nickname:providerId+' account',enabled});
 
+test('selected source verification reads only unverified account IDs and discovers newly added member',async()=>{
+ const rows=[row('loomy','already-online'),row('qoder','unselected')],calls=[];
+ const h=fixture({rows,enabled:false,statusQuery:async(provider,id)=>{
+  calls.push([provider,id??null]);
+  return {state:'ready',accounts:rows.filter(x=>x.providerId===provider&&(!id||x.id===id)).map(x=>({accountId:x.id,authVerified:true,nickname:x.id}))};
+ }});
+ try{
+  await h.center.refreshSources();
+  calls.length=0;
+  rows.push(row('loomy','new-member'));
+  await h.center.refreshSources({onlyProviderId:'loomy',skipVerified:true});
+  assert.deepEqual(calls,[['loomy','new-member']]);
+  assert.equal(h.center.sourceSnapshot().find(x=>x.id===sourceAccountOpaqueId('loomy','new-member')).connectionState,'online');
+  await h.center.refreshSources({onlyProviderId:'loomy',skipVerified:true});
+  assert.equal(calls.length,1);
+ }finally{h.center.stop()}
+});
+
 test('one source channel temporarily enabled works without global auto and restores off after test',async()=>{
  const h=fixture({enabled:false,rows:[row('loomy','one'),row('qoder','two')],
    channels:{loomy:true,qoder:false},independentChannels:['loomy']});

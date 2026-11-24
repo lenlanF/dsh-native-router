@@ -66425,8 +66425,8 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
   };
   config.nativeRouterCheckinsReady?.({
     status: (provider, accountId) => handleMethod("credits.status", { provider, accountId }),
-    balances: (provider) => handleMethod("credits.balances", { provider }),
-    identity: (provider) => handleMethod("account.list", { provider }),
+    balances: (provider, accountId) => handleMethod("credits.balances", { provider, accountId }),
+    identity: (provider, accountId) => handleMethod("account.list", { provider, accountId }),
     claim: (provider, accountId) => handleMethod("credits.claimAll", { provider, accountId })
   });
   const qoderFamily = [
@@ -66713,7 +66713,7 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
     switch (method) {
       case "account.list": {
         const req = payload;
-        const accounts = await pool.listAccounts(req.provider);
+        const accounts = await nativeRouterCreditAccounts(req);
         return { ok: true, value: { accounts: await enrichAccountIdentity(accounts, req.provider) } };
       }
       case "account.create": {
@@ -66728,6 +66728,7 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
         const product = productById(provider);
         if (provider === GEMINI.id) {
           const ref = credentialRef(refName);
+          return { ok: false, error: { code: "gemini-official-oauth-restricted", message: "Third-party Code Assist OAuth is not supported" } };
           const started = await startGeminiOAuthFlow({});
           await pool.addAccount({
             id,
@@ -66999,7 +67000,8 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
           });
           let raccoonStarted;
           try {
-            raccoonStarted = await raccoon.startLogin();
+            if (typeof config.nativeRouterRaccoonLogin !== "function") throw new Error("raccoon-authorize-unavailable");
+            raccoonStarted = await config.nativeRouterRaccoonLogin();
           } catch (error) {
             void pool.removeAccount(id).catch(() => {
             });
@@ -67915,7 +67917,7 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
       // 网络耗时拖慢，且一次查询失败会让整份列表都取不到。
       case "credits.balances": {
         const req = payload;
-        const accounts = await pool.listAccounts(req.provider);
+        const accounts = await nativeRouterCreditAccounts(req);
         if (req.provider === "codearts") {
           const values2 = await collectCreditBalances(accounts, void 0, {
             resolve: (ref) => ctx.credentials.resolve(ref),

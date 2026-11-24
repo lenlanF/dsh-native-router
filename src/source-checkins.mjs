@@ -99,15 +99,12 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
     }
     return cached;
   }
-  async function refresh({force=false,onlyProviderId=null}={}){
+   async function refresh({force=false,onlyProviderId=null,skipVerified=false}={}){
   if(stopped||!sourcePack?.listAccounts)return [];
   if(refreshing){
-    if(!force)return refreshing;
-    // A claim needs a NEW observation from after its acceptance. Joining
-    // a status request started before that claim can falsely report pending
-    // even after the server has confirmed today's reward.
+    if(!force&&!skipVerified)return refreshing;
     await refreshing;
-    return stopped?[]:refresh({force:true,onlyProviderId});
+    return stopped?[]:refresh({force,onlyProviderId,skipVerified});
   }
   refreshing=(async()=>{
    const reply=await sourcePack.listAccounts();
@@ -147,11 +144,16 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
       // force-refresh the entire set of other authenticated channels.
       const statusProviders=onlyProviderId?providers.filter(id=>id===onlyProviderId):providers;
       await Promise.all(statusProviders.map(async providerId=>{
-        const members=[...roster.values()].filter(row=>row.providerId===providerId&&active(row));
+         const members=[...roster.values()].filter(row=>{
+           if(row.providerId!==providerId||!active(row))return false;
+           if(!skipVerified)return true;
+           const cached=currentStatus(row);
+           return !(cached?.authVerified===true&&verificationWithinPeriod({state:'online',checkedAt:cached.checkedAt},now(),STATUS_TTL_MS));
+         });
+         if(!members.length)return;
         const bindings=new Map(members.map(row=>[row.id,bindingFor(row)]));
         const last=statusAttempts.get(providerId);
-        if(!force){
-          // A provider-level successful probe is not a proof for every
+         if(!force&&!skipVerified){          // A provider-level successful probe is not a proof for every
           // account on that provider. Newly enabled/imported members without
           // their own fresh result must be checked immediately, rather than
           // being blocked by the first account's five-minute success cache.
@@ -165,8 +167,15 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
           if(last&&!last.ok&&now()-last.at<60000)return;
         }
         statusAttempts.set(providerId,{at:now(),ok:false});
-        const result=await sourcePack.readSourceStatuses(providerId)
-          .catch(()=>({state:'unavailable'}));
+         let result;
+         if(skipVerified){
+            const checked=[];let read=0;
+            for(const member of members){
+              if(stopped||!active(member))break;
+              const item=await sourcePack.readSourceStatuses(providerId,member.sourceAccountId).catch(()=>null);
+              if(item?.state==='ready'&&Array.isArray(item.accounts)){read++;checked.push(...item.accounts.filter(x=>x.accountId===member.sourceAccountId));}
+            }
+            result={state:read?'ready':'unavailable',accounts:checked};         }else result=await sourcePack.readSourceStatuses(providerId).catch(()=>({state:'unavailable'}));
         if(stopped||result?.state!=='ready'||!Array.isArray(result.accounts))return;
         // A logout or channel disable may occur while the remote request is
         // pending. Never commit its old successful auth proof to a disabled
