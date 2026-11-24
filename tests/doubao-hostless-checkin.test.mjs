@@ -47,48 +47,29 @@ function fixture({already=false,afterClaim='verified',claimError=false,withTask=
  return {driver,accountPromise,calls,delays};
 }
 
-test('Doubao web member check-in confirms reward without a DoubaoWork process',async()=>{
+test('Doubao unchecked official PC campaign remains read-only, never consumes a claim attempt',async()=>{
  const rig=fixture(),account=await rig.accountPromise;
  const result=await rig.driver.checkIn({account,date});
- assert.equal(result.confirmed,true);
- assert.equal(result.date,date);
- assert.equal(rig.calls.filter(x=>x.path==='/alice/ug/campaign/landing/checkin').length,1);
+ assert.equal(result.state,'client_required');assert.equal(result.diagnosticCode,'DOUBAO_OFFICIAL_CLIENT');
+ assert.equal(result.confirmed,undefined);
+ assert(!rig.calls.some(x=>x.path.includes('landing/checkin')));
  assert(rig.calls.some(x=>x.path==='/alice/ug/campaign/v3/detail'));
- assert(rig.calls.every(x=>x.method==='POST'));
 });
 test('Doubao already checked in never re-claims even with no original client',async()=>{
  const rig=fixture({already:true}),account=await rig.accountPromise;
  assert.equal((await rig.driver.checkIn({account,date})).confirmed,true);
  assert(!rig.calls.some(x=>x.path.includes('landing/checkin')));
 });
-test('Doubao check-in refuses to report success if server receipt is not confirmed',async()=>{
- const rig=fixture({afterClaim:'pending'}),account=await rig.accountPromise;
- const result=await rig.driver.checkIn({account,date});
- assert.equal(result.confirmed,undefined);
- assert.equal(result.state,'pending_confirmation');
- assert.deepEqual(rig.delays,[2000,4000]);
- assert.equal(rig.calls.filter(x=>x.path==='/alice/ug/campaign/v3/detail').length,4);
-});
-test('Doubao upstream rejection is not treated as a client-process requirement or success',async()=>{
+test('Doubao repeated status checks never call unsupported web mutation',async()=>{
  const rig=fixture({claimError:true}),account=await rig.accountPromise;
- const result=await rig.driver.checkIn({account,date});
-  assert.equal(result.state,'client_required');
-  assert.equal(result.confirmed,undefined);
-  assert.match(result.message,/官方要求/);
-});
-test('Doubao refresh discovers official promotion eligibility without submitting claim',async()=>{
- const rig=fixture(),account=await rig.accountPromise;
- // The mock does not offer a model catalog, so model refresh is not required
- // to prove that the already implemented campaign discovery is read-only.
- const result=await rig.driver.checkIn({account,date});
- assert.equal(result.confirmed,true);
- const unsafe=rig.calls.filter(x=>x.path==='/alice/ug/campaign/landing/checkin');
- assert.equal(unsafe.length,1);
+ for(let i=0;i<2;i++)assert.equal((await rig.driver.checkIn({account,date})).state,'client_required');
+ assert.equal(rig.calls.filter(x=>x.path.includes('landing/checkin')).length,0);
+ assert.equal(rig.calls.filter(x=>x.path.includes('/campaign/v3/detail')).length,2);
 });
 test('Doubao missing official unchecked flag cannot consume a claim attempt',async()=>{
  const rig=fixture({taskUnknown:true}),account=await rig.accountPromise;
  const result=await rig.driver.checkIn({account,date});
- assert.equal(result.state,'pending_confirmation');
+ assert.equal(result.state,'failed');assert.equal(result.diagnosticCode,'ELIGIBILITY_UNKNOWN');
  assert.equal(rig.calls.filter(x=>x.path.includes('landing/checkin')).length,0);
 });
 test('Doubao chat activity is not a daily-signin task and cannot be claimed blindly',async()=>{

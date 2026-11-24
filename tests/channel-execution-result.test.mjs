@@ -64,9 +64,14 @@ test('historical wallet receipts appearing after a refresh do not count as new a
  assert.equal(historicalOnly.newlyCreditedRewards,0);
 });
 
+test('official client requirement is not no task or a failed claim',()=>{
+ const summary=summarizeChannelExecution({results:[{accountId:'one',record:{state:'client_required'}},{accountId:'two',record:{state:'no_task'}}],today:day});
+ assert.equal(summary.clientRequiredAccounts,1);assert.equal(summary.noTaskAccounts,1);assert.equal(summary.failedAccounts,0);
+});
+
 test('a zero-result channel never claims execution or rewards',()=>{
   const result=summarizeChannelExecution({results:[],today:day});
   assert.deepEqual(result,{attempted:0,confirmedSignins:0,
     newlyCreditedRewards:0,pendingAccounts:0,failedAccounts:0,
-    noTaskAccounts:0,verification:'official-receipt-only'});
+    noTaskAccounts:0,clientRequiredAccounts:0,verification:'official-receipt-only'});
 });

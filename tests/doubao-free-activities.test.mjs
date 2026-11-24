@@ -51,7 +51,7 @@ function fixture({postFails=false,noGrant=false}={}){
     id:registered.id,providerId:registered.providerId,
     credentialRef:registered.credentialRef};
   return account;
- },get wallet(){return wallet},get claimed(){return claimed}};
+ },completeOfficial(){claimed=true;wallet+=20},get wallet(){return wallet},get claimed(){return claimed}};
 }
 test('Doubao only considers official completed, known-value campaign reward; never executes task',()=>{
  const result=completedDoubaoRewards({group:'pc_incentive_task_mvp_v3',
@@ -64,27 +64,26 @@ test('Doubao only considers official completed, known-value campaign reward; nev
     reward:[{reward_amount:20}]}]});
  assert.deepEqual(result.map(x=>x.code),['done']);
 });
-test('Doubao official task claimed + exact independent grant-wallet delta receives proof and never repeats',async()=>{
- const rig=fixture();const account=await rig.login();
- const first=await rig.driver.claimActivities({account,...rig.callbacks});
- assert.equal(first.confirmed,1);assert.equal(first.pending,0);
- assert.equal(rig.wallet,120);
- assert.equal(rig.receipts.summary(account).confirmed,1);
- assert.equal(rig.calls.filter(x=>x.path.endsWith('/item/reward/claim/')).length,1);
- const second=await rig.driver.claimActivities({account,...rig.callbacks});
- assert.equal(second.confirmed,0);
- assert.equal(rig.calls.filter(x=>x.path.endsWith('/item/reward/claim/')).length,1);
- assert.ok(rig.calls.every(x=>!x.path.includes('/chat/completions')));
- assert.ok(rig.driver.accountSnapshot(account).benefits.some(x=>x.claimed===true
-    &&x.kind.startsWith('doubao_task_')));
+test('Doubao PC-only completed tasks discovered without any plugin reward claim',async()=>{
+ const rig=fixture(),account=await rig.login();
+ for(let i=0;i<2;i++){
+  const result=await rig.driver.claimActivities({account,...rig.callbacks});
+  assert.equal(result.state,'client_required');assert.equal(result.confirmed,0);
+ }
+ assert.equal(rig.wallet,100);assert.equal(rig.receipts.summary(account).confirmed,0);
+ assert.equal(rig.calls.filter(x=>x.path.endsWith('/item/reward/claim/')).length,0);
 });
-test('Doubao uncertain POST can be reconciled by official account after state+wallet, never submitted again',async()=>{
- const rig=fixture({postFails:true});const account=await rig.login();
- const first=await rig.driver.claimActivities({account,...rig.callbacks});
- assert.equal(first.pending,1);assert.equal(rig.receipts.summary(account).unconfirmed,1);
- const second=await rig.driver.claimActivities({account,...rig.callbacks});
- assert.equal(second.pending,0);assert.equal(rig.receipts.summary(account).confirmed,1);
- assert.equal(rig.calls.filter(x=>x.path.endsWith('/item/reward/claim/')).length,1);
+test('Doubao previous uncertain receipt reconciles after official completion and exact wallet delta',async()=>{
+ const rig=fixture(),account=await rig.login();
+ await rig.driver.claimActivities({account,...rig.callbacks});
+ const offer=rig.driver.accountSnapshot(account).benefits.find(x=>!x.claimed);
+ assert.ok(offer);assert.equal(await rig.callbacks.beforeClaim(offer,{baselineBalance:100}),true);
+ await rig.callbacks.onOutcome(offer,'pending_confirmation',{});
+ rig.completeOfficial();
+ const result=await rig.driver.claimActivities({account,...rig.callbacks});
+ assert.equal(result.confirmed,1);assert.equal(rig.receipts.summary(account).confirmed,1);
+ assert.equal(rig.calls.filter(x=>x.path.endsWith('/item/reward/claim/')).length,0);
+ assert.equal((await rig.driver.claimActivities({account,...rig.callbacks})).confirmed,0);
 });
 test('Doubao missing independent free grant balance causes zero campaign POST',async()=>{
  const rig=fixture({noGrant:true});const account=await rig.login();

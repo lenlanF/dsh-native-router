@@ -23,3 +23,25 @@ test('generated LobsterAI claim rejects incomplete context before POST',async()=
  const claim=new Function('fetchLobsteraiActivitySlot','fetchLobsteraiActivityContext','sanitizingFetch',claimFn+';return claimLobsteraiDailyCheckin;')(async()=>slot,async()=>({actions:['check_in']}),()=>{throw Error('must not post')});
  assert.equal((await claim({}, {}, 'fixture')).diagnosticCode,'LOBSTER_CONTEXT_SHAPE');
 });
+test('LobsterAI activity slot diagnostic is preserved without any claim',async()=>{
+ for(const diagnosticCode of ['LOBSTER_SLOT_AUTH','LOBSTER_SLOT_LIMIT','LOBSTER_SLOT_ENDPOINT','LOBSTER_SLOT_HTTP','LOBSTER_SLOT_RESPONSE','LOBSTER_SLOT_REJECTED','LOBSTER_SLOT_TRANSPORT']){
+  const readSlot=async()=>({diagnosticCode});
+  const forbidden=async()=>{throw Error('unexpected context or claim')};
+  const status=new Function('fetchLobsteraiActivitySlot','fetchLobsteraiActivityContext','sanitizingFetch',statusFn+';return fetchLobsteraiCheckinStatus;')(readSlot,forbidden,forbidden);
+  const claim=new Function('fetchLobsteraiActivitySlot','fetchLobsteraiActivityContext','sanitizingFetch',claimFn+';return claimLobsteraiDailyCheckin;')(readSlot,forbidden,forbidden);
+  assert.equal((await status({}, {}, 'fixture')).diagnosticCode,diagnosticCode);
+  assert.equal((await claim({}, {}, 'fixture')).diagnosticCode,diagnosticCode);
+ }
+});
+test('generated LobsterAI HTTP reader classifies failures without revealing response bodies',async()=>{
+ const start=source.indexOf('async function requestJson2(');
+ const end=source.indexOf('function describeNonJsonResponse2(',start);
+ const fn=new Function('lobsteraiAuthHeaders','LOBSTERAI_REQUEST_TIMEOUT_MS','UNPARSABLE_RESPONSE_MESSAGE2',source.slice(start,end)+';return requestJson2;')(()=>({}),1000,'invalid');
+ for(const [status,code] of [[401,'LOBSTER_SLOT_AUTH'],[403,'LOBSTER_SLOT_AUTH'],[429,'LOBSTER_SLOT_LIMIT'],[404,'LOBSTER_SLOT_ENDPOINT'],[503,'LOBSTER_SLOT_HTTP']]){
+  const result=await fn('https://example.invalid',{}, {},async()=>new Response('private-fixture',{status}));
+  assert.equal(result.diagnosticCode,code);assert.doesNotMatch(JSON.stringify(result),/private-fixture/);
+ }
+ const failed=await fn('https://example.invalid',{}, {},async()=>{throw Error('private-fixture')});
+ assert.equal(failed.diagnosticCode,'LOBSTER_SLOT_TRANSPORT');
+ assert.doesNotMatch(JSON.stringify(failed),/private-fixture/);
+});

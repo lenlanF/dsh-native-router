@@ -1002,7 +1002,7 @@ window.__ModuleLoader__.load({
                    '备援账号 '+account.backupSources.length):null),
                 h('div',{style:css.line},
                   account.activityState&&account.providerId?.includes('doubao')?h('span',{style:css.mutedTag},
-                    '豆包活动：'+({claimed:'今日已领取',claimable:'今日可领取',not_offered:'当前无开放活动',
+                    '豆包活动：'+({claimed:'今日已领取',claimable:'今日可领取',client_required:'官方客户端领取 · 自动回查',not_offered:'当前无开放活动',
                       not_confirmed:'等待官方任务状态',unavailable:'活动状态未同步'}[account.activityState]||'待确认')):null,
                   (account.activityTaskCount>0&&account.providerId?.includes('doubao')?
                      [h('span',{key:account.id+'-other-tasks',style:css.mutedTag},
@@ -1100,7 +1100,7 @@ window.__ModuleLoader__.load({
                ' · 今日签到确认 '+(batchJob.activity?.confirmedSignins??0)+' · 新增到账 '+(batchJob.activity?.newlyCreditedRewards??0)+' · 待回查 '+(batchJob.activity?.pendingAccounts??0)),
              (batchJob.activityChannels??[]).map(item=>h('div',{key:item.providerId,style:css.line},
                h('strong',null,groups.find(c=>c.id===item.providerId)?.name||item.providerId),
-               h('span',{style:css.small},item.state==='unavailable'?'渠道执行异常':('处理 '+item.attempted+' · 签到确认 '+item.confirmedSignins+' · 新增到账 '+item.newlyCreditedRewards+' · 待回查 '+item.pendingAccounts+' · 失败 '+item.failedAccounts+' · 无任务 '+item.noTaskAccounts))))):null,
+               h('span',{style:css.small},item.state==='unavailable'?'渠道执行异常':('处理 '+item.attempted+' · 签到确认 '+item.confirmedSignins+' · 新增到账 '+item.newlyCreditedRewards+' · 待回查 '+item.pendingAccounts+' · 失败 '+item.failedAccounts+' · 无任务 '+item.noTaskAccounts+' · 官方端待处理 '+(item.clientRequiredAccounts??0)))))):null,
            cfg?.checkin?.autoEnabled!==true?h('div',{role:'status',
             style:{...css.card,margin:'8px 0 12px'}},
             h('strong',null,'全局自动免费活动已关闭'),
@@ -1773,7 +1773,7 @@ window.__ModuleLoader__.load({
               ' 个；新增官方到账奖励 '+s.newlyCreditedRewards+
               ' 项；待回查 '+s.pendingAccounts+' 个；失败/不可用 '+s.failedAccounts+
               ' 个；无可领任务 '+s.noTaskAccounts+
-              ' 个。未获官方到账证据的操作不计领取成功。');
+              ' 个；官方端待处理 '+(s.clientRequiredAccounts??0)+' 个。未获官方到账证据的操作不计领取成功。');
           }
           else if(path==='/checkins/action'&&body.action==='run'){
             const result=data.result||{},state=result.record?.state??result.state;
@@ -2301,8 +2301,8 @@ window.__ModuleLoader__.load({
              h(Button,{kind:'primary',disabled:mimoBusy||mimoLogin?.status==='waiting',
                onClick:startMimoBrowser},mimoLogin?.status==='waiting'?'等待会员授权…':'自主浏览器登录'),
              mimoLogin?.status==='waiting'?h(Button,{onClick:cancelMimoBrowser},'取消授权'):null)),
-           own_doubao:h(Panel,{title:'豆包工作会员 · 无需豆包客户端进程'},
-            h('p',{style:css.small},'无需安装或运行豆包工作客户端：本插件通过普通浏览器独立扫码、保存各账号 Cookie，并直接请求会员网页服务。签到通过网页提交并回查确认才算成功；未验收的工作任务模型不会虚报可用。'),
+           own_doubao:h(Panel,{title:'豆包会员 · 独立登录与额度回查'},
+            h('p',{style:css.small},'账号登录、余额与模型目录独立获取。当前官方赠额活动限豆包电脑版或豆包工作电脑版；本插件只读发现任务和回查到账，不代领、不消耗当天领取资格。'),
             h('div',{style:css.line},
               h(Button,{kind:'primary',disabled:doubaoBusy||doubaoLogin?.status==='waiting',
                 onClick:startDoubaoBrowser},doubaoLogin?.status==='waiting'?'等待浏览器授权…':'浏览器扫码登录'),

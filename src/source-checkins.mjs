@@ -447,12 +447,12 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
        await refresh({force:true,onlyProviderId:row.providerId});
        if(statusCache.get(id)?.day===today()&&statusCache.get(id)?.todayCheckedIn===true){
          state='success';message='上游签到状态已回查确认';
-       }else{state='pending_confirmation';message='请求已受理，服务端仍未确认；自动回查和限次重试';}
+       }else{state='pending_confirmation';message=publicCheckinMessage(state,reply?.diagnosticCode);}
       }else{message=publicCheckinMessage('failed',reply?.diagnosticCode)}
    assertAuthorized();
    const record=store.append({date:today(),accountId:id,providerId:row.providerId,
      state,message,at:now(),source,
-     ...(state==='failed'&&safeCheckinDiagnostic(reply?.diagnosticCode)?{diagnosticCode:safeCheckinDiagnostic(reply.diagnosticCode)}:{}),
+     ...(state!=='success'&&safeCheckinDiagnostic(reply?.diagnosticCode)?{diagnosticCode:safeCheckinDiagnostic(reply.diagnosticCode)}:{}),
     // Persist explicit read-only provenance across restarts. Older no_task
     // records and any claim POST result must still consume the attempt budget.
     ...(row.providerId==='zcode'&&state==='no_task'&&reply?.claimPosted===false

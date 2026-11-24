@@ -112,6 +112,34 @@ for(const providerId of ['loomy','codearts','lobsterai']){
   assert.equal(result.state,'pending_confirmation');assert.equal(f.calls.length,3);f.bridge.dispose();
  });
 }
+test('Buddy explicit active and unchecked flags permit an authorized daily claim without available',async()=>{
+ const f=await fixture({providerId:'buddy',statusOverride:{available:undefined,active:true}});
+ try{
+  const result=await f.bridge.checkinAccount({providerId:'buddy',sourceAccountId:'acct-b'});
+  assert.equal(result.confirmed,true);
+  assert.deepEqual(f.calls,['status:buddy:acct-b','claim:buddy:acct-b','status:buddy:acct-b']);
+ }finally{f.bridge.dispose()}
+});
+test('Buddy unknown or negative eligibility never sends a claim',async()=>{
+ for(const statusOverride of [{active:undefined,available:undefined},{active:false,available:undefined},{active:true,available:false}]){
+  const f=await fixture({providerId:'buddy',statusOverride});
+  try{
+   const result=await f.bridge.checkinAccount({providerId:'buddy',sourceAccountId:'acct-b'});
+   assert.notEqual(result.confirmed,true);assert.equal(f.calls.length,1);
+  }finally{f.bridge.dispose()}
+ }
+});
+test('Loomy wallet may consume quota concurrently without invalidating same-cycle initialization',async()=>{
+ const receipt={quota:500,balance:420,consumed:80,alreadyProcessed:true};
+ const f=await fixture({providerId:'loomy',statusOverride:{available:undefined,claimable:true},afterChecked:false,
+  afterOverride:{dailyQuotaEvidence:{quota:500,balance:400,consumed:100},dailyCycleDate:''},
+  outcomeKind:'already-claimed',outcomeFields:{dailyInitialization:receipt}});
+ try{
+  const result=await f.bridge.checkinAccount({providerId:'loomy',sourceAccountId:'acct-b'});
+  assert.equal(result.confirmed,true);assert.equal(result.dailyQuotaInitialized,true);
+  assert.equal(result.activityRewardAmount,undefined);
+ }finally{f.bridge.dispose()}
+});
 test('TRAE official enable and unchecked flags permit daily claim without available field',async()=>{
  const f=await fixture({providerId:'trae',statusOverride:{available:undefined,active:true},outcomeKind:'claimed'});
  try{const result=await f.bridge.checkinAccount({providerId:'trae',sourceAccountId:'acct-b'});

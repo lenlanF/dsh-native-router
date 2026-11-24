@@ -512,6 +512,24 @@ async function fetchLoomyCreditDetail(credential, product, fetcher = sanitizingF
     claim_patched = claim_patched.replace('kind: "failed", code: -1, message:', 'kind: "failed", diagnosticCode: "LOBSTER_CLAIM_REQUEST", code: -1, message:', 1)
     claim_patched = claim_patched.replace('kind: "failed", code: envelope.code, message:', 'kind: "failed", diagnosticCode: "LOBSTER_CLAIM_REJECTED", code: envelope.code, message:', 1)
     patches.append((claim_source, claim_patched, 'lobster-safe-claim-diagnostics'))
+    # Only accept actual boolean flags from the shared Buddy status response.
+    start = text.index('async function fetchCheckinStatus(')
+    end = text.index('async function claimDailyCheckin(', start)
+    buddy_status = text[start:end]
+    patches.append((buddy_status, buddy_status.replace('const record = data;', 'const record = data;\n  if (typeof record.active !== "boolean" || typeof record.today_checked_in !== "boolean") return null;',1),'buddy-explicit-state-contract'))
+    # Preserve safe HTTP/transport categories without logging response bodies.
+    start = text.index('async function requestJson2(')
+    end = text.index('function describeNonJsonResponse2(',start)
+    lobster_request = text[start:end]
+    lobster_patched = lobster_request.replace('const text = await response.text();','''if (!response.ok) return { ok:false, diagnosticCode: response.status === 401 || response.status === 403 ? "LOBSTER_SLOT_AUTH" : response.status === 429 ? "LOBSTER_SLOT_LIMIT" : response.status === 404 || response.status === 410 ? "LOBSTER_SLOT_ENDPOINT" : "LOBSTER_SLOT_HTTP", message:"Official activity HTTP failure" };
+    const text = await response.text();''',1).replace('ok: false, message: describeNonJsonResponse2(response.status, text)','ok: false, diagnosticCode:"LOBSTER_SLOT_RESPONSE", message:"Invalid official response"',1).replace('ok: false, message: UNPARSABLE_RESPONSE_MESSAGE2','ok: false, diagnosticCode:"LOBSTER_SLOT_RESPONSE", message:UNPARSABLE_RESPONSE_MESSAGE2',1).replace('ok: false, message: error instanceof Error ? error.message : String(error)','ok: false, diagnosticCode:"LOBSTER_SLOT_TRANSPORT", message:"Official activity transport failure"',1)
+    patches.append((lobster_request,lobster_patched,'lobster-safe-http-diagnostics'))
+    start = text.index('async function fetchLobsteraiActivitySlot(')
+    end = text.index('async function fetchLobsteraiActivityContext(',start)
+    lobster_slot = text[start:end]
+    patches.append((lobster_slot,lobster_slot.replace('if (!result.ok) return null;', 'if (!result.ok) return { diagnosticCode: result.diagnosticCode || "LOBSTER_SLOT_READ" };',1).replace('if (!envelope.ok) return null;','if (!envelope.ok) return { diagnosticCode:"LOBSTER_SLOT_REJECTED" };',1),'lobster-slot-failure-kind'))
+    patches.append(('if (slot === null) return { diagnosticCode: "LOBSTER_SLOT_READ" };','if (slot === null) return { diagnosticCode: "LOBSTER_SLOT_READ" };\n  if (slot.diagnosticCode) return { diagnosticCode: slot.diagnosticCode };','lobster-status-preserve-diagnostic'))
+    patches.append(('if (slot2.slotState !== "available" || slot2.activityCode.length === 0) {','if (slot2.diagnosticCode) return {kind:"failed",diagnosticCode:slot2.diagnosticCode};\n  if (slot2.slotState !== "available" || slot2.activityCode.length === 0) {','lobster-claim-stop-on-read-failure'))
     names = []
     for old, new, name in patches:
         count = text.count(old)

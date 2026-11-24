@@ -169,7 +169,7 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
              '本账号今日已有已确认签到记录':sourceName+'确认今日已签到'):
              expiredCheckinConfirmation(recent,now())?'上次请求已超过20分钟，服务端仍未确认；等待限次复核':
              claimable?'上游今日任务仍可领取，尚未确认签到':
-              recent?publicCheckinMessage(recent.state):
+              recent?publicCheckinMessage(recent.state,recent.diagnosticCode):
                 (implemented?'今日签到状态尚未核实':'未接入本渠道签到执行器'),
          checkinSupported:implemented,
          activitiesSupported:typeof driver?.claimActivities==='function',
@@ -275,20 +275,21 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
          activities:await runActivities(accountId,{source})};
      }
      pending.add(accountId);
-    let state='failed',message='签到未确认';
+    let state='failed',message='签到未确认',diagnosticCode;
     try{
       const reply=await driver.checkIn({account,provider,date,source,
         includeActivities:false});
+      diagnosticCode=safeCheckinDiagnostic(reply?.diagnosticCode);
       if(reply?.confirmed===true&&reply?.date===date){
          state='success';message=publicCheckinMessage('success');
       }else if(reply?.state==='no_task'){
          state='no_task';message=publicCheckinMessage('no_task');
       }else if(reply?.state==='client_required'){
-         state='client_required';message=publicCheckinMessage('client_required');
+         state='client_required';message=publicCheckinMessage(state,diagnosticCode);
       }else if(reply?.state==='pending_confirmation'||reply?.accepted===true){
-         state='pending_confirmation';message=publicCheckinMessage('pending_confirmation');
+         state='pending_confirmation';message=publicCheckinMessage(state,diagnosticCode);
       }else{
-         message=publicCheckinMessage('failed');
+         message=publicCheckinMessage('failed',diagnosticCode);
       }
     }catch(error){
        state='failed';message=publicCheckinMessage('failed')+'；'+publicAccountFailureMessage(error);
@@ -305,7 +306,7 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
       error.status=409;error.code='ERR_ACCOUNT_CHANGED';throw error;
     }
     const record=store.append({date,accountId,providerId:provider.id,state,message,
-      at:now(),source});
+      at:now(),source,...(state!=='success'&&diagnosticCode?{diagnosticCode}:{})});
     logger?.info?.('native-router checkin '+provider.id+'/'+accountId+': '+state);
     return {alreadyConfirmed:false,record,
       activities:await runActivities(accountId,{source})};

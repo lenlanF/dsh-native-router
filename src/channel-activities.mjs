@@ -102,13 +102,20 @@ export function buildChannelActivityCatalog({config,accountRows=[],sourceRows=[]
         &&Number.isSafeInteger(account.activityCheckedAt)
         &&account.activityCheckedAt>0&&account.activityCheckedAt<=now
         &&now-account.activityCheckedAt<=15*60*1000);
+    if(doubao&&account.connectionState==='online'&&account.activityState==='client_required'
+      &&Number.isSafeInteger(account.activityCheckedAt)&&account.activityCheckedAt<=now
+      &&now-account.activityCheckedAt<=15*60*1000)channel.activities.push({
+       id:account.id+':daily-client',accountId:account.id,accountName:name,
+       name:'每日免费签到',kind:'daily',rewardAmount:null,rewardUnit:null,
+       validity:'valid',endAt:null,execution:'client_required',
+       progress:'官方电脑版领取 · 插件自动回查状态'});
     if(officiallyClaimable){
       const deadline=endOf(account.activityExpiresAt);
       if(deadline===null||deadline>now)channel.activities.push({
         id:account.id+':daily-claimable',accountId:account.id,accountName:name,
         name:'今日免费签到／额度活动',kind:'daily',rewardAmount:null,
         rewardUnit:null,validity:'valid',endAt:deadline,
-        execution:'automatic',progress:'官方已确认可领取 · 尚无到账证据',
+        execution:doubao?'client_required':'automatic',progress:doubao?'官方电脑版领取 · 尚无到账证据':'官方已确认可领取 · 尚无到账证据',
       });
     }
     if(eligible&&provenDaily(account,now)){
@@ -144,9 +151,9 @@ export function buildChannelActivityCatalog({config,accountRows=[],sourceRows=[]
           safeText(benefit.name)||'会员免费任务':kindTitle(benefit.kind),
         kind:benefit.kind,rewardAmount:asAmount(benefit.credit),
         rewardUnit:Number.isFinite(benefit.credit)?doubao?'平台赠送额度':'积分':null,
-        validity:'valid',endAt:deadline,execution:'automatic',
-        progress:doubao?'官方确认可领取 · 赠送额度尚未证明到账':
-          '官方账户确认活动待领取 · 尚未证明积分入账'});
+         validity:'valid',endAt:deadline,execution:doubao?'client_required':'automatic',
+         progress:doubao?'官方电脑版领取 · 赠送额度尚未证明到账':
+           '官方账户确认活动待领取 · 尚未证明积分入账'});
     }
     for(const benefit of Array.isArray(account.benefits)?account.benefits:[]){
       if(!benefit||!(workbuddy?['gift','compensation'].includes(benefit.kind)

@@ -698,7 +698,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
       const eligible=providerId==='zcode'
         ?before?.active===true&&before?.claimable===true
           &&Number.isInteger(before.planCount)&&before.planCount>0
-        :providerId==='trae'
+         :['trae','buddy'].includes(providerId)
           ?before?.active===true&&before?.todayCheckedIn===false
             &&before?.available!==false&&before?.claimable!==false
           :usesClaimable
@@ -746,17 +746,19 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
     // Loomy first-login is an idempotent daily quota initializer, not a
     // permanent points grant. Its authoritative current request plus fresh
     // wallet readback can prove initialization even if the wallet omits date.
-    if(providerId==='loomy'&&outcomes.length===1&&after?.active===true){
-      const receipt=outcomes[0]?.outcome?.dailyInitialization;
-      const wallet=after.dailyQuotaEvidence;
-      const valid=x=>x&&['quota','balance','consumed'].every(k=>Number.isFinite(x[k])&&x[k]>=0&&x[k]<=1e12)
-        &&x.quota>0&&Math.abs(x.balance+x.consumed-x.quota)<1e-6;
-      const dayNow=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-      if(valid(receipt)&&valid(wallet)&&typeof receipt.alreadyProcessed==='boolean'
-        &&(!after.dailyCycleDate||String(after.dailyCycleDate).slice(0,10)===today)
-        &&dayNow===today&&['quota','balance','consumed'].every(k=>Math.abs(receipt[k]-wallet[k])<1e-6))
-        return {confirmed:true,dailyQuotaInitialized:true,message:'官方每日额度初始化回执与钱包回查一致；非永久积分新增'};
-    }
+     if(providerId==='loomy'){
+       const receipt=outcomes.length===1?outcomes[0]?.outcome?.dailyInitialization:null;
+       const wallet=after?.dailyQuotaEvidence;
+       const valid=x=>x&&['quota','balance','consumed'].every(k=>Number.isFinite(x[k])&&x[k]>=0&&x[k]<=1e12)
+         &&x.quota>0&&Math.abs(x.balance+x.consumed-x.quota)<1e-6;
+       const dayNow=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+       const diagnosticCode=!valid(receipt)||typeof receipt.alreadyProcessed!=='boolean'?'LOOMY_RECEIPT_MISSING':
+         after?.active!==true||!valid(wallet)?'LOOMY_WALLET_UNCONFIRMED':
+         dayNow!==today||after.dailyCycleDate&&String(after.dailyCycleDate).slice(0,10)!==today?'LOOMY_DAY_MISMATCH':
+         Math.abs(receipt.quota-wallet.quota)>=1e-6||wallet.consumed+1e-6<receipt.consumed?'LOOMY_QUOTA_MISMATCH':null;
+       if(!diagnosticCode)return {confirmed:true,dailyQuotaInitialized:true,message:'官方每日额度初始化回执与钱包回查一致；非永久积分新增'};
+       return {state:'pending_confirmation',accepted:true,diagnosticCode,message:'每日额度回查尚未确认'};
+     }
     return {state:'pending_confirmation',accepted:true,
       message:'签到操作已执行，但上游今日签到状态仍未确认'};
   }
