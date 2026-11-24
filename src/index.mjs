@@ -146,6 +146,7 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
    const activityCenter=createChannelActivityCenter({configStore:ownStore,
       accountCenter,checkinCenter});
     const ownerAcceptance=createOwnerAcceptance({configStore:ownStore,accountCenter,checkinCenter});
+   ownAdapter.setInferenceObserver?.(accountCenter.observeRoutedInference);
    const sourceVerified=(providerId,id)=>sourceHealth().some(a=>
      a.id===id&&a.providerId===providerId&&a.connectionState==='online'&&a.enabled);
    // A verified private QR account is eligible even while the separate
@@ -175,6 +176,7 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
        &&a.providerId===providerId)?.connectionState??null;
    });
     const cleanups=[...builtInCleanup,credentialsBridge.dispose,ownerAcceptance.dispose];
+    cleanups.push(()=>ownAdapter.setInferenceObserver?.(null));
  try{
    const release=ctx.llm.registerAdapter([PROVIDER],ownAdapter);
    if(typeof release==='function')cleanups.push(release);

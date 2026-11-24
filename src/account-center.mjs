@@ -587,6 +587,35 @@ export function createAccountCenter({
    return {attempted:ids.length,results};
  }
 
+ // A normal completed native route is real inference evidence too. Keep
+ // exact account binding and authorization checks, and never store response
+ // bodies, prompts, credentials, or route identifiers in the proof cache.
+ function observeRoutedInference({account,provider,model,output,failure,signal}={}){
+   if(disposed||signal?.aborted||provider?.protocol!=='native-channel'||
+      !account||runtimeMode(account)!=='owned'||!stillAuthorizedAccount({account,provider})||
+      typeof model!=='string'||!model.trim()||model.length>120||/[\u0000-\u001f]/.test(model))return false;
+   const at=now();
+   if(output){
+     const complete=output.finishReason==='stop'&&typeof output.text==='string'&&Boolean(output.text.trim())
+       ||output.finishReason==='tool_calls'&&Array.isArray(output.toolCalls)&&output.toolCalls.length>0;
+     if(!complete)return false;
+     const status={state:'online',at,bindingRef:account.credentialRef,
+       message:'已完成聚合路由真实模型调用'};
+     checks.set(account.id,status);
+     inferenceProof.set(account.id,{at,credentialRef:account.credentialRef,modelId:model});
+     inferenceFailures.delete(account.id);
+     try{verificationStore?.set?.(account,status);verificationStore?.setModelTest?.(account,{at,modelId:model})}catch{}
+     return true;
+   }
+   const code=failure?.code;
+   if(!['AUTH','CREDENTIAL','QUOTA','RATE_LIMIT','STREAM_CLOSED','TRANSPORT','SERVER','TIMEOUT','TOOL_PROTOCOL','EMPTY'].includes(code))return false;
+   const previous=inferenceProof.get(account.id)??verificationStore?.getModelTest?.(account);
+   if(previous?.modelId&&previous.modelId!==model&&!['AUTH','CREDENTIAL','QUOTA'].includes(code))return false;
+   inferenceProof.delete(account.id);
+   inferenceFailures.set(account.id,{at,credentialRef:account.credentialRef});
+   try{verificationStore?.setModelTestFailure?.(account,{at})}catch{}
+   return true;
+ }
  async function autoCheckDue(){
   if(disposed||autoBusy)return {attempted:0};
   autoBusy=true;let attempted=0;
@@ -618,7 +647,7 @@ export function createAccountCenter({
      let facts={};
      try{facts=driver?.accountSnapshot?.(account)??{}}catch{}
      const named=Boolean(publicAccountName(facts)||publicMaskedPhone(facts));
-     const metadataIncomplete=!named||
+     const metadataIncomplete=!named||Boolean(publicFactsStore&&!publicFactsStore.get(account)?.observation)||
        ['own_mimo_desktop','own_doubao'].includes(account.providerId)
        && !Number.isFinite(facts.balance)&&
           facts.membershipState===undefined&&
@@ -676,7 +705,8 @@ export function createAccountCenter({
           // verification period, not on every accounts-page navigation.
           const named=Boolean(publicAccountName(snapshot,account)||publicMaskedPhone(snapshot));
           const needsProfileHydration=previous?.state==='online'&&
-            typeof driver?.accountSnapshot==='function'&&(!hydrated||!named)&&
+            typeof driver?.accountSnapshot==='function'&&(!hydrated||!named||
+               Boolean(publicFactsStore&&!publicFactsStore.get(account)?.observation))&&
             (!lastWarmup||now()-lastWarmup>=autoVerifyMs);
           if(!force&&verificationWithinPeriod(previous,now(),autoVerifyMs)
               &&!needsProfileHydration){
@@ -1070,5 +1100,5 @@ export function createAccountCenter({
   if(initialTimer)clearTimeout(initialTimer);
   automaticTimer=null;initialTimer=null;
  }
-  return {list,verify,verifyModel,listTestModels,setEnabled,logout,discover,importCandidate,refreshAll,refreshReadOnly,autoCheckDue,start,stop,drivers,driverFor,find,commitMimoDesktopAccount,startMimoLogin,pollMimoLogin,cancelMimoLogin,ensureDoubaoProvider,addDoubaoCookie,startDoubaoLogin,pollDoubaoLogin,cancelDoubaoLogin,commitMeooAccount,addMeooCookie,startMeooLogin,pollMeooLogin,cancelMeooLogin,commitQwenAccount,startQwenLogin,pollQwenLogin,cancelQwenLogin,commitAwsQuickAccount,importAwsQuickLocal,startAwsQuickLogin,pollAwsQuickLogin,submitAwsQuickLogin,cancelAwsQuickLogin};
+  return {list,verify,verifyModel,listTestModels,observeRoutedInference,setEnabled,logout,discover,importCandidate,refreshAll,refreshReadOnly,autoCheckDue,start,stop,drivers,driverFor,find,commitMimoDesktopAccount,startMimoLogin,pollMimoLogin,cancelMimoLogin,ensureDoubaoProvider,addDoubaoCookie,startDoubaoLogin,pollDoubaoLogin,cancelDoubaoLogin,commitMeooAccount,addMeooCookie,startMeooLogin,pollMeooLogin,cancelMeooLogin,commitQwenAccount,startQwenLogin,pollQwenLogin,cancelQwenLogin,commitAwsQuickAccount,importAwsQuickLocal,startAwsQuickLogin,pollAwsQuickLogin,submitAwsQuickLogin,cancelAwsQuickLogin};
 }

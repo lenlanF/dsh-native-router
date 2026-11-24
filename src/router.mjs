@@ -4,7 +4,7 @@ import {createAccountPool} from './accounts.mjs';
 export class RoutingError extends Error {
   constructor(code,message){super(message);this.name='RoutingError';this.code=code}
 }
-export function createRoutingEngine({getConfig,request,pool=createAccountPool(),onEvent=()=>{}}) {
+export function createRoutingEngine({getConfig,request,pool=createAccountPool(),onEvent=()=>{},onAttemptOutcome=()=>{}}) {
   if(typeof request!=='function')throw new Error('Routing transport is required');
   async function execute(routeId,{sessionId,needTools=false,signal,...options}={}) {
     const config=getConfig();
@@ -55,11 +55,13 @@ export function createRoutingEngine({getConfig,request,pool=createAccountPool(),
            if(!permitted(provider,account,tier))            throw new RoutingError('ERR_ACCOUNT_CHANGED',
               'Owner revoked Provider or credential during model execution');
           pool.success(sessionId,account);
+          try{onAttemptOutcome({provider,account,model:tier.model,output,signal})}catch{}
           onEvent({kind:'success',routeId:route.id,providerId:provider.id,model:tier.model,accountId:account.id,attempts:tried,usage:output?.usage??null});
           return output;
         }catch(error){
           lastError=error;
           const reason=classifyFailure(error,signal);
+          try{onAttemptOutcome({provider,account,model:tier.model,failure:reason,signal})}catch{}
           if(reason.code==='QUOTA')reason.cooldownMs=route.exhaustionCooldownMs;
           onEvent({kind:'failure',routeId,providerId:provider.id,model:tier.model,accountId:account.id,code:reason.code});
           if(!reason.retryable)throw error;
