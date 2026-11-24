@@ -236,6 +236,15 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
              &&raccoonReceipt(row).state!=='confirmed')
              try{activityStore.finish(raccoonAccount(row),raccoonOffer,'confirmed')}catch{}
            if(nickname)row.nickname=nickname;
+           // Close an existing daily pending record using fresh official
+           // confirmation, never create a claim or conflate Raccoon login gifts.
+           if(entry.authVerified===true&&entry.todayCheckedIn===true&&supported.has(row.providerId)
+             &&row.providerId!=='raccoon'&&!pending.has(row.id)&&!store.blocked
+             &&latest(row.id)?.state==='pending_confirmation'
+             &&!history(row.id).some(x=>x.state==='success')){
+             try{store.append({date:today(),accountId:row.id,providerId:row.providerId,
+               state:'success',message:'官方只读任务状态确认今日已签到',at:now(),source:'status'})}catch{}
+           }
          }
         // A successful provider response is not a successful authentication
         // for an account missing from its returned roster. Discard stale

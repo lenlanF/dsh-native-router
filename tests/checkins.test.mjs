@@ -150,3 +150,24 @@ test('corrupt history blocks automatic and manual check-in but does not prevent 
  await assert.rejects(()=>center.run('a1'),e=>e.status===503);
  assert.equal(readFileSync(path,'utf8'),'INVALID');
 });
+test('official read-only confirmation closes a pending daily task without resubmission',async t=>{
+ const date='2026-11-17',providerId='own_doubao';
+ const a={id:'db_fixture',providerId,credentialRef:'driver:own_doubao:db_fixture',enabled:true,autoCheckin:false};
+ const cfg=normalizeConfig({providers:[{id:providerId,protocol:'native-channel',enabled:true}],accounts:[a],checkin:{autoEnabled:false}});
+ const dir=mkdtempSync(join(tmpdir(),'dnr-checkin-confirmation-'));
+ t.after(()=>rmSync(dir,{force:true,recursive:true}));
+ const store=createCheckinStore({path:join(dir,'checkins.json')});
+ store.append({accountId:a.id,providerId,date,state:'pending_confirmation',at:Date.parse(date+'T02:06:00Z'),source:'manual'});
+ let claims=0;
+ const driver={checkIn:async()=>{claims++;throw Error('Must not post again')}};
+ const accountCenter={list:()=>({accounts:[{id:a.id,providerId,enabled:true,connectionState:'online',upstreamCheckinDate:date,upstreamCheckinOutcome:'already'}]}),
+  find:()=>({account:a,provider:cfg.providers[0],driver}),driverFor:()=>driver};
+ const center=createCheckinCenter({configStore:{get:()=>cfg},accountCenter,store,now:()=>Date.parse(date+'T02:07:00Z')});
+ const result=await center.run(a.id);
+ assert.equal(result.alreadyConfirmed,true);
+ assert.equal(result.record.source,'status');
+ assert.equal(result.record.state,'success');
+ assert.equal(claims,0);
+ assert.equal(store.all().length,2);
+ await center.run(a.id);assert.equal(store.all().length,2);
+});

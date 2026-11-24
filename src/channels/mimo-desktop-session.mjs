@@ -127,12 +127,15 @@ export function parseMimoRollingUsage(doc,now=Date.now()){
   const u=doc.data,raw=u.percent;
   if(typeof raw!=='number'||!Number.isFinite(raw)||raw<0||raw>100)
     return {usageState:'unavailable'};
-  if(u.resetDate===null||u.resetDate===undefined||u.resetDate==='')
-    return {usageState:'no_cycle'};
-  if(typeof u.resetDate!=='string')return {usageState:'unavailable'};
-  const reset=/^\d{4}-\d{2}-\d{2}$/.test(u.resetDate)
-    ?Date.parse(u.resetDate+'T00:00:00+08:00'):
-    Date.parse(u.resetDate);
+  // The account endpoint exposes both resetDate and resetAt. Preserve a
+  // real epoch reset when the formatted date is omitted; never invent one.
+  const epoch=typeof u.resetAt==='number'&&Number.isSafeInteger(u.resetAt)&&u.resetAt>0
+    ?(u.resetAt<1e11?u.resetAt*1000:u.resetAt):null;
+  const hasDate=u.resetDate!==null&&u.resetDate!==undefined&&u.resetDate!=='';
+  if(!hasDate&&epoch===null)return {usageState:'no_cycle'};
+  const reset=epoch??(typeof u.resetDate==='string'
+    ?(/^\d{4}-\d{2}-\d{2}$/.test(u.resetDate)
+      ?Date.parse(u.resetDate+'T00:00:00+08:00'):Date.parse(u.resetDate)):NaN);
   if(!Number.isFinite(reset)||reset<=0)return {usageState:'unavailable'};
   return {usageState:'available',usagePercentRemaining:raw,
     usageResetAt:reset,usageCheckedAt:now};

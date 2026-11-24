@@ -256,7 +256,9 @@ test('source upstream confirmed sign-in returns a success receipt even if latest
  assert.equal(result.record.state,'success');
  assert.equal(result.record.date,'2026-11-17');
  assert.equal(h.calls.length,0,'verified upstream status must not cause a second claim');
- assert.equal(h.records.length,1,'read-only verification must not fabricate persisted history');
+ assert.equal(h.records.length,2,'fresh authenticated confirmation closes the earlier pending record');
+ assert.equal(h.records[1].source,'status');
+ assert.equal(h.records[1].state,'success');
  h.center.stop();
 });
 test('source checkin and reported balance sync when automatic checkin is disabled; no claim is issued',async()=>{
