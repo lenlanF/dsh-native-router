@@ -286,10 +286,28 @@ export function createAccountCenter({
      return '用户手动声明该渠道免费（费用由用户确认）';
    return freeEvidence(row,providerId);
  }
- function eligibleTestRow(row,providerId){
+ // Unattended acceptance never uses owner-marked free overrides as proof.
+ // Conflicting positive rates (including duplicate model rows) fail closed.
+ function officialTestEvidence(row,providerId,rows){
+   const explicit=(configStore.get().freePool?.models??[])
+     .find(x=>x.providerId===providerId&&x.model===row.id);
+   if(explicit?.free===false)return null;
+   const positive=value=>(typeof value==='number'||typeof value==='string'&&value.trim()!=='')
+     &&Number.isFinite(Number(value))&&Number(value)>0;
+   const peers=rows.filter(x=>x?.id===row.id);
+   if(peers.some(x=>x.free===false||x.isFree===false||positive(x.costMultiplier)
+     ||[x.pricing,x.price,x.cost].some(price=>price&&typeof price==='object'
+       &&['input','output','prompt','completion','inputCost','outputCost'].some(k=>positive(price[k])))
+     ||(/^own_workbuddy(?:-|$)/.test(providerId)&&
+       /(?:^|[\s·(])x\s*(?:[1-9]\d*(?:\.\d+)?|0\.\d*[1-9]\d*)(?:$|[\s·)])/i.test(x.name??''))))return null;
+   if(providerId==='codearts'&&row.priceSource==='codearts-official-credit-ratio'
+     &&row.costMultiplier===0)return 'CodeArts 官方零积分倍率';
+   return freeEvidence(row,providerId);
+ }
+ function eligibleTestRow(row,providerId,{officialOnly=false,rows=[]}={}){
    if(typeof row?.id!=='string'||!row.id.trim()||row.id.length>120
       ||/[\u0000-\u001f]/.test(row.id))return null;
-   const evidence=modelTestEvidence(row,providerId);
+   const evidence=officialOnly?officialTestEvidence(row,providerId,rows):modelTestEvidence(row,providerId);
    return {id:row.id,name:typeof row.name==='string'&&row.name.length<=120
      ?row.name:row.id,free:Boolean(evidence),...(evidence?{evidence}:{})};
  }
@@ -315,7 +333,7 @@ export function createAccountCenter({
    function stillAuthorizedTestAccount(entry){
      return stillAuthorizedAccount(entry)&&entry.provider.protocol==='native-channel';
    }
-  async function listTestModels(id,{signal}={}){
+  async function listTestModels(id,{signal,officialOnly=false}={}){
    if(pending.has(id)){
      const error=new Error('Account operation already running');error.status=409;throw error;
    }
@@ -335,7 +353,7 @@ export function createAccountCenter({
        account,provider,signal:controller.signal})),cancelled]);
      const models=[],seen=new Set();
      for(const row of Array.isArray(raw)?raw:[]){
-       const candidate=eligibleTestRow(row,provider.id);
+       const candidate=eligibleTestRow(row,provider.id,{officialOnly,rows:Array.isArray(raw)?raw:[]});
        if(!candidate||seen.has(candidate.id))continue;
        seen.add(candidate.id);models.push(candidate);
        if(models.length>=60)break;
@@ -348,7 +366,7 @@ export function createAccountCenter({
         message:'仅明确免费模型允许发送最小真实请求；未知价格不测试'};
    }finally{clearTimeout(timer);signal?.removeEventListener('abort',stop)}
  }
- async function verifyModel(id,{modelId,signal}={}){
+ async function verifyModel(id,{modelId,signal,officialOnly=false}={}){
   if(pending.has(id)){const error=new Error('Account operation already running');error.status=409;throw error}
   const {account,provider,driver}=assertTestAccount(id);
   const feePolicy=JSON.stringify(configStore.get().freePool??{});
@@ -368,9 +386,11 @@ export function createAccountCenter({
   });
   try{
    const rows=await Promise.race([driver.listModels({account,provider,signal:controller.signal}),cancelled]);
-   const models=Array.isArray(rows)?rows.filter(row=>eligibleTestRow(row,provider.id)):[];
+   const catalog=Array.isArray(rows)?rows:[];
+   const evidenceFor=row=>officialOnly?officialTestEvidence(row,provider.id,catalog):modelTestEvidence(row,provider.id);
+   const models=catalog.filter(row=>eligibleTestRow(row,provider.id,{officialOnly,rows:catalog}));
    const chosen=modelId?models.find(row=>row.id===modelId):
-     models.find(row=>modelTestEvidence(row,provider.id));
+     models.find(row=>evidenceFor(row));
    if(!chosen){
      if(models.length&&(!modelId||models.some(row=>row.id===modelId)))
        return {id,state:'skipped',code:'COST_NOT_CONFIRMED_FREE',at:now(),
@@ -378,7 +398,7 @@ export function createAccountCenter({
      return {id,state:'skipped',code:'MODEL_NOT_IN_CATALOG',at:now(),
        message:'指定模型不在该自有账号的实时目录中；未发送请求'};
    }
-   const evidence=modelTestEvidence(chosen,provider.id);
+   const evidence=evidenceFor(chosen);
    if(!evidence)return {id,state:'skipped',code:'COST_NOT_CONFIRMED_FREE',at:now(),
      message:'模型费用尚未确认为免费或已被人工排除；未发送请求'};
    if(feePolicy!==JSON.stringify(configStore.get().freePool??{}))
@@ -396,7 +416,7 @@ export function createAccountCenter({
      throw Object.assign(new Error('Model reply was incomplete'),{
        code:'TRUNCATED',safeStreamPhase:reply?.finishReason==='length'?'MAX_TOKENS':'NO_COMPLETE_TEXT'});    if(!stillAuthorizedTestAccount({account,provider})
       ||feePolicy!==JSON.stringify(configStore.get().freePool??{})
-      ||!modelTestEvidence(chosen,provider.id))
+      ||!evidenceFor(chosen))
        return {id,state:'failed',code:'ACCOUNT_OR_FEE_CHANGED',at:now(),
         message:'账号授权或免费规则在调用期间已改变；旧回复已丢弃，可能已发生一次请求，但未记录成功'};
     const at=now(),status={state:'online',at,bindingRef:account.credentialRef,

@@ -198,3 +198,28 @@ test('the minimal real model test always sends the bounded prompt and token limi
   assert.equal(invocation.model,'safe');
   h.center.stop();
 });
+test('background acceptance refuses manual free overrides and conflicting official prices',async()=>{
+ const h=rig({models:[
+  {id:'manual',pricing:{input:1,output:1}},
+  {id:'conflict',isFree:true},
+  {id:'conflict',pricing:{input:1,output:1}},
+  {id:'safe',name:'Hy4 · x0.00'},
+ ]});
+ h.configStore.replace({...h.configStore.get(),freePool:{providerIds:[h.providerId]}});
+ const catalog=await h.center.listTestModels(h.id,{officialOnly:true});
+ assert.equal(catalog.freeCount,1);
+ assert.equal((await h.center.verifyModel(h.id,{officialOnly:true,modelId:'manual'})).state,'skipped');
+ assert.equal((await h.center.verifyModel(h.id,{officialOnly:true,modelId:'conflict'})).state,'skipped');
+ assert.equal(h.generates,0);
+ const result=await h.center.verifyModel(h.id,{officialOnly:true});
+ assert.equal(result.state,'verified');
+ assert.equal(result.modelId,'safe');
+ assert.equal(h.generates,1);
+ h.center.stop();
+});
+test('background acceptance honors explicit paid exclusion of otherwise free model',async()=>{
+ const h=rig({models:[{id:'zero',isFree:true}]});
+ h.configStore.replace({...h.configStore.get(),freePool:{models:[{providerId:h.providerId,model:'zero',free:false}]}});
+ assert.equal((await h.center.verifyModel(h.id,{officialOnly:true})).state,'skipped');
+ assert.equal(h.generates,0);h.center.stop();
+});

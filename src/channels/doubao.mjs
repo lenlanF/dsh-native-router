@@ -245,18 +245,19 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
       const primary=windows.find(w=>w.kind==='package')??
         windows.find(w=>w.kind==='grant')??windows.find(w=>w.kind==='week')??windows[0];
       const old=publicStatus.get(account.id)??{};
-      publicStatus.set(account.id,{...old,
-        planName:typeof q.planName==='string'?q.planName.slice(0,72):'',
-        quotaWindows:windows,quotaCheckedAt:now(),
-        ...(primary?{balance:primary.left,balanceUnit:primary.label||'平台额度',
-         balanceCheckedAt:now(),balanceState:'available'}:
-         {balanceState:'not_returned'})});
+       publicStatus.set(account.id,{...old,
+         planName:typeof q.planName==='string'?q.planName.slice(0,72):'',
+         quotaWindows:windows,quotaCheckedAt:now(),
+         quotaRefreshState:primary?'available':'not_returned',
+         ...(primary?{balance:primary.left,balanceUnit:primary.label||'平台额度',
+          balanceCheckedAt:now(),balanceState:'available'}:
+          {balanceState:Number.isFinite(old.balance)?'cached':'not_returned'})});
      }catch{
       const old=publicStatus.get(account.id)??{};
       // Keep previously verified numeric quota with its historical timestamp,
       // but never pretend a failed refresh is the latest official value.
       publicStatus.set(account.id,{...old,
-       balanceState:Number.isFinite(old.balance)?'available':'not_returned',
+        balanceState:Number.isFinite(old.balance)?'cached':'unavailable',
        quotaRefreshState:'unavailable'});
      }
     // Metadata refresh only discovers official tasks; never submits awards.

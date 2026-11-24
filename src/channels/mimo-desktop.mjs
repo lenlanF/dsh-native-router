@@ -140,9 +140,23 @@ export function createMimoDesktopDriver({
      x.providerId===MIMO_DESKTOP_ID&&x.credentialRef===ref))return;
    await vault?.unset?.(credentialKey(id));
   }
+ // Quota endpoints may omit a number or explicitly end a cycle. Never merge
+ // a previous percentage/reset into the new official entitlement snapshot.
+ function quotaFacts(remote){
+   return {balanceState:'not_supported',
+     membershipState:remote.membershipState??'unavailable',
+     membershipPlanName:typeof remote.membershipPlanName==='string'?remote.membershipPlanName:undefined,
+     membershipPercentRemaining:remote.membershipState==='active'&&Number.isFinite(remote.membershipPercentRemaining)?remote.membershipPercentRemaining:undefined,
+     membershipResetAt:remote.membershipState==='active'&&Number.isFinite(remote.membershipResetAt)?remote.membershipResetAt:undefined,
+     quotaCheckedAt:Number.isFinite(remote.quotaCheckedAt)?remote.quotaCheckedAt:undefined,
+     usageState:remote.usageState??'unavailable',
+     usagePercentRemaining:remote.usageState==='available'&&Number.isFinite(remote.usagePercentRemaining)?remote.usagePercentRemaining:undefined,
+     usageResetAt:remote.usageState==='available'&&Number.isFinite(remote.usageResetAt)?remote.usageResetAt:undefined,
+     usageCheckedAt:Number.isFinite(remote.usageCheckedAt)?remote.usageCheckedAt:undefined};
+ }
  async function verifyMembership(session){
-  try{return (await transport.probe({session})).authVerified===true}
-  catch{return false}
+   try{return (await transport.probe({session})).authVerified===true}
+   catch{return false}
  }
  const browser=loginFactory({
    onSession:async session=>{
@@ -150,18 +164,9 @@ export function createMimoDesktopDriver({
     if(remote.authVerified!==true)throw fail('AUTH');
     const receipt=await persistOwnedSession(session,{allowExisting:true});
     snapshots.set(receipt.id,{...snapshots.get(receipt.id),
-     authVerified:true,profileCheckedAt:now(),balanceState:'not_supported',
-     ...(remote.accountName?{accountName:remote.accountName}:{}),
-     ...(remote.membershipState?{membershipState:remote.membershipState}:{}),
-     ...(remote.membershipPlanName?{membershipPlanName:remote.membershipPlanName}:{}),
-     ...(Number.isFinite(remote.membershipPercentRemaining)?
-       {membershipPercentRemaining:remote.membershipPercentRemaining}:{}),
-     ...(Number.isFinite(remote.membershipResetAt)?{membershipResetAt:remote.membershipResetAt}:{}),
-      ...(Number.isFinite(remote.quotaCheckedAt)?{quotaCheckedAt:remote.quotaCheckedAt}:{}),
-      ...(remote.usageState?{usageState:remote.usageState}:{}),
-      ...(Number.isFinite(remote.usagePercentRemaining)?{usagePercentRemaining:remote.usagePercentRemaining}:{}),
-      ...(Number.isFinite(remote.usageResetAt)?{usageResetAt:remote.usageResetAt}:{}),
-      ...(Number.isFinite(remote.usageCheckedAt)?{usageCheckedAt:remote.usageCheckedAt}:{})});
+      authVerified:true,profileCheckedAt:now(),
+      ...(remote.accountName?{accountName:remote.accountName}:{}),
+      ...quotaFacts(remote)});
     return receipt;
    },
   verifySession:verifyMembership,
@@ -216,17 +221,7 @@ export function createMimoDesktopDriver({
        authVerified:true,profileCheckedAt:now(),
        ...(typeof remote.accountName==='string'&&remote.accountName?
         {accountName:remote.accountName}:{}),
-       balanceState:'not_supported',
-       membershipState:remote.membershipState??'unavailable',
-       ...(typeof remote.membershipPlanName==='string'?{membershipPlanName:remote.membershipPlanName}:{}),
-       ...(Number.isFinite(remote.membershipPercentRemaining)?
-        {membershipPercentRemaining:remote.membershipPercentRemaining}:{}),
-       ...(Number.isFinite(remote.membershipResetAt)?{membershipResetAt:remote.membershipResetAt}:{}),
-        ...(Number.isFinite(remote.quotaCheckedAt)?{quotaCheckedAt:remote.quotaCheckedAt}:{}),
-        ...(remote.usageState?{usageState:remote.usageState}:{}),
-        ...(Number.isFinite(remote.usagePercentRemaining)?{usagePercentRemaining:remote.usagePercentRemaining}:{}),
-        ...(Number.isFinite(remote.usageResetAt)?{usageResetAt:remote.usageResetAt}:{}),
-        ...(Number.isFinite(remote.usageCheckedAt)?{usageCheckedAt:remote.usageCheckedAt}:{})});
+        ...quotaFacts(remote)});
       return {state:'online',message:'MiMo Desktop 账号信息已核验；会员额度与 API Token Plan 分开显示'};
      }
      // A temporary remote outage must not discard a previously verified name.

@@ -79,6 +79,24 @@ const querySourceAccounts=()=>fetch(loginRpcUrl,{method:'POST',
 const unauthSource=await fetch(loginRpcUrl,{method:'POST',
  headers:{'content-type':'application/json'},body:accountListBody});
 assert.equal(unauthSource.status,401,'Source login RPC must reject anonymous requests');
+// Fixture lives only in this disposable DSH process. No real credentials or
+// external requests. Exercise all three workflows via the real Owner carrier.
+const fixtureProvider='own_workbuddy-cn',fixtureId='wbp_'+'1'.repeat(24);
+let fixtureGenerations=0,fixtureSignins=0;
+const removeFixture=router.registerNativeChannelDriver(fixtureProvider,{
+ accountSnapshot:()=>({nickname:'Synthetic account',balance:12,balanceUnit:'积分',balanceCheckedAt:Date.now()}),
+ refresh:async()=>({state:'online'}),
+ listModels:async()=>[{id:'fixture-free',name:'Fixture · x0.00'}],
+ generate:async({account,model,options})=>{
+   assert.equal(account.id,fixtureId);assert.equal(model,'fixture-free');
+   assert.equal(options.maxTokens,32);fixtureGenerations++;
+   return {text:'OK',finishReason:'stop',toolCalls:[]};
+ },
+ checkIn:async({account,date})=>{
+   assert.equal(account.id,fixtureId);fixtureSignins++;
+   return {confirmed:true,date};
+ },
+});
 let loaded=false;
 try{
  const fiber=ctx.plugin(router);
@@ -95,9 +113,69 @@ try{
  assert.equal(data.sessionReuse.enabled,false);
  assert.equal(data.embeddedPack.state,'disabled');
  assert.equal(data.credentialService.available,true,'Credentials must be available through the actual DSH Host service');
+ const acceptanceUrl=base+'/api/plugins/dsh-native-router/acceptance';
+ const request={action:'start',mode:'inventory',requestId:'a'.repeat(32),consent:true};
+ const submit=(headers={})=>fetch(acceptanceUrl,{method:'POST',
+   headers:{'content-type':'application/json',...headers},body:JSON.stringify(request)});
+ assert.equal((await fetch(acceptanceUrl)).status,401);
+ assert.equal((await submit()).status,401);
+ assert.equal((await submit({cookie,origin:'https://evil.invalid'})).status,403);
+ const initial=await fetch(acceptanceUrl,{headers:{cookie}});
+ assert.equal(initial.status,200);
+ assert.equal((await initial.json()).result.state,'idle');
+ const accepted=await submit({cookie});
+ assert.equal(accepted.status,202);
+ let acceptance;
+ for(let i=0;i<20;i++){
+   acceptance=(await (await fetch(acceptanceUrl,{headers:{cookie}})).json()).result;
+   if(acceptance.state!=='running')break;
+   await new Promise(resolve=>setTimeout(resolve,25));
+ }
+ assert.equal(acceptance.state,'complete');
+ assert.equal(acceptance.accountCount,0);
+ assert.deepEqual(acceptance.accounts,[]);
+ assert.equal((await (await submit({cookie})).json()).result.state,'complete');
  assert.equal(ports.length,1,'Only DSH WebServer may open a listener');
  assert.equal(existsSync(join(process.env.DSH_HOME,'plugins','dsh-native-router','config.json')),false,
   'Fresh installation must not write DSH configuration before explicit user changes');
+ const configUrl=base+'/api/plugins/dsh-native-router/config';
+ const originalConfig=(await (await fetch(configUrl,{headers:{cookie}})).json()).config;
+ const fixtureConfig={...originalConfig,
+  providers:[{id:fixtureProvider,name:'Synthetic test channel',protocol:'native-channel',enabled:true}],
+  accounts:[{id:fixtureId,providerId:fixtureProvider,credentialRef:'driver:'+fixtureProvider+':'+fixtureId,enabled:true}]};
+ const saveConfig=config=>fetch(configUrl,{method:'POST',headers:{cookie,'content-type':'application/json'},
+   body:JSON.stringify(config)});
+ assert.equal((await saveConfig(fixtureConfig)).status,200);
+ const runAcceptance=async(mode,requestId,channel)=>{
+   const body={action:'start',mode,requestId,consent:true,...(channel?{channel}:{})};
+   const start=await fetch(acceptanceUrl,{method:'POST',headers:{cookie,'content-type':'application/json'},
+     body:JSON.stringify(body)});
+   assert.equal(start.status,202);
+   for(let i=0;i<100;i++){
+     const result=(await (await fetch(acceptanceUrl,{headers:{cookie}})).json()).result;
+     if(result.state!=='running')return result;
+     await new Promise(resolve=>setTimeout(resolve,25));
+   }
+   throw Error('Background acceptance did not settle');
+ };
+ const inventory=await runAcceptance('inventory','b'.repeat(32));
+ assert.equal(inventory.state,'complete');assert.equal(inventory.accountCount,1);
+ assert.equal(inventory.accounts[0].connection,'online');
+ assert.equal(inventory.accounts[0].freeCandidates,1);
+ assert.equal(inventory.accounts[0].hasBalance,true);
+ assert.doesNotMatch(JSON.stringify(inventory),/Synthetic account|wbp_/);
+ assert.equal(fixtureGenerations,0);assert.equal(fixtureSignins,0);
+ const inference=await runAcceptance('free-models','c'.repeat(32));
+ assert.equal(inference.accounts[0].modelState,'verified');assert.equal(fixtureGenerations,1);
+ const activity=await runAcceptance('channel-activity','d'.repeat(32),'workbuddy-cn');
+ assert.equal(activity.state,'complete');assert.equal(activity.activity.confirmedSignins,1);
+ assert.equal(activity.activity.newlyCreditedRewards,0);
+ assert.equal(fixtureSignins,1);
+ const repeated=await runAcceptance('channel-activity','e'.repeat(32),'workbuddy-cn');
+ assert.equal(repeated.activity.confirmedSignins,1);assert.equal(fixtureSignins,1);
+ const postConfig=(await (await fetch(configUrl,{headers:{cookie}})).json()).config;
+ assert.deepEqual(postConfig.checkin,originalConfig.checkin);
+ assert.equal((await saveConfig(originalConfig)).status,200);
  // The source pack must also activate from the EXACT published tarball when
  // host WorkBuddy/Loomy already own their public provider names. No real auth,
  // remote traffic or external runtime process is permitted in this acceptance.
@@ -186,9 +264,11 @@ try{
  loaded=true;
 }finally{
  ctx.registry.delete(router);
+ removeFixture();
  await new Promise(resolve=>setTimeout(resolve,90));
  assert.ok(!llm.listProviders().some(x=>x.id==='native-router'),'native adapter must unload');
  assert.equal((await fetch(base+'/api/plugins/dsh-native-router/status',{headers:{cookie}})).status,404);
+ assert.equal((await fetch(base+'/api/plugins/dsh-native-router/acceptance',{headers:{cookie}})).status,404);
  ctx.registry.delete(Connection);
  ctx.registry.delete(WebServer);
 }
@@ -200,7 +280,7 @@ console.log(JSON.stringify({result:'PASS',packagedModuleImported:true,
  sourcePackDefaultDisabled:true,sourceMountWithHostCollisions:true,
  sourceLoginRpcAuthenticated:true,sourceLoginReadOnlyAccountsValidated:true,
  sourceLoginSurvivesAliasConflict:true,thirteenIndependentAdapters:true,
- credentialsServiceReady:true,configNotWritten:true,
+ credentialsServiceReady:true,configNotWritten:true,backgroundAcceptanceOwnerOnly:true,backgroundAcceptanceThreeModes:true,backgroundClaimDedup:true,
  onlyDshWebServerListener:true,realAccounts:0,networkCloudCalls:0,
  independentProcesses:0}));
 process.exit(0);

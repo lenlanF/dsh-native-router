@@ -69,7 +69,7 @@ function readJson(req){
   });
 }
 export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,checkinCenter,
-  embeddedPack,sessionReuse,accountAdoption,hostProviderInventory,credentialsBridge,activityCenter}){
+  embeddedPack,sessionReuse,accountAdoption,hostProviderInventory,credentialsBridge,activityCenter,ownerAcceptance}){
   const server=ctx.get?.('webServer')??ctx.webServer;
   if(!server?.register)return()=>{};
   const dispose=[];
@@ -77,6 +77,18 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
     const d=server.register({kind:'exact',path:BASE+path,handler});
     if(typeof d==='function')dispose.push(d);
   };
+  if(ownerAcceptance)mount('/acceptance',async(req,res)=>{
+    if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
+    if(req.method==='GET')return json(res,200,{ok:true,result:ownerAcceptance.snapshot()});
+    if(req.method!=='POST')return json(res,405,{ok:false,error:'Method not allowed'});
+    try{
+      const body=await readJson(req);
+      if(body?.action==='start')return json(res,202,{ok:true,result:ownerAcceptance.start(body)});
+      if(body?.action==='cancel')return json(res,200,{ok:true,result:ownerAcceptance.cancel(body.requestId)});
+      return json(res,400,{ok:false,error:'Invalid acceptance action'});
+    }catch(error){const failure=publicAdministrativeError(error,400);
+      return json(res,failure.status,{ok:false,error:failure.error})}
+  });
   mount('/config',async(req,res)=>{
     if(!isLoopback(req))return json(res,403,{error:'Loopback only'});
     if(req.method==='GET')return json(res,200,{ok:true,config:configStore.get()});

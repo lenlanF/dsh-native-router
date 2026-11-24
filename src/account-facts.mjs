@@ -45,7 +45,8 @@ export function publicBalance(...sources){
       source.balanceCheckedAt:Number.isFinite(source.checkedAt)&&source.checkedAt>0?
       source.checkedAt:null;
     return {balance:amount,...(unit?{balanceUnit:unit}:{}),
-      ...(checkedAt?{balanceCheckedAt:checkedAt}:{}),balanceState:'available'};
+      ...(checkedAt?{balanceCheckedAt:checkedAt}:{}),
+       ...(source.balanceState==='cached'?{balanceState:'cached',balanceStale:true}:{balanceState:'available'})};
   }
   const state=sources.find(x=>x?.balanceState==='unavailable')?'unavailable':
     sources.find(x=>x?.balanceState==='not_supported')?'not_supported':
