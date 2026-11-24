@@ -31,6 +31,8 @@ import {sourceModelEligible,privateSourceAccountRoutable} from './source-model-e
 import {createHostCredentialBridge} from './credentials-bridge.mjs';
 import {scheduleOwnerLiveSmoke} from './owner-live-smoke.mjs';
 import {createOwnerAcceptance} from './owner-acceptance.mjs';
+import {startLocalOwnerJobs} from './local-owner-jobs.mjs';
+import {createOwnedModelDirectory} from './owned-model-directory.mjs';
 import {join,dirname} from 'node:path';
 export {registerNativeChannelDriver,getNativeChannelDrivers} from './driver-registry.mjs';
 
@@ -145,7 +147,8 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
    const sourceHealth=()=>checkinCenter.sourceSnapshot?.()??[];
    const activityCenter=createChannelActivityCenter({configStore:ownStore,
       accountCenter,checkinCenter});
-    const ownerAcceptance=createOwnerAcceptance({configStore:ownStore,accountCenter,checkinCenter});
+    const ownedDirectory=createOwnedModelDirectory({configStore:ownStore,accountCenter,checkinCenter,embeddedPack,hostProviderInventory:existingHostSource});
+    const ownerAcceptance=createOwnerAcceptance({configStore:ownStore,accountCenter,checkinCenter,ownedDirectory});
    ownAdapter.setInferenceObserver?.(accountCenter.observeRoutedInference);
    const sourceVerified=(providerId,id)=>sourceHealth().some(a=>
      a.id===id&&a.providerId===providerId&&a.connectionState==='online'&&a.enabled);
@@ -194,6 +197,7 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
     cleanups.push(checkinCenter.start());
      cleanups.push(sessionReuse.start());
       cleanups.push(accountCenter.start());
+      if(ownStore.path)cleanups.push(startLocalOwnerJobs({dir:join(dirname(ownStore.path),'owner-jobs-v1'),service:ownerAcceptance}));
        cleanups.push(scheduleOwnerLiveSmoke({configStore:ownStore,accountCenter,
          adapter:ownAdapter,llm:ctx.llm,env:env??process.env,logger:ctx.logger}));
     // The source drivers reuse this single lifetime-bound channel-pack facade.

@@ -6,7 +6,7 @@ import {pathToFileURL} from 'node:url';
 const requestIdPattern=/^[a-f0-9]{32}$/;
 const providerPattern=/^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const states=new Set(['idle','running','complete','cancelled','failed','observed','online','expired','limited','error','pending','client_required','verified','skipped','unavailable','ready','unknown','available','cached','not_returned','not_supported','not_checked']);
-const modeSet=new Set(['inventory','free-models','channel-activity','all-channel-activity']);
+const modeSet=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity']);
 const count=n=>Number.isSafeInteger(n)&&n>=0&&n<=10000?n:0;
 const state=x=>states.has(x)?x:'unknown';
 function safeReport(raw){
@@ -27,6 +27,7 @@ function safeReport(raw){
  });
  if(raw.activity&&typeof raw.activity==='object')out.activity=Object.fromEntries(
    ['attempted','confirmedSignins','newlyCreditedRewards','pendingAccounts','failedAccounts','noTaskAccounts'].map(k=>[k,count(raw.activity[k])]));
+ if(Array.isArray(raw.catalog))out.catalog=raw.catalog.slice(0,32).filter(x=>x&&providerPattern.test(x.providerId??'')).map(x=>({providerId:x.providerId,state:state(x.state),modelCount:count(x.modelCount),freeCount:count(x.freeCount)}));
  if(Number.isSafeInteger(raw.channelCount))out.channelCount=count(raw.channelCount);
  if(Array.isArray(raw.activityChannels))out.activityChannels=raw.activityChannels.slice(0,32)
    .filter(x=>x&&providerPattern.test(x.providerId??'')).map(x=>({
