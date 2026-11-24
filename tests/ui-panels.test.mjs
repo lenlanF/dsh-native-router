@@ -1261,6 +1261,23 @@ test('independent login is visible in channel account and local-session pages wi
  assert.match(rig.flatten(page).join(' '),/已核验本机登录态 · 按渠道聚合/);
  assert.match(rig.flatten(page).join(' '),/独立 Loomy 账号/);
 });
+test('local login view never counts raw source RPC rows twice, but keeps distinct same-name accounts',async()=>{
+ const preview={state:'ready',accounts:[
+  {id:'raw-qoder',providerId:'qodercn',nickname:'same-display',connectionState:'online',enabled:true},
+  {id:'raw-qoder-2',providerId:'qodercn',nickname:'same-display',connectionState:'online',enabled:true}]};
+ const accounts=preview.accounts.map((a,i)=>({...a,id:'sp_'+String(i+1).repeat(24),providerId:'qodercn',runtimeMode:'owned'}));
+ const data={accounts,channels:[{id:'qodercn',name:'Qoder 中国区'}],embeddedAccounts:preview,
+  sessionReuse:{hostProviders:[],channels:[],results:[]},pools:[]};
+ const rig=createUiRig(new Map(),preview,{state:'mounted',rpcReady:true,channels:['qodercn']},{},[],undefined,()=>true,data);
+ await rig.init();
+ rig.find(rig.render(),'button','复用管理')[0].props.onClick();
+ rig.find(rig.render(),'button','本机登录态')[0].props.onClick();
+ const text=rig.flatten(rig.render()).join(' ');
+ assert.match(text,/Qoder 中国区 · 2 个已核验账号/);
+ assert.doesNotMatch(text,/4 个已核验账号/);
+ assert.equal((text.match(/same-display/g)||[]).length,2);
+});
+
 test('five member login paths are inside their own channels, not a second aggregate card',async()=>{
  const rig=createUiRig();await rig.init();
  rig.find(rig.render(),'button','渠道账号')[0].props.onClick();

@@ -13,7 +13,7 @@ export const REFERENCE_CHANNELS=Object.freeze([
   {id:'gemini',name:'Gemini 自有 OAuth',auth:'浏览器 OAuth / 自有渠道池',referenceCheckin:false},
   {id:'zcode',name:'ZCode',auth:'浏览器授权',referenceCheckin:false},
   {id:'loomy',name:'讯飞 Loomy',auth:'微信扫码',referenceCheckin:false},
-  {id:'own_mimo_desktop',name:'小米 MiMo 会员 · 自有会话',auth:'本插件自主网页登录 / 已有会话一次性接管；无需原客户端进程',referenceCheckin:false},
+  {id:'own_mimo_desktop',name:'小米 MiMo Desktop · 自有会话',auth:'本插件自主网页登录 / 已有 Desktop 会话一次性接管；非 MiMo Claw 免费体验',referenceCheckin:false},
   {id:'own_doubao',name:'豆包工作会员 · 自有会话',auth:'本插件独立浏览器扫码 / Cookie；无需豆包客户端进程',referenceCheckin:true},
   {id:'own_meoo_web',name:'秒悟网页版 · 自有会员会话',auth:'独立浏览器登录或 Cookie；官方用户、动态模型和积分核验',referenceCheckin:false},
    {id:'own_qwenwork',name:'千问办公 · 独立会员账号',auth:'本插件设备码 PKCE 授权、原生 COSY 签名及动态倍率',referenceCheckin:false},

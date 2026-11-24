@@ -9,7 +9,7 @@ const EMPTY_EXPLANATIONS=Object.freeze({
  cline:'该渠道当前仅有官方余额查询，尚未发现独立的无感免费领取接口',
  gemini:'官方额度按 5 小时／每周窗口自然恢复，不属于需要领取的活动',
  doubao:'仅自动领取官方已完成且可核实赠送额度的任务；未完成任务不会代做',
- mimo_desktop:'读取官方会员额度及恢复时间；尚未证实有独立领取任务',
+ mimo_desktop:'Desktop 会员与滚动额度独立于 MiMo Claw 每日体验；未发现经验证的 Desktop 免费领取接口，不将 Claw 时长计入本渠道',
  meoo_web:'读取会员积分余额；尚未核验独立免费领取接口',
  qwenwork:'读取账号官方额度及模型倍率；尚未核验独立免费领取接口',
  aws_quick:'读取官方小时用量与额度窗口；尚未核验独立免费领取接口',

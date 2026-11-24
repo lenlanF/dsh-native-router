@@ -457,16 +457,18 @@ window.__ModuleLoader__.load({
           members.set(key,row);
       };
       for(const row of checkedAccounts)addSession(row);
-      for(const row of data?.embeddedAccounts?.accounts||[])addSession(row);
+       // The merged account roster already includes the private pool with canonical opaque IDs.
+       // Raw RPC inventory uses different IDs; adding it here duplicates the same account.
       const verifiedSessions=[...sessionGroups.values()].map(group=>({...group,
         members:[...group.members.values()]})).filter(group=>group.members.length);
-      const selectedHost=hostModelBusy||hostModels?.providerId||'';
-      const selectedIds=cfg?.hostModelSelection?.[selectedHost]??[];
-      const availableHostModels=hostModels?.availableModels??hostModels?.models??[];
+       const selectedCandidate=hostModelBusy||hostModels?.providerId||'';
+       const selectedHost=hosts.some(p=>p.providerId===selectedCandidate)?selectedCandidate:'';
+       const selectedIds=cfg?.hostModelSelection?.[selectedHost]??[];
+       const availableHostModels=selectedHost&&hostModels?.providerId===selectedHost?(hostModels?.availableModels??hostModels?.models??[]):[];
       const shownHostModels=selectedIds.length?availableHostModels.filter(m=>
         selectedIds.includes(m.id)):availableHostModels;
-      const hostLabel=id=>id==='workbuddy'?'WorkBuddy 国内':
-        id==='workbuddy-global'?'WorkBuddy 国际':id;
+       const hostLabel=id=>hosts.find(p=>p.providerId===id)?.name||(id==='workbuddy'?'WorkBuddy 国内':
+         id==='workbuddy-global'?'WorkBuddy 国际':id);
       const tabs=[['sessions','本机登录态'],['host','宿主路由与模型'],['source','自主登录']];
       const section={padding:11,border:'1px solid rgba(125,144,167,.18)',
         borderRadius:12,background:'rgba(125,144,167,.03)',minWidth:0};
@@ -517,7 +519,7 @@ window.__ModuleLoader__.load({
               hostModels?.changes?h('p',{style:css.small},
                 '本渠道变化：新增 '+hostModels.changes.added+' · 移除 '+hostModels.changes.removed+
                 ' · 资费更新 '+hostModels.changes.pricingChanged):null,
-              hostModels?.state==='ready'?h('div',null,
+              selectedHost&&hostModels?.providerId===selectedHost&&hostModels?.state==='ready'?h('div',null,
                 h('p',{style:{...css.small,margin:'3px 0 9px'}},
                   '模型使用范围：'+(selectedIds.length?
                     '仅允许已选中的 '+selectedIds.length+' 个模型':'未指定，默认全部 '+availableHostModels.length+' 个模型')),
@@ -540,7 +542,7 @@ window.__ModuleLoader__.load({
                           model.name||model.id),
                         h('span',{style:css.small},model.id))):
                         h('p',{style:css.small},'官方模型目录暂不可用；请勿凭空新增模型')))),
-                h('p',{style:{...css.small,margin:'3px 0 9px'}},'展示已允许的宿主模型；原插件继续管理授权。'),
+                 h('p',{style:{...css.small,margin:'3px 0 9px'}},hosts.find(p=>p.providerId===selectedHost)?.family==='native-router-owned'?'展示已鉴权自有渠道的允许模型；本插件管理授权。':'展示已允许的宿主模型；原插件继续管理授权。'),
                 shownHostModels.length?shownHostModels.map(m=>h('div',{key:m.id,
                   style:{display:'grid',gridTemplateColumns:'minmax(0,1fr) auto',
                     alignItems:'center',gap:8,padding:'7px 0',borderBottom:'1px solid rgba(125,144,167,.12)'}},
@@ -557,9 +559,9 @@ window.__ModuleLoader__.load({
                       '（来源价格，单位依渠道）'):null))):
                   h('p',{style:css.small},selectedIds.length?
                     '选中的模型未出现在最新官方目录；请在上方调整允许范围。':
-                    '该插件没有公开模型目录；仍可从原插件界面核验可用模型。')):
-                hostModels?.state==='unavailable'?h('p',{role:'status',style:css.small},
-                  '原插件未提供可读取的模型目录，原 Provider 仍保持注册。'):
+                     '当前渠道尚未返回有效模型；请核查官方目录及鉴权状态。')):
+                 selectedHost&&hostModels?.providerId===selectedHost&&hostModels?.state==='unavailable'?h('p',{role:'status',style:css.small},
+                   hosts.find(p=>p.providerId===selectedHost)?.family==='native-router-owned'?'当前独立渠道未返回可用模型目录；请核查官方鉴权和模型资格。':'原插件未提供可读取的模型目录，原 Provider 仍保持注册。'):
                 h('p',{style:css.small},'在左侧选择任意渠道，右侧直接显示对应模型，不再跳到页面底部。'))):null,
          subtab==='sessions'?h(React.Fragment,null,
            h(Panel,{title:'已核验本机登录态 · 按渠道聚合',
@@ -1412,7 +1414,7 @@ window.__ModuleLoader__.load({
            [awsQuickCallback,setAwsQuickCallback]=useState(''),
            [providerQuery,setProviderQuery]=useState('');
        const refreshSequence=useRef(0);
-       const sourcePollActive=useRef(false),sourceLoginGeneration=useRef(0),sourceModelGeneration=useRef(0);
+       const sourcePollActive=useRef(false),sourceLoginGeneration=useRef(0),sourceModelGeneration=useRef(0),hostModelGeneration=useRef(0),hostManualPending=useRef(false);
        const [syncState,setSyncState]=useState('loading');
        const [lastSyncAt,setLastSyncAt]=useState(null);
        const refreshRuntime=useCallback(async({light=false}={})=>{
@@ -1591,16 +1593,16 @@ window.__ModuleLoader__.load({
          },[awsQuickLogin?.status,refresh]);
          useEffect(()=>{
           if(tab!=='reuse'||reuseSubtab!=='host')return;
-          const first=hostModels?.providerId||
-            channelsView?.sessionReuse?.hostProviders?.[0]?.providerId;
-          if(first&&!hostModels?.providerId)void loadHostModels(first,true);
+          const hosts=channelsView?.sessionReuse?.hostProviders??[];
+          const first=hosts.some(p=>p.providerId===hostModels?.providerId)?hostModels.providerId:hosts[0]?.providerId;
+          if(first&&first!==hostModels?.providerId)void loadHostModels(first,true);
           void loadHostCatalog(true);
           const timer=setInterval(()=>{
             void loadHostCatalog(true);
-            if(hostModels?.providerId)void loadHostModels(hostModels.providerId,true);
+            if(first)void loadHostModels(first,true);
           },5*60*1000);
           return ()=>clearInterval(timer);
-        },[tab,reuseSubtab,hostModels?.providerId]);
+        },[tab,reuseSubtab,hostModels?.providerId,(channelsView?.sessionReuse?.hostProviders??[]).map(p=>p.providerId).join('|')]);
        useEffect(()=>{
          if(!pendingSourceLogin||pendingSourceLogin.mode==='sms-reauth'||sourceRpcBusy||typeof setInterval!=='function')return;
          const timer=setInterval(()=>sourcePollLogin({quiet:true}),4000);
@@ -1990,27 +1992,30 @@ window.__ModuleLoader__.load({
          }finally{setAdoptionBusy('')}
        }
        async function loadHostModels(providerId,silent=false){
-         if(!providerId)return;
-         if(!silent){setHostModelBusy(providerId);setError('')}
+         if(!providerId||silent&&hostManualPending.current)return;
+         const generation=++hostModelGeneration.current;
+         if(!silent){hostManualPending.current=true;setHostModelBusy(providerId);setError('')}
          try{
            const response=await fetch(URL+'/host/models',{
              method:'POST',headers:{'content-type':'application/json'},
              body:JSON.stringify({providerId}),
            });
            const data=await response.json();
+           if(generation!==hostModelGeneration.current)return;
            if(!data.result||!['ready','unavailable'].includes(data.result.state)
              ||data.result.providerId!==providerId)
-             throw Error('宿主插件模型目录接口暂不可用');
-            if(data.result.state!=='ready'){
-              if(!silent){setHostModels({...data.result,models:[],checkedAt:Date.now()});
-                setNotice('原插件没有公开模型目录；原 Provider 仍然保留接入。')}
-              return;
-            }           setHostModels(old=>({...data.result,checkedAt:Date.now(),
+             throw Error('渠道模型目录接口暂不可用');
+           if(data.result.state!=='ready'){
+             setHostModels({...data.result,models:[],availableModels:[],checkedAt:Date.now()});
+             if(!silent)setNotice('该渠道暂未返回有效模型目录，请检查鉴权状态及官方目录。');
+             return;
+           }
+           setHostModels(old=>({...data.result,checkedAt:Date.now(),
              changes:old?.providerId===providerId?diffModelLists(old.models,data.result.models):null}));
            if(!silent)setHostSelectedModel(data.result.models?.[0]?.id||'');
-         }catch(error){if(!silent)setError(String(error?.message??error))}
-         finally{if(!silent)setHostModelBusy('')}
-        }
+         }catch(error){if(!silent&&generation===hostModelGeneration.current)setError(String(error?.message??error))}
+         finally{if(!silent&&generation===hostModelGeneration.current){hostManualPending.current=false;setHostModelBusy('')}}
+       }
          async function loadUpstreamModels(providerId){
          const generation=++sourceModelGeneration.current;
          setModelProvider(providerId);setModelBusy(true);setError('');setEmbeddedModels(null);
@@ -2281,8 +2286,10 @@ window.__ModuleLoader__.load({
          // Both account cards and the authorization inventory reuse identical handlers/state.
          const loginWidgets={
            own_mimo_desktop:
-           h(Panel,{title:'小米 MiMo 会员 · 无需 MiMo 客户端进程'},
-           h('p',{style:css.small},'即使没有安装或运行 MiMo Desktop，也能通过本插件独立浏览器登录会员账号；已有客户端会话也可一次性接管。授权后无需任何原客户端进程，独立保存会话、续期与推理；不使用商业 API Key。'),
+            h(Panel,{title:'小米 MiMo Desktop · 独立会话'},
+            h('p',{style:css.small},'本渠道使用 MiMo Desktop 账号会话、会员订阅和滚动额度；不是 MiMo Claw 的免费云端体验。Claw 官方提供每日单次 3 小时体验，主模型为 mimo-v2.6-pro，另有算力上限。尚未验证可在第三方路由中使用的独立 Claw 授权与额度接口，不能计入本渠道免费额度。'),
+            h('a',{href:'https://mimo.mi.com/docs/zh-CN/updates/feature/claw',target:'_blank',rel:'noopener noreferrer',style:css.small},'查看 MiMo Claw 官方权益更新'),
+            h('p',{style:css.small},'无需运行 MiMo Desktop，可独立登录或接管本人已有授权。不会自动使用商业 API Key。'),
            h('div',{style:css.line},
              h(Button,{disabled:mimoBusy,onClick:scanMimo},mimoBusy?'扫描中…':'复用本机已登录会话'),
              h('select',{'aria-label':'MiMo 会员账号区域',style:css.input,value:mimoRegion,

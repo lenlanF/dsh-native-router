@@ -368,7 +368,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
     }catch{return {state:'error',removed:false}}
     finally{modifying.delete(accountId)}
   }
-   const modelRequests=new Set();
+   const modelRequests=new Map();
   async function listModels(providerId){
     if(!sourceAllowed(providerId))       return {state:'invalid',providerId:'',models:[]};
     const scope=mountedScope();
@@ -376,8 +376,9 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
     const llm=scope.llm??scope.get?.('llm');
     if(typeof llm?.listModels!=='function'&&!(providerId==='codearts'&&privateSourceCatalog))
        return {state:'unavailable',providerId,models:[]};
-    if(modelRequests.has(providerId))return {state:'busy',providerId,models:[]};
-    modelRequests.add(providerId);
+     const existing=modelRequests.get(providerId);
+     if(existing?.scope===scope)return structuredClone(await existing.promise);
+     const entry={scope,promise:(async()=>{
     let timer;
     try{
       // Never automatically fetch; bound the settings request even if the
@@ -422,8 +423,12 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
             ?{pricing:{input:row.pricing.input,output:row.pricing.output}}:{})});      }
       return {state:'ready',providerId,models};
     }catch{return {state:'error',providerId,models:[]}}
-    finally{clearTimeout(timer);modelRequests.delete(providerId)}
-  }
+     finally{clearTimeout(timer)}
+     })()};
+     modelRequests.set(providerId,entry);
+     try{return structuredClone(await entry.promise)}
+     finally{if(modelRequests.get(providerId)===entry)modelRequests.delete(providerId)}
+   }
   // The pinned source adapter has no public forceAccountId parameter.
   // Single-account requests preserve the Alpha.8 behavior. Experimental
   // multiaccount requests are permitted ONLY for reviewed channel paths,

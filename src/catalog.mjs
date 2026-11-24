@@ -175,7 +175,7 @@ export function createCatalog({getConfig,getEffectiveConfig,fetchImpl=fetch,
           ||(driver?.isSourceBridge===true&&driver.runtimeReady!==true)))continue;
         const sourceModels=all.filter(row=>row.providerId===p.id);
         const models=new Set([...p.models,...sourceModels.map(row=>row.model)].filter(model=>
-          p.protocol!=='dsh-host'||allowsHostModel(cfg,p.id,model)));
+          !['dsh-host','native-channel'].includes(p.protocol)||allowsHostModel(cfg,p.id,model)));
         const liveNames=new Map();
         const accounts=cfg.accounts.filter(a=>a.providerId===p.id&&a.enabled).slice(0,32);
         if(p.protocol==='native-channel'&&accounts.length===0)continue;
@@ -188,7 +188,7 @@ export function createCatalog({getConfig,getEffectiveConfig,fetchImpl=fetch,
           await discoverAccounts(p,accounts,driver,signal,models,liveNames);
         const entries=[];
         for(const model of models){
-          if(p.protocol==='dsh-host'&&!allowsHostModel(cfg,p.id,model))continue;
+          if(['dsh-host','native-channel'].includes(p.protocol)&&!allowsHostModel(cfg,p.id,model))continue;
           const discovered=sourceModels.find(row=>row.model===model);
           const name=conciseModelName(p.id,p.name,model,
             discovered?.name??liveNames.get(model));
