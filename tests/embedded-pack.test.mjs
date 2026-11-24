@@ -1011,3 +1011,38 @@ test('source pack status never infers login RPC or model readiness from package 
  assert.equal(b.status().sourceErrorLocation,'');
  b.dispose();
 });
+
+test('authenticated source identity recovers only explicit public login fields from the exact owned account',async()=>{
+ const row={id:'loomy-a',provider:'loomy',enabled:true,
+  credentialRef:'NATIVE_ROUTER_PRIVATE_PACK_TEST',nickname:'账号1'};
+ let pool,online=true,reads=0;
+ const ops={
+  identity:async()=>({ok:true,value:{accounts:[{id:row.id,nickname:'账号1'}]}}),
+  status:async()=>({ok:true,value:{accounts:[{accountId:row.id,
+   ...(online?{status:{active:true,todayCheckedIn:false}}:{error:'offline'})}]}}),
+  balances:async()=>({ok:true,value:{accounts:[]}}),
+ };
+ const scope={credentials:{resolve:async()=>{
+   reads++;return {value:JSON.stringify({nickname:'真实登录昵称',phone:'13812345678',
+    access_token:'SYNTHETIC_FIXTURE_ONLY'})};
+ }},get:k=>k==='accountPool'?pool:k==='nativeRouterSourceCheckins'?ops:undefined};
+ const bridge=createEmbeddedChannelPack({ctx:{inject(_names,cb){cb(scope)}},
+  getConfig:()=>({embeddedPack:{enabled:true}}),
+  env:isolatedEnv,
+  loomyFetchImpl:async()=>new Response('{}',{status:401}),
+  loadPack:async()=>({apply(){pool={listAllAccounts:async()=>[row]}}})});
+ bridge.attach();
+ await new Promise(resolve=>setImmediate(resolve));
+ await new Promise(resolve=>setImmediate(resolve));
+ try{
+  const data=await bridge.readSourceStatuses('loomy');
+  assert.equal(data.accounts[0].nickname,'真实登录昵称');
+  assert.equal(data.accounts[0].maskedPhone,'138****5678');
+  assert.doesNotMatch(JSON.stringify(data),/SYNTHETIC_FIXTURE_ONLY|13812345678|NATIVE_ROUTER_PRIVATE_PACK/);
+  online=false;
+  const unverified=await bridge.readSourceStatuses('loomy');
+  assert.equal(unverified.accounts[0].authVerified,false);
+  assert.equal(unverified.accounts[0].nickname,'');
+  assert.equal(unverified.accounts[0].maskedPhone,undefined);
+ }finally{bridge.dispose()}
+});

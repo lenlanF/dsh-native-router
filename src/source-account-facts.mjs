@@ -43,8 +43,16 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
   const soleUnit=single&&balanceValue!==null&&
     (numeric(single.remaining)===null||
       Math.abs(single.remaining-balanceValue)<0.000001)?safeUnit(single.unit):null;
-  const unit=safeUnit(balanceRow?.balanceUnit)??safeUnit(structured?.unit)??
-    reconciledUnit??soleUnit;
+  // CodeArts publishes its authoritative TOTAL metric alongside component
+  // metrics, not as an additional spendable bucket.
+  const codeArtsTotal=providerId==='codearts'&&balanceValue!==null
+    &&packages.filter(x=>x?.name==='总积分包').length===1
+    &&packages.some(x=>x?.name==='总积分包'&&x.unit==='credit'
+      &&numeric(x.remaining)!==null&&Math.abs(x.remaining-balanceValue)<0.000001)
+    &&packages.every(x=>x?.unit==='credit')?'积分':null;
+  const rawUnit=safeUnit(balanceRow?.balanceUnit)??safeUnit(structured?.unit)??
+    codeArtsTotal??reconciledUnit??soleUnit;
+  const unit=providerId==='codearts'&&rawUnit==='credit'?'积分':rawUnit;
   const liveStatus=!statusRow?.error&&status!==null&&(
     typeof status.todayCheckedIn==='boolean'||
     Array.isArray(status.checkinDates)||

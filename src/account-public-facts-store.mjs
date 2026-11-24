@@ -4,7 +4,7 @@
 import {readFileSync,writeFileSync,mkdirSync,renameSync,unlinkSync,existsSync} from 'node:fs';
 import {dirname} from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
-import {publicAccountName,publicBalance} from './account-facts.mjs';
+import {publicAccountName,publicBalance,publicMaskedPhone} from './account-facts.mjs';
 
 const MAX=200,VERSION=1,MAX_AGE=7*86400000;
 const hash=account=>createHash('sha256').update(
@@ -21,6 +21,8 @@ function safeRow(value,now){
   const row={binding:value.binding,updatedAt:value.updatedAt};
   const name=cleanName(value.name);
   if(name)row.name=name;
+  const phone=publicMaskedPhone(value);
+  if(phone)row.maskedPhone=phone;
   if(validNumber(value.balance)&&typeof value.balanceUnit==='string'
       &&value.balanceUnit.length<=24&&validTime(value.balanceCheckedAt,now)){
     row.balance=value.balance;row.balanceUnit=value.balanceUnit;
@@ -30,7 +32,7 @@ function safeRow(value,now){
       row.expiringPoints=value.expiringPoints;row.expiringAt=value.expiringAt;
     }
   }
-  return row.name||hasOwn(row,'balance')?row:null;
+  return row.name||row.maskedPhone||hasOwn(row,'balance')?row:null;
 }
 export function createPublicAccountFactsStore({path,now=()=>Date.now()}={}){
   let rows={},blocked=false;
@@ -83,6 +85,8 @@ export function createPublicAccountFactsStore({path,now=()=>Date.now()}={}){
     let changed=false;
     const name=publicAccountName(snapshot);
     if(name&&name!==before?.name){next.name=name;changed=true}
+    const phone=publicMaskedPhone(snapshot);
+    if(phone&&phone!==before?.maskedPhone){next.maskedPhone=phone;changed=true}
     const raw=publicBalance(snapshot);
     const balanceTime=Number.isSafeInteger(raw.balanceCheckedAt)?
       raw.balanceCheckedAt:before?.balanceCheckedAt??time;

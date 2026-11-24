@@ -1,6 +1,6 @@
 import {resolveCredential} from './accounts.mjs';
 import {describeChannels,automaticPools} from './channels.mjs';
-import {publicAccountName,publicBalance} from './account-facts.mjs';
+import {publicAccountName,publicBalance,publicMaskedPhone} from './account-facts.mjs';
 import {runtimeOwnership} from './account-runtime-ownership.mjs';
 import {verificationWithinPeriod} from './account-verification-store.mjs';
 import {freeEvidence} from './auto-free.mjs';
@@ -106,8 +106,10 @@ export function createAccountCenter({
                balance.balanceState='cached';balance.balanceStale=true;
              }
              const liveName=publicAccountName(live);
+             const livePhone=publicMaskedPhone(live);
              const name=liveName||cached?.name||publicAccountName(account);
-             const profileFromCache=!liveName&&Boolean(cached?.name);
+             const maskedPhone=livePhone||publicMaskedPhone(cached);
+             const profileFromCache=!liveName&&Boolean(cached?.name)||(!name&&!livePhone&&Boolean(maskedPhone));
              // A valid entitlement may expose ONLY remaining units (or only
              // the provisioned/used values). Never discard that official
              // evidence simply because the provider omitted a total.
@@ -135,9 +137,9 @@ export function createAccountCenter({
            Number.isFinite(live.modelInferenceVerifiedAt)&&live.modelInferenceVerifiedAt>0?
             live.modelInferenceVerifiedAt:0);
            return {id:account.id,providerId:account.providerId,providerName:provider.name,
-             ...(name?{nickname:name,
-               profileState:profileFromCache?'cached':'verified'}:
-               {profileState:'not_returned'}),
+             ...(name?{nickname:name}:{}),
+             ...(maskedPhone?{maskedPhone}:{}),
+             profileState:name||maskedPhone?profileFromCache?'cached':'verified':'not_returned',
              ...balance,quotaWindows,
              ...(balance.balanceUnit==='积分'
                &&Number.isFinite(fromCache?cached?.expiringPoints:live.expiringPoints)

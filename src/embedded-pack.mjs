@@ -1,6 +1,6 @@
 import {channelPackIsolationReason,channelPackNodeRuntimeReason} from './channel-pack-isolation.mjs';
 import {sourceAccountOpaqueId} from './source-account-ref.mjs';
-import {publicAccountName,upstreamCheckedInToday} from './account-facts.mjs';
+import {publicAccountName,upstreamCheckedInToday,credentialPublicIdentity,publicMaskedPhone} from './account-facts.mjs';
 import {sourceAccountFacts} from './source-account-facts.mjs';
 import {installSourceAccountSelection} from './source-account-selection.mjs';
 import {ownCredentialRef} from './credential-ref.mjs';
@@ -800,6 +800,15 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
           &&!Array.isArray(statusRow.status)?statusRow.status:null;
         const facts=sourceAccountFacts({providerId,identity:identityMap.get(accountId),
           statusRow,balanceRow,observedAt:Date.now()});
+        // Explicit public fields already supplied at login may be retained in
+        // our own exact-account credential. Only use them after live auth;
+        // do not infer identities from opaque IDs or consult the original app.
+        const ownedIdentity=facts.authVerified===true&&!facts.nickname
+          &&['codearts','loomy','zcode'].includes(providerId)
+          ?await withOwnedSourceCredential(scope,providerId,accountId,null,
+             credential=>credentialPublicIdentity(credential)):null;
+        if(scope!==mountedScope())return {state:'unavailable',accounts:[]};
+        if(!facts.nickname&&ownedIdentity?.accountName)facts.nickname=ownedIdentity.accountName;
         const loginProof=providerId==='raccoon'?
           raccoonProofs.get(accountId)??{state:'unavailable'}:null;
         const loomyProof=providerId==='loomy'?loomyProofs.get(accountId):null;
@@ -825,7 +834,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
             Date.parse(rawEnd):null;
         const rawPhone=identityMap.get(accountId)?.phone??exact?.phone;
         const phone=typeof rawPhone==='string'&&/^\d{11}$/.test(rawPhone)
-          ?rawPhone.replace(/^(\d{3})\d{4}(\d{4})$/,'$1****$2'):null;
+          ?rawPhone.replace(/^(\d{3})\d{4}(\d{4})$/,'$1****$2'):publicMaskedPhone(ownedIdentity);
         const today=new Intl.DateTimeFormat('en-CA',{
           timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'})
           .format(new Date());
