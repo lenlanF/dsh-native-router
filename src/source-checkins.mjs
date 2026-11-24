@@ -4,7 +4,7 @@ import {todayKey,clockAt} from './checkins.mjs';
 import {channelAutoEnabled} from './config.mjs';
 import {publicAccountName,publicBalance,checkinDisplayState,expiredCheckinConfirmation} from './account-facts.mjs';
 import {verificationWithinPeriod} from './account-verification-store.mjs';
-import {publicCheckinMessage,publicAccountFailureMessage} from './public-diagnostics.mjs';
+import {publicCheckinMessage,publicAccountFailureMessage,safeCheckinDiagnostic} from './public-diagnostics.mjs';
 import {LOOMY_FREE_TASKS} from './channels/loomy-rewards.mjs';
 
 const supported=new Set(SOURCE_DAILY_SIGNIN_PROVIDERS);const RETRY_DELAY_MS=60*60*1000;
@@ -376,7 +376,7 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
          row.providerId==='zcode'&&report?.noClaimablePlans===true
            ?'官方查询当前没有可领取的 Start Plan；未证明今日已领取，后续继续检查':
          report?.claimable===true?'官方确认当前存在可领取的计划':
-         report?.todayCheckedIn===false?'来源服务确认今日尚未签到':         recent?publicCheckinMessage(recent.state):(implemented?'今日签到状态暂未核实':
+         report?.todayCheckedIn===false?'来源服务确认今日尚未签到':         recent?publicCheckinMessage(recent.state,recent.diagnosticCode):(implemented?'今日签到状态暂未核实':
            row.providerId==='raccoon'?'每日积分需官方网页活动触发并核验账单':'该渠道不提供每日签到操作'),
     };
   }); }
@@ -448,10 +448,11 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
        if(statusCache.get(id)?.day===today()&&statusCache.get(id)?.todayCheckedIn===true){
          state='success';message='上游签到状态已回查确认';
        }else{state='pending_confirmation';message='请求已受理，服务端仍未确认；自动回查和限次重试';}
-     }else{message=publicCheckinMessage('failed')}
+      }else{message=publicCheckinMessage('failed',reply?.diagnosticCode)}
    assertAuthorized();
    const record=store.append({date:today(),accountId:id,providerId:row.providerId,
-    state,message,at:now(),source,
+     state,message,at:now(),source,
+     ...(state==='failed'&&safeCheckinDiagnostic(reply?.diagnosticCode)?{diagnosticCode:safeCheckinDiagnostic(reply.diagnosticCode)}:{}),
     // Persist explicit read-only provenance across restarts. Older no_task
     // records and any claim POST result must still consume the attempt budget.
     ...(row.providerId==='zcode'&&state==='no_task'&&reply?.claimPosted===false

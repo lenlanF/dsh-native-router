@@ -48,7 +48,21 @@ export function publicAccountFailureMessage(error){
   };
   return messages[code]??'渠道状态检查未成功，稍后可复核';
 }
-export function publicCheckinMessage(state){
+const checkinDiagnostics=Object.freeze({
+  LOBSTER_SLOT_READ:'活动槽位读取失败',
+  LOBSTER_SLOT_SHAPE:'官方活动槽位字段不完整',
+  LOBSTER_CONTEXT_READ:'活动上下文读取失败',
+  LOBSTER_CONTEXT_SHAPE:'官方活动资格字段不完整',
+  LOBSTER_CLAIM_REQUEST:'官方领取请求失败',
+  LOBSTER_CLAIM_REJECTED:'官方拒绝领取请求',
+  STATUS_UNAVAILABLE:'官方签到状态查询失败',
+  ELIGIBILITY_UNKNOWN:'官方领取资格尚未确认',
+  CLAIM_RECEIPT_MISSING:'未返回指定账号领取回执',
+  CLAIM_REJECTED:'官方领取未成功',
+  CLAIM_STATUS_UNKNOWN:'官方领取结果未知',
+});
+export const safeCheckinDiagnostic=code=>typeof code==='string'&&Object.prototype.hasOwnProperty.call(checkinDiagnostics,code)?code:undefined;
+export function publicCheckinMessage(state,code){
   const messages={
     success:'官方已确认今日签到完成',
     no_task:'该账号今日暂无签到任务',
@@ -57,5 +71,5 @@ export function publicCheckinMessage(state){
     failed:'签到未完成或尚无可靠确认依据',
     unsupported:'该渠道未提供每日签到操作',
   };
-  return messages[state]??messages.failed;
+  return (messages[state]??messages.failed)+(state==='failed'&&safeCheckinDiagnostic(code)?'；'+checkinDiagnostics[code]:'');
 }

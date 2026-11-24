@@ -59316,17 +59316,19 @@ async function fetchQoderCheckinStatus(credential, product, fetcher = sanitizing
 }
 async function fetchLobsteraiCheckinStatus(credential, product, clientVersion, fetcher = sanitizingFetch) {
   const slot = await fetchLobsteraiActivitySlot(credential, product, clientVersion, fetcher);
-  if (slot === null) return null;
+  if (slot === null) return { diagnosticCode: "LOBSTER_SLOT_READ" };
+  if (!slot.slotState || slot.slotState === "available" && !slot.activityCode) return { diagnosticCode: "LOBSTER_SLOT_SHAPE" };
   if (slot.slotState !== "available" || slot.activityCode.length === 0) {
     return { active: false, todayCheckedIn: false, todayCredit: 0, slotState: slot.slotState };
   }
   const context = await fetchLobsteraiActivityContext(credential, product, slot, fetcher);
-  if (context === null) return null;
+  if (context === null) return { diagnosticCode: "LOBSTER_CONTEXT_READ" };
+  if (typeof context.claimedToday !== "boolean" || !Array.isArray(context.actions)) return { diagnosticCode: "LOBSTER_CONTEXT_SHAPE" };
   return {
     active: true,
     todayCheckedIn: context.claimedToday === true,
     todayCredit: 0,
-    claimable: context.claimedToday !== true,
+    claimable: context.claimedToday === false && context.actions.includes("check_in"),
     slotState: slot.slotState
   };
 }
@@ -59636,22 +59638,23 @@ async function fetchLobsteraiActivityContext(credential, product, slot2, fetcher
   if (!envelope.ok) return null;
   const state = typeof envelope.data.state === "object" && envelope.data.state !== null ? envelope.data.state : {};
   return {
-    claimedToday: readBool2(state, "claimedToday"),
-    actions: readActions(envelope.data, "actions")
+    claimedToday: typeof state.claimedToday === "boolean" ? state.claimedToday : void 0,
+    actions: Array.isArray(envelope.data.actions) ? readActions(envelope.data, "actions") : void 0
   };
 }
 async function claimLobsteraiDailyCheckin(credential, product, clientVersion, fetcher = sanitizingFetch) {
   const slot2 = await fetchLobsteraiActivitySlot(credential, product, clientVersion, fetcher);
   if (slot2 === null) {
-    return { kind: "failed", code: -1, message: "\u6D3B\u52A8\u69FD\u4F4D\u67E5\u8BE2\u5931\u8D25" };
+    return { kind: "failed", diagnosticCode: "LOBSTER_SLOT_READ", code: -1, message: "\u6D3B\u52A8\u69FD\u4F4D\u67E5\u8BE2\u5931\u8D25" };
   }
   if (slot2.slotState !== "available" || slot2.activityCode.length === 0) {
     return { kind: "inactive", message: `\u65E0\u53EF\u7528\u6D3B\u52A8\uFF08slotState=${slot2.slotState}\uFF09` };
   }
   const context = await fetchLobsteraiActivityContext(credential, product, slot2, fetcher);
   if (context === null) {
-    return { kind: "failed", code: -1, message: "\u6D3B\u52A8\u4E0A\u4E0B\u6587\u67E5\u8BE2\u5931\u8D25" };
+    return { kind: "failed", diagnosticCode: "LOBSTER_CONTEXT_READ", code: -1, message: "\u6D3B\u52A8\u4E0A\u4E0B\u6587\u67E5\u8BE2\u5931\u8D25" };
   }
+  if (typeof context.claimedToday !== "boolean" || !Array.isArray(context.actions)) return { kind: "failed", diagnosticCode: "LOBSTER_CONTEXT_SHAPE" };
   if (context.claimedToday) {
     return { kind: "already-claimed", message: "\u4ECA\u5929\u5DF2\u7B7E\u5230" };
   }
@@ -59669,11 +59672,11 @@ async function claimLobsteraiDailyCheckin(credential, product, clientVersion, fe
     })
   });
   if (!result.ok) {
-    return { kind: "failed", code: -1, message: result.message };
+    return { kind: "failed", diagnosticCode: "LOBSTER_CLAIM_REQUEST", code: -1, message: result.message };
   }
   const envelope = parseLobsteraiEnvelope(result.body);
   if (!envelope.ok) {
-    return { kind: "failed", code: envelope.code, message: envelope.message };
+    return { kind: "failed", diagnosticCode: "LOBSTER_CLAIM_REJECTED", code: envelope.code, message: envelope.message };
   }
   const bodyResult = typeof envelope.data.result === "object" && envelope.data.result !== null ? envelope.data.result : {};
   const credit = ["creditsGranted", "rewardCredits", "credits"].map((key) => bodyResult[key]).find((value) => typeof value === "number" && Number.isFinite(value)) ?? 0;

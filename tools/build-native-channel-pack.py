@@ -482,6 +482,36 @@ async function fetchLoomyCreditDetail(credential, product, fetcher = sanitizingF
         'return { kind: "claimed", credit: granted, streakDays: 0, isStreakDay: false, dailyInitialization };',
         'loomy-new-initialization-receipt',
     ))
+    # LobsterAI official context must explicitly allow check_in.
+    patches.append((
+        'const slot = await fetchLobsteraiActivitySlot(credential, product, clientVersion, fetcher);\n  if (slot === null) return null;',
+        'const slot = await fetchLobsteraiActivitySlot(credential, product, clientVersion, fetcher);\n  if (slot === null) return { diagnosticCode: "LOBSTER_SLOT_READ" };\n  if (!slot.slotState || slot.slotState === "available" && !slot.activityCode) return { diagnosticCode: "LOBSTER_SLOT_SHAPE" };',
+        'lobster-explicit-slot-status',
+    ))
+    patches.append((
+        'const context = await fetchLobsteraiActivityContext(credential, product, slot, fetcher);\n  if (context === null) return null;',
+        'const context = await fetchLobsteraiActivityContext(credential, product, slot, fetcher);\n  if (context === null) return { diagnosticCode: "LOBSTER_CONTEXT_READ" };\n  if (typeof context.claimedToday !== "boolean" || !Array.isArray(context.actions)) return { diagnosticCode: "LOBSTER_CONTEXT_SHAPE" };',
+        'lobster-explicit-context-status',
+    ))
+    patches.append((
+        'claimable: context.claimedToday !== true,\n    slotState:',
+        'claimable: context.claimedToday === false && context.actions.includes("check_in"),\n    slotState:',
+        'lobster-official-action-eligibility',
+    ))
+    patches.append((
+        'claimedToday: readBool2(state, "claimedToday"),\n    actions: readActions(envelope.data, "actions")',
+        'claimedToday: typeof state.claimedToday === "boolean" ? state.claimedToday : void 0,\n    actions: Array.isArray(envelope.data.actions) ? readActions(envelope.data, "actions") : void 0',
+        'lobster-preserve-unknown-context',
+    ))
+    start = text.index('async function claimLobsteraiDailyCheckin(')
+    end = text.index('async function fetchLobsteraiCreditBalance(', start)
+    claim_source = text[start:end]
+    claim_patched = claim_source.replace('if (context.claimedToday) {', 'if (typeof context.claimedToday !== "boolean" || !Array.isArray(context.actions)) return { kind: "failed", diagnosticCode: "LOBSTER_CONTEXT_SHAPE" };\n  if (context.claimedToday) {', 1)
+    claim_patched = claim_patched.replace('kind: "failed", code: -1, message:', 'kind: "failed", diagnosticCode: "LOBSTER_SLOT_READ", code: -1, message:', 1)
+    claim_patched = claim_patched.replace('kind: "failed", code: -1, message:', 'kind: "failed", diagnosticCode: "LOBSTER_CONTEXT_READ", code: -1, message:', 1)
+    claim_patched = claim_patched.replace('kind: "failed", code: -1, message:', 'kind: "failed", diagnosticCode: "LOBSTER_CLAIM_REQUEST", code: -1, message:', 1)
+    claim_patched = claim_patched.replace('kind: "failed", code: envelope.code, message:', 'kind: "failed", diagnosticCode: "LOBSTER_CLAIM_REJECTED", code: envelope.code, message:', 1)
+    patches.append((claim_source, claim_patched, 'lobster-safe-claim-diagnostics'))
     names = []
     for old, new, name in patches:
         count = text.count(old)
