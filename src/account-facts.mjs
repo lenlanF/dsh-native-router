@@ -20,6 +20,9 @@ export function publicAccountName(...sources){
 }
 // Only read allowlisted public fields from an exact-account credential.
 // Never return the original payload, user ID, token or a plain phone number.
+export function publicMaskedPhone(...sources){
+  return sources.map(x=>x?.maskedPhone).find(x=>typeof x==='string'&&/^\d{3}\*{4}\d{4}$/.test(x))??'';
+}
 export function credentialPublicIdentity(payload){
   if(!payload||typeof payload!=='object'||Array.isArray(payload))return {};
   const label=publicAccountName({
