@@ -49,3 +49,16 @@ test('one job at a time; cancel before next account; changed bindings never exec
  f.service.cancel(id);release({state:'online'});
  const r=await done(f.service);assert.equal(r.state,'cancelled');assert.equal(f.calls.length,0);
 });
+test('inventory uses a selected account official reader without duplicate generic refresh',async()=>{
+ const f=fixture({accountCenter:{
+  driverFor:()=>({refreshAccountStatus:async()=>{}}),
+  refreshReadOnly:async opts=>{assert.deepEqual(opts,{force:true,accountId:'one'});
+    return [{state:'ready',authVerified:true}]},
+  verify:async()=>{throw Error('duplicate refresh')},
+ }});
+ f.service.start({requestId:id,mode:'inventory',consent:true});
+ const r=await done(f.service);
+ assert.equal(r.accounts[0].connection,'online');
+ assert.equal(r.accounts[0].state,'observed');
+ assert.deepEqual(f.calls,[['catalog','one',true]]);
+});

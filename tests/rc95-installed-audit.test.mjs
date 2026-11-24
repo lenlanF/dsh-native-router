@@ -29,12 +29,13 @@ test('installed-state audit reads true per-account bindings, redacts names/IDs/s
       autoEnabled:false,autoSourceAccounts:true}});
   save('plugins/dsh-native-router/account-public-facts.json',{version:1,
     rows:[{binding:bind(a),name:'REAL_SENSITIVE_NAME_123',balance:800,
-      balanceUnit:'',balanceCheckedAt:day-1000},
+      balanceUnit:'',balanceCheckedAt:day-1000,observation:{at:day-1000,balanceState:'cached',quotaWindowCount:1}},
+       {binding:bind(b),maskedPhone:'138****5678',observation:{at:day-1000,balanceState:'not_supported',rollingState:'available',rollingPercentObserved:true}},
       {binding:'0'.repeat(64),name:'OTHER_ACCOUNT_DO_NOT_JOIN',balance:500,
         balanceUnit:'积分',balanceCheckedAt:day-1000}]});
   save('plugins/dsh-native-router/account-verification.json',{version:1,
     checks:[{id:'alpha',binding:bind(a),state:'online',
-      checkedAt:day-1000,verifiedAt:day-1000},
+      checkedAt:day-1000,verifiedAt:day-1000,modelProofAt:day-3000,modelFailedAt:day-2000},
       {id:'beta',binding:bind(b),state:'expired',
       checkedAt:day-2000,verifiedAt:null}]});
   save('plugins/dsh-native-router/checkins.json',{version:1,
@@ -46,7 +47,12 @@ test('installed-state audit reads true per-account bindings, redacts names/IDs/s
   const result=auditInstalledDsh({dshHome:root,now:day});
   assert.equal(result.installedVersion,'1.0.0-rc.94');
   assert.equal(result.accounts.configured,2);
-  assert.equal(result.accounts.named,1);
+   assert.equal(result.accounts.named,1);
+   assert.equal(result.accounts.identityReported,2);
+   assert.equal(result.accounts.maskedIdentityOnly,1);
+   assert.equal(result.accounts.recentBalance,0);
+   assert.equal(result.accounts.observedQuota,2);
+   assert.equal(result.accounts.recentQuota,2);
   assert.equal(result.accounts.balanceReported,1);
   assert.equal(result.accounts.balanceUnitMissing,1);
   assert.equal(result.accounts.balanceUnreported,1);
@@ -60,7 +66,7 @@ test('installed-state audit reads true per-account bindings, redacts names/IDs/s
   assert.equal(result.liveOfficialAPIQueried,false);
   const text=JSON.stringify(result);
   for(const marker of ['REAL_SENSITIVE_NAME_123','OTHER_ACCOUNT_DO_NOT_JOIN',
-    'SECRET_BEARER_MUST_STAY_PRIVATE','driver:','alpha','beta'])
+    'SECRET_BEARER_MUST_STAY_PRIVATE','driver:','alpha','beta','138****5678'])
     assert.doesNotMatch(text,new RegExp(marker.replace(/[.*+?^$\{\}()|[\]\\]/g,'\\$&')));
   for(const [file,value]of files)
     assert.equal(readFileSync(file,'utf8'),value,'must never change installed state');

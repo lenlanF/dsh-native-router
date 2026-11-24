@@ -118,3 +118,74 @@ test('account center does not lose identity and spendable points on an empty/fai
  assert.equal(row.balanceState,'available');
  center.stop();
 });
+test('background read-only and explicit refresh persist facts without opening account list',async()=>{
+ const dir=setup();
+ try{
+  let clock=Date.parse('2026-11-23T04:00:00Z');
+  const a={...account},cfg=normalizeConfig({providers:[{id:a.providerId,name:'Test',protocol:'native-channel',enabled:true}],accounts:[a]});
+  const path=join(dir,'background.json'),now=()=>clock;
+  const store=createPublicAccountFactsStore({path,now});
+  let facts={};
+  const driver={accountSnapshot:()=>facts,
+    refreshAccountStatus:async()=>{facts={nickname:'Verified fixture',authVerified:true,
+      balanceState:'not_supported',membershipState:'active',membershipPercentRemaining:43,
+      usageState:'available',usagePercentRemaining:80};return {state:'ready',authVerified:true}},
+    refresh:async()=>{facts={maskedPhone:'138****5678',balanceState:'available',balance:25,balanceUnit:'积分',balanceCheckedAt:clock};return {state:'online'}}};
+  const center=createAccountCenter({configStore:{get:()=>cfg,replace:()=>{}},publicFactsStore:store,
+    drivers:new Map([[a.providerId,driver]]),now});
+  await center.refreshReadOnly({force:true});
+  let restarted=createPublicAccountFactsStore({path,now});
+  assert.equal(restarted.get(a).name,'Verified fixture');
+  assert.equal(restarted.get(a).observation.membershipPercentObserved,true);
+  assert.equal(restarted.get(a).observation.rollingPercentObserved,true);
+  assert.equal(restarted.get(a).observation.balanceState,'not_supported');
+  assert.doesNotMatch(readFileSync(path,'utf8'),/membershipPercentRemaining|usagePercentRemaining/);
+  clock+=1000;
+  assert.equal((await center.verify(a.id)).state,'online');
+  restarted=createPublicAccountFactsStore({path,now});
+  assert.equal(restarted.get(a).balance,25);
+  assert.equal(restarted.get(a).maskedPhone,'138****5678');
+  assert.equal(restarted.get(a).observation.rollingPercentObserved,false);
+  assert.equal(restarted.get(a).observation.balanceState,'available');
+  center.stop();
+ }finally{rmSync(dir,{recursive:true,force:true})}
+});
+test('late refresh after credential binding replacement never persists identity',async()=>{
+ let release,entered;
+ const waiting=new Promise(r=>{release=r}),started=new Promise(r=>{entered=r});
+ const clock=Date.parse('2026-11-23T04:00:00Z'),a={...account};
+ let cfg=normalizeConfig({providers:[{id:a.providerId,name:'Test',protocol:'native-channel',enabled:true}],accounts:[a]});
+ const store=createPublicAccountFactsStore({now:()=>clock});
+ const center=createAccountCenter({configStore:{get:()=>cfg,replace:()=>{}},publicFactsStore:store,
+   drivers:new Map([[a.providerId,{accountSnapshot:()=>({nickname:'Other binding'}),
+     refreshAccountStatus:async()=>{entered();await waiting;return {state:'ready',authVerified:true}}}]]),now:()=>clock});
+ const task=center.refreshReadOnly({force:true});await started;
+ cfg=normalizeConfig({...cfg,accounts:[{...a,credentialRef:'driver:own_lingxi:replacement'}]});
+ release();await task;
+ assert.equal(store.get(a),null);assert.equal(store.get(cfg.accounts[0]),null);
+ center.stop();
+});
+test('selected account refresh leaves other channels untouched and concurrent explicit refresh is refused',async()=>{
+ const a={...account},b={...a,id:'second',credentialRef:'driver:own_lingxi:second'};
+ const cfg=normalizeConfig({providers:[{id:a.providerId,name:'Test',protocol:'native-channel',enabled:true}],accounts:[a,b]});
+ let release,entered,calls=[];
+ const waiting=new Promise(r=>{release=r}),started=new Promise(r=>{entered=r});
+ const center=createAccountCenter({configStore:{get:()=>cfg,replace:()=>{}},
+   drivers:new Map([[a.providerId,{refresh:async()=>{throw Error('Duplicate generic refresh')},
+      refreshAccountStatus:async({account})=>{calls.push(account.id);entered();await waiting;return {state:'ready',authVerified:true}}}]])});
+ const request=center.refreshReadOnly({force:true,accountId:a.id});
+ await started;
+ await assert.rejects(center.verify(a.id),error=>error.status===409);
+ release();await request;
+ assert.deepEqual(calls,[a.id]);
+ center.stop();
+});
+test('reading cached identity never refreshes official entitlement observation time',()=>{
+ let clock=Date.parse('2026-11-23T04:00:00Z');
+ const store=createPublicAccountFactsStore({now:()=>clock});
+ store.observe(account,{maskedPhone:'138****5678',usageState:'available',usagePercentRemaining:52},{verifiedAt:clock});
+ const initial=store.get(account).observation;
+ clock+=300000;
+ store.observe(account,{maskedPhone:'138****5678',usageState:'available',usagePercentRemaining:52});
+ assert.deepEqual(store.get(account).observation,initial);
+});

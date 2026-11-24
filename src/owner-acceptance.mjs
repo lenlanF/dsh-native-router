@@ -42,8 +42,14 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,n
     if(!eligible(account)){row.state='skipped';row.code='ACCOUNT_CHANGED';report.accounts.push(row);continue}
     try{
      if(report.mode==='inventory'){
-      const probe=await accountCenter.verify(account.id);
-      row.connection=stateOf(probe?.state);
+       // Use a dedicated official reader when available; do not fetch
+       // the model catalogue twice during a single acceptance run.
+       const hasReader=typeof accountCenter.driverFor?.(account.providerId)?.refreshAccountStatus==='function'
+         &&typeof accountCenter.refreshReadOnly==='function';
+       const probe=hasReader?(await accountCenter.refreshReadOnly({force:true,accountId:account.id}))[0]
+         :await accountCenter.verify(account.id);
+       row.connection=hasReader&&probe?.authVerified===true&&['ready','online'].includes(probe.state)
+         ?'online':probe?.state==='ready'?'pending':stateOf(probe?.state);
       if(!stopped()&&eligible(account)){
        const data=publicRow(account);
        row.hasProfile=Boolean(data?.nickname||data?.maskedPhone);

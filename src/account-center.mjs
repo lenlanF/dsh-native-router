@@ -70,6 +70,16 @@ export function createAccountCenter({
     label:linked?'复用的已有账号引用':ref.startsWith('env:')?'环境变量凭据引用':
       ref.startsWith('host:')?'DSH 凭据保管库引用':'原生驱动引用',loginVerified:false};
  }
+ // Persist authorized facts at the point of successful refresh. A page read
+ // is not required, and a late reply from an old binding must never be saved.
+ function observeRefreshedFacts(account,driver,observedAt){
+   if(disposed||!publicFactsStore||typeof driver?.accountSnapshot!=='function')return;
+   try{
+     const live=driver.accountSnapshot(account)??{};
+     if(live.authVerified===false)return;
+     publicFactsStore.observe(account,live,{verifiedAt:observedAt});
+   }catch{}
+ }
  function list(){
    const cfg=configStore.get(),registered=describeChannels(cfg,drivers instanceof Map?drivers:new Map(Object.entries(drivers??{})));
    const statusMap=new Map(cfg.accounts.map(account=>[account.id,checkFor(account)]));
@@ -236,6 +246,9 @@ export function createAccountCenter({
    async function verify(id,{login=false,signal}={}){
     if(pending.has(id)){const e=new Error('Account operation already in progress');e.status=409;throw e}
    const entry=find(id);
+   if(readOnlyPending.get(id)?.credentialRef===entry.account.credentialRef){
+     const error=new Error('Account read-only refresh already in progress');error.status=409;throw error;
+   }
    if(!entry.account.enabled||!entry.provider.enabled){const e=new Error('Account or provider is disabled');e.status=409;throw e}
    const method=login?'login':'refresh',driver=entry.driver;
    if(!driver?.[method]&&!['openai-chat','anthropic-messages'].includes(entry.provider.protocol)){
@@ -274,6 +287,8 @@ export function createAccountCenter({
     }
     checks.set(id,{...result,bindingRef:entry.account.credentialRef});
     try{verificationStore?.set?.(entry.account,result)}catch{}
+    if(result.state==='online'&&!controller.signal.aborted)
+      observeRefreshedFacts(entry.account,driver,result.at);
     return {id,...result,manualKeyVerification:!driver?.[method]};
   }
  // Model verification uses this plugin's own account/driver, never a
@@ -602,7 +617,7 @@ export function createAccountCenter({
     if(fresh){
      let facts={};
      try{facts=driver?.accountSnapshot?.(account)??{}}catch{}
-     const named=Boolean(publicAccountName(facts));
+     const named=Boolean(publicAccountName(facts)||publicMaskedPhone(facts));
      const metadataIncomplete=!named||
        ['own_mimo_desktop','own_doubao'].includes(account.providerId)
        && !Number.isFinite(facts.balance)&&
@@ -624,11 +639,12 @@ export function createAccountCenter({
    }finally{autoBusy=false}
   return {attempted};
  }
-   async function refreshReadOnly({force=false}={}){
+   async function refreshReadOnly({force=false,accountId=null}={}){
      const cfg=configStore.get();
      const targets=cfg.accounts.filter(account=>{
        const p=cfg.providers.find(row=>row.id===account.providerId);
        return account.enabled&&p?.enabled===true
+         &&(accountId===null||account.id===accountId)
          &&typeof driverFor(account.providerId)?.refreshAccountStatus==='function';
      }).slice(0,120);
      const results=new Array(targets.length);
@@ -638,6 +654,7 @@ export function createAccountCenter({
      async function worker(){
        while(cursor<targets.length&&!disposed){
           const at=cursor++,account=targets[at];
+          if(pending.has(account.id)){results[at]={state:'busy',authVerified:false};continue;}
           const driver=driverFor(account.providerId);
           const previous=storedFor(account);
           // A persisted ONLINE proof is not a persisted profile or quota.
@@ -657,7 +674,7 @@ export function createAccountCenter({
           // A quota refresh timestamp cannot prove the profile nickname was
           // recovered. Recheck incomplete public identity once per normal
           // verification period, not on every accounts-page navigation.
-          const named=Boolean(publicAccountName(snapshot,account));
+          const named=Boolean(publicAccountName(snapshot,account)||publicMaskedPhone(snapshot));
           const needsProfileHydration=previous?.state==='online'&&
             typeof driver?.accountSnapshot==='function'&&(!hydrated||!named)&&
             (!lastWarmup||now()-lastWarmup>=autoVerifyMs);
@@ -697,6 +714,7 @@ export function createAccountCenter({
                   &&x.providerId===account.providerId&&x.credentialRef===account.credentialRef
                   &&x.enabled===true);
                 if(bound&&current.providers.some(x=>x.id===account.providerId&&x.enabled===true)){
+                  if(positive)observeRefreshedFacts(account,driver,now());
                   const previous=checkFor(account),state=positive?'online':'expired';
                   // A manual successful refresh must start a NEW absolute
                   // cycle; otherwise the old deadline causes a duplicate
