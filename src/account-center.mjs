@@ -577,15 +577,30 @@ export function createAccountCenter({
    // importing one account must not force rescanning the entire channel pool.
    cache.ids.delete(candidateId);
    if(cache.ids.size===0)discoverCache.delete(providerId);
-   return {id:newAccount.id,providerId,enabled:true,
-    message:'已接入并启用原有授权引用；实际模型是否可用仍需在线验证'};
+    scheduleFirstAuthentication(newAccount.id);
+    return {id:newAccount.id,providerId,enabled:true,
+     message:'已接入并启用原有授权引用；首次鉴权已排队，模型调用仍需独立确认'};
  }
- async function refreshAll(){
-   const ids=list().accounts.filter(a=>a.enabled&&a.refreshAvailable).map(a=>a.id);
+ function scheduleFirstAuthentication(id){
+   setImmediate(()=>{
+     if(disposed||!automaticTimer)return;
+     try{
+       const {account,provider,driver}=find(id);
+       if(!account.enabled||!provider.enabled||verificationWithinPeriod(storedFor(account),now(),autoVerifyMs)
+         ||pending.has(id)||readOnlyPending.has(id))return;
+       const operation=typeof driver?.refreshAccountStatus==='function'
+         ?refreshReadOnly({accountId:id}):verify(id);
+       void operation.catch(()=>{});
+     }catch{}
+   });
+ }
+ async function refreshAll({providerIds,skipVerified=false}={}){
+   const allowed=providerIds===undefined?null:new Set(providerIds);
+   const eligible=list().accounts.filter(a=>a.enabled&&a.refreshAvailable&&(!allowed||allowed.has(a.providerId)));
+   const ids=eligible.filter(a=>!skipVerified||a.connectionState!=='online').map(a=>a.id);
    const results=[];
-   // Serial by default: high-concurrency account probing risks rate limits.
    for(const id of ids){try{results.push(await verify(id))}catch(e){results.push({id,state:'error',message:publicAccountFailureMessage(e)})}}
-   return {attempted:ids.length,results};
+   return {attempted:ids.length,skipped:eligible.length-ids.length,results};
  }
 
  // A normal completed native route is real inference evidence too. Keep
@@ -804,7 +819,8 @@ export function createAccountCenter({
       catch(error){if(receipt.alreadyOwned!==true)
          await driver.rollbackCandidate?.({account});throw error}
       adapter?.invalidateCatalog?.();
-      return {id,providerId:'own_mimo_desktop',stored:true};
+      scheduleFirstAuthentication(id);
+       return {id,providerId:'own_mimo_desktop',stored:true};
     }
     async function startMimoLogin({region='cn'}={}){
       const driver=driverFor('own_mimo_desktop');
@@ -868,7 +884,8 @@ export function createAccountCenter({
        }
       driverFor('own_doubao')?.completeCandidate?.({account:result});
       adapter?.invalidateCatalog?.();
-      return {id:result.id,providerId:'own_doubao',stored:true};
+      scheduleFirstAuthentication(result.id);
+       return {id:result.id,providerId:'own_doubao',stored:true};
     }
      async function addDoubaoCookie({cookie}={}){
        const driver=driverFor('own_doubao');
@@ -931,7 +948,8 @@ export function createAccountCenter({
       }
       driver?.completeCandidate?.({account:result});
       adapter?.invalidateCatalog?.();
-      return {id:account.id,providerId:'own_meoo_web',stored:true};
+      scheduleFirstAuthentication(account.id);
+       return {id:account.id,providerId:'own_meoo_web',stored:true};
     }
      async function addMeooCookie({cookie}={}){
        const driver=driverFor('own_meoo_web');
@@ -995,7 +1013,8 @@ export function createAccountCenter({
       }
       driver?.completeCandidate?.({account:receipt});
       adapter?.invalidateCatalog?.();
-      return {id:account.id,providerId:'own_qwenwork',stored:true};
+      scheduleFirstAuthentication(account.id);
+       return {id:account.id,providerId:'own_qwenwork',stored:true};
     }
     function startQwenLogin(){
       const driver=driverFor('own_qwenwork');
@@ -1049,7 +1068,8 @@ export function createAccountCenter({
       }
       driver.completeCandidate?.({account:receipt});
       adapter?.invalidateCatalog?.();
-      return {id,providerId:pid,stored:true};
+      scheduleFirstAuthentication(id);
+       return {id,providerId:pid,stored:true};
     }
     async function importAwsQuickLocal(){
       const driver=driverFor('own_aws_quick');

@@ -16,6 +16,19 @@ function fixture({config=sample,fetchImpl,drivers}={}){
      headers:{'content-type':'application/json'}}))});
  return {center,configStore,adapter,get changed(){return changed},get invalidated(){return invalidated}};
 }
+test('batch verification scopes selected channels and skips successfully authenticated accounts',async()=>{
+ const seen=[];
+ const {center}=fixture({fetchImpl:async url=>{seen.push(url);return new Response('{"data":[]}',{status:200})}});
+ await center.verify('a1');seen.length=0;
+ const result=await center.refreshAll({providerIds:['alpha'],skipVerified:true});
+ assert.equal(result.attempted,1);assert.equal(result.skipped,1);
+ assert.equal(result.results[0].id,'a2');
+ assert.deepEqual(seen,['https://api.example.invalid/v1/models']);
+ assert.equal(center.list().accounts.find(x=>x.id==='l1').connectionState,'not_checked');
+ assert.equal((await center.refreshAll({providerIds:['alpha'],skipVerified:true})).attempted,0);
+ assert.equal(seen.length,1);
+});
+
 test('channel roster includes existing accounts and reference-only channels without false login readiness',()=>{
  const {center}=fixture(),view=center.list();
  assert.equal(view.accounts.length,3);

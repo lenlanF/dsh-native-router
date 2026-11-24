@@ -412,6 +412,32 @@ async function fetchZcodeClaimablePlans(credential,fetchImpl=sanitizingFetch){
             'loomy-sms-submit-refuses-cross-provider-credential-overwrite',
         ),
     ])
+    # The upstream QR confirmation route has been retired. Delegate new logins
+    # to this plugin's separately tested official browser authorize receiver.
+    patches.append((
+        'raccoonStarted = await raccoon.startLogin();',
+        'if (typeof config.nativeRouterRaccoonLogin !== "function") throw new Error("raccoon-authorize-unavailable");\n            raccoonStarted = await config.nativeRouterRaccoonLogin();',
+        'raccoon-official-browser-authorize',
+    ))
+    # Google explicitly disallows third-party clients accessing Code Assist
+    # through the Gemini CLI OAuth grant. Do not keep offering a doomed login.
+    patches.append((
+        'const started = await startGeminiOAuthFlow({});\n          await pool.addAccount({',
+        'return { ok: false, error: { code: "gemini-official-oauth-restricted", message: "Third-party Code Assist OAuth is not supported" } };\n          const started = await startGeminiOAuthFlow({});\n          await pool.addAccount({',
+        'gemini-reject-restricted-third-party-oauth',
+    ))
+    # Exact-account read-only status and balance for selected authentication.
+    patches.append((
+        'balances: (provider) => handleMethod("credits.balances", { provider }),\n    identity: (provider) => handleMethod("account.list", { provider }),',
+        'balances: (provider, accountId) => handleMethod("credits.balances", { provider, accountId }),\n    identity: (provider, accountId) => handleMethod("account.list", { provider, accountId }),',
+        'source-exact-account-status-contract',
+    ))
+    for method in ("credits.balances", "account.list"):
+        patches.append((
+            'case "' + method + '": {\n        const req = payload;\n        const accounts = await pool.listAccounts(req.provider);',
+            'case "' + method + '": {\n        const req = payload;\n        const accounts = await nativeRouterCreditAccounts(req);',
+            'source-exact-account-' + method,
+        ))
     names = []
     for old, new, name in patches:
         count = text.count(old)

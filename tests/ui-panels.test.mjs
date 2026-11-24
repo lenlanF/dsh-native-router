@@ -143,6 +143,7 @@ if(key==='/host/catalog'){
     if(key==='/channels/accounts/action'){
       const input=JSON.parse(options.body);mutations.push(input);
       if(input.action==='refresh-all')return response({ok:true,...await accountCenter.refreshAll()});
+       if(input.action==='refresh-selected')return response({ok:true,attempted:1,skipped:0,results:[]});
       if(input.action==='login')return response({ok:true,result:await accountCenter.verify(input.accountId,{login:true})});
       if(input.action==='refresh')return response({ok:true,result:await accountCenter.verify(input.accountId)});
       if(input.action==='model-test')return response({ok:true,result:{
@@ -395,11 +396,10 @@ test('source login tab distinguishes host reuse from independent source login',a
  rig.find(rig.render(),'button','复用管理')[0].props.onClick();
  rig.find(rig.render(),'button','自主登录')[0].props.onClick();
  const text=rig.flatten(rig.render()).join(' ');
- assert.match(text,/可自主授权 1 个/);
+ assert.match(text,/来源渠道 1 个/);
  assert.match(text,/宿主已有 1 个同名原渠道 · 自主登录仍可用/);
- assert.equal(rig.find(rig.render(),'button','发起扫码\/网页登录').length,1);
- await rig.find(rig.render(),'button','发起扫码/网页登录')[0].props.onClick();
- const mutation=rig.mutations.find(x=>x.kind==='source-rpc'&&x.method==='account.create');
+ assert.equal(rig.find(rig.render(),'button','发起扫码/网页登录').length,0);
+ await rig.find(rig.render(),'button','自主登录').at(-1).props.onClick(); const mutation=rig.mutations.find(x=>x.kind==='source-rpc'&&x.method==='account.create');
  assert.equal(mutation.payload.provider,'loomy');
  assert.ok(!rig.mutations.some(x=>x.kind==='source-rpc'&&x.payload?.provider==='workbuddy'));
 });
@@ -526,11 +526,9 @@ test('mounted upstream channel controls query models explicitly and require conf
   rig.find(rig.render(),'button','自主登录')[0].props.onClick();
  let page=rig.render();
  assert.match(rig.flatten(page).join(' '),/自主登录已就绪/);
- assert.equal(rig.find(page,'button','查询模型').length,1);
- assert.equal(rig.find(page,'button','停用来源账号').length,1);
+ assert.equal(rig.find(page,'button','查询模型').length,2); assert.equal(rig.find(page,'button','停用来源账号').length,1);
  assert.ok(!rig.mutations.some(x=>x.kind==='models'),'model queries cannot be automatic');
- await rig.find(page,'button','查询模型')[0].props.onClick();
- assert.ok(rig.mutations.some(x=>x.kind==='models'&&x.providerId==='workbuddy'));
+ await rig.find(uiNodes(page,node=>node.props?.['data-source-provider']==='workbuddy')[0],'button','查询模型')[0].props.onClick(); assert.ok(rig.mutations.some(x=>x.kind==='models'&&x.providerId==='workbuddy'));
  page=rig.render();
  assert.match(rig.flatten(page).join(' '),/来源标记免费 · 未核实/);
  rig.find(page,'button','停用来源账号')[0].props.onClick();
@@ -589,9 +587,8 @@ test('isolated source account console explicitly runs upstream login, poll, refr
  let page=rig.render();
  assert.equal(rig.mutations.filter(row=>row.kind==='source-rpc').length,0,
    'opening account overview must not automatically start OAuth or refresh');
-  assert.equal(rig.find(page,'button','发起扫码/网页登录').length,1);
-  await rig.find(page,'button','发起扫码/网页登录')[0].props.onClick();
- assert.deepEqual(rig.mutations.filter(row=>row.kind==='source-rpc').map(row=>row.method),['account.create']);
+ assert.equal(rig.find(page,'button','发起扫码/网页登录').length,0);
+ await rig.find(uiNodes(page,node=>node.props?.['data-source-provider']==='qoder')[0],'button','自主登录')[0].props.onClick(); assert.deepEqual(rig.mutations.filter(row=>row.kind==='source-rpc').map(row=>row.method),['account.create']);
  page=rig.render();
  const link=rig.find(page,'a','打开授权链接（先核对域名）')[0];
   assert.ok(link,'safe link absent: '+rig.flatten(page).join(' | '));
@@ -618,8 +615,7 @@ test('Loomy login offers an explicit backup route, never silently sends a messag
  rig.find(rig.render(),'button','复用管理')[0].props.onClick();
  rig.find(rig.render(),'button','自主登录')[0].props.onClick();
  assert.equal(rig.find(rig.render(),'button','发送官方短信验证码').length,0);
- await rig.find(rig.render(),'button','发起扫码/网页登录')[0].props.onClick();
- const page=rig.render();
+ await rig.find(rig.render(),'button','自主登录').at(-1).props.onClick(); const page=rig.render();
  const action=rig.find(page,'button','发送官方短信验证码')[0];
  assert.ok(action);
  assert.equal(action.props.disabled,true);
@@ -658,8 +654,7 @@ test('other independent source logins never show the Loomy-only backup option',a
  await rig.init();
  rig.find(rig.render(),'button','复用管理')[0].props.onClick();
  rig.find(rig.render(),'button','自主登录')[0].props.onClick();
- await rig.find(rig.render(),'button','发起扫码/网页登录')[0].props.onClick();
- assert.equal(rig.find(rig.render(),'button','发送官方短信验证码').length,0);
+ await rig.find(rig.render(),'button','自主登录').at(-1).props.onClick(); assert.equal(rig.find(rig.render(),'button','发送官方短信验证码').length,0);
 });
 test('Loomy can reauthorize an existing owned account without creating a duplicate',async()=>{
  const preview={state:'ready',accounts:[{id:'loomy-owned-existing',providerId:'loomy',
@@ -730,8 +725,7 @@ test('upstream login suppresses unsafe authorization URLs instead of making them
     await rig.init();
     rig.find(rig.render(),'button','复用管理')[0].props.onClick();
     rig.find(rig.render(),'button','自主登录')[0].props.onClick();
-    await rig.find(rig.render(),'button','发起扫码/网页登录')[0].props.onClick();
-    const page=rig.render();
+    await rig.find(rig.render(),'button','自主登录').at(-1).props.onClick();    const page=rig.render();
     assert.equal(rig.find(page,'a','打开授权链接（先核对域名）').length,0);
     assert.match(rig.flatten(page).join(' '),/未提供安全授权链接/);
   }
@@ -749,8 +743,7 @@ test('upstream raw error details and forged RPC identifiers are rejected without
     await rig.init();
      rig.find(rig.render(),'button','复用管理')[0].props.onClick();
      rig.find(rig.render(),'button','自主登录')[0].props.onClick();
-     await rig.find(rig.render(),'button','发起扫码/网页登录')[0].props.onClick();
-    const page=rig.render(),text=rig.flatten(page).join(' ');
+     await rig.find(rig.render(),'button','自主登录').at(-1).props.onClick();    const page=rig.render(),text=rig.flatten(page).join(' ');
     assert.doesNotMatch(text,/SECRET_TOKEN_XYZ|Bearer/);
     assert.equal(rig.find(page,'a','打开授权链接（先核对域名）').length,0);
     assert.match(text,/上游拒绝操作|响应校验失败/);
@@ -764,8 +757,7 @@ test('malformed upstream JSON errors are not forwarded with secret-bearing parse
   await rig.init();
    rig.find(rig.render(),'button','复用管理')[0].props.onClick();
    rig.find(rig.render(),'button','自主登录')[0].props.onClick();
-   await rig.find(rig.render(),'button','发起扫码/网页登录')[0].props.onClick();
-  const page=rig.render(),message=rig.flatten(page).join(' ');
+   await rig.find(rig.render(),'button','自主登录').at(-1).props.onClick();  const page=rig.render(),message=rig.flatten(page).join(' ');
   assert.doesNotMatch(message,/SECRET_FROM_UNSAFE_JSON/);
   assert.match(message,/上游 DSH 响应不是有效 JSON/);
   assert.equal(rig.find(page,'a','打开授权链接（先核对域名）').length,0);
@@ -985,14 +977,18 @@ test('all 13 owned sources show truthful per-channel readiness and allow direct 
     .find(node=>rig.flatten(node).join('')==='自主登录');
    assert.ok(login.props.disabled,'in-flight authorization cannot be overwritten');
   }
-  assert.equal(rig.find(pendingPage,'button','发起扫码/网页登录')[0].props.disabled,true);
-  const dismiss=rig.find(pendingPage,'button','结束本次授权跟踪')[0];
+  assert.equal(rig.find(pendingPage,'button','发起扫码/网页登录').length,0);  const dismiss=rig.find(pendingPage,'button','结束本次授权跟踪')[0];
   assert.ok(dismiss&&!dismiss.props.disabled);
   await dismiss.props.onClick();
   assert.equal(rig.mutations.filter(x=>x.kind==='source-rpc').length,1,
     'dismissing only clears UI tracking; it does not delete an account');
-  assert.equal(rig.find(rig.render(),'button','发起扫码/网页登录')[0].props.disabled,false);
-});
+  const cards=uiNodes(rig.render(),node=>typeof node.props?.['data-source-provider']==='string');
+  assert.equal(rig.find(cards.find(node=>node.props['data-source-provider']==='codearts'),'button','自主登录')[0].props.disabled,false);
+  assert.equal(rig.find(cards.find(node=>node.props['data-source-provider']==='gemini'),'button','自主登录')[0].props.disabled,true);
+  await rig.find(cards.find(node=>node.props['data-source-provider']==='codearts'),'button','自主登录')[0].props.onClick();
+  const nextCards=uiNodes(rig.render(),node=>typeof node.props?.['data-source-provider']==='string');
+  assert.equal(rig.find(nextCards.find(node=>node.props['data-source-provider']==='qodercn'),'button','检查登录结果').length,0);
+  assert.equal(rig.find(nextCards.find(node=>node.props['data-source-provider']==='codearts'),'button','检查登录结果').length,1);});
 test('source account actions are grouped and unsafe operations remain guarded',async()=>{ const preview={state:'ready',accounts:[{id:'q-01',providerId:'qoder',nickname:'A long source account label',
    enabled:true,refreshable:true,connectionState:'not_checked'}]};
  const source={state:'mounted',rpcReady:true,channelCount:13,channels:['qoder','workbuddy']};
