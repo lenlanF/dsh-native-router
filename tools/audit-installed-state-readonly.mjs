@@ -36,7 +36,8 @@ export function auditInstalledDsh({dshHome=join(homedir(),'.dsh'),
  const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',
   year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
  const groups=new Map();
- const total={configured:0,enabled:0,named:0,balanceReported:0,
+ const total={configured:0,enabled:0,named:0,identityReported:0,maskedIdentityOnly:0,balanceReported:0,
+   recentBalance:0,observedQuota:0,recentQuota:0,observedEntitlementState:0,
    balanceUnitMissing:0,balanceUnreported:0,
    onlineProbeRecent:0,onlineProbeStale:0,expiredProbeRecent:0,
    modelProofRecent:0,modelProofUnverified:0};
@@ -46,14 +47,30 @@ export function auditInstalledDsh({dshHome=join(homedir(),'.dsh'),
    const f=publicMap.get(binding),v=checkMap.get(acc.id);
    const auth=v?.binding===binding?v:null;
    const row=groups.get(acc.providerId)??{channel:acc.providerId,
-     configured:0,enabled:0,named:0,balanceReported:0,balanceUnitMissing:0,
+     configured:0,enabled:0,named:0,identityReported:0,maskedIdentityOnly:0,balanceReported:0,balanceUnitMissing:0,
+     recentBalance:0,observedQuota:0,recentQuota:0,observedEntitlementState:0,
      balanceUnreported:0,onlineProbeRecent:0,onlineProbeStale:0,
      expiredProbeRecent:0,modelProofRecent:0,modelProofUnverified:0};
    const count=(key)=>{total[key]++;row[key]++};
    count('configured');if(acc.enabled!==false)count('enabled');
-   if(validName(f?.name))count('named');
+   const named=validName(f?.name);
+   const masked=typeof f?.maskedPhone==='string'&&/^\d{3}\*{4}\d{4}$/.test(f.maskedPhone);
+   if(named)count('named');
+   if(named||masked)count('identityReported');
+   if(masked&&!named)count('maskedIdentityOnly');
+   const observation=f?.observation;
+   const age=now-(observation?.at??0);
+   const recentObservation=age>=0&&age<=30*60*1000;
+   if(recentObservation)count('observedEntitlementState');
+   const quota=Number.isInteger(observation?.quotaWindowCount)&&observation.quotaWindowCount>0
+     ||observation?.membershipState==='active'&&observation.membershipPercentObserved===true
+     ||observation?.rollingState==='available'&&observation.rollingPercentObserved===true;
+   if(quota){count('observedQuota');if(recentObservation)count('recentQuota');}
    if(typeof f?.balance==='number'&&Number.isFinite(f.balance)&&f.balance>=0){
      count('balanceReported');
+     const balanceAge=now-(f.balanceCheckedAt??0);
+     if(balanceAge>=0&&balanceAge<=30*60*1000
+       &&(!observation||observation.balanceState==='available'))count('recentBalance');
      if(typeof f?.balanceUnit!=='string'||!f.balanceUnit.trim())
        count('balanceUnitMissing');
    }else count('balanceUnreported');
@@ -64,7 +81,7 @@ export function auditInstalledDsh({dshHome=join(homedir(),'.dsh'),
    }else if(auth?.state==='expired'&&recent)count('expiredProbeRecent');
    const modelAge=now-(auth?.modelProofAt??0);
    if(modelAge>=0&&modelAge<=24*60*60*1000
-     &&auth?.modelFailedAt!==auth?.modelProofAt)count('modelProofRecent');
+     &&(auth?.modelProofAt??0)>(auth?.modelFailedAt??0))count('modelProofRecent');
    else count('modelProofUnverified');
    groups.set(acc.providerId,row);
  }
