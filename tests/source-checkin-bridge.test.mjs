@@ -10,7 +10,7 @@ const env={DSH_NATIVE_ROUTER_CHANNEL_PACK_ENABLE:'1',
  DSH_NATIVE_ROUTER_CHANNEL_PACK_ISOLATED_PROFILE:'1',
  DSH_HOME:home,DSH_CHANNEL_PACK_STATE_DIR:home};
 const spin=()=>new Promise(resolve=>setImmediate(resolve));
-async function fixture({initialChecked=false,afterChecked=true,available=true,enabled=true,providerId='qoder',statusOverride={},outcomeKind='claimed'}={}){
+async function fixture({initialChecked=false,afterChecked=true,available=true,enabled=true,providerId='qoder',statusOverride={},afterOverride={},outcomeKind='claimed',outcomeFields={}}={}){
  let active=false,claimed=false;
  const calls=[];
  const pool={async listAllAccounts(){return [
@@ -21,12 +21,12 @@ async function fixture({initialChecked=false,afterChecked=true,available=true,en
   async status(provider,accountId){
    calls.push('status:'+provider+':'+accountId);
    return {ok:true,value:{accounts:[{accountId,status:{available,
-     active:true,...statusOverride,todayCheckedIn:claimed?afterChecked:initialChecked}}]}};
+      active:true,...statusOverride,...(claimed?afterOverride:{}),todayCheckedIn:claimed?afterChecked:initialChecked}}]}};
   },
   async claim(provider,accountId){
    calls.push('claim:'+provider+':'+accountId);
    claimed=true;
-   return {ok:true,value:{results:[{accountId,outcome:{kind:outcomeKind,credit:5}}]}};
+    return {ok:true,value:{results:[{accountId,outcome:{kind:outcomeKind,credit:5,...outcomeFields}}]}};
   },
  };
  const scope={get(key,strict){
@@ -123,5 +123,26 @@ test('TRAE explicit negative availability blocks claims and inactive is no task'
  const result=await f.bridge.checkinAccount({providerId:'trae',sourceAccountId:'acct-b'});
  assert.notEqual(result.confirmed,true);assert.equal(f.calls.length,1);
  if(statusOverride.active===false)assert.equal(result.state,'no_task');
+ }finally{f.bridge.dispose()}}
+});
+test('Loomy current-day first-login receipt and independent wallet quota reconcile without dailyCycleDate',async()=>{
+ const quota={quota:500,balance:420,consumed:80};
+ const f=await fixture({providerId:'loomy',statusOverride:{available:undefined,claimable:true},afterChecked:false,
+  afterOverride:{dailyQuotaEvidence:quota,dailyCycleDate:''},outcomeKind:'already-claimed',
+  outcomeFields:{dailyInitialization:{...quota,alreadyProcessed:true}}});
+ try{const result=await f.bridge.checkinAccount({providerId:'loomy',sourceAccountId:'acct-b'});
+ assert.equal(result.confirmed,true);
+ assert.equal(result.dailyQuotaInitialized,true);
+ assert.equal(result.activityRewardAmount,undefined,'quota is not a new permanent-point reward');
+ assert.equal(f.calls.length,3);
+ }finally{f.bridge.dispose()}
+});
+test('Loomy quota initialization cannot confirm from a missing or inconsistent wallet receipt',async()=>{
+ const quota={quota:500,balance:420,consumed:80};
+ for(const afterOverride of [{},{dailyQuotaEvidence:{...quota,balance:400}},{dailyQuotaEvidence:quota,dailyCycleDate:'2000-01-01'}]){
+ const f=await fixture({providerId:'loomy',statusOverride:{available:undefined,claimable:true},afterChecked:false,afterOverride,
+ outcomeKind:'already-claimed',outcomeFields:{dailyInitialization:{...quota,alreadyProcessed:true}}});
+ try{const result=await f.bridge.checkinAccount({providerId:'loomy',sourceAccountId:'acct-b'});
+ assert.equal(result.state,'pending_confirmation');assert.equal(f.calls.length,3);
  }finally{f.bridge.dispose()}}
 });

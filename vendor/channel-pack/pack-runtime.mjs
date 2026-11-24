@@ -53612,6 +53612,12 @@ function readNumber(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : void 0;
 }
+function nativeRouterLoomyDailyEvidence(data) {
+  const n = (value) => (typeof value === "number" || typeof value === "string" && /^[0-9]+(?:\.[0-9]+)?$/.test(value)) && Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 1e12 ? Number(value) : void 0;
+  const quota = n(data?.dailyQuota), balance = n(data?.dailyBalance), consumed = n(data?.dailyConsumed);
+  if (!(quota > 0) || balance === void 0 || consumed === void 0 || Math.abs(balance + consumed - quota) >= 1e-6) return void 0;
+  return { quota, balance, consumed };
+}
 async function fetchLoomyCreditDetail(credential, product, fetcher = sanitizingFetch) {
   const result = await tryRequestLoomy(
     credential,
@@ -53632,6 +53638,7 @@ async function fetchLoomyCreditDetail(credential, product, fetcher = sanitizingF
     total,
     dailyQuota: readNumber(result.data?.dailyQuota),
     dailyConsumed: readNumber(result.data?.dailyConsumed),
+    dailyQuotaEvidence: nativeRouterLoomyDailyEvidence(result.data),
     dailyCycleDate: typeof result.data?.dailyCycleDate === "string" ? result.data.dailyCycleDate : void 0
   };
 }
@@ -53675,15 +53682,18 @@ async function claimLoomyDailyQuota(credential, product, fetcher = sanitizingFet
   const dailyQuota = readNumber(result.data?.dailyQuota);
   const dailyBalance = readNumber(result.data?.dailyBalance);
   const alreadyProcessed = result.data?.alreadyProcessed === true;
+  const dailyEvidence = nativeRouterLoomyDailyEvidence(result.data);
+  const dailyInitialization = dailyEvidence && typeof result.data?.alreadyProcessed === "boolean" ? { ...dailyEvidence, alreadyProcessed } : void 0;
   if (alreadyProcessed) {
     return {
       kind: "already-claimed",
+      dailyInitialization,
       message: dailyQuota === void 0 ? "\u4ECA\u65E5\u989D\u5EA6\u5DF2\u521D\u59CB\u5316" : `\u4ECA\u65E5\u989D\u5EA6\u5DF2\u521D\u59CB\u5316\uFF08\u6BCF\u65E5 ${dailyBalance ?? 0}/${dailyQuota}\uFF09`
     };
   }
   const dailyConsumed = readNumber(result.data?.dailyConsumed);
   const granted = dailyQuota !== void 0 && dailyConsumed !== void 0 ? Math.max(0, dailyQuota - dailyConsumed) : dailyQuota ?? 0;
-  return { kind: "claimed", credit: granted, streakDays: 0, isStreakDay: false };
+  return { kind: "claimed", credit: granted, streakDays: 0, isStreakDay: false, dailyInitialization };
 }
 var LOOMY_TASK_POINTS = Object.freeze({
   first_message: 500,
@@ -63147,6 +63157,7 @@ async function fetchLoomyCheckinStatus(credential, product, fetcher = sanitizing
     todayCheckedIn: claimedToday,
     todayCredit: claimedToday ? detail.daily : 0,
     claimable: !claimedToday,
+    dailyQuotaEvidence: detail.dailyQuotaEvidence,
     dailyCycleDate: cycle
   };
 }
