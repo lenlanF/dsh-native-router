@@ -1,6 +1,6 @@
 // Owner-authenticated, in-process acceptance jobs. No external service,
 // foreground window, persisted config edits, or raw account data in reports.
-const modes=new Set(['inventory','free-models','channel-activity']);
+const modes=new Set(['inventory','free-models','channel-activity','all-channel-activity']);
 const channelKey=id=>String(id||'').replace(/^own_/,'');
 const channelPattern=/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
 const requestPattern=/^[a-f0-9]{32}$/;
@@ -28,14 +28,32 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,n
  async function run(job,targets){
   const report=job.report,stopped=()=>disposed||job.controller.signal.aborted;
   try{
-   if(report.mode==='channel-activity'){
-    // Explicit one-channel manual execution; never flip automatic settings.
-    await checkinCenter.refreshSources?.({onlyProviderId:report.channel});
-    if(!stopped()){
-     const result=await checkinCenter.runActivityChannel(report.channel,{signal:job.controller.signal});
-     const summary=result?.summary??{};
-     report.activity=Object.fromEntries(['attempted','confirmedSignins','newlyCreditedRewards','pendingAccounts','failedAccounts','noTaskAccounts'].map(k=>[k,count(summary[k])]));
-    }
+   if(report.mode==='channel-activity'||report.mode==='all-channel-activity'){
+     const keys=['attempted','confirmedSignins','newlyCreditedRewards','pendingAccounts','failedAccounts','noTaskAccounts'];
+     const selected=report.mode==='channel-activity'?[report.channel]:job.channels;
+     if(report.mode==='all-channel-activity'){
+       report.activityChannels=[];
+       report.activity=Object.fromEntries(keys.map(k=>[k,0]));
+     }
+     for(const channel of selected){
+       if(stopped())break;
+       try{
+         // Refresh only the selected source roster. Each channel driver
+         // independently enforces official eligibility and duplicate receipts.
+         await checkinCenter.refreshSources?.({onlyProviderId:channel});
+         if(stopped())break;
+         const result=await checkinCenter.runActivityChannel(channel,{signal:job.controller.signal});
+         const summary=Object.fromEntries(keys.map(k=>[k,count(result?.summary?.[k])]));
+         if(report.mode==='channel-activity')report.activity=summary;
+         else{
+           report.activityChannels.push({providerId:channel,state:'complete',...summary});
+           for(const key of keys)report.activity[key]+=summary[key];
+         }
+       }catch(error){
+         if(report.mode==='channel-activity')throw error;
+         report.activityChannels.push({providerId:channel,state:'unavailable',code:'OPERATION_UNAVAILABLE'});
+       }
+     }
    }else for(const account of targets){
     if(stopped())break;
     const row={slot:report.accounts.length+1,providerId:account.providerId};
@@ -85,7 +103,7 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,n
   if(disposed)reject('Acceptance service stopped',503);
   if(typeof requestId!=='string'||!requestPattern.test(requestId)||!modes.has(mode)||consent!==true
     ||channel!==undefined&&(typeof channel!=='string'||!channelPattern.test(channel))
-    ||mode==='channel-activity'&&channel===undefined)reject('Invalid explicit acceptance request');
+    ||mode==='channel-activity'&&channel===undefined||mode==='all-channel-activity'&&channel!==undefined)reject('Invalid explicit acceptance request');
   const selected=channel===undefined?undefined:channelKey(channel);
   const signature=JSON.stringify([mode,selected]);
   const old=jobs.get(requestId);
@@ -99,13 +117,19 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,n
   if(jobs.size>=128)reject('Acceptance request ledger full',429);
   const cfg=configStore.get();
   const targets=cfg.accounts.filter(a=>(!selected||channelKey(a.providerId)===selected)&&eligible(a));
-  if(targets.length>16)reject('Select a narrower channel (maximum 16 accounts)',400);
-  if(mode==='channel-activity'&&!checkinCenter.snapshot?.().accounts?.some(a=>
-    channelKey(a.providerId)===selected&&a.enabled===true&&(a.checkinSupported||a.activitiesSupported)))
-   reject('No enabled activity executor for selected channel',409);
+  const activityMode=mode==='channel-activity'||mode==='all-channel-activity';
+  if(!activityMode&&targets.length>16)reject('Select a narrower channel (maximum 16 accounts)',400);
+  const activityRows=activityMode?(checkinCenter.snapshot?.().accounts??[]).filter(a=>
+    a.enabled===true&&(a.checkinSupported===true||a.activitiesSupported===true)
+    &&channelPattern.test(channelKey(a.providerId))&&(!selected||channelKey(a.providerId)===selected)):[];
+  const channels=[...new Set(activityRows.map(a=>channelKey(a.providerId)))].sort();
+  if(activityMode&&!channels.length)reject('No enabled activity executor for selected channel',409);
+  if(channels.length>32||activityRows.length>128||channels.some(id=>activityRows.filter(a=>channelKey(a.providerId)===id).length>32))
+    reject('Activity scope exceeds safe job bound; select a narrower channel',400);
   const report={requestId,mode,...(selected?{channel:selected}:{}),state:'running',startedAt:now(),
-    completedAt:null,accountCount:targets.length,accounts:[]};
-  const job={signature,report,controller:new AbortController()};
+    completedAt:null,accountCount:activityMode?activityRows.length:targets.length,accounts:[],
+    ...(mode==='all-channel-activity'?{channelCount:channels.length,activityChannels:[]}:{})};
+  const job={signature,report,channels,controller:new AbortController()};
   jobs.set(requestId,job);active=latest=job;
   void Promise.resolve().then(()=>run(job,targets));
   return output(job);

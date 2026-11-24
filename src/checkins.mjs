@@ -320,6 +320,11 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
     const selected=String(providerId||'').replace(/^own_/,'');
     if(!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(selected))
       throw Error('Invalid activity channel');
+    // Discover newly authorized accounts and refresh only this channel
+    // before the manual reward run, even if the page was never opened.
+    await sourceCenter?.refresh({onlyProviderId:selected}).catch(()=>{});
+    if(signal?.aborted)return {providerId:selected,attempted:0,results:[],
+      summary:summarizeChannelExecution({today:currentDate()})};
     const before=snapshot().accounts;
     const accounts=before.filter(row=>
       row.providerId?.replace(/^own_/,'')===selected&&row.enabled!==false
@@ -398,11 +403,15 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
         }
       }
        let sourceRewards=[];
-       if(sourceCenter){
-         const sourceResult=await sourceCenter.tick();
-         results.push(...sourceResult.results??[]);
-         sourceRewards=sourceResult.rewards??[];
-       }
+        if(sourceCenter){
+          try{
+            const sourceResult=await sourceCenter.tick();
+            results.push(...sourceResult.results??[]);
+            sourceRewards=sourceResult.rewards??[];
+          }catch(error){
+            logger?.warn?.('native-router source tasks unavailable: '+publicAccountFailureMessage(error));
+          }
+        }
        // A successful sign-in must NOT terminate later eligible activity
        // discovery; WorkBuddy compensation/gift campaigns can appear any time.
        const rewards=[...sourceRewards];
@@ -410,8 +419,12 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
          if(!account.enabled||account.autoCheckin!==true
            ||!channelEnabled(cfg,account.providerId))continue;
          if(typeof accountCenter.driverFor(account.providerId)?.claimActivities!=='function')continue;
-         const outcome=await runActivities(account.id,{source:'auto'});
-         if(outcome.confirmed||outcome.pending)rewards.push({accountId:account.id,...outcome});
+          try{
+            const outcome=await runActivities(account.id,{source:'auto'});
+            if(outcome.confirmed||outcome.pending)rewards.push({accountId:account.id,...outcome});
+          }catch(error){
+            logger?.warn?.('native-router reward task unavailable: '+publicAccountFailureMessage(error));
+          }
        }
        return {attempted:results.length,results,rewards};
     })().finally(()=>{running=null});

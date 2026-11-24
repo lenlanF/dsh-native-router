@@ -1279,6 +1279,35 @@ test('five member login paths are inside their own channels, not a second aggreg
  assert.equal(rig.mutations.some(x=>/login|cookie/.test(x.kind||'')),false,
    'opening account page never initiates an unsolicited OAuth or paid call');
 });
+test('autonomous login inventory exposes all five native flows alongside all thirteen source channels',async()=>{
+ const ids=['codearts','buddy','workbuddy','lobsterai','qoder','qodercn','trae','cline','loomy','raccoon','minimax','zcode','gemini'];
+ const rig=createUiRig(new Map(),{state:'ready',accounts:[]},{state:'mounted',rpcReady:true,channels:ids,channelCount:13});
+ await rig.init();
+ rig.find(rig.render(),'button','复用管理')[0].props.onClick();
+ rig.find(rig.render(),'button','自主登录')[0].props.onClick();
+ const page=rig.render();
+ assert.equal(uiNodes(page,node=>typeof node.props?.['data-source-provider']==='string').length,13);
+ const member=uiNodes(page,node=>typeof node.props?.['data-member-provider']==='string');
+ assert.equal(member.length,5);
+ assert.deepEqual(member.map(x=>x.props['data-member-provider']).sort(),
+  ['own_aws_quick','own_doubao','own_meoo_web','own_mimo_desktop','own_qwenwork']);
+ const qwen=member.find(x=>x.props['data-member-provider']==='own_qwenwork');
+ assert.equal(rig.mutations.filter(x=>x.kind==='qwen-device'||x.kind==='source-rpc').length,0);
+ await rig.find(qwen,'button','申请独立设备授权')[0].props.onClick();
+ assert.deepEqual(rig.mutations.filter(x=>x.kind==='qwen-device').map(x=>x.action),['start']);
+ rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
+ assert.equal(rig.find(rig.render(),'a','打开千问办公官方账号授权页').length,1,'both views share the same active authorization state');
+ assert.equal(rig.mutations.filter(x=>x.kind==='source-rpc').length,0);
+});
+test('native authorization stays available even if the embedded source bundle is disabled',async()=>{
+ const rig=createUiRig();await rig.init();
+ rig.find(rig.render(),'button','复用管理')[0].props.onClick();
+ rig.find(rig.render(),'button','自主登录')[0].props.onClick();
+ const page=rig.render();
+ assert.equal(uiNodes(page,node=>typeof node.props?.['data-member-provider']==='string').length,5);
+ assert.equal(rig.find(page,'button','申请独立设备授权')[0].props.disabled,false);
+});
+
 test('host model allowlist checkboxes start with all and save exact model IDs',async()=>{
  const models=[{id:'flash',name:'Flash model'},{id:'pro',name:'Pro model'}];
  const rig=createUiRig(new Map(),null,{state:'disabled'},{},
