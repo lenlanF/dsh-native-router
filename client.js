@@ -434,7 +434,7 @@ window.__ModuleLoader__.load({
       hostCatalog,onRefreshHostCatalog,onHostModelSelection,
       manualHostModel,onManualHostModel,
       adoptionPreview,adoptionBusy,adoptionResults,credentialService,onPreviewAdoption,onAdoptAccount,
-       verifyResults,verifyBusy,onVerifyAdopted}){
+        verifyResults,verifyBusy,onVerifyAdopted,loginWidgets={}}){
        const reuse=data?.sessionReuse||{hostProviders:[],channels:[],results:[]};
       const hosts=reuse.hostProviders||[],available=(reuse.channels||[]).filter(x=>x.available),
         discovered=(reuse.channels||[]).filter(x=>x.accountDetected);
@@ -656,11 +656,23 @@ window.__ModuleLoader__.load({
             embeddedPack?.errorStage?h('p',{style:css.small},
               '安全诊断阶段：'+embeddedPack.errorStage+
               '；仅反映本插件状态，原插件及原账号未被修改'):null),
-          h(EmbeddedPackConsole,{pack:embeddedPack,upstream:data?.embeddedAccounts,
-            channelCatalog:data?.channels,run,busy,
-            modelProvider,setModelProvider,onModels,modelBusy,models,
+           h(EmbeddedPackConsole,{pack:embeddedPack,upstream:data?.embeddedAccounts,
+             channelCatalog:data?.channels,run,busy,
+             modelProvider,setModelProvider,onModels,modelBusy,models,
              onSourceLogin,onSourcePoll,onSourceDismissLogin,pendingLogin,onSourceRefresh,onSourceReuseLoomy,sourceBusy,
-              loomySmsPhone,onLoomySmsPhone,loomySmsCode,onLoomySmsCode,loomySmsSent,onLoomySmsSend,onLoomySmsSubmit})):null);
+             loomySmsPhone,onLoomySmsPhone,loomySmsCode,onLoomySmsCode,loomySmsSent,onLoomySmsSend,onLoomySmsSubmit}),
+           h(Panel,{title:'独立会员授权渠道 · '+Object.keys(loginWidgets).length+' 个'},
+             h('p',{style:css.small},'与上方来源包同属自主登录；会员授权不依赖来源包的启停。点击对应渠道展开登录选项。'),
+             h('div',{className:'dnr-source-channel-list'},
+               Object.entries(loginWidgets).map(([id,widget])=>{
+                 const channel=data?.channels?.find(c=>c.id===id);
+                 const members=(data?.accounts??[]).filter(a=>a.providerId===id);
+                 const name=channel?.name||widget.props.title;
+                 return h('details',{key:id,'data-member-provider':id,className:'dnr-source-channel'},
+                   h('summary',{style:{cursor:'pointer',fontSize:13,fontWeight:600}},
+                     name+' · '+members.length+' 账号 / '+members.filter(a=>a.connectionState==='online').length+' 已鉴权 · 自主登录'),
+                   h('div',{className:'dnr-inline-source-result'},widget));
+               })))):null);
     }
     function AutoFreeConsole({pool,cfg,hostProviders,onRefresh,busy,
       freeProvider,setFreeProvider,freeModel,setFreeModel,manualModel,setManualModel,
@@ -1061,7 +1073,7 @@ window.__ModuleLoader__.load({
                h('div',{className:'dnr-disclosure-body'},loginWidgets[channel.id])):null);
         }));
     }
-    function ActivitiesConsole({data,cfg,busy,refresh,run}){
+    function ActivitiesConsole({data,cfg,busy,refresh,run,batchJob,startBatch,checkBatch}){
       const groups=Array.isArray(data?.channels)?data.channels:[];
       const summary=data?.summary??{};
       const stateText={valid:'有效 · 可自动执行',completed:'已完成',
@@ -1072,10 +1084,20 @@ window.__ModuleLoader__.load({
           .format(new Date(value)):'官方未公布';
       return h('div',{className:'dnr-activities'},
         h(Panel,{title:'免费自动活动总览',
-          actions:h(Button,{disabled:!!busy,onClick:refresh},
-            busy?'核验中…':'刷新官方活动')},
+           actions:h('div',{style:css.line},
+             h(Button,{disabled:!!busy,onClick:refresh},busy?'核验中…':'刷新官方活动'),
+             h(Button,{kind:'primary',disabled:!!busy||!groups.some(g=>g.activityExecutorCount>0)||batchJob?.state==='running'||batchJob?.state==='unknown',
+               onClick:startBatch},batchJob?.state==='running'?'全渠道领取执行中…':'领取全部可执行免费活动'),
+             batchJob?.state==='unknown'?h(Button,{onClick:checkBatch},'回查后台领取任务'):null)},
           h('p',{style:css.small},'免费活动分两级验证：「有效 · 可领取」是官方账号明确给出资格，但尚未证明到账；「已完成」必须核实官方任务及账单／余额正增量。仅有接口或本地模拟测试不能视为真实领取。'),
-          cfg?.checkin?.autoEnabled!==true?h('div',{role:'status',
+           batchJob?.mode==='all-channel-activity'?h('div',{style:{...css.card,padding:9}},
+             h('strong',null,'后台领取任务 · '+(batchJob.state==='running'?'执行中':batchJob.state==='unknown'?'状态待回查':batchJob.state==='complete'?'执行结束（以逐渠道回执为准）':batchJob.state==='cancelled'?'已取消':'执行异常')),
+             h('p',{style:css.small},'渠道 '+(batchJob.activityChannels?.length??0)+' / '+(batchJob.channelCount??'—')+
+               ' · 今日签到确认 '+(batchJob.activity?.confirmedSignins??0)+' · 新增到账 '+(batchJob.activity?.newlyCreditedRewards??0)+' · 待回查 '+(batchJob.activity?.pendingAccounts??0)),
+             (batchJob.activityChannels??[]).map(item=>h('div',{key:item.providerId,style:css.line},
+               h('strong',null,groups.find(c=>c.id===item.providerId)?.name||item.providerId),
+               h('span',{style:css.small},item.state==='unavailable'?'渠道执行异常':('处理 '+item.attempted+' · 签到确认 '+item.confirmedSignins+' · 新增到账 '+item.newlyCreditedRewards+' · 待回查 '+item.pendingAccounts+' · 失败 '+item.failedAccounts+' · 无任务 '+item.noTaskAccounts))))):null,
+           cfg?.checkin?.autoEnabled!==true?h('div',{role:'status',
             style:{...css.card,margin:'8px 0 12px'}},
             h('strong',null,'全局自动免费活动已关闭'),
             h('p',{style:{...css.small,margin:'4px 0 0'}},
@@ -1349,6 +1371,7 @@ window.__ModuleLoader__.load({
         [checkinsView,setCheckinsView]=useState(null),
         [activitiesView,setActivitiesView]=useState(null),
         [activitiesBusy,setActivitiesBusy]=useState(false),
+        [activityBatchJob,setActivityBatchJob]=useState(null),
         [actionBusy,setActionBusy]=useState(''),
         [channelQuery,setChannelQuery]=useState(''),[discovered,setDiscovered]=useState({}),
         [managedAccountProvider,setManagedAccountProvider]=useState(''),
@@ -1583,6 +1606,48 @@ window.__ModuleLoader__.load({
          const timer=setInterval(()=>sourcePollLogin({quiet:true}),4000);
          return ()=>clearInterval(timer);
        },[pendingSourceLogin,sourceRpcBusy]);
+        async function checkActivityBatch(){
+          try{
+            const response=await fetch(URL+'/acceptance',{cache:'no-store'});
+            const data=await response.json();
+            if(!response.ok||data.ok!==true)throw Error('后台领取状态暂不可用');
+            if(data.result?.mode==='all-channel-activity')setActivityBatchJob(data.result);
+            else setActivityBatchJob(old=>old?.state==='unknown'?null:old);
+            return data.result;
+          }catch{
+            setActivityBatchJob(old=>old?.state==='running'?{...old,state:'unknown'}:old);
+            return null;
+          }
+        }
+        async function startActivityBatch(){
+          if(activityBatchJob?.state==='running'||activityBatchJob?.state==='unknown')return;
+          if(!window.confirm('确认后台逐渠道领取已启用账号的官方免费活动？不修改自动签到开关，不购买套餐，不调用模型。'))return;
+          const requestId=Array.from(window.crypto.getRandomValues(new Uint8Array(16)),x=>x.toString(16).padStart(2,'0')).join('');
+          setActivityBatchJob({requestId,mode:'all-channel-activity',state:'running'});
+          try{
+            const response=await fetch(URL+'/acceptance',{method:'POST',headers:{'content-type':'application/json'},
+              body:JSON.stringify({action:'start',mode:'all-channel-activity',consent:true,requestId})});
+            const data=await response.json();
+            if(!response.ok||data.ok!==true){setActivityBatchJob(null);setError(data.error||'后台领取任务未接受');return;}
+            if(data.result?.requestId!==requestId)throw Error('任务标识不一致');
+            setActivityBatchJob(data.result);
+          }catch{
+            setActivityBatchJob(old=>({...old,state:'unknown'}));
+            setError('领取请求结果未确认，请回查已有任务，不重复提交。');
+          }
+        }
+        useEffect(()=>{
+          if(tab!=='activities')return;
+          let stopped=false;
+          const poll=async()=>{
+            const result=await checkActivityBatch();
+            if(!stopped&&result?.mode==='all-channel-activity'&&result.state==='complete'&&activityBatchJob?.state==='running')await refreshRuntime();
+          };
+          void poll();
+          if(typeof setInterval!=='function')return;
+          const timer=setInterval(()=>void poll(),4000);
+          return ()=>{stopped=true;clearInterval(timer)};
+        },[tab,activityBatchJob?.state]);
         // Visiting the adoption tab scans metadata only; no account migration.
       useEffect(()=>{
         if(tab==='reuse'&&reuseSubtab==='sessions')void loadAdoptionPreview();
@@ -2212,12 +2277,10 @@ window.__ModuleLoader__.load({
          sessionReuse:{...old.sessionReuse,
            ...('enabled' in change?{enabled:change.enabled}:{}),
            ...('resetIgnored' in change?{ignoredIds:[]}:{})}}));
-       if(tab==='channels'){
-         // Build existing login UIs without rendering a second global
-         // channel. The five independent flows belong inside their channels.
-         const loginSuite=h('details',{className:'dnr-disclosure'},
-           h('summary',{className:'dnr-disclosure-summary'},'渠道授权操作'),
-           h('div',{className:'dnr-disclosure-body'},
+         // Shared, keyed login widgets are constructed once per App render.
+         // Both account cards and the authorization inventory reuse identical handlers/state.
+         const loginWidgets={
+           own_mimo_desktop:
            h(Panel,{title:'小米 MiMo 会员 · 无需 MiMo 客户端进程'},
            h('p',{style:css.small},'即使没有安装或运行 MiMo Desktop，也能通过本插件独立浏览器登录会员账号；已有客户端会话也可一次性接管。授权后无需任何原客户端进程，独立保存会话、续期与推理；不使用商业 API Key。'),
            h('div',{style:css.line},
@@ -2229,7 +2292,7 @@ window.__ModuleLoader__.load({
              h(Button,{kind:'primary',disabled:mimoBusy||mimoLogin?.status==='waiting',
                onClick:startMimoBrowser},mimoLogin?.status==='waiting'?'等待会员授权…':'自主浏览器登录'),
              mimoLogin?.status==='waiting'?h(Button,{onClick:cancelMimoBrowser},'取消授权'):null)),
-                   h(Panel,{title:'豆包工作会员 · 无需豆包客户端进程'},
+           own_doubao:h(Panel,{title:'豆包工作会员 · 无需豆包客户端进程'},
             h('p',{style:css.small},'无需安装或运行豆包工作客户端：本插件通过普通浏览器独立扫码、保存各账号 Cookie，并直接请求会员网页服务。签到通过网页提交并回查确认才算成功；未验收的工作任务模型不会虚报可用。'),
             h('div',{style:css.line},
               h(Button,{kind:'primary',disabled:doubaoBusy||doubaoLogin?.status==='waiting',
@@ -2241,7 +2304,7 @@ window.__ModuleLoader__.load({
                 style:css.input,value:doubaoCookie,onChange:e=>setDoubaoCookie(e.target.value)}),
               h(Button,{disabled:doubaoBusy||doubaoCookie.length<12,
                 onClick:addDoubaoCookie},doubaoBusy?'处理中…':'导入 Cookie'))),
-          h(Panel,{title:'秒悟网页版 · 独立会员账号'},
+           own_meoo_web:h(Panel,{title:'秒悟网页版 · 独立会员账号'},
             h('p',{style:css.small},'独立浏览器登录或显式接管自己的网页 Cookie。官方身份核验成功后存入本插件私有凭据库，动态模型与真实积分均从秒悟会员接口读取；不复用原插件进程，不提供 API Key 计费通道，也不虚报免费模型。'),
             h('div',{style:css.line},
               h(Button,{kind:'primary',disabled:meooBusy||meooLogin?.status==='waiting',
@@ -2253,7 +2316,7 @@ window.__ModuleLoader__.load({
                 style:css.input,value:meooCookie,onChange:e=>setMeooCookie(e.target.value)}),
               h(Button,{disabled:meooBusy||meooCookie.length<24,
                 onClick:addMeooCookie},meooBusy?'校验中…':'验证并导入'))),
-          h(Panel,{title:'千问办公 · 设备码 PKCE 独立账号'},
+           own_qwenwork:h(Panel,{title:'千问办公 · 设备码 PKCE 独立账号'},
             h('p',{style:css.small},'无需安装千问办公客户端：生成本插件专属设备授权链接，通过官方网页选择账号及团队。授权后保存到 DSH 私有凭据，模型经 COSY 签名直连官方服务，不启动额外本地网关。模型倍率从账号实时目录读取，未知费率不视为免费。'),
             h('div',{style:css.line},
               h(Button,{kind:'primary',disabled:qwenBusy||qwenLogin?.status==='waiting',
@@ -2267,7 +2330,7 @@ window.__ModuleLoader__.load({
                 h('a',{href:qwenLogin.loginUrl,target:'_blank',rel:'noopener noreferrer',
                   style:{fontWeight:600,wordBreak:'break-all'}},'打开千问办公官方账号授权页'),
                 h('span',{style:css.small},'必须在官方网页完成选择；本插件只显示公开授权地址')):null),
-           h(Panel,{title:'Amazon Quick · 独立会员渠道'},
+           own_aws_quick:h(Panel,{title:'Amazon Quick · 独立会员渠道'},
              h('p',{style:css.small},
                '通过自己的 Amazon Quick 登录账号完成 OAuth PKCE，或一次性接管本机已登录的 Quick 桌面凭据。DSH 自己存储和续期授权，不依赖 Magpie、原插件或 Quick outpost 进程。四个模式 fast / balanced / smart / advanced 由 Quick 服务端动态选择真实模型。该项目采用非官方内部协议，存在服务条款与账号限制风险，费率未知不标免费。'),
              h('div',{style:css.line},
@@ -2299,13 +2362,9 @@ window.__ModuleLoader__.load({
              awsQuickLogin?.status==='done'?
                h('p',{style:css.small},
                  '已确认独立账号并保存到 DSH 凭据库；可在上方账号列表查看额度及执行模型测试。'):null),
-             null));
-         const loginParts=loginSuite.props.children[1].props.children;
-         const loginWidgets=Object.fromEntries([
-           'own_mimo_desktop','own_doubao','own_meoo_web',
-           'own_qwenwork','own_aws_quick'
-         ].map((id,i)=>[id,loginParts[i]]));
-         content=h(AccountConsole,{data:channelsView,
+         };
+         if(tab==='channels'){
+          content=h(AccountConsole,{data:channelsView,
            query:channelQuery,onQuery:setChannelQuery,run:runAction,setTab,
            busy:actionBusy,discovered,onAddProvider:addNativeProvider,
            selectedChannel:selectedAccountChannel,onSelectChannel:setSelectedAccountChannel,
@@ -2315,7 +2374,7 @@ window.__ModuleLoader__.load({
            hasDraft:Boolean(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig))});
        }
        if(tab==='reuse')content=h(ReuseConsole,{data:channelsView,cfg,         onReuseSettings:changeReuseSettings,run:runAction,busy:actionBusy,
-          onRefresh:refreshRuntime,subtab:reuseSubtab,onSubtab:setReuseSubtab,
+           onRefresh:refreshRuntime,subtab:reuseSubtab,onSubtab:setReuseSubtab,loginWidgets,
          embeddedPack:status?.embeddedPack,credentialService:status?.credentialService,modelProvider,
          setModelProvider:value=>{setModelProvider(value);setEmbeddedModels(null)},
          onModels:loadUpstreamModels,modelBusy,models:embeddedModels,
@@ -2338,8 +2397,8 @@ window.__ModuleLoader__.load({
           sourceCredits,sourceClaims,sourceBusy:sourceRpcBusy,
           onSourceStatus:sourceCheckinStatus,onSourceClaim:sourceClaimAll});
        if(tab==='activities')content=h(ActivitiesConsole,{
-         data:activitiesView,cfg,busy:activitiesBusy||!!actionBusy,
-         refresh:refreshActivities,run:runAction});
+         data:activitiesView,cfg,busy:activitiesBusy||!!actionBusy||activityBatchJob?.state==='running',
+         refresh:refreshActivities,run:runAction,batchJob:activityBatchJob,startBatch:startActivityBatch,checkBatch:checkActivityBatch});
        if(tab==='providers')content=h(Section,{title:'提供商注册表'},
          h('div',{style:css.line},h('input',{'aria-label':'筛选提供商',
            placeholder:'按名称、标识或协议筛选提供商',style:css.input,value:providerQuery,

@@ -41,6 +41,32 @@ test('activity mode requires an exact selected channel and preserves existing au
  const r=await done(f.service);assert.deepEqual(f.calls,[['claim','demo']]);
  assert.equal(r.activity.newlyCreditedRewards,0);assert.equal(r.activity.confirmedSignins,1);
 });
+test('all-channel free activity runs eligible channels serially, isolates failures, and deduplicates the job',async()=>{
+ const rows=[
+  {providerId:'own_alpha',enabled:true,checkinSupported:true},
+  {providerId:'alpha',enabled:true,activitiesSupported:true},
+  {providerId:'beta',enabled:true,checkinSupported:true},
+  {providerId:'gamma',enabled:true,activitiesSupported:true},
+  {providerId:'disabled',enabled:false,checkinSupported:true},
+  {providerId:'quota-only',enabled:true,checkinSupported:false}];
+ const calls=[],config={providers:[],accounts:[],checkin:{autoEnabled:false}};
+ const service=createOwnerAcceptance({configStore:{get:()=>structuredClone(config)},
+  accountCenter:{list:()=>({accounts:[]})},checkinCenter:{
+   snapshot:()=>({accounts:rows}),
+   refreshSources:async ({onlyProviderId})=>{calls.push('read:'+onlyProviderId);if(onlyProviderId==='beta')throw Error('synthetic offline')},
+   runActivityChannel:async channel=>{calls.push('claim:'+channel);return {summary:{attempted:1,confirmedSignins:1,newlyCreditedRewards:channel==='gamma'?1:0}}}
+  },now:()=>1000});
+ assert.throws(()=>service.start({requestId:id,mode:'all-channel-activity'}));
+ assert.equal(service.start({requestId:id,mode:'all-channel-activity',consent:true}).channelCount,3);
+ const report=await done(service);
+ assert.deepEqual(calls,['read:alpha','claim:alpha','read:beta','read:gamma','claim:gamma']);
+ assert.equal(report.activityChannels[1].state,'unavailable');
+ assert.equal(report.activity.attempted,2);assert.equal(report.activity.newlyCreditedRewards,1);
+ assert.equal(config.checkin.autoEnabled,false);
+ assert.equal(service.start({requestId:id,mode:'all-channel-activity',consent:true}).state,'complete');
+ assert.equal(calls.length,5);
+});
+
 test('one job at a time; cancel before next account; changed bindings never execute',async()=>{
  let release;const f=fixture({accountCenter:{verify:()=>new Promise(r=>{release=r})}});
  f.service.start({requestId:id,mode:'inventory',consent:true});
