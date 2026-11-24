@@ -5,22 +5,23 @@ const beijingDay=at=>new Intl.DateTimeFormat('en-CA',{
   timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',
 }).format(new Date(at));
 const isSameDay=(at,day)=>Number.isSafeInteger(at)&&at>0&&beijingDay(at)===day;
-function creditedRewards(row,day){
+function creditedRewards(row,day,startedAt){
+  const inRun=at=>isSameDay(at,day)&&at>=startedAt;
   if(!row||typeof row!=='object')return 0;
   const gifts=(Array.isArray(row.benefits)?row.benefits:[]).filter(offer=>
     offer?.claimed===true&&offer.rewardVerified===true
     &&offer.rewardProof==='official_wallet_delta'
     &&Number.isFinite(offer.credit)&&offer.credit>0
-    &&isSameDay(offer.rewardVerifiedAt,day)).length;
+    &&inRun(offer.rewardVerifiedAt)).length;
   const raccoon=String(row.providerId||'').replace(/^own_/,'')==='raccoon'
     &&row.sourceAccount===true
     &&row.activityRewardProof==='official_daily_grant_bill'
     &&Number.isFinite(row.activityRewardAmount)&&row.activityRewardAmount>0
     &&row.activityRewardUnit==='积分'
-    &&isSameDay(row.activityRewardVerifiedAt,day)?1:0;
+    &&inRun(row.activityRewardVerifiedAt)?1:0;
   return gifts+raccoon;
 }
-export function summarizeChannelExecution({before=[],after=[],results=[],today}={}){
+export function summarizeChannelExecution({before=[],after=[],results=[],today,startedAt=0}={}){
   const day=typeof today==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(today)
     ?today:beijingDay(Date.now());
   const beforeMap=new Map(before.filter(row=>typeof row?.id==='string')
@@ -37,7 +38,7 @@ export function summarizeChannelExecution({before=[],after=[],results=[],today}=
     const prev=beforeMap.get(result.accountId);
     if(current?.checkinState==='success'&&current.lastConfirmedDate===day)
       confirmedSignins++;
-    newlyCreditedRewards+=Math.max(0,creditedRewards(current,day)-creditedRewards(prev,day));
+    newlyCreditedRewards+=Math.max(0,creditedRewards(current,day,startedAt)-creditedRewards(prev,day,startedAt));
     const state=result.record?.state??result.state;
     if(state==='pending_confirmation'||result.activities?.state==='pending_confirmation'
       ||Number(result.activities?.pending)>0)pendingAccounts++;

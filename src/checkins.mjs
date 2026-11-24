@@ -325,8 +325,10 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
     await sourceCenter?.refresh({onlyProviderId:selected}).catch(()=>{});
     if(signal?.aborted)return {providerId:selected,attempted:0,results:[],
       summary:summarizeChannelExecution({today:currentDate()})};
+    const startedAt=now();
     const before=snapshot().accounts;
     const accounts=before.filter(row=>
+
       row.providerId?.replace(/^own_/,'')===selected&&row.enabled!==false
       &&(row.activitiesSupported===true||row.checkinSupported===true)).slice(0,32);
     const results=[];
@@ -345,12 +347,13 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
     }
     return {providerId:selected,attempted:results.length,results,
       summary:summarizeChannelExecution({before,after:snapshot().accounts,
-        results,today:currentDate()})};
+         results,today:currentDate(),startedAt})};
   }
   async function runChannel(providerId,{source='manual'}={}){
     const selected=String(providerId||'').replace(/^own_/,'');
     if(!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(selected))
       throw Error('Invalid check-in channel');
+    const startedAt=now();
     const before=snapshot().accounts;
     const eligible=before.filter(row=>
       row.providerId?.replace(/^own_/,'')===selected
@@ -363,7 +366,7 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
     }
     return {providerId:selected,attempted:results.length,results,
       summary:summarizeChannelExecution({before,after:snapshot().accounts,
-        results,today:currentDate()})};
+         results,today:currentDate(),startedAt})};
   }
   async function tick(){
     if(store.blocked)return {skipped:'history_blocked'};

@@ -10,6 +10,7 @@ const privateAccountIds=[
   ['own_doubao',/^db_[a-f0-9]{28}$/],
   ['own_meoo_web',/^mw_[a-f0-9]{28}$/],
   ['own_qwenwork',/^qw_[a-f0-9]{28}$/],
+  ['own_aws_quick',/^aq_[a-f0-9]{28}$/],
 ];
 export function runtimeOwnership(account){
   if(!account||typeof account!=='object')return 'unknown';

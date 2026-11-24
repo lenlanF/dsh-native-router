@@ -198,6 +198,19 @@ test('the minimal real model test always sends the bounded prompt and token limi
   assert.equal(invocation.model,'safe');
   h.center.stop();
 });
+test('official WorkBuddy free smoke uses a bounded 128 token budget for reasoning',async()=>{
+ for(const providerId of ['own_workbuddy-cn','own_workbuddy-global']){
+  let invocation;
+  const h=rig({providerId,models:[{id:'zero',name:'Zero · x0.00'}],
+    onGenerate:async input=>{invocation=input;return {text:'OK',finishReason:'stop',toolCalls:[]}}});
+  try{
+   assert.equal((await h.center.verifyModel(h.id,{officialOnly:true})).state,'verified');
+   assert.equal(invocation.options.maxTokens,128);
+   assert.equal(h.generates,1);
+  }finally{h.center.stop()}
+ }
+});
+
 test('background acceptance refuses manual free overrides and conflicting official prices',async()=>{
  const h=rig({models:[
   {id:'manual',pricing:{input:1,output:1}},
