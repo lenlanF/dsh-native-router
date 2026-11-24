@@ -6,7 +6,6 @@ import {buildChannelActivityCatalog,createChannelActivityCenter}
 const now=Date.parse('2026-11-23T04:00:00Z');
 const cfg={providers:[
  {id:'own_workbuddy-cn',name:'WorkBuddy 国内',enabled:true},
- {id:'own_doubao',name:'豆包',enabled:true},
  {id:'own_qoder',name:'Qoder',enabled:true},
  {id:'own_loomy',name:'Loomy',enabled:true},
  {id:'own_raccoon',name:'小浣熊',enabled:true},
@@ -29,7 +28,6 @@ test('catalog hides ALL advertised, callable, uncredited, failed or paid rewards
    benefits:[{kind:'gift',active:true,claimed:true,credit:220},
     {kind:'compensation',active:true,claimed:false,credit:50},
     {kind:'purchase',active:true,claimed:true,credit:5000}]}),
-  account('db','own_doubao',{activityState:'claimable',activityTaskCount:5}),
   account('q','own_qoder',{sourceAccount:true,checkinState:'success',
    activityRewardAmount:10,activityRewardUnit:'积分'}),
   account('loomy','own_loomy',{sourceAccount:true,checkinState:'success',
@@ -42,7 +40,7 @@ test('catalog hides ALL advertised, callable, uncredited, failed or paid rewards
   account('gemini','own_gemini',{sourceAccount:true,
    quotaWindows:[{kind:'5h',left:100}]}),
  ]);
- assert.equal(x.summary.channelCount,8,'all configured channels retain empty tables');
+ assert.equal(x.summary.channelCount,7,'all configured channels retain empty tables');
  assert.equal(x.summary.activityCount,0);
  assert.ok(x.channels.every(c=>c.activities.length===0));
  assert.match(channel(x,'cline').emptyReason,/余额查询/);

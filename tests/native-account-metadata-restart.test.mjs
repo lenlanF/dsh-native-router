@@ -4,8 +4,8 @@ import {normalizeConfig} from '../src/config.mjs';
 import {createAccountCenter} from '../src/account-center.mjs';
 import {createAccountVerificationStore} from '../src/account-verification-store.mjs';
 
-const providers=['own_mimo_desktop','own_doubao','own_meoo_web','own_qwenwork','own_workbuddy-cn'];
-const ids=['sp_'+'a'.repeat(24),'db_'+'b'.repeat(28),
+const providers=['own_mimo_desktop','own_meoo_web','own_qwenwork','own_workbuddy-cn'];
+const ids=['sp_'+'a'.repeat(24),
  'mw_'+'c'.repeat(28),'qw_'+'d'.repeat(28),'wbp_'+'e'.repeat(24)];
 const config=normalizeConfig({providers:providers.map(id=>({id,protocol:'native-channel',enabled:true})),
  accounts:providers.map((providerId,i)=>({id:ids[i],providerId,
@@ -32,8 +32,6 @@ test('fresh persisted online status restores live public names, quota and campai
      ...(providerId==='own_mimo_desktop'?{
        membershipState:'not_subscribed',usageState:'available',
        usagePercentRemaining:73,usageCheckedAt:clock()}:{}),
-     ...(providerId==='own_doubao'?{
-       activityState:'claimable',activityCheckedAt:clock()}:{}),
     });
     return {state:'online',authVerified:true,checkedAt:clock()};
    },
@@ -46,14 +44,13 @@ test('fresh persisted online status restores live public names, quota and campai
    'an in-memory snapshot is genuinely absent on next Host start');
   await center.refreshReadOnly();
   const view=center.list().accounts;
-  assert.equal(view.length,5);
+  assert.equal(view.length,4);
   for(let i=0;i<view.length;i++){
    assert.equal(view[i].nickname,'真实个人资料'+(i+1));
    assert.equal(view[i].balance,50+i);
    assert.equal(view[i].connectionState,'online');
   }
   assert.equal(view[0].usagePercentRemaining,73);
-  assert.equal(view[1].activityState,'claimable');
   await center.refreshReadOnly();
   for(const providerId of providers)
    assert.equal(counters.get(providerId),lifetime+1,

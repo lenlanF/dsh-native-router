@@ -17,7 +17,7 @@ async function eventually(check){
 function fixture({addAccount,rollbackAccount,validateCookie,waiting}={}){
  const opened=waiting??deferred(),calls=[];
  const flow=createBrowserLoginFlow({
-  loginUrl:'https://www.doubao.com/chat/',
+  loginUrl:'https://example.invalid/login/',
   extractCookie:()=>'',addAccount,rollbackAccount,validateCookie,
   browserRuntime:{
    async start({loginUrl}){calls.push('start:'+loginUrl);return opened.promise},
@@ -40,7 +40,7 @@ test('cancel during isolated browser login never persists a late captured sessio
 });
 test('cancel while saving newly captured session rolls back private credential',async()=>{
  const saving=deferred(),release=deferred(),rolled=[];
- const account={id:'db_new',providerId:'own_doubao'};
+ const account={id:'mw_new',providerId:'own_meoo_web'};
  const rig=fixture({
   addAccount:async()=>{saving.resolve();await release.promise;return {account}},
   rollbackAccount:async result=>{rolled.push(result)},
@@ -87,7 +87,7 @@ test('cancel during a rotated existing credential triggers exact rollback receip
 test('uncanceled login saves exactly once and reports completed receipt',async()=>{
  const saves=[],rig=fixture({
   addAccount:async input=>{saves.push(input);
-   return {account:{id:'owned-only',providerId:'own_doubao'}}},
+   return {account:{id:'owned-only',providerId:'own_meoo_web'}}},
  });
  await rig.flow.start();
  rig.opened.resolve('sessionid=completed-session');

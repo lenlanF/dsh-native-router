@@ -53,8 +53,8 @@ test('accepted response remains pending until remote confirms the actual same-da
  assert.equal(attempts,2,'same-day confirmed check-in must not run again');
  assert.equal(JSON.parse(readFileSync(rig.file,'utf8')).history.length,2);
 });
-test('owned WorkBuddy and Doubao pending daily rewards survive manual repeat without another POST',async t=>{
- for(const providerId of ['own_workbuddy-cn','own_doubao']){
+test('owned WorkBuddy domestic and international pending daily rewards survive manual repeat without another POST',async t=>{
+ for(const providerId of ['own_workbuddy-cn','own_workbuddy-global']){
   let attempts=0;
   const settings={...sample,providers:sample.providers.map(x=>x.id==='alpha'?
    {...x,id:providerId,name:providerId}:x),
@@ -151,8 +151,8 @@ test('corrupt history blocks automatic and manual check-in but does not prevent 
  assert.equal(readFileSync(path,'utf8'),'INVALID');
 });
 test('official read-only confirmation closes a pending daily task without resubmission',async t=>{
- const date='2026-11-17',providerId='own_doubao';
- const a={id:'db_fixture',providerId,credentialRef:'driver:own_doubao:db_fixture',enabled:true,autoCheckin:false};
+ const date='2026-11-17',providerId='own_workbuddy-cn';
+ const a={id:'wb_fixture',providerId,credentialRef:'driver:own_workbuddy-cn:wb_fixture',enabled:true,autoCheckin:false};
  const cfg=normalizeConfig({providers:[{id:providerId,protocol:'native-channel',enabled:true}],accounts:[a],checkin:{autoEnabled:false}});
  const dir=mkdtempSync(join(tmpdir(),'dnr-checkin-confirmation-'));
  t.after(()=>rmSync(dir,{force:true,recursive:true}));

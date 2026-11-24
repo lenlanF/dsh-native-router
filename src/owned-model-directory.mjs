@@ -1,3 +1,4 @@
+import {isRetiredProvider} from './config.mjs';
 import {SOURCE_PACK_PROVIDERS} from './embedded-pack.mjs';
 import {sourceModelEligible} from './source-model-eligibility.mjs';
 const packIds=new Set(SOURCE_PACK_PROVIDERS);
@@ -12,7 +13,7 @@ export function createOwnedModelDirectory({configStore,accountCenter,checkinCent
  function targets(){
   const cfg=config(),local=rows(),sources=sourceRows(),out=new Map();
   for(const provider of cfg.providers??[]){
-   if(provider.protocol!=='native-channel'||provider.enabled!==true)continue;
+   if(isRetiredProvider(provider.id)||provider.protocol!=='native-channel'||provider.enabled!==true)continue;
    const members=local.filter(a=>a.providerId===provider.id&&online(a)&&a.runtimeMode==='owned'
       &&cfg.accounts?.some(b=>b.id===a.id&&b.providerId===a.providerId&&b.enabled===true));
    if(members.length)out.set(provider.id,{providerId:provider.id,name:provider.name,
@@ -34,6 +35,7 @@ export function createOwnedModelDirectory({configStore,accountCenter,checkinCent
   return out;
  }
  function knownOwned(id){
+  if(isRetiredProvider(id))return true;
   return config().providers?.some(p=>p.id===id&&p.protocol==='native-channel')||
     (id.startsWith('own_')&&packIds.has(canonical(id)))||id.startsWith('native-router-source-');
  }

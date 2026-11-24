@@ -1,3 +1,4 @@
+import {isRetiredProvider} from './config.mjs';
 import {SOURCE_PACK_PROVIDERS} from './embedded-pack.mjs';
 import {UpstreamError} from './failure.mjs';
 
@@ -22,7 +23,7 @@ export function createExistingDshChannelFacade({ctx,excludedHost,timeoutMs=15000
    const registered=llm.listProviders();
    if(!Array.isArray(registered))return [];
    return [...new Set(registered.map(providerName).filter(safeId)
-     .filter(id=>id!=='native-router'&&!id.startsWith('native-router-source-')))].slice(0,80).map(providerId=>({
+     .filter(id=>id!=='native-router'&&!id.startsWith('native-router-source-')&&!isRetiredProvider(id)))].slice(0,80).map(providerId=>({
        providerId,
        family:providerId==='workbuddy'||providerId==='workbuddy-global'
          ?'workbuddy-native-plugin-route':IDs.has(providerId)?'native-channel-route':'dsh-provider-route',

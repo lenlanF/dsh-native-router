@@ -1,3 +1,5 @@
+> 历史版本记录（非当前支持范围）：rc.116 起退役渠道及其专属实现、测试均已独立归档；下列历史验收内容不得作为当前版本的接入或执行说明。
+
 # Pinned channel pack: what is actually shipped
 
 This project retains the upstream MIT attribution and unmodified audit snapshot in

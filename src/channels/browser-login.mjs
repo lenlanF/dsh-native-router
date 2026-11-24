@@ -1,4 +1,4 @@
-// Isolated DSH-native-router browser sign-in, derived from hulibuld/dsh-get-it-for-free src/doubao/login.js (MIT).
+// Isolated DSH-native-router browser sign-in, derived from hulibuld/dsh-get-it-for-free browser login implementation (MIT).
 // User-triggered one-shot browser only, no enduring gateway, no original plugin file dependency.
 // 独立授权：点一下就开一个干净的浏览器，你在里面扫码/输密码，
 // 插件在旁边通过 CDP 把 cookie 读走，读到就关窗、存账号。
@@ -6,7 +6,7 @@
 // 为什么不像 MiMo 那样直接读桌面客户端的库：客户端 Cookies 可能被系统加密
 // （macOS 上每一行都是 encrypted_value），钥匙挂在系统钥匙串里；而且客户端
 // 运行时会独占那个库。这种「开自己的浏览器、登完就抓」的做法不需要解任何密，
-// 抓到的就是刚登录的那一份，天然一个账号一份凭据——和 dsh-connect-doubao
+// 抓到的就是刚登录的那一份，天然一个账号一份凭据——和原插件
 // 后来改走的路子一样。
 //
 // 只用 Node 自带的 WebSocket（Node 22+ 全局可用），不引依赖。
@@ -243,7 +243,7 @@ export function createBrowserLoginFlow({ logger, addAccount, rollbackAccount,
           header = await browserRuntime.start({ loginUrl })
         } else {
           const browser = findBrowser()
-          if (browser === '') throw new Error('未找到 Chrome / Edge / Brave / Chromium；无需安装 MiMo 或豆包客户端，但自主网页登录需要独立浏览器')
+          if (browser === '') throw new Error('未找到 Chrome / Edge / Brave / Chromium；无需安装 原客户端，但自主网页登录需要独立浏览器')
           if (state.status === 'canceled') return
           state.browser = browser
           const tempRoot = process.platform === 'win32' ? 'E:\\Temp' : os.tmpdir()

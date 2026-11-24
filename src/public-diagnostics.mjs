@@ -61,7 +61,6 @@ const checkinDiagnostics=Object.freeze({
   LOOMY_WALLET_UNCONFIRMED:'官方钱包每日额度字段未确认',
   LOOMY_DAY_MISMATCH:'每日额度周期日期不一致',
   LOOMY_QUOTA_MISMATCH:'初始化与钱包额度不一致',
-  DOUBAO_OFFICIAL_CLIENT:'官方活动限电脑版参加；插件只读回查，不提交领取请求',
   LOBSTER_SLOT_SHAPE:'官方活动槽位字段不完整',
   LOBSTER_CONTEXT_READ:'活动上下文读取失败',
   LOBSTER_CONTEXT_SHAPE:'官方活动资格字段不完整',

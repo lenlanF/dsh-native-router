@@ -13,8 +13,7 @@ const STATES=new Set(['submitted','confirmed','pending_confirmation']);
 // public receipt kinds: no arbitrary path, task code or user identifier is
 // allowed inside this persisted journal.
 const allowedKind=kind=>typeof kind==='string'&&(
-  KINDS.has(kind)||/^workbuddy_growth_(?:task|travel)_[a-f0-9]{24}$/.test(kind)
-  ||/^doubao_task_[a-f0-9]{24}$/.test(kind));
+  KINDS.has(kind)||/^workbuddy_growth_(?:task|travel)_[a-f0-9]{24}$/.test(kind));
 // Never discard an old one-shot receipt: doing so could re-submit an
 // already-claimed activity on older accounts. Full journal fails closed.
 const MAX=10000;
@@ -22,7 +21,7 @@ const hash=v=>createHash('sha256').update(v).digest('hex');
 const numeric=x=>Number.isFinite(x)&&x>=0?x:null;
 const valid=r=>r&&/^[a-f0-9]{64}$/.test(r.key)
   &&/^[a-f0-9]{64}$/.test(r.binding)
-  &&allowedKind(r.kind)&&STATES.has(r.state)&&Number.isSafeInteger(r.at)&&r.at>0
+  &&(allowedKind(r.kind)||/^doubao_task_[a-f0-9]{24}$/.test(r.kind))&&STATES.has(r.state)&&Number.isSafeInteger(r.at)&&r.at>0
   &&(r.credit===undefined||Number.isFinite(r.credit)&&r.credit>=0&&r.credit<=1e9)
   &&(r.baselineBalance===undefined||Number.isFinite(r.baselineBalance)&&r.baselineBalance>=0&&r.baselineBalance<=1e12)
   &&(r.proof===undefined||r.proof==='official_wallet_delta')
@@ -74,7 +73,6 @@ export function createActivityClaimStore({path=join(dirname(defaultConfigPath())
    const entry={key,binding:bindingOf(account),kind:offer.kind,state:'submitted',at:now(),
      ...(typeof offer.kind==='string'
         &&(offer.kind.startsWith('loomy_')||offer.kind.startsWith('workbuddy_growth_')
-          ||offer.kind.startsWith('doubao_task_')
           ||['gift','compensation'].includes(offer.kind))
         &&Number.isFinite(baselineBalance)&&baselineBalance>=0&&baselineBalance<=1e12
        ?{baselineBalance}:{})};
@@ -91,7 +89,6 @@ export function createActivityClaimStore({path=join(dirname(defaultConfigPath())
        ?{credit}:{}),
      ...(state==='confirmed'
        &&(r.kind.startsWith('loomy_')||r.kind.startsWith('workbuddy_growth_')
-         ||r.kind.startsWith('doubao_task_')
          ||['gift','compensation'].includes(r.kind))
        &&proof==='official_wallet_delta'&&Number.isFinite(r.baselineBalance)
        &&Number.isSafeInteger(verifiedAt)&&verifiedAt>0

@@ -199,7 +199,7 @@ test('channel activity page shows a separate five-column table per provider and 
    {id:'wb:compensation',accountName:'官方账号甲',name:'官方补偿积分',
     rewardAmount:null,rewardUnit:null,validity:'completed',endAt:null,
     progress:'官方确认已领取'}]},
-  {id:'doubao',name:'豆包',accountCount:1,activities:[]},
+  {id:'meoo_web',name:'秒悟',accountCount:1,activities:[]},
  ],summary:{channelCount:2,activityCount:2,validCount:1,completedCount:1}};
  const rig=createUiRig(new Map(),null,{state:'disabled'},{},[],undefined,()=>true,null,snapshot);
  await rig.init();
@@ -208,7 +208,7 @@ test('channel activity page shows a separate five-column table per provider and 
  nav.props.onClick();
  const page=rig.render(),text=rig.flatten(page).join(' ');
  assert.match(text,/WorkBuddy 国内 · 2 项/);
- assert.match(text,/豆包 · 0 项/);
+ assert.match(text,/秒悟 · 0 项/);
  assert.match(text,/活动名称.*免费奖励.*是否有效.*到期时间.*执行状态/);
  assert.match(text,/官方活动赠送积分.*160 积分.*有效 · 可自动执行/);
  assert.match(text,/官方补偿积分.*官方未公布.*已完成/);
@@ -235,7 +235,7 @@ test('account workspace keeps cached account name and balance visible with prove
  const id='sp_'+'b'.repeat(24),when=Date.parse('2026-11-23T04:00:00Z');
  const snapshot={ok:true,channels:[
   {id:'own_loomy',name:'Loomy',adapterReady:true,protocol:'native-channel'},
-  {id:'own_doubao',name:'豆包',adapterReady:true,protocol:'native-channel'},
+  {id:'own_meoo_web',name:'秒悟',adapterReady:true,protocol:'native-channel'},
  ],pools:[],accounts:[{
   id,providerId:'own_loomy',configuredEnabled:true,enabled:true,
   connectionState:'recently_verified',nickname:'准确的账户名称',
@@ -244,8 +244,8 @@ test('account workspace keeps cached account name and balance visible with prove
   expiringPoints:60,expiringAt:Date.now()+2*86400000,
   runtimeMode:'owned',modelTestAvailable:false,
  },{
-  id:'db_'+'c'.repeat(28),providerId:'own_doubao',
-  nickname:'豆包登录账号',balance:0,balanceUnit:'积分',
+  id:'mw_'+'c'.repeat(28),providerId:'own_meoo_web',
+  nickname:'秒悟登录账号',balance:0,balanceUnit:'积分',
   connectionState:'online',configuredEnabled:true,enabled:true,
  }]};
  const rig=createUiRig(new Map(),null,{state:'disabled'},{},[],undefined,
@@ -260,7 +260,7 @@ test('account workspace keeps cached account name and balance visible with prove
  assert.match(text,/480.5 积分/);
  assert.match(text,/上次记录 ·/);
  assert.match(text,/上次识别 ·/);
- assert.match(text,/豆包登录账号/);
+ assert.match(text,/秒悟登录账号/);
  assert.match(text,/高级模型测试/);
  assert.ok(rig.find(root,'button','只读刷新账号数据').length);
  const groups=[];
@@ -1115,19 +1115,19 @@ test('account names and verified source credits lead; technical ID is folded int
   assert.ok(disclosures.some(node=>rig.flatten(node).join(' ').includes('内部账号：a1')),
     'technical ID should be folded into native details');
 });
-test('native account cards show real Xiaomi membership and Doubao quota windows without inventing wallet balances',async()=>{
+test('native account cards show real Xiaomi membership and other account quota without inventing wallet balances',async()=>{
  const inventory={ok:true,channels:[
   {id:'mimo_desktop',name:'小米 MiMo Desktop',adapterReady:true,authMethod:'会员自有登录'},
-  {id:'doubao',name:'豆包工作',adapterReady:true,authMethod:'网页登录'}],
+  {id:'meoo_web',name:'秒悟',adapterReady:true,authMethod:'网页登录'}],
  accounts:[
   {id:'sp_333',providerId:'mimo_desktop',nickname:'真实小米昵称',enabled:true,configuredEnabled:true,
    connectionState:'online',weight:1,managed:true,runtimeMode:'owned',credentialKind:'driver',
    membershipState:'active',membershipPercentRemaining:77.5,membershipPlanName:'plus',balanceState:'not_supported'},
-  {id:'db_333',providerId:'doubao',nickname:'真实豆包名称',enabled:true,configuredEnabled:true,
+  {id:'mw_333',providerId:'meoo_web',nickname:'真实秒悟名称',enabled:true,configuredEnabled:true,
    connectionState:'online',weight:1,managed:true,runtimeMode:'owned',credentialKind:'driver',
    quotaWindows:[{kind:'package',label:'主套餐',total:100,used:20,left:80},
     {kind:'week',label:'每周',total:20,used:8,left:12}],
-   balance:80,balanceUnit:'主套餐',balanceState:'available',planName:'豆包会员'}
+   balance:80,balanceUnit:'主套餐',balanceState:'available',planName:'秒悟会员'}
  ],pools:[],embeddedAccounts:{state:'disabled',accounts:[]}};
  const rig=createUiRig(new Map(),null,{state:'disabled'},{},[],
    undefined,()=>true,inventory);
@@ -1137,7 +1137,7 @@ test('native account cards show real Xiaomi membership and Doubao quota windows 
  const cards=uiNodes(page,x=>x.props?.className==='dnr-account-card');
  assert.equal(cards.length,2);
  assert.match(rendered,/真实小米昵称/);
- assert.match(rendered,/真实豆包名称/);
+ assert.match(rendered,/真实秒悟名称/);
  assert.match(rendered,/77\.5% 剩余/);
   assert.match(rendered,/80 主套餐/);
   assert.ok(!rendered.includes('80 / 100')&&!rendered.includes('12 / 20'));
@@ -1279,12 +1279,12 @@ test('local login view never counts raw source RPC rows twice, but keeps distinc
  assert.equal((text.match(/same-display/g)||[]).length,2);
 });
 
-test('five member login paths are inside their own channels, not a second aggregate card',async()=>{
+test('four member login paths are inside their own channels, not a second aggregate card',async()=>{
  const rig=createUiRig();await rig.init();
  rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
  const page=rig.render(),text=rig.flatten(page).join(' ');
  assert.doesNotMatch(text,/新增账号或重新登录 · 小米 \/ 豆包/);
- for(const [id,name] of [['own_mimo_desktop','小米'],['own_doubao','豆包'],
+ for(const [id,name] of [['own_mimo_desktop','小米'],
    ['own_meoo_web','秒悟'],['own_qwenwork','千问办公'],
    ['own_aws_quick','Amazon Quick']]){
    const channels=uiNodes(page,node=>node.type==='details'
@@ -1297,7 +1297,7 @@ test('five member login paths are inside their own channels, not a second aggreg
  assert.equal(rig.mutations.some(x=>/login|cookie/.test(x.kind||'')),false,
    'opening account page never initiates an unsolicited OAuth or paid call');
 });
-test('autonomous login inventory exposes all five native flows alongside all thirteen source channels',async()=>{
+test('autonomous login inventory exposes all four native flows alongside all thirteen source channels',async()=>{
  const ids=['codearts','buddy','workbuddy','lobsterai','qoder','qodercn','trae','cline','loomy','raccoon','minimax','zcode','gemini'];
  const rig=createUiRig(new Map(),{state:'ready',accounts:[]},{state:'mounted',rpcReady:true,channels:ids,channelCount:13});
  await rig.init();
@@ -1306,9 +1306,9 @@ test('autonomous login inventory exposes all five native flows alongside all thi
  const page=rig.render();
  assert.equal(uiNodes(page,node=>typeof node.props?.['data-source-provider']==='string').length,13);
  const member=uiNodes(page,node=>typeof node.props?.['data-member-provider']==='string');
- assert.equal(member.length,5);
+ assert.equal(member.length,4);
  assert.deepEqual(member.map(x=>x.props['data-member-provider']).sort(),
-  ['own_aws_quick','own_doubao','own_meoo_web','own_mimo_desktop','own_qwenwork']);
+  ['own_aws_quick','own_meoo_web','own_mimo_desktop','own_qwenwork']);
  const qwen=member.find(x=>x.props['data-member-provider']==='own_qwenwork');
  assert.equal(rig.mutations.filter(x=>x.kind==='qwen-device'||x.kind==='source-rpc').length,0);
  await rig.find(qwen,'button','申请独立设备授权')[0].props.onClick();
@@ -1322,7 +1322,7 @@ test('native authorization stays available even if the embedded source bundle is
  rig.find(rig.render(),'button','复用管理')[0].props.onClick();
  rig.find(rig.render(),'button','自主登录')[0].props.onClick();
  const page=rig.render();
- assert.equal(uiNodes(page,node=>typeof node.props?.['data-member-provider']==='string').length,5);
+ assert.equal(uiNodes(page,node=>typeof node.props?.['data-member-provider']==='string').length,4);
  assert.equal(rig.find(page,'button','申请独立设备授权')[0].props.disabled,false);
 });
 

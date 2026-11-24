@@ -15,7 +15,7 @@ test('only exact private-vault or private-pack bindings qualify for independent 
   assert.equal(runtimeOwnership(account('own_zcode','sp_'+'c'.repeat(24))),'owned');
   assert.equal(runtimeOwnership(account('own_loomy','sp_'+'d'.repeat(24))),'owned');
   assert.equal(runtimeOwnership(account('own_mimo_desktop','sp_'+'a'.repeat(24))),'owned');
-  assert.equal(runtimeOwnership(account('own_doubao','db_'+'b'.repeat(28))),'owned');
+  assert.equal(runtimeOwnership(account('own_doubao','db_'+'b'.repeat(28))),'unverified_binding');
   assert.equal(runtimeOwnership(account('own_aws_quick','aq_'+'a'.repeat(28))),'owned');
   assert.equal(runtimeOwnership(account('own_aws_quick','aq_'+'a'.repeat(24))),'unverified_binding');
   assert.equal(runtimeOwnership(account('own_aws_quick','aq_'+'a'.repeat(28),'host:other')),'linked');

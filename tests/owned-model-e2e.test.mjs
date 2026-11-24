@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import {createAccountCenter} from '../src/account-center.mjs';
 import {normalizeConfig} from '../src/config.mjs';
 
-function rig({owner='own_doubao',receipt={text:'OK',finishReason:'stop',toolCalls:[]},
+function rig({owner='own_meoo_web',receipt={text:'OK',finishReason:'stop',toolCalls:[]},
  accountRef,models=[{id:'chat-free',isFree:true}],onGenerate}={}){
- const id=owner==='own_doubao'?'db_'+'a'.repeat(28):
+ const id=owner==='own_meoo_web'?'mw_'+'a'.repeat(28):
   owner==='own_workbuddy-cn'?'wbp_'+'b'.repeat(24):
   'sp_'+'c'.repeat(24);
  const ref=accountRef??'driver:'+owner+':'+id;
@@ -92,7 +92,7 @@ test('old original-plugin reference cannot masquerade as a self-owned online tes
 test('model success cannot be applied to account metadata that changed during inference',async()=>{
  let h;
  h=rig({onGenerate:async()=>{
-  h.replaceConfig({providers:[{id:'own_doubao',name:'Owned',protocol:'native-channel',models:['chat-free']}],
+  h.replaceConfig({providers:[{id:'own_meoo_web',name:'Owned',protocol:'native-channel',models:['chat-free']}],
    accounts:[]});
  }});
  const result=await h.center.verifyModel(h.id);

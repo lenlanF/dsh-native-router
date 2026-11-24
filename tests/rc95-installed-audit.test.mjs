@@ -21,11 +21,11 @@ test('installed-state audit reads true per-account bindings, redacts names/IDs/s
   writeFileSync(target,raw);
  };
  try{
-  const a=account('alpha','own_loomy'),b=account('beta','own_doubao');
+  const a=account('alpha','own_loomy'),b=account('beta','own_meoo_web');
   save('profiles/desktop/node_modules/dsh-native-router/package.json',
     {version:'1.0.0-rc.94'});
   save('plugins/dsh-native-router/config.json',{providers:[{id:'own_loomy'},
-    {id:'own_doubao'}],accounts:[a,b],routes:[],checkin:{
+    {id:'own_meoo_web'}],accounts:[a,b],routes:[],checkin:{
       autoEnabled:false,autoSourceAccounts:true}});
   save('plugins/dsh-native-router/account-public-facts.json',{version:1,
     rows:[{binding:bind(a),name:'REAL_SENSITIVE_NAME_123',balance:800,

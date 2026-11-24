@@ -10,7 +10,6 @@ import {createAccountAdoption} from './account-adoption.mjs';
 import {createInstalledPluginInventory} from './installed-plugin-inventory.mjs';
 import {createPrivateOwnedDriver,PRIVATE_PROVIDERS} from './channels/private-owned.mjs';
 import {createMimoDesktopDriver,MIMO_DESKTOP_ID} from './channels/mimo-desktop.mjs';
-import {createDoubaoDriver} from './channels/doubao.mjs';
 import {createMeooWebDriver,MEOO_WEB_ID} from './channels/meoo-web.mjs';
 import {createAwsQuickDriver,AWS_QUICK_ID} from './channels/aws-quick.mjs';
 import {createQwenWorkDriver,QWENWORK_ID} from './channels/qwenwork.mjs';
@@ -55,10 +54,6 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
     if(!channelDrivers&&!drivers.has(MIMO_DESKTOP_ID))
       builtInCleanup.push(registerNativeChannelDriver(MIMO_DESKTOP_ID,
         createMimoDesktopDriver({vault:ownedVault,
-         getAccounts:()=>ownStore.get().accounts})));
-    if(!channelDrivers&&!drivers.has('own_doubao'))
-      builtInCleanup.push(registerNativeChannelDriver('own_doubao',
-        createDoubaoDriver({vault:ownedVault,fetchImpl,logger:ctx.logger,
          getAccounts:()=>ownStore.get().accounts})));
     if(!channelDrivers&&!drivers.has(MEOO_WEB_ID))
       builtInCleanup.push(registerNativeChannelDriver(MEOO_WEB_ID,

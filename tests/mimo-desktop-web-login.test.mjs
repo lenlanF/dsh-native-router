@@ -5,7 +5,6 @@ import {createMimoDesktopLoginFlow,mimoCookieFromCdp,parseMimoLoginCookie,MIMO_L
 import {createMimoDesktopDriver} from '../src/channels/mimo-desktop.mjs';
 import {createAccountCenter} from '../src/account-center.mjs';
 import {normalizeConfig} from '../src/config.mjs';
-import {createDoubaoDriver} from '../src/channels/doubao.mjs';
 import {describeChannels,publicChannelMeta} from '../src/channels.mjs';
 
 const validCookie=[
@@ -118,27 +117,22 @@ test('MiMo browser account receipt rolls back private token if config write fail
  assert.equal(h.record.size,0);
  assert.equal(h.state.accounts.length,0);
 });
-test('MiMo and Doubao report autonomous login unavailable before private credential vault is ready',async()=>{
+test('MiMo reports autonomous login unavailable before private credential vault is ready',async()=>{
  const readyVault={resolve:async()=>null,set:async()=>{}};
  const downVault={};
  const createMimo=vault=>createMimoDesktopDriver({
   vault,readCurrentSession:async()=>null,
   transport:{probe:async()=>({authVerified:false,state:'expired'})},
  });
- const createDoubao=vault=>createDoubaoDriver({
-  vault,fetchImpl:async()=>{throw Error('network must not be used to preflight unavailable login')},
- });
  const config=normalizeConfig({});
  const available=new Map([
   ['own_mimo_desktop',createMimo(readyVault)],
-  ['own_doubao',createDoubao(readyVault)],
  ]);
  const offline=new Map([
   ['own_mimo_desktop',createMimo(downVault)],
-  ['own_doubao',createDoubao(downVault)],
  ]);
  const candidates=describeChannels(config,available);
- for(const id of ['own_mimo_desktop','own_doubao']){
+ for(const id of ['own_mimo_desktop']){
   const actual=candidates.find(row=>row.id===id);
   assert.equal(actual?.loginAvailable,true,id+' should expose owned browser login when vault is ready');
   assert.equal(actual?.adapterReady,true,id+' adapter is constructed, not remotely authenticated');
@@ -150,7 +144,6 @@ test('MiMo and Doubao report autonomous login unavailable before private credent
  const store={get:()=>structuredClone(config),replace:()=>{throw Error('unexpected config write')}};
  const center=createAccountCenter({configStore:store,drivers:offline});
  await assert.rejects(center.startMimoLogin({region:'cn'}),/unavailable/);
- await assert.rejects(center.startDoubaoLogin(),/unavailable/);
  assert.equal(config.accounts.length,0,'a failed login preflight cannot create accounts');
  assert.equal(config.providers.length,0,'a failed login preflight cannot create provider');
  center.stop();
