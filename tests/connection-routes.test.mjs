@@ -198,7 +198,25 @@ test('AutoFree model-pool GET is read-only and owner refresh rejects cross-origi
  assert.equal(f.store.get().routes.length,0);
  await f.dispose();
 });
+test('directory counts full official models independently from aggregation allowlist',async()=>{
+ const f=fixture({hostProviderInventory:{
+  status:()=>({hostProviders:[{providerId:'workbuddy'}]}),
+  listHostModels:async providerId=>({state:'ready',providerId,models:[{id:'first'},{id:'second'}]})
+ }});
+ try{
+  const cfg=f.store.get();cfg.hostModelSelection={workbuddy:['first']};f.store.replace(cfg);
+  const result=await (await f.request('/host/catalog')).json();
+  const row=result.providers.find(p=>p.id==='workbuddy');
+  assert.equal(row.discoveredCount,2);assert.equal(row.allowedCount,1);
+  assert.deepEqual(row.models.map(x=>x.id),['first']);
+  const single=await (await f.request('/host/models',{method:'POST',body:{providerId:'workbuddy'}})).json();
+  assert.equal(single.result.availableModels.length,2);
+  assert.equal(single.result.models.length,1);
+ }finally{await f.dispose()}
+});
+
 test('all DSH Providers and their models are selectable in Agent-level failover without shadow credentials',async()=>{
+
  const f=fixture();
  const rejected=await f.request('/host/catalog',{origin:'https://attacker.invalid'});
  assert.equal(rejected.status,403);

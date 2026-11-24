@@ -430,9 +430,6 @@ window.__ModuleLoader__.load({
       embeddedPack,modelProvider,setModelProvider,onModels,modelBusy,models,
        onSourceLogin,onSourcePoll,onSourceDismissLogin,pendingLogin,onSourceRefresh,onSourceReuseLoomy,sourceBusy,
        loomySmsPhone,onLoomySmsPhone,loomySmsCode,onLoomySmsCode,loomySmsSent,onLoomySmsSend,onLoomySmsSubmit,
-       hostModels,hostModelBusy,hostSelectedModel,onSelectHostModel,onHostModels,
-      hostCatalog,onRefreshHostCatalog,onHostModelSelection,
-      manualHostModel,onManualHostModel,
       adoptionPreview,adoptionBusy,adoptionResults,credentialService,onPreviewAdoption,onAdoptAccount,
         verifyResults,verifyBusy,onVerifyAdopted,loginWidgets={}}){
        const reuse=data?.sessionReuse||{hostProviders:[],channels:[],results:[]};
@@ -461,108 +458,12 @@ window.__ModuleLoader__.load({
        // Raw RPC inventory uses different IDs; adding it here duplicates the same account.
       const verifiedSessions=[...sessionGroups.values()].map(group=>({...group,
         members:[...group.members.values()]})).filter(group=>group.members.length);
-       const selectedCandidate=hostModelBusy||hostModels?.providerId||'';
-       const selectedHost=hosts.some(p=>p.providerId===selectedCandidate)?selectedCandidate:'';
-       const selectedIds=cfg?.hostModelSelection?.[selectedHost]??[];
-       const availableHostModels=selectedHost&&hostModels?.providerId===selectedHost?(hostModels?.availableModels??hostModels?.models??[]):[];
-      const shownHostModels=selectedIds.length?availableHostModels.filter(m=>
-        selectedIds.includes(m.id)):availableHostModels;
-       const hostLabel=id=>hosts.find(p=>p.providerId===id)?.name||(id==='workbuddy'?'WorkBuddy 国内':
-         id==='workbuddy-global'?'WorkBuddy 国际':id);
-      const tabs=[['sessions','本机登录态'],['host','宿主路由与模型'],['source','自主登录']];
-      const section={padding:11,border:'1px solid rgba(125,144,167,.18)',
-        borderRadius:12,background:'rgba(125,144,167,.03)',minWidth:0};
+       const tabs=[['sessions','本机登录态'],['source','自主登录']];
       return h(React.Fragment,null,
         h('div',{style:{...css.tabbar,marginBottom:14,paddingTop:0},role:'tablist','aria-label':'复用来源'},
           tabs.map(([id,label])=>h('button',{key:id,type:'button',role:'tab',
             'aria-selected':subtab===id,style:{...css.tab,...(subtab===id?css.chosen:{})},
             onClick:()=>onSubtab(id)},label))),
-        subtab==='host'?h(Panel,{title:'宿主原生渠道 · 自动接入',
-          actions:h('div',{style:css.line},
-            h(Button,{onClick:onRefresh,disabled:!!busy},'刷新渠道'),
-            h(Button,{onClick:()=>onRefreshHostCatalog(false),disabled:!!busy},
-              '刷新全部模型与资费'))},
-          h('p',{style:css.small},'模型目录及来源公开资费每5分钟自动复核；也可手动获取。不会发起模型推理。'),
-          hostCatalog?.changes?h('p',{role:'status',style:css.small},
-            '全部渠道变化：新增 '+hostCatalog.changes.added+
-            ' · 移除 '+hostCatalog.changes.removed+
-            ' · 资费更新 '+hostCatalog.changes.pricingChanged):null,
-          hostCatalog?.checkedAt?h('p',{style:css.small},
-            '全部渠道最近同步：'+new Date(hostCatalog.checkedAt).toLocaleString()):null,
-          h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,380px),1fr))',gap:12,alignItems:'start',minWidth:0}},
-            h('div',{style:{...section,maxHeight:210,overflowY:'auto',display:'flex',flexWrap:'wrap',alignContent:'flex-start',gap:7}},
-              h('div',{style:{...css.line,justifyContent:'space-between',width:'100%',marginBottom:2}},
-                h('strong',null,'渠道 · '+hosts.length),
-                h('span',{style:css.small},'点选渠道查看模型')),
-              hosts.length?hosts.map(p=>h('button',{key:p.providerId,type:'button',
-                disabled:!!hostModelBusy,
-                onClick:()=>onHostModels(p.providerId),
-                style:{display:'inline-flex',alignItems:'center',justifyContent:'flex-start',
-                  gap:6,minWidth:0,maxWidth:'100%',cursor:'pointer',color:'inherit',
-                  background:selectedHost===p.providerId?'rgba(72,127,235,.17)':'rgba(125,144,167,.04)',
-                  border:'1px solid '+(selectedHost===p.providerId?'rgba(75,135,232,.63)':'rgba(125,144,167,.24)'),
-                  padding:'7px 9px',borderRadius:9,minHeight:34}},
-                h('strong',{style:{fontSize:12,fontWeight:650,minWidth:0,maxWidth:'100%',
-                  flex:'1 1 120px',overflowWrap:'anywhere',textAlign:'left',whiteSpace:'normal'}},
-                  hostLabel(p.providerId)),
-                h('span',{style:{...css.mutedTag,fontSize:10,padding:'1px 5px',whiteSpace:'nowrap',opacity:1}},
-                  hostModelBusy===p.providerId?'加载中':selectedHost===p.providerId?'已选择':'已接入'))):
-                h('p',{style:css.small},'宿主没有返回已注册原生 Provider'))),
-            h('div',{style:{...section,maxHeight:425,overflowY:'auto',minWidth:0}},
-              h('div',{style:{...css.line,justifyContent:'space-between'}},
-                h('strong',null,selectedHost?'模型目录 · '+hostLabel(selectedHost):'模型目录'),
-                h(Button,{disabled:!selectedHost||!!hostModelBusy,
-                  onClick:()=>onHostModels(selectedHost,false)},'重新获取模型'),
-                selectedHost?h('span',{style:css.mutedTag},'已显示 '+shownHostModels.length+' 个允许模型'):null),
-              hostModels?.checkedAt?h('p',{style:css.small},
-                '最近更新：'+new Date(hostModels.checkedAt).toLocaleString()):null,
-              hostModels?.changes?h('p',{style:css.small},
-                '本渠道变化：新增 '+hostModels.changes.added+' · 移除 '+hostModels.changes.removed+
-                ' · 资费更新 '+hostModels.changes.pricingChanged):null,
-              selectedHost&&hostModels?.providerId===selectedHost&&hostModels?.state==='ready'?h('div',null,
-                h('p',{style:{...css.small,margin:'3px 0 9px'}},
-                  '模型使用范围：'+(selectedIds.length?
-                    '仅允许已选中的 '+selectedIds.length+' 个模型':'未指定，默认全部 '+availableHostModels.length+' 个模型')),
-                h('details',{className:'dnr-disclosure'},
-                  h('summary',{className:'dnr-disclosure-summary'},
-                    '指定本渠道可用模型 · '+(selectedIds.length?'已限制':'默认全部')),
-                  h('div',{className:'dnr-disclosure-body'},
-                    h('p',{style:css.small},'勾选后仅显示和经本插件路由使用指定模型。取消全部勾选将恢复默认全部；保存配置后生效。此设置不会修改其他 DSH 插件自身的账号权限。'),
-                    h(Button,{disabled:!selectedIds.length,
-                      onClick:()=>onHostModelSelection(selectedHost,[])},'恢复默认全部模型'),
-                    h('div',{style:{maxHeight:240,overflowY:'auto',marginTop:8}},
-                      availableHostModels.length?availableHostModels.map(model=>h('label',{
-                        key:model.id,style:{...css.itemRow,cursor:'pointer',alignItems:'center'}},
-                        h('input',{type:'checkbox',checked:selectedIds.includes(model.id),
-                          'aria-label':'允许宿主模型 '+model.id,
-                          onChange:e=>onHostModelSelection(selectedHost,
-                            e.target.checked?[...selectedIds,model.id]:
-                              selectedIds.filter(id=>id!==model.id))}),
-                        h('span',{style:{flex:'1 1 160px',minWidth:0,overflowWrap:'anywhere'}},
-                          model.name||model.id),
-                        h('span',{style:css.small},model.id))):
-                        h('p',{style:css.small},'官方模型目录暂不可用；请勿凭空新增模型')))),
-                 h('p',{style:{...css.small,margin:'3px 0 9px'}},hosts.find(p=>p.providerId===selectedHost)?.family==='native-router-owned'?'展示已鉴权自有渠道的允许模型；本插件管理授权。':'展示已允许的宿主模型；原插件继续管理授权。'),
-                shownHostModels.length?shownHostModels.map(m=>h('div',{key:m.id,
-                  style:{display:'grid',gridTemplateColumns:'minmax(0,1fr) auto',
-                    alignItems:'center',gap:8,padding:'7px 0',borderBottom:'1px solid rgba(125,144,167,.12)'}},
-                  h('div',{style:{minWidth:0}},
-                    h('strong',{style:{fontSize:12,fontWeight:630,display:'block',overflowWrap:'anywhere'}},m.name||m.id),
-                    h('div',{style:{...css.small,fontSize:11,overflowWrap:'anywhere'}},m.id)),
-                  h('div',{style:{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:3}},
-                    h('span',{style:{...css.mutedTag,fontSize:10,padding:'2px 5px',whiteSpace:'nowrap'}},
-                      m.isFree||m.freeHint?'来源标记免费':
-                      ['workbuddy','workbuddy-global'].includes(selectedHost)&&
-                        /(?:^|[\s·(])x\s*0(?:\.0+)?(?:$|[\s·)])/i.test(m.name||'')?'x0.00':'费用待确认'),
-                    m.pricing?h('span',{style:{...css.small,fontSize:10,textAlign:'right'}},
-                      '输入 '+m.pricing.input+' / 输出 '+m.pricing.output+
-                      '（来源价格，单位依渠道）'):null))):
-                  h('p',{style:css.small},selectedIds.length?
-                    '选中的模型未出现在最新官方目录；请在上方调整允许范围。':
-                     '当前渠道尚未返回有效模型；请核查官方目录及鉴权状态。')):
-                 selectedHost&&hostModels?.providerId===selectedHost&&hostModels?.state==='unavailable'?h('p',{role:'status',style:css.small},
-                   hosts.find(p=>p.providerId===selectedHost)?.family==='native-router-owned'?'当前独立渠道未返回可用模型目录；请核查官方鉴权和模型资格。':'原插件未提供可读取的模型目录，原 Provider 仍保持注册。'):
-                h('p',{style:css.small},'在左侧选择任意渠道，右侧直接显示对应模型，不再跳到页面底部。'))):null,
          subtab==='sessions'?h(React.Fragment,null,
            h(Panel,{title:'已核验本机登录态 · 按渠道聚合',
              actions:h(Button,{onClick:()=>onSubtab('source')},'管理自主登录')},
@@ -675,6 +576,107 @@ window.__ModuleLoader__.load({
                      name+' · '+members.length+' 账号 / '+members.filter(a=>a.connectionState==='online').length+' 已鉴权 · 自主登录'),
                    h('div',{className:'dnr-inline-source-result'},widget));
                })))):null);
+    }
+    function ExistingModelRoutes({data,cfg,busy,onRefresh,scope,onScope,hostModels,hostModelBusy,onHostModels,hostCatalog,catalogBusy,onRefreshHostCatalog,onHostModelSelection}){
+       const owned=scope==='owned';
+       const hosts=(data?.sessionReuse?.hostProviders??[]).filter(p=>owned?p.family==='native-router-owned'&&p.loginVerified===true:p.family!=='native-router-owned'&&p.providerId!=='native-router');
+       const catalogRow=id=>(hostCatalog?.providers??[]).find(p=>p.id===id);
+       const selectedCandidate=hostModelBusy||hostModels?.providerId||'';
+       const selectedHost=hosts.some(p=>p.providerId===selectedCandidate)?selectedCandidate:'';
+       const selectedIds=owned?(cfg?.hostModelSelection?.[selectedHost]??[]):[];
+       const availableHostModels=selectedHost&&hostModels?.providerId===selectedHost?(hostModels?.availableModels??hostModels?.models??[]):[];
+      const shownHostModels=selectedIds.length?availableHostModels.filter(m=>
+        selectedIds.includes(m.id)):availableHostModels;
+       const hostLabel=id=>hosts.find(p=>p.providerId===id)?.name||(id==='workbuddy'?'WorkBuddy 国内':
+         id==='workbuddy-global'?'WorkBuddy 国际':id);
+       const section={padding:11,border:'1px solid rgba(125,144,167,.18)',borderRadius:12,background:'rgba(125,144,167,.03)',minWidth:0};
+       return h(React.Fragment,null,
+         h('div',{style:{...css.tabbar,marginBottom:14,paddingTop:0},role:'tablist','aria-label':'已有模型路由分类'},
+           [['owned','已鉴权自有渠道'],['external','DSH 其他路由']].map(([id,label])=>h('button',{key:id,type:'button',role:'tab','aria-selected':scope===id,style:{...css.tab,...(scope===id?css.chosen:{})},onClick:()=>onScope(id)},label))),
+        h(Panel,{title:owned?'已鉴权自有渠道 · 模型管理':'DSH 其他已注册路由 · 只读目录',
+          actions:h('div',{style:css.line},
+            h(Button,{onClick:onRefresh,disabled:!!busy},'刷新渠道'),
+             h(Button,{onClick:()=>onRefreshHostCatalog(false),disabled:!!busy||catalogBusy},
+               catalogBusy?'核查中…':'刷新全部模型与资费'))},
+          h('p',{style:css.small},owned?'仅显示当前有效鉴权的自有账号渠道；模型范围保存后只对本插件生效。目录获取不等于推理成功。':'仅查看原 DSH Provider 的公开目录；原插件保有账号、授权、费率与路由管理权。本页不修改其配置。'),
+           h('p',{role:'status',style:css.small},'本组目录：'+hosts.filter(p=>catalogRow(p.providerId)?.state==='ready'&&(catalogRow(p.providerId)?.discoveredCount??catalogRow(p.providerId)?.models?.length??0)>0).length+' / '+hosts.length+' 有模型 · '+hosts.filter(p=>catalogRow(p.providerId)?.state==='unavailable').length+' 不可用 · '+hosts.filter(p=>!catalogRow(p.providerId)).length+' 未核查'),
+          hostCatalog?.checkedAt?h('p',{style:css.small},
+            '全部渠道最近同步：'+new Date(hostCatalog.checkedAt).toLocaleString()):null,
+          h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,380px),1fr))',gap:12,alignItems:'start',minWidth:0}},
+            h('div',{style:{...section,maxHeight:210,overflowY:'auto',display:'flex',flexWrap:'wrap',alignContent:'flex-start',gap:7}},
+              h('div',{style:{...css.line,justifyContent:'space-between',width:'100%',marginBottom:2}},
+                h('strong',null,'渠道 · '+hosts.length),
+                h('span',{style:css.small},'点选渠道查看模型')),
+              hosts.length?hosts.map(p=>h('button',{key:p.providerId,type:'button',
+                disabled:!!hostModelBusy,
+                onClick:()=>onHostModels(p.providerId),
+                style:{display:'inline-flex',alignItems:'center',justifyContent:'flex-start',
+                  gap:6,minWidth:0,maxWidth:'100%',cursor:'pointer',color:'inherit',
+                  background:selectedHost===p.providerId?'rgba(72,127,235,.17)':'rgba(125,144,167,.04)',
+                  border:'1px solid '+(selectedHost===p.providerId?'rgba(75,135,232,.63)':'rgba(125,144,167,.24)'),
+                  padding:'7px 9px',borderRadius:9,minHeight:34}},
+                h('strong',{style:{fontSize:12,fontWeight:650,minWidth:0,maxWidth:'100%',
+                  flex:'1 1 120px',overflowWrap:'anywhere',textAlign:'left',whiteSpace:'normal'}},
+                  hostLabel(p.providerId)),
+                 h('span',{style:css.small},catalogRow(p.providerId)?(catalogRow(p.providerId).state==='ready'?(catalogRow(p.providerId).discoveredCount??catalogRow(p.providerId).models?.length??0)+' 模型':'目录不可用'):'未核查'),
+                h('span',{style:{...css.mutedTag,fontSize:10,padding:'1px 5px',whiteSpace:'nowrap',opacity:1}},
+                  hostModelBusy===p.providerId?'加载中':selectedHost===p.providerId?'已选择':owned?'已鉴权':'外部只读'))):
+                h('p',{style:css.small},owned?'暂无有效鉴权的自有渠道':'DSH 未返回其他已注册路由'))),
+            h('div',{style:{...section,maxHeight:425,overflowY:'auto',minWidth:0}},
+              h('div',{style:{...css.line,justifyContent:'space-between'}},
+                h('strong',null,selectedHost?'模型目录 · '+hostLabel(selectedHost):'模型目录'),
+                h(Button,{disabled:!selectedHost||!!hostModelBusy,
+                  onClick:()=>onHostModels(selectedHost,false)},'重新获取模型'),
+                selectedHost?h('span',{style:css.mutedTag},'已显示 '+shownHostModels.length+' 个模型'):null),
+              selectedHost&&hostModels?.providerId===selectedHost&&hostModels?.checkedAt?h('p',{style:css.small},
+                '最近更新：'+new Date(hostModels.checkedAt).toLocaleString()):null,
+              selectedHost&&hostModels?.providerId===selectedHost&&hostModels?.changes?h('p',{style:css.small},
+                '本渠道变化：新增 '+hostModels.changes.added+' · 移除 '+hostModels.changes.removed+
+                ' · 资费更新 '+hostModels.changes.pricingChanged):null,
+              selectedHost&&hostModels?.providerId===selectedHost&&hostModels?.state==='ready'?h('div',null,
+                 owned?h('p',{style:{...css.small,margin:'3px 0 9px'}},
+                   '模型使用范围：'+(selectedIds.length?
+                     '仅允许已选中的 '+selectedIds.length+' 个模型':'未指定，默认全部 '+availableHostModels.length+' 个模型')):null,
+                 owned?h('details',{className:'dnr-disclosure'},
+                  h('summary',{className:'dnr-disclosure-summary'},
+                    '指定本渠道可用模型 · '+(selectedIds.length?'已限制':'默认全部')),
+                  h('div',{className:'dnr-disclosure-body'},
+                    h('p',{style:css.small},'勾选后仅显示和经本插件路由使用指定模型。取消全部勾选将恢复默认全部；保存配置后生效。此设置不会修改其他 DSH 插件自身的账号权限。'),
+                    h(Button,{disabled:!selectedIds.length,
+                      onClick:()=>onHostModelSelection(selectedHost,[])},'恢复默认全部模型'),
+                    h('div',{style:{maxHeight:240,overflowY:'auto',marginTop:8}},
+                      availableHostModels.length?availableHostModels.map(model=>h('label',{
+                        key:model.id,style:{...css.itemRow,cursor:'pointer',alignItems:'center'}},
+                        h('input',{type:'checkbox',checked:selectedIds.includes(model.id),
+                          'aria-label':'允许自有模型 '+model.id,
+                          onChange:e=>onHostModelSelection(selectedHost,
+                            e.target.checked?[...selectedIds,model.id]:
+                              selectedIds.filter(id=>id!==model.id))}),
+                        h('span',{style:{flex:'1 1 160px',minWidth:0,overflowWrap:'anywhere'}},
+                          model.name||model.id),
+                        h('span',{style:css.small},model.id))):
+                        h('p',{style:css.small},'官方模型目录暂不可用；请勿凭空新增模型')))):null,
+                 h('p',{style:{...css.small,margin:'3px 0 9px'}},owned?'展示本插件自有渠道模型；不代表已验证实际推理。':'展示原 Provider 完整目录，仅供查阅。'),
+                shownHostModels.length?shownHostModels.map(m=>h('div',{key:m.id,
+                  style:{display:'grid',gridTemplateColumns:'minmax(0,1fr) auto',
+                    alignItems:'center',gap:8,padding:'7px 0',borderBottom:'1px solid rgba(125,144,167,.12)'}},
+                  h('div',{style:{minWidth:0}},
+                    h('strong',{style:{fontSize:12,fontWeight:630,display:'block',overflowWrap:'anywhere'}},m.name||m.id),
+                    h('div',{style:{...css.small,fontSize:11,overflowWrap:'anywhere'}},m.id)),
+                  h('div',{style:{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:3}},
+                    h('span',{style:{...css.mutedTag,fontSize:10,padding:'2px 5px',whiteSpace:'nowrap'}},
+                      m.isFree||m.freeHint?'来源标记免费':
+                      ['workbuddy','workbuddy-global'].includes(selectedHost)&&
+                        /(?:^|[\s·(])x\s*0(?:\.0+)?(?:$|[\s·)])/i.test(m.name||'')?'x0.00':'费用待确认'),
+                    m.pricing?h('span',{style:{...css.small,fontSize:10,textAlign:'right'}},
+                      '输入 '+m.pricing.input+' / 输出 '+m.pricing.output+
+                      '（来源价格，单位依渠道）'):null))):
+                  h('p',{style:css.small},selectedIds.length?
+                    '选中的模型未出现在最新官方目录；请在上方调整允许范围。':
+                     '当前渠道尚未返回有效模型；请核查官方目录及鉴权状态。')):
+                 selectedHost&&hostModels?.providerId===selectedHost&&hostModels?.state==='unavailable'?h('p',{role:'status',style:css.small},
+                   hosts.find(p=>p.providerId===selectedHost)?.family==='native-router-owned'?'当前独立渠道未返回可用模型目录；请核查官方鉴权和模型资格。':'原插件未提供可读取的模型目录，原 Provider 仍保持注册。'):
+                 h('p',{style:css.small},'在左侧选择任意渠道，右侧直接显示对应模型，不再跳到页面底部。'))));
     }
     function AutoFreeConsole({pool,cfg,hostProviders,onRefresh,busy,
       freeProvider,setFreeProvider,freeModel,setFreeModel,manualModel,setManualModel,
@@ -1389,6 +1391,7 @@ window.__ModuleLoader__.load({
         [hostModels,setHostModels]=useState(null),[hostModelBusy,setHostModelBusy]=useState(''),
         [hostSelectedModel,setHostSelectedModel]=useState(''),
         [hostManualModel,setHostManualModel]=useState(''),[reuseSubtab,setReuseSubtab]=useState('sessions'),
+        [routeDirectoryScope,setRouteDirectoryScope]=useState('owned'),
         [showReferenceChannels,setShowReferenceChannels]=useState(false),
          [adoptionPreview,setAdoptionPreview]=useState(null),[adoptionBusy,setAdoptionBusy]=useState(''),
          [adoptionResults,setAdoptionResults]=useState({}),[verifyResults,setVerifyResults]=useState([]),
@@ -1592,17 +1595,15 @@ window.__ModuleLoader__.load({
            return ()=>{disposed=true;clearInterval(timer)};
          },[awsQuickLogin?.status,refresh]);
          useEffect(()=>{
-          if(tab!=='reuse'||reuseSubtab!=='host')return;
-          const hosts=channelsView?.sessionReuse?.hostProviders??[];
-          const first=hosts.some(p=>p.providerId===hostModels?.providerId)?hostModels.providerId:hosts[0]?.providerId;
-          if(first&&first!==hostModels?.providerId)void loadHostModels(first,true);
-          void loadHostCatalog(true);
-          const timer=setInterval(()=>{
-            void loadHostCatalog(true);
-            if(first)void loadHostModels(first,true);
-          },5*60*1000);
-          return ()=>clearInterval(timer);
-        },[tab,reuseSubtab,hostModels?.providerId,(channelsView?.sessionReuse?.hostProviders??[]).map(p=>p.providerId).join('|')]);
+           if(tab!=='existing-models')return;
+           const hosts=(channelsView?.sessionReuse?.hostProviders??[]).filter(p=>routeDirectoryScope==='owned'?p.family==='native-router-owned'&&p.loginVerified===true:p.family!=='native-router-owned'&&p.providerId!=='native-router');
+           const first=hosts.some(p=>p.providerId===hostModels?.providerId)?hostModels.providerId:hosts[0]?.providerId;
+           if(first&&first!==hostModels?.providerId)void loadHostModels(first,true);
+           void loadHostCatalog(true);
+           if(typeof setInterval!=='function')return;
+           const timer=setInterval(()=>{void loadHostCatalog(true);if(first)void loadHostModels(first,true)},5*60*1000);
+           return ()=>clearInterval(timer);
+         },[tab,routeDirectoryScope,(channelsView?.sessionReuse?.hostProviders??[]).map(p=>p.providerId).join('|')]);
        useEffect(()=>{
          if(!pendingSourceLogin||pendingSourceLogin.mode==='sms-reauth'||sourceRpcBusy||typeof setInterval!=='function')return;
          const timer=setInterval(()=>sourcePollLogin({quiet:true}),4000);
@@ -2247,11 +2248,11 @@ window.__ModuleLoader__.load({
          .map(x=>({value:x.id,label:x.name+' ('+x.id+')'}));
       const modes=[{value:'priority',label:'按链条顺序降级'},{value:'pinned',label:'固定首个模型（账号可切）'},{value:'free',label:'仅显式标记免费'}];
        const tabs=[['overview','总览'],['channels','渠道账号'],['reuse','复用管理'],['checkins','每日积分任务'],
-        ['activities','渠道活动'],['providers','提供商'],['pool','模型池'],['routes','模型链条'],['host','宿主故障切换'],['advanced','高级 JSON']];
+        ['activities','渠道活动'],['providers','提供商'],['pool','模型池'],['existing-models','已有模型路由管理'],['routes','模型链条'],['host','宿主故障切换'],['advanced','高级 JSON']];
        const navGroups=[
          {name:'核心工作台',ids:['overview','channels','activities','checkins','pool']},
          {name:'账号授权与接入',ids:['reuse']},
-         {name:'路由策略与故障恢复',ids:['providers','routes','host']},
+         {name:'路由策略与故障恢复',ids:['providers','existing-models','routes','host']},
          {name:'高级与诊断',ids:['advanced']},
        ];
        const pageNotes={
@@ -2261,6 +2262,7 @@ window.__ModuleLoader__.load({
          checkins:'按账号与渠道核对真实签到回执及执行计划',
          activities:'分别展示官方确认可领取、已核实到账的免费活动',
          providers:'维护来源名称与协议，授权仍由对应渠道处理',
+          'existing-models':'管理已鉴权自有模型，查看其他 DSH 路由的只读目录',
          pool:'自动发现可用模型并明确免费依据',
          routes:'人工制定模型优先级与跨来源降级链条',
          host:'DSH Agent 后续回合的故障续跑配置',
@@ -2391,13 +2393,13 @@ window.__ModuleLoader__.load({
           loomySmsPhone,onLoomySmsPhone:value=>{setLoomySmsPhone(value.replace(/\D/g,'').slice(0,11));setLoomySmsCode('');setLoomySmsSent(false)},
           loomySmsCode,onLoomySmsCode:value=>setLoomySmsCode(value.replace(/\D/g,'').slice(0,8)),
           loomySmsSent,onLoomySmsSend:sourceSendLoomySms,onLoomySmsSubmit:sourceSubmitLoomySms,
-          hostModels,hostModelBusy,hostSelectedModel,onSelectHostModel:setHostSelectedModel,
-          onHostModels:loadHostModels,hostCatalog,onRefreshHostCatalog:loadHostCatalog,
-          onHostModelSelection:setHostModelSelection,manualHostModel:hostManualModel,
-          onManualHostModel:setHostManualModel,adoptionPreview,adoptionBusy,adoptionResults,
+          adoptionPreview,adoptionBusy,adoptionResults,
           verifyResults,verifyBusy,onVerifyAdopted:verifyAdopted,
           onPreviewAdoption:loadAdoptionPreview,onAdoptAccount:adoptOriginalAccount});
-       if(tab==='checkins')content=h(CheckinConsole,{data:checkinsView,cfg,onSettings:setCheckinSettings,
+               if(tab==='existing-models')content=h(ExistingModelRoutes,{data:channelsView,cfg,busy:actionBusy,onRefresh:refreshRuntime,
+           scope:routeDirectoryScope,onScope:setRouteDirectoryScope,hostModels,hostModelBusy,onHostModels:loadHostModels,
+           hostCatalog,catalogBusy:hostCatalogBusy,onRefreshHostCatalog:loadHostCatalog,onHostModelSelection:setHostModelSelection});
+if(tab==='checkins')content=h(CheckinConsole,{data:checkinsView,cfg,onSettings:setCheckinSettings,
           onAccountAuto:setAccountAuto,run:runAction,refresh:refreshRuntime,busy:actionBusy,
           embeddedPack:status?.embeddedPack,sourceProvider:sourceCreditsProvider,
           setSourceProvider:value=>{setSourceCreditsProvider(value);setSourceCredits(null);setSourceClaims(null)},
