@@ -7,7 +7,6 @@ const privateAccountIds=[
   ['own_workbuddy-global',/^wbp_[a-f0-9]{24}$/],
   ['own_lingxi',/^pr_[a-f0-9]{28}$/],
   ['own_mimo_desktop',/^sp_[a-f0-9]{24}$/],
-  ['own_doubao',/^db_[a-f0-9]{28}$/],
   ['own_meoo_web',/^mw_[a-f0-9]{28}$/],
   ['own_qwenwork',/^qw_[a-f0-9]{28}$/],
   ['own_aws_quick',/^aq_[a-f0-9]{28}$/],

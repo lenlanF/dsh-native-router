@@ -1,6 +1,6 @@
 import {readFileSync,existsSync,mkdirSync,writeFileSync,renameSync,unlinkSync} from 'node:fs';
 import {dirname,join} from 'node:path';
-import {defaultConfigPath,channelAutoEnabled} from './config.mjs';
+import {defaultConfigPath,channelAutoEnabled,isRetiredProvider} from './config.mjs';
 import {createSourceCheckinCenter} from './source-checkins.mjs';
 import {createActivityClaimStore} from './activity-claims.mjs';
 import {checkinDisplayState,expiredCheckinConfirmation} from './account-facts.mjs';
@@ -240,7 +240,7 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
        rewardHistoryBlocked:activityStore.blocked,
       historyBlocked:store.blocked===true,historyError:store.error??null,
       runAt:cfg.checkin.runAt,groups,accounts,
-        history:history.slice(-80).reverse().map(item=>({...item,
+        history:history.filter(item=>!isRetiredProvider(item.providerId)).slice(-80).reverse().map(item=>({...item,
            diagnosticCode:safeCheckinDiagnostic(item.diagnosticCode),message:publicCheckinMessage(item.state,item.diagnosticCode)}))};  }
    async function run(accountId,{source='manual'}={}){
      if(sourceCenter&&!sourceCenter.has(accountId))await sourceCenter.refresh();
@@ -263,7 +263,7 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
      // An official POST can have been accepted despite a closed connection.
      // Manually pressing again must not double-claim a one-attempt daily grant.
      if(previous?.state==='pending_confirmation'&&
-       (/^own_workbuddy-/.test(account.providerId)||account.providerId==='own_doubao'))
+       /^own_workbuddy-/.test(account.providerId))
        return {alreadyPending:true,record:previous,
          activities:await runActivities(accountId,{source})};
      const publicAccount=accountCenter.list().accounts.find(a=>a.id===accountId);
@@ -396,7 +396,7 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
            // An unconfirmed official grant may already have consumed today's
            // only attempt; don't blindly re-submit after an hour or restart.
            if(recent?.state==='pending_confirmation'&&
-             (/^own_workbuddy-/.test(account.providerId)||account.providerId==='own_doubao'))continue;
+             /^own_workbuddy-/.test(account.providerId))continue;
          // Historic no_task was incorrectly returned for an already-claimed
          // Lingxi task; permit a bounded retry if source still reports unclaimed.
          if(recent?.state==='no_task'&&account.providerId!=='own_lingxi')continue;

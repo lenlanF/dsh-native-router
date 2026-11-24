@@ -51,42 +51,19 @@ test('all ten real source-pack daily executors are eligible via manual channel f
   assert.equal(seen.length,10,'manual retries never repeat official confirmed daily POST');
  }finally{center.stop()}
 });
-test('unverified or stale account status never becomes claimable even when a reward is advertised',()=>{
+test('retired channels are not listed even if legacy snapshots contain a pending activity',()=>{
  const now=Date.parse('2026-11-23T12:05:00Z');
- const cfg=normalizeConfig({providers:[{id:'own_doubao',name:'豆包',protocol:'native-channel'}]});
- const base={id:'db-test',providerId:'own_doubao',enabled:true,
-   checkinSupported:true,checkinState:'not_run',activityState:'claimable',
-   activityCheckedAt:now-1000,connectionState:'online'};
- const check=account=>buildChannelActivityCatalog({config:cfg,accountRows:[account],now});
- let c=check(base);
- assert.equal(c.summary.validCount,1);
- assert.equal(c.summary.completedCount,0);
- assert.equal(c.channels[0].activities[0].rewardAmount,null);
- for(const blocked of [
-   {...base,connectionState:'not_checked'},
-   {...base,activityCheckedAt:now-16*60*1000},
-   {...base,activityState:'unavailable'},
-   {...base,enabled:false},
-   {...base,activityCheckedAt:now+60*1000},
-  ])assert.equal(check(blocked).summary.validCount,0);
+ const cfg=normalizeConfig({providers:[{id:'own_doubao',name:'Retired',protocol:'native-channel'}]});
+ const legacy={id:'db-test',providerId:'own_doubao',enabled:true,checkinSupported:true,connectionState:'online',activityClaimable:true};
+ const c=buildChannelActivityCatalog({config:cfg,accountRows:[legacy],now});
+ assert.equal(c.summary.channelCount,0);assert.equal(c.summary.validCount,0);
 });
-test('WorkBuddy and Doubao claimable rows are NOT credited rows and keep original free units',()=>{
+test('WorkBuddy claimable rows are not credited rows and retain points units',()=>{
  const now=Date.parse('2026-11-23T08:00:00Z');
- const cfg=normalizeConfig({providers:[{id:'own_workbuddy-cn',name:'WorkBuddy',
-   protocol:'native-channel'}, {id:'own_doubao',name:'豆包',protocol:'native-channel'}]});
- const base={enabled:true,connectionState:'online',checkinSupported:true,
-   checkinState:'not_run'};
- const rows=[{...base,id:'w',providerId:'own_workbuddy-cn',benefits:[
-   {kind:'gift',active:true,claimed:false,credit:50}]},
-   {...base,id:'d',providerId:'own_doubao',benefits:[
-     {kind:'doubao_task_'+'e'.repeat(24),name:'已完成待领取任务',
-       active:true,claimed:false,credit:20}]}];
- const x=buildChannelActivityCatalog({config:cfg,accountRows:rows,now});
- assert.equal(x.summary.completedCount,0);
- assert.equal(x.summary.validCount,2);
- const wb=x.channels.find(r=>r.id==='workbuddy-cn').activities[0],
-    db=x.channels.find(r=>r.id==='doubao').activities[0];
- assert.equal(wb.rewardUnit,'积分');
- assert.equal(db.rewardUnit,'平台赠送额度');
- assert.match(db.progress,/尚未证明/);
+ const cfg=normalizeConfig({providers:[{id:'own_workbuddy-cn',name:'WorkBuddy',protocol:'native-channel'}]});
+ const row={enabled:true,connectionState:'online',checkinSupported:true,checkinState:'not_run',id:'w',providerId:'own_workbuddy-cn',benefits:[{kind:'gift',active:true,claimed:false,credit:50}]};
+ const x=buildChannelActivityCatalog({config:cfg,accountRows:[row],now});
+ assert.equal(x.summary.completedCount,0);assert.equal(x.summary.validCount,1);
+ assert.equal(x.channels[0].activities[0].rewardUnit,'积分');
+ assert.match(x.channels[0].activities[0].progress,/尚未证明/);
 });

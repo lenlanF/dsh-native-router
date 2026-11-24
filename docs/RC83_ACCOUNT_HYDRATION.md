@@ -1,3 +1,5 @@
+> 历史版本记录（非当前支持范围）：rc.116 起退役渠道及其专属实现、测试均已独立归档；下列历史验收内容不得作为当前版本的接入或执行说明。
+
 # RC83: owned member metadata and reward safety
 
 Production DSH remains rc81 (8 providers, 10 accounts), user declined upgrade. No changes to production files, credentials or account pools.

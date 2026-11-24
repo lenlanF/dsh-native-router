@@ -31,10 +31,18 @@ function address(value) {
   }
   return url.href.replace(/\/+$/, '');
 }
+export const isRetiredProvider=id=>id==='own_doubao'||id==='doubao'||id==='native-router-source-doubao';
+const retiredSelection=(row,removedRoutes=new Set())=>{
+  const [provider,model]=typeof row==='string'?row.split(/\/(.*)/s):[row?.provider??row?.providerId,row?.model];
+  return isRetiredProvider(provider?.trim?.())||provider==='native-router'&&typeof model==='string'&&(
+    model.startsWith('direct:')&&isRetiredProvider(model.split(':')[1])||
+    model.startsWith('chain:')&&removedRoutes.has(model.slice(6)));
+};
+const retiredRoute=(value,removedRoutes)=>typeof value==='string'&&retiredSelection(value,removedRoutes);
 export function normalizeConfig(source = {}) {
   if (source === null || typeof source !== 'object' || Array.isArray(source)) throw new Error('Invalid router configuration');
   if ('apiKey' in source || 'token' in source) throw new Error('Secrets must never be saved in router configuration');
-  const providers = (source.providers ?? []).map(value => {
+  const providers = (source.providers ?? []).filter(p=>!isRetiredProvider(p?.id)).map(value => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid provider');
     const protocol = value.protocol ?? 'openai-chat';
     if (!['openai-chat','anthropic-messages','native-channel','dsh-host'].includes(protocol)) throw new Error('Unsupported provider protocol: ' + protocol);
@@ -45,7 +53,8 @@ export function normalizeConfig(source = {}) {
   });
   unique(providers, 'id', 'provider');
   const providerIds = new Set(providers.map(p => p.id));
-  const accounts = (source.accounts ?? []).map(value => {
+  const retiredAccounts=new Set((source.accounts??[]).filter(a=>isRetiredProvider(a?.providerId)).map(a=>a.id));
+  const accounts = (source.accounts ?? []).filter(a=>!isRetiredProvider(a?.providerId)).map(value => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid account');
     if ('apiKey' in value || 'token' in value || 'password' in value) throw new Error('Secrets may not be stored in account metadata');
     if (!providerIds.has(value.providerId)) throw new Error('Account refers to unknown provider: ' + value.providerId);
@@ -62,7 +71,13 @@ export function normalizeConfig(source = {}) {
   });
   unique(accounts, 'id', 'account');
   const accountsIds = new Set(accounts.map(a => a.id));
-  const routes = (source.routes ?? []).map(value => {
+  const removedRoutes=new Set();
+  const routes = (source.routes ?? []).flatMap(value=>{
+    if(!Array.isArray(value?.tiers)||!value.tiers.some(t=>isRetiredProvider(t?.providerId)))return [value];
+    const tiers=value.tiers.filter(t=>!isRetiredProvider(t?.providerId));
+    if(!tiers.length){removedRoutes.add(value.id);return []}
+    return [{...value,tiers,...(value.mode==='pinned'&&isRetiredProvider(value.tiers[0]?.providerId)?{enabled:false}:{})}];
+  }).map(value => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid route');
     if (!['priority','pinned','free'].includes(value.mode ?? 'priority')) throw new Error('Invalid route mode');
     if (!Array.isArray(value.tiers) || !value.tiers.length || value.tiers.length > 50) throw new Error('Route must have 1–50 tiers');
@@ -87,11 +102,11 @@ export function normalizeConfig(source = {}) {
     throw Error('AutoFree provider overrides exceed safe limit');
   const freeProviderIds=[...new Set(providerOverrides.map(value=>
     id(value,'free provider id')))].filter(value=>value!=='native-router'
-      &&!value.startsWith('native-router-source-'));
+      &&!value.startsWith('native-router-source-')&&!isRetiredProvider(value));
   const modelOverrides=freeInput.models??[];
   if(!Array.isArray(modelOverrides)||modelOverrides.length>500)
     throw Error('AutoFree model overrides exceed safe limit');
-  const freeModels=modelOverrides.map(row=>{
+  const freeModels=modelOverrides.filter(row=>!isRetiredProvider(row?.providerId)).map(row=>{
     if(!row||typeof row!=='object'||Array.isArray(row)||typeof row.model!=='string'
       ||!row.model.trim()||row.model.length>160||/[\u0000-\u001f]/.test(row.model)
       ||typeof row.free!=='boolean')throw Error('Invalid explicit AutoFree model declaration');
@@ -114,6 +129,7 @@ export function normalizeConfig(source = {}) {
     throw Error('Invalid host model selection');
   const hostModelSelection={};
   for(const [providerId,models] of Object.entries(hostSelectionInput)){
+    if(isRetiredProvider(providerId))continue;
     id(providerId,'host selection provider');
     if(providerId==='native-router'||providerId.startsWith('native-router-source-')
       ||!Array.isArray(models)||models.length>250)
@@ -131,6 +147,7 @@ export function normalizeConfig(source = {}) {
     ||Object.keys(channelsInput).length>100)throw Error('Invalid per-channel auto check-in');
   const checkinChannels={};
   for(const [providerId,enabled] of Object.entries(channelsInput)){
+    if(isRetiredProvider(providerId))continue;
     id(providerId,'check-in channel');
     if(typeof enabled!=='boolean')throw Error('Invalid per-channel auto check-in setting');
     checkinChannels[providerId.replace(/^own_/,'')]=enabled;
@@ -141,7 +158,7 @@ export function normalizeConfig(source = {}) {
   if(!Array.isArray(independentInput)||independentInput.length>100)
     throw Error('Invalid independently enabled check-in channels');
   const independentChannels=[...new Set(independentInput.map(value=>
-    id(value,'independent check-in channel').replace(/^own_/,'')))];
+    id(value,'independent check-in channel').replace(/^own_/,'')))].filter(value=>!isRetiredProvider(value));
   const hf = source.hostFailover ?? {};
   const checkinInput=source.checkin ?? {};
   const zone=typeof checkinInput.timeZone==='string'?checkinInput.timeZone:'Asia/Shanghai';
@@ -156,9 +173,9 @@ export function normalizeConfig(source = {}) {
     sessionReuse:{
       enabled:source.sessionReuse?.enabled===true,
       linkedIds:Array.isArray(source.sessionReuse?.linkedIds)
-        ?[...new Set(source.sessionReuse.linkedIds.filter(value=>typeof value==='string'&&ID.test(value)))].slice(-200):[],
+        ?[...new Set(source.sessionReuse.linkedIds.filter(value=>typeof value==='string'&&ID.test(value)&&!retiredAccounts.has(value)))].slice(-200):[],
        ignoredIds:Array.isArray(source.sessionReuse?.ignoredIds)
-         ?[...new Set(source.sessionReuse.ignoredIds.filter(value=>typeof value==='string'&&ID.test(value)))].slice(-200):[],
+         ?[...new Set(source.sessionReuse.ignoredIds.filter(value=>typeof value==='string'&&ID.test(value)&&!retiredAccounts.has(value)))].slice(-200):[],
        linkedOrigins:Object.fromEntries(Object.entries(
          source.sessionReuse?.linkedOrigins && typeof source.sessionReuse.linkedOrigins==='object' && !Array.isArray(source.sessionReuse.linkedOrigins)
            ?source.sessionReuse.linkedOrigins:{}).filter(([key,value])=>ID.test(key)&&accountsIds.has(key)
@@ -168,21 +185,22 @@ export function normalizeConfig(source = {}) {
       autoSourceAccounts:checkinInput.autoSourceAccounts!==false,
       channels:checkinChannels,independentChannels,timeZone:zone,runAt},
     hostFailover: {
-      enabled: hf.enabled === true, mode: ['off','pinned','free'].includes(hf.mode) ? hf.mode : 'off',
-      priority: Array.isArray(hf.priority) ? hf.priority : [], triggers: Array.isArray(hf.triggers) ? hf.triggers : undefined,
+      enabled: hf.enabled === true&&!(hf.mode==='pinned'&&retiredSelection(hf.priority?.[0],removedRoutes)), mode: ['off','pinned','free'].includes(hf.mode) ? hf.mode : 'off',
+      priority: Array.isArray(hf.priority) ? hf.priority.filter(row=>!retiredSelection(row,removedRoutes)) : [], triggers: Array.isArray(hf.triggers) ? hf.triggers : undefined,
       maxSwitchesPerSession: int(hf.maxSwitchesPerSession, 3, 0, 50),
       exhaustionCooldownMs: int(hf.exhaustionCooldownMs, 21600000, 1000, 86400000),
-       exhaustedRoutes: Object.fromEntries(Object.entries(hf.exhaustedRoutes && typeof hf.exhaustedRoutes==='object' && !Array.isArray(hf.exhaustedRoutes) ? hf.exhaustedRoutes : {}).filter(([key,value])=>typeof key==='string'&&key.length<=300&&Number.isFinite(value)&&value>=0)),
+       exhaustedRoutes: Object.fromEntries(Object.entries(hf.exhaustedRoutes && typeof hf.exhaustedRoutes==='object' && !Array.isArray(hf.exhaustedRoutes) ? hf.exhaustedRoutes : {}).filter(([key,value])=>typeof key==='string'&&key.length<=300&&!retiredRoute(key,removedRoutes)&&Number.isFinite(value)&&value>=0)),
        switchLogLimit:int(hf.switchLogLimit,20,1,100),
        switchLog:Array.isArray(hf.switchLog)?hf.switchLog.slice(-20).filter(x=>x&&typeof x==='object'&&
          Number.isFinite(x.at)&&typeof x.from==='string'&&typeof x.to==='string'&&
-         typeof x.code==='string').map(x=>({at:x.at,from:x.from.slice(0,200),
+         typeof x.code==='string'&&!retiredRoute(x.from,removedRoutes)&&!retiredRoute(x.to,removedRoutes)).map(x=>({at:x.at,from:x.from.slice(0,200),
          to:x.to.slice(0,200),code:x.code.slice(0,40),reason:String(x.reason??'auto').slice(0,32)})):[],
     },
   };
 }
 // Global-off mode requires fresh channel-specific consent, never old presets.
 export function channelAutoEnabled(config,providerId){
+ if(isRetiredProvider(providerId))return false;
  const key=String(providerId??'').replace(/^own_/,'');
  const selected=config?.checkin?.channels?.[key];
  return config?.checkin?.autoEnabled===true?selected!==false:
@@ -196,6 +214,14 @@ export function createConfigStore({ path = defaultConfigPath(), initial } = {}) 
     get: () => structuredClone(current),
     replace(value) {
       const next = normalizeConfig(value);
+      if(existsSync(path)){
+        const original=readFileSync(path,'utf8');
+        const previous=JSON.parse(original);
+        if(previous.providers?.some(p=>isRetiredProvider(p?.id))||previous.accounts?.some(a=>isRetiredProvider(a?.providerId))){
+          const backup=path+'.retired-channel-v1.bak';
+          if(!existsSync(backup))writeFileSync(backup,original,{mode:0o600,flag:'wx'});
+        }
+      }
       const body = JSON.stringify(next, null, 2) + '\n';
       mkdirSync(dirname(path), { recursive: true });
        // A process can crash after creating its temp file. A fixed

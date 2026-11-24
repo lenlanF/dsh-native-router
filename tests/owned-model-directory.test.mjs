@@ -4,27 +4,27 @@ import {createOwnedModelDirectory} from '../src/owned-model-directory.mjs';
 import {filterHostRoutes} from '../src/host-model-selection.mjs';
 import {sourceAccountOpaqueId} from '../src/source-account-ref.mjs';
 
-test('private directory exposes all five native member routes only after official auth; uses own driver not host registry',async()=>{
- const ids=['own_mimo_desktop','own_doubao','own_meoo_web','own_qwenwork','own_aws_quick'];
+test('private directory exposes all four native member routes only after official auth; uses own driver not host registry',async()=>{
+ const ids=['own_mimo_desktop','own_meoo_web','own_qwenwork','own_aws_quick'];
  const config={providers:ids.map(id=>({id,name:id,enabled:true,protocol:'native-channel'})),
   accounts:ids.map(id=>({id:'account-'+id,providerId:id,enabled:true}))};
  const local=config.accounts.map(a=>({...a,runtimeMode:'owned',connectionState:'online'}));
- local[4].connectionState='not_checked';
+ local[3].connectionState='not_checked';
  const calls=[],hostCalls=[];
  const directory=createOwnedModelDirectory({configStore:{get:()=>config},
   accountCenter:{list:()=>({accounts:local}),listTestModels:async(id,options)=>{
     calls.push(id);assert.equal(options.officialOnly,true);return {state:'ready',models:[{id:'live-model-'+id,name:'official model',free:false}]}}},
   hostProviderInventory:{status:()=>({hostProviders:[{providerId:'external'},...ids.map(providerId=>({providerId}))]}),
     listHostModels:async id=>{hostCalls.push(id);return {state:'ready',providerId:id,models:[{id:'host-model'}]}}}});
- assert.deepEqual(directory.providers().map(p=>p.providerId),['external',...ids.slice(0,4)]);
- for(const id of ids.slice(0,4)){
+ assert.deepEqual(directory.providers().map(p=>p.providerId),['external',...ids.slice(0,3)]);
+ for(const id of ids.slice(0,3)){
   const result=await directory.listModels(id);
   assert.equal(result.state,'ready');assert.equal(result.models[0].id,'live-model-account-'+id);
  }
- assert.equal((await directory.listModels(ids[4])).state,'unavailable');
- assert.equal(calls.length,4);assert.deepEqual(hostCalls,[]);
- local[4].connectionState='online';
- assert.equal((await directory.listModels(ids[4])).state,'ready');
+ assert.equal((await directory.listModels(ids[3])).state,'unavailable');
+ assert.equal(calls.length,3);assert.deepEqual(hostCalls,[]);
+ local[3].connectionState='online';
+ assert.equal((await directory.listModels(ids[3])).state,'ready');
  local[0].connectionState='expired';
  assert.ok(!directory.providers().some(p=>p.providerId===ids[0]));
  assert.equal((await directory.listModels(ids[0])).state,'unavailable');

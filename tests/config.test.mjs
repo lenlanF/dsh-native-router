@@ -57,3 +57,41 @@ test('stale crash-era temp file never blocks later atomic DSH configuration save
   'a leftover crash file is left for forensic review, not silently deleted');
  assert.deepEqual(readdirSync(dir).sort(),['config.json','config.json.tmp-'+process.pid].sort());
 });
+
+test('retired provider is absent from all active config surfaces and original data is retained on first save',t=>{
+ const parent=process.platform==='win32'&&existsSync('E:\\Temp')?'E:\\Temp':tmpdir();
+ const dir=mkdtempSync(join(parent,'dnr-retired-channel-'));
+ t.after(()=>rmSync(dir,{recursive:true,force:true}));
+ const path=join(dir,'config.json'),retired='own_doubao',id='db_'+'a'.repeat(28);
+ const removed={providerId:retired,model:'legacy',accountIds:[id]};
+ const live=sample.routes[0].tiers[0];
+ const raw={...sample,providers:[...sample.providers,{id:retired,protocol:'native-channel'}],
+ accounts:[...sample.accounts,{id,providerId:retired,credentialRef:'driver:'+retired+':'+id,enabled:true}],
+ routes:[{id:'removed',tiers:[removed]},{id:'mixed',tiers:[removed,live]},{id:'pinned',mode:'pinned',tiers:[removed,live]}],
+ freePool:{providerIds:[retired,'alpha'],models:[{providerId:retired,model:'legacy',free:true},{providerId:'alpha',model:'x',free:true}]},
+ hostModelSelection:{[retired]:['legacy'],alpha:['x']},
+ sessionReuse:{linkedIds:[id,'a1'],ignoredIds:[id,'a2']},
+ checkin:{autoEnabled:true,channels:{doubao:true,alpha:true},independentChannels:['doubao','alpha']},
+ hostFailover:{enabled:true,mode:'pinned',priority:['native-router/direct:own_doubao:legacy','native-router/chain:removed','alpha/x'],
+ exhaustedRoutes:{'native-router/direct:own_doubao:legacy':123,'alpha/x':234},
+ switchLog:[{at:123,from:'doubao/x',to:'alpha/x',code:'QUOTA'}]}};
+ const original=JSON.stringify(raw);
+ writeFileSync(path,original);
+ const store=createConfigStore({path}),cfg=store.get();
+ assert.equal(readFileSync(path,'utf8'),original);
+ assert.equal(cfg.providers.length,sample.providers.length);
+ assert.equal(cfg.accounts.length,sample.accounts.length);
+ assert.deepEqual(cfg.routes.map(r=>r.id),['mixed','pinned']);
+ assert.equal(cfg.routes[0].tiers.length,1);assert.equal(cfg.routes[1].enabled,false);
+ assert.deepEqual(cfg.freePool.providerIds,['alpha']);assert.equal(cfg.freePool.models.length,1);
+ assert.deepEqual(cfg.hostModelSelection,{alpha:['x']});
+ assert.deepEqual(cfg.sessionReuse.linkedIds,['a1']);assert.deepEqual(cfg.sessionReuse.ignoredIds,['a2']);
+ assert.deepEqual(cfg.checkin.channels,{alpha:true});assert.deepEqual(cfg.checkin.independentChannels,['alpha']);
+ assert.equal(cfg.hostFailover.enabled,false);assert.deepEqual(cfg.hostFailover.priority,['alpha/x']);
+ assert.deepEqual(cfg.hostFailover.exhaustedRoutes,{'alpha/x':234});
+ assert.equal(cfg.hostFailover.switchLog.length,0);
+ assert.doesNotMatch(JSON.stringify(cfg),/doubao|db_aaaaaaaa/);
+ store.replace(cfg);
+ assert.equal(readFileSync(path+'.retired-channel-v1.bak','utf8'),original);
+ assert.deepEqual(createConfigStore({path}).get(),cfg);
+});

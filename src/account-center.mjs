@@ -174,7 +174,7 @@ export function createAccountCenter({
               ...(Array.isArray(live.benefits)?{benefits:live.benefits.slice(0,48).filter(x=>
                 (['gift','compensation'].includes(x?.kind)
                 ||/^workbuddy_growth_(?:task|travel)_[a-f0-9]{24}$/.test(x?.kind)
-                ||/^doubao_task_[a-f0-9]{24}$/.test(x?.kind))
+                )
                 &&typeof x.active==='boolean'
                 &&typeof x.claimed==='boolean').map(x=>({kind:x.kind,
                 ...(typeof x.name==='string'?{name:x.name.slice(0,80)}:{}),
@@ -665,7 +665,7 @@ export function createAccountCenter({
      try{facts=driver?.accountSnapshot?.(account)??{}}catch{}
      const named=Boolean(publicAccountName(facts)||publicMaskedPhone(facts));
      const metadataIncomplete=!named||Boolean(publicFactsStore&&!publicFactsStore.get(account)?.observation)||
-       ['own_mimo_desktop','own_doubao'].includes(account.providerId)
+       account.providerId==='own_mimo_desktop'
        && !Number.isFinite(facts.balance)&&
           facts.membershipState===undefined&&
           facts.balanceState!=='not_supported'&&
@@ -842,83 +842,6 @@ export function createAccountCenter({
      }
      async function cancelMimoLogin(){
        return await driverFor('own_mimo_desktop')?.cancelLogin?.()??{status:'idle'};
-     }
-    function ensureDoubaoProvider(){
-      const cfg=configStore.get(),provider=cfg.providers.find(p=>p.id==='own_doubao');
-      if(provider){
-        if(provider.protocol!=='native-channel')throw Error('Doubao provider ID collides with non-native provider');
-        return {state:'existing',providerId:'own_doubao'};
-      }
-      if(typeof driverFor('own_doubao')?.generate!=='function')throw Error('Doubao native adapter unavailable');
-      configStore.replace({...cfg,providers:[...cfg.providers,{
-        id:'own_doubao',name:'豆包工作 · 独立来源',
-        protocol:'native-channel',baseUrl:'',models:[],enabled:true,supportsTools:false}]});
-      adapter?.invalidateCatalog?.();
-      return {state:'created',providerId:'own_doubao'};
-    }
-    async function commitDoubaoAccount(result){
-      if(result?.providerId!=='own_doubao'||typeof result.id!=='string'
-        ||!/^db_[a-f0-9]{28}$/.test(result.id)||
-          result.credentialRef!=='driver:own_doubao:'+result.id)
-        throw Error('Invalid self-owned Doubao account receipt');
-      const cfg=configStore.get();
-      const prev=cfg.accounts.find(x=>x.id===result.id);
-      if(prev){
-        if(prev.providerId!=='own_doubao'||prev.credentialRef!==result.credentialRef)
-          throw Error('Doubao account identifier conflict');
-        driverFor('own_doubao')?.completeCandidate?.({account:result});
-        return {id:prev.id,alreadyOwned:true};
-      }
-      if(cfg.providers.some(p=>p.id==='own_doubao'&&p.protocol!=='native-channel'))
-        throw Error('Doubao provider ID conflict');
-      const providers=cfg.providers.some(p=>p.id==='own_doubao')?cfg.providers:
-        [...cfg.providers,{id:'own_doubao',name:'豆包工作 · 独立来源',
-          protocol:'native-channel',baseUrl:'',models:[],enabled:true,supportsTools:false}];
-      const account={id:result.id,providerId:'own_doubao',credentialRef:result.credentialRef,
-        enabled:true,autoCheckin:false,weight:1};
-       try{configStore.replace({...cfg,providers,accounts:[...cfg.accounts,account]})}
-       catch(error){
-         await driverFor('own_doubao')?.rollbackCandidate?.({account:{
-           ...account,alreadyOwned:result.alreadyOwned===true,
-           ...(result.rollbackToken?{rollbackToken:result.rollbackToken}:{})}});
-         throw error;
-       }
-      driverFor('own_doubao')?.completeCandidate?.({account:result});
-      adapter?.invalidateCatalog?.();
-      scheduleFirstAuthentication(result.id);
-       return {id:result.id,providerId:'own_doubao',stored:true};
-    }
-     async function addDoubaoCookie({cookie}={}){
-       const driver=driverFor('own_doubao');
-       if(typeof driver?.addCookie!=='function')throw Error('Doubao native adapter unavailable');
-       const receipt=await driver.addCookie({cookie,stageRollback:true});
-       try{return await commitDoubaoAccount(receipt)}
-       catch(error){
-         // Includes collisions rejected before configStore.replace() was called.
-         try{await driver.rollbackCandidate?.({account:receipt})}catch{}
-         throw error;
-       }
-     }
-    async function startDoubaoLogin(){
-      const driver=driverFor('own_doubao');
-      if(driver?.runtimeReady!==true||typeof driver.startLogin!=='function')
-        throw Error('Doubao browser login unavailable without its owned credentials');
-      // Do not create a configured account/provider merely because a login window opened.
-      return driver.startLogin();
-    }
-     async function pollDoubaoLogin(){
-       const driver=driverFor('own_doubao');
-       const status=driver?.loginStatus?.();
-       if(!status)throw Error('Doubao login service unavailable');
-       if(status.status!=='done'||!status.account)return status;
-       try{return {...status,account:await commitDoubaoAccount(status.account)}}
-       catch(error){
-         try{await driver.cancelLogin?.()}catch{}
-         throw error;
-       }
-     }
-     async function cancelDoubaoLogin(){
-       return await driverFor('own_doubao')?.cancelLogin?.()??{status:'idle'};
      }
     async function commitMeooAccount(result){
       if(result?.providerId!=='own_meoo_web'||typeof result.id!=='string'
@@ -1122,5 +1045,5 @@ export function createAccountCenter({
   if(initialTimer)clearTimeout(initialTimer);
   automaticTimer=null;initialTimer=null;
  }
-  return {list,verify,verifyModel,listTestModels,observeRoutedInference,setEnabled,logout,discover,importCandidate,refreshAll,refreshReadOnly,autoCheckDue,start,stop,drivers,driverFor,find,commitMimoDesktopAccount,startMimoLogin,pollMimoLogin,cancelMimoLogin,ensureDoubaoProvider,addDoubaoCookie,startDoubaoLogin,pollDoubaoLogin,cancelDoubaoLogin,commitMeooAccount,addMeooCookie,startMeooLogin,pollMeooLogin,cancelMeooLogin,commitQwenAccount,startQwenLogin,pollQwenLogin,cancelQwenLogin,commitAwsQuickAccount,importAwsQuickLocal,startAwsQuickLogin,pollAwsQuickLogin,submitAwsQuickLogin,cancelAwsQuickLogin};
+  return {list,verify,verifyModel,listTestModels,observeRoutedInference,setEnabled,logout,discover,importCandidate,refreshAll,refreshReadOnly,autoCheckDue,start,stop,drivers,driverFor,find,commitMimoDesktopAccount,startMimoLogin,pollMimoLogin,cancelMimoLogin,commitMeooAccount,addMeooCookie,startMeooLogin,pollMeooLogin,cancelMeooLogin,commitQwenAccount,startQwenLogin,pollQwenLogin,cancelQwenLogin,commitAwsQuickAccount,importAwsQuickLocal,startAwsQuickLogin,pollAwsQuickLogin,submitAwsQuickLogin,cancelAwsQuickLogin};
 }

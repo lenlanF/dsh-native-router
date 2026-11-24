@@ -19,7 +19,7 @@ test('all 13 built-in source providers are represented by channel metadata',()=>
   assert.ok(row.name&&row.auth);
  }
  assert.ok(ids.includes('own_mimo_desktop'));
- assert.ok(ids.includes('own_doubao'));
+ assert.ok(!ids.includes('own_doubao'));
 });
 test('every enumerated source uses one read-only identity and balance contract without fabricated credits',()=>{  const channels=new Set([...REFERENCE_CHANNELS.map(x=>x.id),...SOURCE_PACK_PROVIDERS,
     'lingxi','codebuddy','workbuddy-global']);

@@ -1,3 +1,5 @@
+> 历史版本记录（非当前支持范围）：rc.116 起退役渠道及其专属实现、测试均已独立归档；下列历史验收内容不得作为当前版本的接入或执行说明。
+
 # 全渠道“无原客户端进程”独立运行验收门禁（RC.31）
 
 ## 不可妥协的架构规则
@@ -22,11 +24,11 @@
 | 13 个内置原生来源 | `own_<渠道>` 自有账户池与内置 ESM 渠道驱动（CodeArts、Buddy、WorkBuddy、LobsterAI、Qoder、QoderCN、TRAE、Cline、Loomy、Raccoon、MiniMax、ZCode、Gemini） | 同一测试中 13 个真实 DSH 路由模型回合从独立测试渠道包成功，原 Host 模型、账号池完全未传入 |
 | 独立私有渠道 | `own_workbuddy-cn/global`、`own_lingxi` 及私有凭据迁移 | 旧插件移除、凭据只从本插件读的原有专项回归 |
 
-重现命令：`node --test tests/hostless-browser-auth.test.mjs tests/doubao-hostless-checkin.test.mjs tests/hostless-all-channel-models.test.mjs tests/independent-runtime-boundary.test.mjs`，以及全量 `npm test`。
+重现命令：`node --test tests/hostless-browser-auth.test.mjs tests/hostless-all-channel-models.test.mjs tests/independent-runtime-boundary.test.mjs`，以及全量 `npm test`。
 
-RC.30 增量验证：`node --test tests/browser-login-cancellation.test.mjs tests/mimo-desktop-owned.test.mjs tests/mimo-desktop-web-login.test.mjs tests/doubao-ownership.test.mjs`。真实网络无凭据检查：MiMo 五个会员区域的 `/api/user/xiaomi/me` 均返回 302 跳转到 `account.xiaomi.com`，豆包 `https://www.doubao.com/chat/` 返回 HTTP 200；这只证明入口可达，不证明会员在线推理。
+RC.30 增量验证：`node --test tests/browser-login-cancellation.test.mjs tests/mimo-desktop-owned.test.mjs tests/mimo-desktop-web-login.test.mjs`。真实网络无凭据检查：MiMo 五个会员区域的 `/api/user/xiaomi/me` 均返回 302 跳转到 `account.xiaomi.com`，豆包 `https://www.doubao.com/chat/` 返回 HTTP 200；这只证明入口可达，不证明会员在线推理。
 
-RC.31 增量验证：`node --test tests/doubao-ownership.test.mjs tests/browser-login-cancellation.test.mjs tests/owned-model-e2e.test.mjs`。已用 Windows Chrome 实际启动隔离测试 Profile，连上 DevTools 的正确本机端口并读取未登录 Cookie 枚举，正常清理目录；此次没有读取真实会员 Cookie。真实 DSH 插件现场版本为 rc.25，未被此独立开发分支覆盖。
+RC.31 增量验证：`node --test tests/browser-login-cancellation.test.mjs tests/owned-model-e2e.test.mjs`。已用 Windows Chrome 实际启动隔离测试 Profile，连上 DevTools 的正确本机端口并读取未登录 Cookie 枚举，正常清理目录；此次没有读取真实会员 Cookie。真实 DSH 插件现场版本为 rc.25，未被此独立开发分支覆盖。
 
 ## 尚不可宣称的结果
 

@@ -964,12 +964,6 @@ window.__ModuleLoader__.load({
                      Number.isFinite(account.expiringAt)?
                        h('span',{className:'dnr-account-metric-note'},
                          '最早到期 '+new Date(account.expiringAt).toLocaleDateString()):null):null,
-                  ...(account.providerId==='own_doubao'&&Array.isArray(account.quotaWindows)?
-                    account.quotaWindows.filter(w=>Number.isFinite(w.remainingPercent)).slice(0,6).map((w,i)=>
-                      h('div',{className:'dnr-account-metric',key:'quota-'+i},
-                        h('span',{className:'dnr-account-metric-label'},w.label),
-                        h('strong',{className:'dnr-account-metric-value'},w.remainingPercent.toFixed(1).replace(/\.0$/,'')+'% 剩余'),
-                        w.endAt?h('span',{className:'dnr-account-metric-note'},'恢复或到期 '+new Date(w.endAt).toLocaleString()):null)):[]),
                   account.usageState?h('div',{className:'dnr-account-metric'},
                    h('span',{className:'dnr-account-metric-label'},'MiMo 七日自然恢复额度'),
                    h('strong',{className:'dnr-account-metric-value'},
@@ -1001,12 +995,6 @@ window.__ModuleLoader__.load({
                  account.backupSources?.length?h('span',null,
                    '备援账号 '+account.backupSources.length):null),
                 h('div',{style:css.line},
-                  account.activityState&&account.providerId?.includes('doubao')?h('span',{style:css.mutedTag},
-                    '豆包活动：'+({claimed:'今日已领取',claimable:'今日可领取',client_required:'官方客户端领取 · 自动回查',not_offered:'当前无开放活动',
-                      not_confirmed:'等待官方任务状态',unavailable:'活动状态未同步'}[account.activityState]||'待确认')):null,
-                  (account.activityTaskCount>0&&account.providerId?.includes('doubao')?
-                     [h('span',{key:account.id+'-other-tasks',style:css.mutedTag},
-                       '另发现 '+account.activityTaskCount+' 项活动 · 暂无经验证自动执行接口')]:[]),
                    (account.benefits||[]).filter(b=>b.active&&!b.claimed).map(b=>
                     h('span',{key:account.id+'-reward-'+b.kind,style:css.mutedTag},
                       '可领取 '+(b.kind==='gift'?'官方活动赠送':'补偿积分')+
@@ -1407,8 +1395,6 @@ window.__ModuleLoader__.load({
           [mimoBusy,setMimoBusy]=useState(false),
           [mimoRegion,setMimoRegion]=useState('cn'),
           [mimoLogin,setMimoLogin]=useState(null),
-          [doubaoCookie,setDoubaoCookie]=useState(''),[doubaoBusy,setDoubaoBusy]=useState(false),
-           [doubaoLogin,setDoubaoLogin]=useState(null),
            [meooCookie,setMeooCookie]=useState(''),[meooBusy,setMeooBusy]=useState(false),
            [meooLogin,setMeooLogin]=useState(null),
            [qwenBusy,setQwenBusy]=useState(false),[qwenLogin,setQwenLogin]=useState(null),
@@ -1503,26 +1489,6 @@ window.__ModuleLoader__.load({
           },1800);
           return ()=>{disposed=true;clearInterval(timer)};
         },[mimoLogin?.status,refresh]);
-        useEffect(()=>{
-          if(doubaoLogin?.status!=='waiting')return;
-          let disposed=false;
-          const timer=setInterval(async()=>{
-            try{
-              const response=await fetch(URL+'/channels/doubao/login',{method:'POST',
-                headers:{'content-type':'application/json'},body:JSON.stringify({action:'poll'})});
-              const data=await response.json();
-              if(disposed||!response.ok||!data.ok)return;
-              const next=data.result;
-              if(next.status==='done'){
-                setDoubaoLogin(next);setNotice('豆包浏览器登录已完成，凭据已归本插件独立持有。');
-                await refresh();
-              }else if(next.status==='error'||next.status==='canceled'){
-                setDoubaoLogin(next);setError('豆包授权未完成，请重试或使用 Cookie 导入。');
-              }
-            }catch{/* Transient polling error: retry next interval. */}
-          },1800);
-          return ()=>{disposed=true;clearInterval(timer)};
-         },[doubaoLogin?.status,refresh]);
          useEffect(()=>{
            if(meooLogin?.status!=='waiting')return;
            let disposed=false;
@@ -2078,43 +2044,6 @@ window.__ModuleLoader__.load({
            headers:{'content-type':'application/json'},body:JSON.stringify({action:'cancel'})}).catch(()=>{});
          setMimoLogin(null);
        }
-       async function addDoubaoCookie(){
-         if(doubaoBusy)return;
-         if(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig)){
-           setError('存在未保存的配置草稿。请先保存再接入豆包账号。');return;
-         }
-         setDoubaoBusy(true);setError('');setNotice('');
-         try{
-           const response=await fetch(URL+'/channels/doubao/cookie',{method:'POST',
-             headers:{'content-type':'application/json'},body:JSON.stringify({cookie:doubaoCookie})});
-           const data=await response.json();
-           if(!response.ok||!data.ok)throw Error(data.error||'豆包授权未保存');
-           setDoubaoCookie('');await refresh();
-           setNotice('豆包会员身份已获远端确认，账号保存在独立凭据库；还需实测模型回复与额度。');
-         }catch(error){setError(String(error?.message??error))}
-         finally{setDoubaoBusy(false)}
-       }
-       async function startDoubaoBrowser(){
-         if(doubaoBusy)return;
-         if(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig)){
-           setError('存在未保存的配置草稿。请先保存再开始豆包扫码授权。');return;
-         }
-         setDoubaoBusy(true);setError('');setNotice('');
-         try{
-           const response=await fetch(URL+'/channels/doubao/login',{method:'POST',
-             headers:{'content-type':'application/json'},body:JSON.stringify({action:'start'})});
-           const data=await response.json();
-           if(!response.ok||!data.ok)throw Error(data.error||'豆包登录无法启动');
-           setDoubaoLogin(data.result);
-           setNotice('已启动专属浏览器授权流程；登录完成后会自动检测并加入本插件账号池。');
-         }catch(error){setError(String(error?.message??error))}
-         finally{setDoubaoBusy(false)}
-       }
-       async function cancelDoubaoBrowser(){
-         await fetch(URL+'/channels/doubao/login',{method:'POST',
-           headers:{'content-type':'application/json'},body:JSON.stringify({action:'cancel'})}).catch(()=>{});
-         setDoubaoLogin(null);
-       }
        async function addMeooCookie(){
          if(meooBusy)return;
          if(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig)){
@@ -2301,18 +2230,6 @@ window.__ModuleLoader__.load({
              h(Button,{kind:'primary',disabled:mimoBusy||mimoLogin?.status==='waiting',
                onClick:startMimoBrowser},mimoLogin?.status==='waiting'?'等待会员授权…':'自主浏览器登录'),
              mimoLogin?.status==='waiting'?h(Button,{onClick:cancelMimoBrowser},'取消授权'):null)),
-           own_doubao:h(Panel,{title:'豆包会员 · 独立登录与额度回查'},
-            h('p',{style:css.small},'账号登录、余额与模型目录独立获取。当前官方赠额活动限豆包电脑版或豆包工作电脑版；本插件只读发现任务和回查到账，不代领、不消耗当天领取资格。'),
-            h('div',{style:css.line},
-              h(Button,{kind:'primary',disabled:doubaoBusy||doubaoLogin?.status==='waiting',
-                onClick:startDoubaoBrowser},doubaoLogin?.status==='waiting'?'等待浏览器授权…':'浏览器扫码登录'),
-              doubaoLogin?.status==='waiting'
-                ?h(Button,{onClick:cancelDoubaoBrowser},'取消授权'):null,
-              h('input',{type:'password',autoComplete:'off','aria-label':'豆包独立 Cookie',
-                placeholder:'或粘贴豆包 Cookie（不会写入公开配置）',
-                style:css.input,value:doubaoCookie,onChange:e=>setDoubaoCookie(e.target.value)}),
-              h(Button,{disabled:doubaoBusy||doubaoCookie.length<12,
-                onClick:addDoubaoCookie},doubaoBusy?'处理中…':'导入 Cookie'))),
            own_meoo_web:h(Panel,{title:'秒悟网页版 · 独立会员账号'},
             h('p',{style:css.small},'独立浏览器登录或显式接管自己的网页 Cookie。官方身份核验成功后存入本插件私有凭据库，动态模型与真实积分均从秒悟会员接口读取；不复用原插件进程，不提供 API Key 计费通道，也不虚报免费模型。'),
             h('div',{style:css.line},
