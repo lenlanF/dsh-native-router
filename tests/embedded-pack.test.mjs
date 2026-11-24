@@ -707,8 +707,8 @@ test('catalog lookup timeout releases the UI and duplicate requests cannot flood
  bridge.attach();await tick();await tick();
  const first=bridge.listModels('loomy');
  await tick();
- assert.equal((await bridge.listModels('loomy')).state,'busy');
- assert.equal((await first).state,'timeout');
+  const second=bridge.listModels('loomy');
+  assert.deepEqual((await Promise.all([first,second])).map(x=>x.state),['timeout','timeout']);
  assert.equal(called,1);
  finish([{id:'model-late'}]);
  bridge.dispose();

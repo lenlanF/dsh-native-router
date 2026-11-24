@@ -51,7 +51,9 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
       }
     }
     if(arg.provider.protocol==='native-channel'){
-      const driver=driverFor(arg.provider.id);
+       if(!allowsHostModel(configStore.get(),arg.provider.id,arg.model))
+         throw new UpstreamError('Model excluded by owner channel allowlist',{code:'MODEL_NOT_ALLOWED'});
+       const driver=driverFor(arg.provider.id);
       if(typeof driver?.generate!=='function')throw new UpstreamError('Native provider driver unavailable',{code:'PROVIDER_NOT_READY'});
       const result=await driver.generate({provider:arg.provider,account:arg.account,model:arg.model,
         options:arg.options,signal:arg.signal});
@@ -80,8 +82,8 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
        const current=getConfig();
        const items=autoFreePool.tiers().filter(tier=>{
          const p=current.providers.find(x=>x.id===tier.providerId);
-         return p?.protocol==='dsh-host'||current.accounts.some(a=>
-           a.providerId===tier.providerId&&a.enabled);
+          return allowsHostModel(current,tier.providerId,tier.model)&&(p?.protocol==='dsh-host'||current.accounts.some(a=>
+            a.providerId===tier.providerId&&a.enabled));
        });
       if(!items.length)throw new RoutingError('ERR_FREE_EXHAUSTED',
         'No upstream-confirmed free models are currently available; unknown pricing is excluded');

@@ -83,7 +83,7 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
   let unknownPricing=0,errors=0,hostCount=0,sourceCount=0;
   function add(providerId,row,kind){
    const model=typeof row==='string'?row:row?.id;
-   if(!isId(providerId)||!isModel(model))return;
+   if(!isId(providerId)||!isModel(model)||!allowsHostModel(getConfig?.(),providerId,model))return;
    const key=providerId+'\u0000'+model;
    if(seen.has(key)||catalog.length>=600)return;
    seen.add(key);

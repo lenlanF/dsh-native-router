@@ -13,7 +13,7 @@ export const filterHostRoutes=cfg=>{
   return {...cfg,routes:cfg.routes.map(route=>({
     ...route,tiers:route.tiers.filter(tier=>{
       const provider=cfg.providers.find(p=>p.id===tier.providerId);
-      return provider?.protocol!=='dsh-host'||
+      return !['dsh-host','native-channel'].includes(provider?.protocol)||
         allowsHostModel(cfg,tier.providerId,tier.model);
     })
   })).filter(route=>route.tiers.length>0)};

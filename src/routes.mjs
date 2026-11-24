@@ -3,6 +3,7 @@ import {freeEvidence} from './auto-free.mjs';
 import {publicAdministrativeError} from './public-diagnostics.mjs';
 // Version is read from this installed package, never hardcoded into the UI.
 const PLUGIN_VERSION=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8')).version;
+import {createOwnedModelDirectory} from './owned-model-directory.mjs';
 import {sourceAccountOpaqueId} from './source-account-ref.mjs';
 import {mergeAccountSources,visiblePrivateSourceAccounts} from './account-source-view.mjs';
 // Owner-authenticated DSH Connection admin APIs; same-origin management writes, loopback-only HTTP.
@@ -77,6 +78,11 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
     const d=server.register({kind:'exact',path:BASE+path,handler});
     if(typeof d==='function')dispose.push(d);
   };
+  const ownedDirectory=createOwnedModelDirectory({configStore,accountCenter,checkinCenter,embeddedPack,hostProviderInventory});
+  const publicSessionReuse=()=>{
+    const base=sessionReuse?.snapshot?.()??{enabled:false,channels:[]};
+    return {...base,hostProviders:ownedDirectory.providers()};
+  };
   if(ownerAcceptance)mount('/acceptance',async(req,res)=>{
     if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
     if(req.method==='GET')return json(res,200,{ok:true,result:ownerAcceptance.snapshot()});
@@ -111,7 +117,7 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
     if(req.method!=='GET')return json(res,405,{error:'Method not allowed'});
     return json(res,200,{ok:true,...adapter.getStatus(),version:PLUGIN_VERSION,embeddedPack:embeddedPack?.status?.()??{state:'unavailable'},
       credentialService:credentialsBridge?.status?.()??{state:'unknown',available:false},
-      sessionReuse:sessionReuse?.snapshot?.()??{enabled:false,channels:[]}});
+      sessionReuse:publicSessionReuse()});
   });
   // AutoFree is an ephemeral model pool, never a persisted model chain.
   mount('/models/autofree',async(req,res)=>{
@@ -136,7 +142,7 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
   mount('/host/catalog',async(req,res)=>{
     if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
     if(req.method!=='GET')return json(res,405,{ok:false,error:'Method not allowed'});
-    const ids=[...new Set((hostProviderInventory?.status?.().hostProviders??[])
+     const ids=[...new Set(ownedDirectory.providers()
       .map(row=>row.providerId)
       .filter(id=>typeof id==='string'&&/^[a-zA-Z][a-zA-Z0-9_-]{0,99}$/.test(id)
         &&id!=='native-router'&&!id.startsWith('native-router-source-')))].slice(0,160);
@@ -163,7 +169,7 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
         try{
           const source=id==='native-router'
             ?{state:'ready',models:await adapter.listModels()}
-            :await hostProviderInventory?.listHostModels?.(id);
+             :await ownedDirectory.listModels(id);
           const rows=source?.state==='ready'&&Array.isArray(source.models)?source.models:[];
           const seen=new Set(),models=[];
           for(const row of allowHostModels(id,rows)){
@@ -179,7 +185,7 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
     });
     await Promise.all(workers);
     return json(res,200,{ok:true,providers:result,checkedAt:Date.now(),
-      truncated:(hostProviderInventory?.status?.().hostProviders??[]).length>160});
+       truncated:ownedDirectory.providers().length>160});
   });
   mount('/host/models',async(req,res)=>{
    if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
@@ -189,13 +195,12 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
     if(typeof providerId!=='string'||providerId.length<1||providerId.length>100
       ||/[\u0000-\u001f]/.test(providerId))
      return json(res,400,{ok:false,error:'Invalid DSH provider'});
-    const result=await hostProviderInventory?.listHostModels?.(providerId)
-      ??{state:'unavailable',providerId,models:[]};
+     const result=await ownedDirectory.listModels(providerId);
     const visible=result.state==='ready'&&Array.isArray(result.models)?
       {...result,availableModels:result.models,
         models:allowHostModels(providerId,result.models)}:result;
     return json(res,result.state==='ready'?200:503,{ok:result.state==='ready',result:visible,
-      ...(result.state==='ready'?{}:{error:'宿主路由模型目录不可用；未读取或修改原插件凭据'})});
+       ...(result.state==='ready'?{}:{error:'渠道模型目录不可用；独立来源须先完成鉴权'})});
    }catch{return json(res,400,{ok:false,error:'Invalid host model query'})}
   });
   if(accountCenter){
@@ -242,7 +247,7 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
        const {channels,accounts}=mergeAccountSources({roster,embeddedAccounts,sourceRows,
          ignoredIds,embeddedStatus:embeddedPack?.status?.()??{}});
        return json(res,200,{ok:true,...roster,channels,accounts,embeddedAccounts,
-         sessionReuse:sessionReuse?.snapshot?.()??{enabled:false,channels:[]}});
+         sessionReuse:publicSessionReuse()});
     });    // Explicit login/session reuse is mediated by DSH's authenticated
     // Connection owner Peer. No source token or auth file is returned.
     mount('/channels/reuse/scan',async(req,res)=>{
