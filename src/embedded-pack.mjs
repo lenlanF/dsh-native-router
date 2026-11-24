@@ -673,23 +673,28 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
     }
      if(upstreamCheckedInToday(before,today)===true)
        return {confirmed:true,message:'来源服务已确认今日签到'};
-      // 3.17+ ZCode has `claimable` and `planCount`, never `available`.
-      // Use the exact signed account preview, without guessing from balances.
+      // Provider status contracts differ. CodeArts/Loomy expose claimable,
+      // not available. Never override a negative official eligibility flag.
+      const usesClaimable=['codearts','loomy','zcode'].includes(providerId);
       const eligible=providerId==='zcode'
         ?before?.active===true&&before?.claimable===true
           &&Number.isInteger(before.planCount)&&before.planCount>0
-        :before?.available===true;
+        :usesClaimable
+          ?before?.active===true&&before?.claimable===true&&before?.available!==false
+          :before?.active!==false&&before?.available===true&&before?.claimable!==false;
       if(before?.active===false)
-        return {state:providerId==='zcode'?'no_task':'failed',
-          ...(providerId==='zcode'?{claimPosted:false}:{}),
-          message:'来源活动尚未开放，未发送领取请求'};
+        return {state:'no_task',claimPosted:false,
+          message:'官方确认活动未开放或账号不适用，未发送领取请求'};
       if(!eligible){
-        // Only a definite signed empty ZCode card is safe for read-only retry.
-        // Unknown status remains a failure rather than a false free allowance.
+        // Only an authoritative negative is no-task; unknown remains failed.
         if(providerId==='zcode'&&before?.active===true
           &&before?.claimable===false&&before?.planCount===0)
           return {state:'no_task',claimPosted:false,
             message:'官方当前没有可领取的 Start Plan；没有提交领取请求'};
+        if(['codearts','loomy'].includes(providerId)&&before?.active===true
+          &&before?.claimable===false&&before?.todayCheckedIn===false)
+          return {state:'no_task',claimPosted:false,
+            message:'官方确认本账号当前没有可领取的每日任务'};
         return {state:'failed',message:'官方尚未确认本账号有可领取计划，未发送领取请求'};
       }
       const claim=await ops.claim(providerId,sourceAccountId);    if(scope!==mountedScope())return {state:'unavailable'};
@@ -708,7 +713,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
       // It MUST count against the bounded automatic submission attempts.
       return {state:'no_task',claimPosted:true,
         message:'来源活动当前无可领取的赠送计划；本次领取请求已经提交'};
-    if(outcomes.some(row=>!['claimed','done','already'].includes(row?.outcome?.kind)))
+    if(outcomes.some(row=>!['claimed','done','already','already-claimed'].includes(row?.outcome?.kind)))
       return {state:'failed',message:'上游领取状态未知，不能冒称已受理'};
     // Claim response is NOT success: some upstream APIs report a successful
     // request without actually checking in. A fresh same-day status is required.
