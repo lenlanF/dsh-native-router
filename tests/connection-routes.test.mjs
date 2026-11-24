@@ -283,3 +283,20 @@ test('authenticated Connection adapter replies HTTP 500 on sync and async handle
   assert.doesNotMatch(body,/PRIVATE_SECRET_SHOULD_NOT_LEAK/);
  }
 });
+test('background acceptance is owner-only, origin checked, and supports status and cancel',async()=>{
+ let started=0,cancelled=0;
+ const f=fixture({ownerAcceptance:{
+  snapshot:()=>({state:'idle'}),
+  start:body=>{started++;assert.equal(body.consent,true);return {state:'running'}},
+  cancel:id=>{cancelled++;assert.equal(id,'a'.repeat(32));return {state:'running'}},
+ }});
+ const request={action:'start',requestId:'a'.repeat(32),mode:'inventory',consent:true};
+ assert.equal((await f.request('/acceptance')).status,200);
+ assert.equal((await f.request('/acceptance',{method:'POST',origin:'https://evil.invalid',body:request})).status,403);
+ assert.equal(started,0);
+ assert.equal((await f.request('/acceptance',{method:'POST',body:request})).status,202);
+ assert.equal(started,1);
+ assert.equal((await f.request('/acceptance',{method:'POST',body:{action:'cancel',requestId:request.requestId}})).status,200);
+ assert.equal(cancelled,1);
+ await f.dispose();
+});

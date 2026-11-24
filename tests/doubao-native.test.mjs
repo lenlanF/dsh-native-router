@@ -11,6 +11,7 @@ const COOKIE_B='sessionid=unit-testing-session-account-B-abcdefghijklmn; uid_tt=
 
 function mock({extraQuota=false,invalidQuota=false,modelUnavailable=false}={}){
  const stored=new Map(),calls=[];
+ let quotaUnavailable=false;
  const vault={
   set:async(k,v)=>{stored.set(k,v)},
   unset:async k=>stored.delete(k),
@@ -31,6 +32,8 @@ function mock({extraQuota=false,invalidQuota=false,modelUnavailable=false}={}){
     menu_conf_v2:{model_list:{item_list:[
      {model_item_key:'0',name:'豆包 快速',default_mode:'1',tag_list:[{text:'0.00x'}]},
      {model_item_key:'5',name:'工作任务 Pro',default_mode:'3'}]}}}}]});
+   if(url.pathname==='/alice/commerce/sale/subscription/quota/summary/'&&quotaUnavailable)
+     return new Response('',{status:503});
    if(url.pathname==='/alice/commerce/sale/subscription/quota/summary/')
     return data({current_subscription:{display:{product_name:'豆包会员'}},
      window_limit_section:{window_limit_groups:[{feature_group_name:'主套餐',
@@ -55,7 +58,7 @@ function mock({extraQuota=false,invalidQuota=false,modelUnavailable=false}={}){
   throw Error('unexpected Doubao endpoint: '+url.pathname);
  };
  const driver=createDoubaoDriver({vault,fetchImpl});
- return {driver,stored,calls};
+ return {driver,stored,calls,setQuotaUnavailable(value){quotaUnavailable=value}};
 }
 const account=(receipt)=>({id:receipt.id,providerId:'own_doubao',credentialRef:receipt.credentialRef});
 const options={messages:[{role:'user',content:'你好'}]};
@@ -192,4 +195,20 @@ test('Doubao cookie injection and fake sessions fail closed',async()=>{
  const {driver}=mock();
  await assert.rejects(driver.addCookie({cookie:'uid_tt=foo'}),/Cookie/i);
  await assert.rejects(driver.addCookie({cookie:'sessionid=foo\r\nAuthorization:Bearer secret'}),/Cookie/i);
+});
+test('Doubao quota outage preserves the historical amount but never marks it freshly available',async()=>{
+ const h=mock(),receipt=await h.driver.addCookie({cookie:COOKIE_A}),owned=account(receipt);
+ await h.driver.refreshAccountStatus({account:owned});
+ const original=h.driver.accountSnapshot(owned);
+ assert.equal(original.balance,80);
+ h.setQuotaUnavailable(true);
+ await h.driver.refreshAccountStatus({account:owned});
+ const failed=h.driver.accountSnapshot(owned);
+ assert.equal(failed.balance,80);
+ assert.equal(failed.balanceState,'cached');
+ assert.equal(failed.balanceCheckedAt,original.balanceCheckedAt);
+ h.setQuotaUnavailable(false);
+ await h.driver.refreshAccountStatus({account:owned});
+ assert.equal(h.driver.accountSnapshot(owned).balanceState,'available');
+ assert.equal(h.driver.accountSnapshot(owned).quotaRefreshState,'available');
 });

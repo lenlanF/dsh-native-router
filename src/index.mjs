@@ -30,6 +30,7 @@ import {createSourceChannelDriver} from './source-channel-driver.mjs';
 import {sourceModelEligible,privateSourceAccountRoutable} from './source-model-eligibility.mjs';
 import {createHostCredentialBridge} from './credentials-bridge.mjs';
 import {scheduleOwnerLiveSmoke} from './owner-live-smoke.mjs';
+import {createOwnerAcceptance} from './owner-acceptance.mjs';
 import {join,dirname} from 'node:path';
 export {registerNativeChannelDriver,getNativeChannelDrivers} from './driver-registry.mjs';
 
@@ -143,7 +144,8 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
      sourcePack:embeddedPack,logger:ctx.logger,verificationStore});
    const sourceHealth=()=>checkinCenter.sourceSnapshot?.()??[];
    const activityCenter=createChannelActivityCenter({configStore:ownStore,
-     accountCenter,checkinCenter});
+      accountCenter,checkinCenter});
+    const ownerAcceptance=createOwnerAcceptance({configStore:ownStore,accountCenter,checkinCenter});
    const sourceVerified=(providerId,id)=>sourceHealth().some(a=>
      a.id===id&&a.providerId===providerId&&a.connectionState==='online'&&a.enabled);
    // A verified private QR account is eligible even while the separate
@@ -172,7 +174,7 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
      return accountCenter.list().accounts.find(a=>a.id===id
        &&a.providerId===providerId)?.connectionState??null;
    });
-   const cleanups=[...builtInCleanup,credentialsBridge.dispose];
+    const cleanups=[...builtInCleanup,credentialsBridge.dispose,ownerAcceptance.dispose];
  try{
    const release=ctx.llm.registerAdapter([PROVIDER],ownAdapter);
    if(typeof release==='function')cleanups.push(release);
@@ -204,7 +206,7 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
         connectionCtx.effect?.(()=>registerAuthenticatedRouterRoutes(connectionCtx,
            {configStore:ownStore,adapter:ownAdapter,accountCenter,checkinCenter,embeddedPack,sessionReuse,
             accountAdoption,hostProviderInventory:existingHostSource,credentialsBridge,
-            activityCenter}));
+             activityCenter,ownerAcceptance}));
       };
       ctx.inject(['connection'],mountSecureRoutes);
       if(typeof ctx.registry?.delete==='function')

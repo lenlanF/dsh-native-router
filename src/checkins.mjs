@@ -295,7 +295,7 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
   // remain in run() for every request.
   // Pure-API, no-purchase free activity attempt across one channel.
   // It does NOT turn rejected or pending receipts into visible rewards.
-  async function runActivityChannel(providerId,{source='manual'}={}){
+  async function runActivityChannel(providerId,{source='manual',signal}={}){
     const selected=String(providerId||'').replace(/^own_/,'');
     if(!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(selected))
       throw Error('Invalid activity channel');
@@ -305,6 +305,7 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
       &&(row.activitiesSupported===true||row.checkinSupported===true)).slice(0,32);
     const results=[];
     for(const row of accounts){
+      if(signal?.aborted)break;
       try{
         // Only the real source driver decides official eligibility and
         // performs anti-replay checks. A completed call is not wallet proof.

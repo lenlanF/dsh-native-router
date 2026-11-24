@@ -18,11 +18,11 @@ function harness({rejectReplace=false,authVerified=true,loginFactory,
    records.set(ref,{value})},
   async unset(ref){records.delete(ref)},
  };
- let local={...loggedIn},readerCalls=0;
+ let local={...loggedIn},readerCalls=0,quota={};
  const transport={
   async probe({session}){
    calls.push({kind:'auth',session});
-   return {state:authVerified?'online':'expired',authVerified,accountName:authVerified?'Xiaomi owner':''};
+   return {state:authVerified?'online':'expired',authVerified,accountName:authVerified?'Xiaomi owner':'',...quota};
   },
   async generate({session,model,options}){
    calls.push({kind:'chat',session,model,options});
@@ -41,7 +41,7 @@ function harness({rejectReplace=false,authVerified=true,loginFactory,
  return {driver,center,records,calls,configStore,
   get cfg(){return cfg},
   get readerCalls(){return readerCalls},
-  stopDesktop(){local=null},switchDesktopRegion(region){local={...loggedIn,region}}};
+  stopDesktop(){local=null},switchDesktopRegion(region){local={...loggedIn,region}},setQuota(value){quota=value}};
 }
 test('own MiMo Desktop is discovered read-only and imported into plugin vault on explicit consent',async()=>{
  const h=harness();
@@ -77,6 +77,24 @@ test('own MiMo Desktop is discovered read-only and imported into plugin vault on
  await h.center.logout(imported.id);
  assert.equal(h.records.size,0);
  assert.equal(h.cfg.accounts.length,0);
+});
+test('MiMo new quota response cannot inherit a previous percentage or reset',async()=>{
+ const h=harness(),scan=await h.center.discover(MIMO_DESKTOP_ID);
+ const imported=await h.center.importCandidate(MIMO_DESKTOP_ID,scan.candidates[0].id);
+ const account=h.cfg.accounts[0];
+ h.setQuota({membershipState:'active',membershipPercentRemaining:80,membershipResetAt:Date.now()+10000,
+   usageState:'available',usagePercentRemaining:75,usageResetAt:Date.now()+10000});
+ assert.equal((await h.center.verify(imported.id)).state,'online');
+ assert.equal(h.driver.accountSnapshot(account).membershipPercentRemaining,80);
+ assert.equal(h.driver.accountSnapshot(account).usagePercentRemaining,75);
+ h.setQuota({membershipState:'active',usageState:'no_cycle'});
+ assert.equal((await h.center.verify(imported.id)).state,'online');
+ const snapshot=h.driver.accountSnapshot(account);
+ assert.equal(snapshot.membershipPercentRemaining,undefined);
+ assert.equal(snapshot.usagePercentRemaining,undefined);
+ assert.equal(snapshot.usageResetAt,undefined);
+ assert.equal(snapshot.balanceState,'not_supported');
+ h.center.stop();
 });
 test('MiMo late browser cancellation cannot erase an already committed independent session',async()=>{
  const h=harness();
