@@ -125,11 +125,12 @@ export function createAccountCenter({
              // evidence simply because the provider omitted a total.
              const quotaWindows=Array.isArray(live.quotaWindows)?live.quotaWindows.slice(0,12)
                .filter(x=>x&&typeof x.label==='string'&&x.label.trim()
-                 &&['left','total','used'].some(key=>
-                   Number.isFinite(x[key])&&x[key]>=0))
+                 &&(['left','total','used'].some(key=>Number.isFinite(x[key])&&x[key]>=0)
+                   ||Number.isFinite(x.remainingPercent)&&x.remainingPercent>=0&&x.remainingPercent<=100))
                .map(x=>({
                  ...(typeof x.kind==='string'?{kind:x.kind.slice(0,24)}:{}),
                  label:x.label.trim().slice(0,50),
+                 ...(Number.isFinite(x.remainingPercent)&&x.remainingPercent>=0&&x.remainingPercent<=100?{remainingPercent:x.remainingPercent}:{}),
                  ...Object.fromEntries(['left','total','used']
                    .filter(key=>Number.isFinite(x[key])&&x[key]>=0)
                    .map(key=>[key,x[key]])),

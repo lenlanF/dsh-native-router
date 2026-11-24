@@ -113,6 +113,25 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
       return {state:'unavailable'};
     }finally{activityPending.delete(accountId)}
   }
+  // A daily task can settle after its POST returned pending, or be claimed
+  // by the owner's official client. A fresh read can close that history
+  // without creating a second claim, even when automatic claiming is off.
+  function reconcileOfficialDaily(rows=accountCenter.list().accounts){
+    if(store.blocked)return;
+    const date=currentDate();
+    for(const row of rows){
+      if(!row.enabled||row.connectionState!=='online'||row.upstreamCheckinDate!==date
+        ||!['claimed','already'].includes(row.upstreamCheckinOutcome)
+        ||pending.has(row.id)||sourceCenter?.has(row.id))continue;
+      try{
+        const {account,provider,driver}=accountCenter.find(row.id);
+        if(!account.enabled||!provider.enabled||typeof driver?.checkIn!=='function')continue;
+        if(store.all().some(x=>x.accountId===row.id&&x.date===date&&x.state==='success'))continue;
+        store.append({date,accountId:row.id,providerId:provider.id,state:'success',
+          message:'官方只读任务状态确认今日已签到',at:now(),source:'status'});
+      }catch{}
+    }
+  }
   function snapshot(){
     const cfg=configStore.get(),today=currentDate(),roster=accountCenter.list();
     const accounts=roster.accounts.map(a=>{
@@ -235,6 +254,8 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
         return {activities:await runActivities(accountId,{source})};
       const e=new Error('该渠道未提供可验证的积分任务执行器');e.status=501;throw e;
     }
+     // Read existing authenticated state before any pending short circuit.
+     reconcileOfficialDaily(accountCenter.list().accounts.filter(a=>a.id===accountId));
      const date=currentDate(),previous=latestFor(accountId,date);
      const earlierSuccess=store.all().find(x=>x.accountId===accountId&&x.date===date&&x.state==='success');
      if(earlierSuccess)return {alreadyConfirmed:true,record:earlierSuccess,
@@ -351,6 +372,7 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
        const results=[];
        await accountCenter.refreshReadOnly?.().catch(()=>{});
        const today=currentDate(),known=accountCenter.list().accounts;
+       reconcileOfficialDaily(known);
        for(const account of cfg.accounts){
          if(!account.autoCheckin||!account.enabled
            ||!channelEnabled(cfg,account.providerId))continue;
@@ -401,7 +423,7 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
      const refreshReadOnly=()=>void Promise.all([
        sourceCenter?.refresh().catch(()=>null),
        accountCenter.refreshReadOnly?.().catch(()=>null),
-     ]).catch(()=>logger?.warn?.('source check-in metadata refresh unavailable'));
+     ]).then(()=>reconcileOfficialDaily()).catch(()=>logger?.warn?.('source check-in metadata refresh unavailable'));
     timer=setInterval(()=>{
       refreshReadOnly();
       void tick().catch(()=>logger?.warn?.('checkin task unavailable'));

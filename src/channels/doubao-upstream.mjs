@@ -223,20 +223,24 @@ function readWindows(section, fallbackLabel) {
     for (const limit of limits) {
       const total = parseAmount(limit?.total_amount)
       const used = parseAmount(limit?.used_amount)
-      if(total===null||used===null)continue
-      const percent = Number(limit?.used_percent)
+      const kind = WINDOW_KINDS[limit?.window_type]
+      if(!kind)continue
+      const rawPercent=limit?.used_percent
+      const percent=typeof rawPercent==='number'&&Number.isFinite(rawPercent)&&rawPercent>=0&&rawPercent<=100
+        ?rawPercent:total!==null&&total>0&&used!==null
+          ?Math.min(100,Math.round((used/total)*1000)/10):null
+      if(percent===null&&(total===null||used===null))continue
       out.push({
-        kind: WINDOW_KINDS[limit?.window_type] ?? 'other',
+        kind,
         label: group?.feature_group_name || fallbackLabel,
-        total,
-        used,
-        left: Math.max(total - used, 0),
-        percent: Number.isFinite(percent) ? percent : total > 0 ? Math.round((used / total) * 1000) / 10 : 0,
+        ...(total!==null?{total}:{}),
+        ...(used!==null?{used}:{}),
+        ...(total!==null&&used!==null?{left:Math.max(total-used,0)}:{}),
+        ...(percent!==null?{percent,remainingPercent:Math.max(0,100-percent)}:{}),
         startAt: Number(limit?.start_time) || 0,
         endAt: Number(limit?.end_time) || 0,
-        exhausted: limit?.usage_exhausted === true || (total > 0 && used >= total),
-        lessThanOnePercent: limit?.less_than_one_percent === true,
-      })
+        exhausted: limit?.usage_exhausted === true || percent===100 || (total!==null&&used!==null&&total>0&&used>=total),
+        lessThanOnePercent: limit?.less_than_one_percent === true,      })
     }
   }
   return out

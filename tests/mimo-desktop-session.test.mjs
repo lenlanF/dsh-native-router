@@ -125,6 +125,13 @@ test('MiMo free weekly allowance is fetched concurrently despite slow subscripti
  assert.equal(usageStartedBeforeSubscription,true,
   'a slow subscription must not delay or starve seven-day free quota');
 });
+test('MiMo epoch reset is preserved when formatted reset date is absent',async()=>{
+ const resetAt=Date.parse('2026-12-05T00:00:00+08:00');
+ const data=await fixture({allowance:{percent:70,resetDate:null,resetAt}}).transport.probe({session:own});
+ assert.equal(data.usageState,'available');
+ assert.equal(data.usagePercentRemaining,70);
+ assert.equal(data.usageResetAt,resetAt);
+});
 test('MiMo no active cycle is distinct from an actual zero-percent remaining quota',async()=>{
  const free=await fixture({allowance:{percent:100,resetDate:null}}).transport.probe({session:own});
  assert.equal(free.usageState,'no_cycle');

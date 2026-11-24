@@ -131,7 +131,9 @@ test('Doubao unknown numeric quota strings do not fabricate zero wallet amount',
  const bound=account(receipt);
  assert.equal((await driver.refresh({account:bound})).state,'online');
  const row=driver.accountSnapshot(bound);
- assert.equal(row.quotaWindows.length,0);
+ assert.equal(row.quotaWindows.length,1);
+ assert.equal(row.quotaWindows[0].remainingPercent,80);
+ assert.equal('left' in row.quotaWindows[0],false);
  assert.equal(row.balanceState,'not_returned');
  assert.equal('balance' in row,false);
 });

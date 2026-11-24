@@ -438,11 +438,15 @@ export function createWorkBuddyDriver({
     const dailyRow=daily.status==='fulfilled'?daily.value:null;
     const dailyAvailable=dailyRow?.active===true&&
       dailyRow.checkedInToday===false;
+    const checkinDate=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(now());
     const publicBenefits=benefitsRow?[...benefitsRow,...growthRows]:
       growthRows.length?growthRows:null;
     const name=publicAccountName(profileRow,{displayName:auth.nickname},account);
     const next={...latest,
       ...(name?{accountName:name}:{}),
+      // Preserve a precise official daily observation, not merely the activity badge.
+      checkinDate:dailyRow?.checkedInToday===true||dailyAvailable?checkinDate:null,
+      checkinOutcome:dailyRow?.checkedInToday===true?'already':dailyAvailable?'claimable':null,
       ...(dailyRow?{
         activityState:dailyRow.active!==true?'not_offered':
           dailyRow.checkedInToday===true?'claimed':
@@ -453,7 +457,7 @@ export function createWorkBuddyDriver({
       }:{activityState:'unavailable',activityActive:false,
         activityClaimable:false,activityCheckedAt:now()}),
       ...(creditRow??{
-        balanceState:Number.isFinite(latest.balance)?'available':'not_returned',
+        balanceState:Number.isFinite(latest.balance)?'cached':'not_returned',
         creditFetchState:'unavailable',
       }),
       ...(publicBenefits?{benefits:publicBenefits,

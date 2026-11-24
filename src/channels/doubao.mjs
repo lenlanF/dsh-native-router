@@ -235,20 +235,20 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
     try{
       const q=await fetchQuota(cookie,withFetch({timeoutMs:12000}));
       const windows=(Array.isArray(q.windows)?q.windows:[]).filter(w=>
-       w&&typeof w.label==='string'&&Number.isFinite(w.total)&&w.total>=0
-       &&Number.isFinite(w.used)&&w.used>=0&&Number.isFinite(w.left)&&w.left>=0)
-       .slice(0,12).map(w=>({kind:['5h','week','grant','package'].includes(w.kind)?w.kind:'other',
-         label:w.label.slice(0,50),total:w.total,used:w.used,left:w.left,
-         ...(Number.isFinite(w.endAt)&&w.endAt>0?{endAt:w.endAt}:{})}));
-      // These independent quota windows MUST NOT be summed: five-hour, weekly
-      // and purchased package limits are overlapping periods, not a wallet.
-      const primary=windows.find(w=>w.kind==='package')??
-        windows.find(w=>w.kind==='grant')??windows.find(w=>w.kind==='week')??windows[0];
-      const old=publicStatus.get(account.id)??{};
+        w&&typeof w.label==='string'&&(['total','used','left'].some(k=>Number.isFinite(w[k])&&w[k]>=0)
+          ||Number.isFinite(w.remainingPercent)&&w.remainingPercent>=0&&w.remainingPercent<=100))
+        .slice(0,12).map(w=>({kind:['5h','week','grant','package'].includes(w.kind)?w.kind:'other',
+          label:w.label.slice(0,50),
+          ...Object.fromEntries(['total','used','left','remainingPercent'].filter(k=>Number.isFinite(w[k])&&w[k]>=0).map(k=>[k,w[k]])),
+          ...(Number.isFinite(w.endAt)&&w.endAt>0?{endAt:w.endAt}:{})}));
+      // Percent-only official windows are useful, but are not a numeric wallet.
+      const numeric=windows.filter(w=>Number.isFinite(w.left));
+      const primary=numeric.find(w=>w.kind==='package')??
+        numeric.find(w=>w.kind==='grant')??numeric.find(w=>w.kind==='week')??numeric[0];      const old=publicStatus.get(account.id)??{};
        publicStatus.set(account.id,{...old,
          planName:typeof q.planName==='string'?q.planName.slice(0,72):'',
          quotaWindows:windows,quotaCheckedAt:now(),
-         quotaRefreshState:primary?'available':'not_returned',
+         quotaRefreshState:windows.length?'available':'not_returned',
          ...(primary?{balance:primary.left,balanceUnit:primary.label||'平台额度',
           balanceCheckedAt:now(),balanceState:'available'}:
           {balanceState:Number.isFinite(old.balance)?'cached':'not_returned'})});

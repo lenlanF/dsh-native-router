@@ -952,7 +952,13 @@ window.__ModuleLoader__.load({
                      Number.isFinite(account.expiringAt)?
                        h('span',{className:'dnr-account-metric-note'},
                          '最早到期 '+new Date(account.expiringAt).toLocaleDateString()):null):null,
-                 account.usageState?h('div',{className:'dnr-account-metric'},
+                  ...(account.providerId==='own_doubao'&&Array.isArray(account.quotaWindows)?
+                    account.quotaWindows.filter(w=>Number.isFinite(w.remainingPercent)).slice(0,6).map((w,i)=>
+                      h('div',{className:'dnr-account-metric',key:'quota-'+i},
+                        h('span',{className:'dnr-account-metric-label'},w.label),
+                        h('strong',{className:'dnr-account-metric-value'},w.remainingPercent.toFixed(1).replace(/\.0$/,'')+'% 剩余'),
+                        w.endAt?h('span',{className:'dnr-account-metric-note'},'恢复或到期 '+new Date(w.endAt).toLocaleString()):null)):[]),
+                  account.usageState?h('div',{className:'dnr-account-metric'},
                    h('span',{className:'dnr-account-metric-label'},'MiMo 七日自然恢复额度'),
                    h('strong',{className:'dnr-account-metric-value'},
                      account.usageState==='available'&&

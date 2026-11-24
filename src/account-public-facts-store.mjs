@@ -35,7 +35,7 @@ function observationFrom(snapshot,at,now){
   return safeObservation({at,
     balanceState:balanceStates.has(snapshot.balanceState)?snapshot.balanceState:publicBalance(snapshot).balanceState,
     quotaWindowCount:Math.min(12,windows.filter(x=>x&&typeof x.label==='string'&&
-      ['left','total','used'].some(k=>validNumber(x[k]))).length),
+      (['left','total','used'].some(k=>validNumber(x[k]))||validPercent(x.remainingPercent))).length),
     membershipState:snapshot.membershipState,
     rollingState:snapshot.usageState,
     membershipPercentObserved:validPercent(snapshot.membershipPercentRemaining),
