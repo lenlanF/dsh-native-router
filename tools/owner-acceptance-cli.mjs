@@ -26,13 +26,13 @@ function safeReport(raw){
   return item;
  });
  if(raw.activity&&typeof raw.activity==='object')out.activity=Object.fromEntries(
-   ['attempted','confirmedSignins','newlyCreditedRewards','pendingAccounts','failedAccounts','noTaskAccounts'].map(k=>[k,count(raw.activity[k])]));
+   ['attempted','confirmedSignins','newlyCreditedRewards','pendingAccounts','failedAccounts','noTaskAccounts','clientRequiredAccounts'].map(k=>[k,count(raw.activity[k])]));
  if(Array.isArray(raw.catalog))out.catalog=raw.catalog.slice(0,32).filter(x=>x&&providerPattern.test(x.providerId??'')).map(x=>({providerId:x.providerId,state:state(x.state),modelCount:count(x.modelCount),freeCount:count(x.freeCount)}));
  if(Number.isSafeInteger(raw.channelCount))out.channelCount=count(raw.channelCount);
  if(Array.isArray(raw.activityChannels))out.activityChannels=raw.activityChannels.slice(0,32)
    .filter(x=>x&&providerPattern.test(x.providerId??'')).map(x=>({
      providerId:x.providerId,state:state(x.state),
-     ...Object.fromEntries(['attempted','confirmedSignins','newlyCreditedRewards','pendingAccounts','failedAccounts','noTaskAccounts'].map(k=>[k,count(x[k])])),
+     ...Object.fromEntries(['attempted','confirmedSignins','newlyCreditedRewards','pendingAccounts','failedAccounts','noTaskAccounts','clientRequiredAccounts'].map(k=>[k,count(x[k])])),
      ...(typeof x.code==='string'&&/^[A-Z][A-Z0-9_]{0,47}$/.test(x.code)?{code:x.code}:{})}));
  return out;
 }

@@ -50,6 +50,18 @@ export function publicAccountFailureMessage(error){
 }
 const checkinDiagnostics=Object.freeze({
   LOBSTER_SLOT_READ:'活动槽位读取失败',
+  LOBSTER_SLOT_AUTH:'官方活动接口拒绝当前授权',
+  LOBSTER_SLOT_LIMIT:'官方活动接口限流',
+  LOBSTER_SLOT_ENDPOINT:'官方活动入口不存在或已撤下',
+  LOBSTER_SLOT_HTTP:'官方活动接口 HTTP 异常',
+  LOBSTER_SLOT_RESPONSE:'官方活动响应格式不符',
+  LOBSTER_SLOT_REJECTED:'官方活动业务响应拒绝',
+  LOBSTER_SLOT_TRANSPORT:'官方活动连接失败',
+  LOOMY_RECEIPT_MISSING:'每日额度初始化回执缺少明确证据',
+  LOOMY_WALLET_UNCONFIRMED:'官方钱包每日额度字段未确认',
+  LOOMY_DAY_MISMATCH:'每日额度周期日期不一致',
+  LOOMY_QUOTA_MISMATCH:'初始化与钱包额度不一致',
+  DOUBAO_OFFICIAL_CLIENT:'官方活动限电脑版参加；插件只读回查，不提交领取请求',
   LOBSTER_SLOT_SHAPE:'官方活动槽位字段不完整',
   LOBSTER_CONTEXT_READ:'活动上下文读取失败',
   LOBSTER_CONTEXT_SHAPE:'官方活动资格字段不完整',
@@ -71,5 +83,5 @@ export function publicCheckinMessage(state,code){
     failed:'签到未完成或尚无可靠确认依据',
     unsupported:'该渠道未提供每日签到操作',
   };
-  return (messages[state]??messages.failed)+(state==='failed'&&safeCheckinDiagnostic(code)?'；'+checkinDiagnostics[code]:'');
+  return (messages[state]??messages.failed)+(state!=='success'&&safeCheckinDiagnostic(code)?'；'+checkinDiagnostics[code]:'');
 }

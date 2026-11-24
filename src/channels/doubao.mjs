@@ -6,7 +6,7 @@ import {toChatMessages} from '../protocol.mjs';
 import {visibleTools} from '../host-tools.mjs';
 import {publicAccountName} from '../account-facts.mjs';
 import {chat,fetchAccountInfo,fetchModels,fetchQuota,fetchLaunch,fetchCampaignDetail,
- findDailyCheckin,claimCheckin,completedDoubaoRewards,claimCompletedDoubaoReward,
+ findDailyCheckin,completedDoubaoRewards,
  DoubaoError,hasSession,uidFromCookie} from './doubao-upstream.mjs';
 import {createLoginFlow} from './doubao-login.mjs';
 
@@ -275,22 +275,20 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
         const date=beijingDate(now());
         const verified=daily?.checkedInToday===true,claimable=daily?.checkedInToday===false;
         publicStatus.set(account.id,{...prior,
-          activityState:verified?'claimed':claimable?'claimable':'not_confirmed',
+           activityState:verified?'claimed':claimable?'client_required':'not_confirmed',
           activityCheckedAt:now(),
           activityTaskCount:Math.min(additionalTasks.length,99),
-          activityTaskExecutionState:extra.some(x=>!x.claimed)?
-            'official_completed_reward_only':additionalTasks.length?
-              'requires_verified_executor':'none',
+           activityTaskExecutionState:additionalTasks.length?'requires_verified_executor':'none',
           benefits:extra.map(rewardOffer).slice(0,40),benefitsCheckedAt:now(),
-          ...(verified||claimable?{checkinDate:date,
-            checkinOutcome:verified?'already':'claimable'}:{})});
+           checkinDate:verified||claimable?date:null,
+           checkinOutcome:verified?'already':claimable?'client_required':null});
       }else{
         const prior=publicStatus.get(account.id)??{};
-        publicStatus.set(account.id,{...prior,activityState:'not_offered',activityCheckedAt:now()});
+         publicStatus.set(account.id,{...prior,activityState:'not_offered',activityCheckedAt:now(),checkinDate:null,checkinOutcome:null});
       }
     }catch{
       const prior=publicStatus.get(account.id)??{};
-      publicStatus.set(account.id,{...prior,activityState:'unavailable'});
+       publicStatus.set(account.id,{...prior,activityState:'unavailable',checkinDate:null,checkinOutcome:null});
     }
      return {state:'online',authVerified:true,checkedAt:now(),
        message:'豆包官方身份、会员额度及活动状态已执行独立只读刷新'};
@@ -340,7 +338,7 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
    catch{return {state:'unavailable',confirmed:0,pending:0,eligible:0}}
    let discovered;try{discovered=await discoverExtra(cookie)}
    catch{return {state:'unavailable',confirmed:0,pending:0,eligible:0}}
-   let confirmed=0,pending=0,skipped=0;
+    let confirmed=0;
    const eligible=discovered.offers.filter(x=>!x.claimed);
    // Uncertain old POSTs are never reissued. Status + wallet proofs can
    // reconcile those receipts later with no further write to the campaign.
@@ -352,46 +350,20 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
      const wallet=await grantWallet(cookie);
      if(!Number.isFinite(wallet)||Math.abs(wallet-receipt.baselineBalance-item.credit)>0.000001)
        continue;
-     try{await onObserved?.(offer,'confirmed',{
-       credit:item.credit,proof:'official_wallet_delta',verifiedAt:now()})}catch{}
+      try{await onObserved?.(offer,'confirmed',{
+        credit:item.credit,proof:'official_wallet_delta',verifiedAt:now()});confirmed++}catch{}
    }
-   for(const item of eligible){
-     const offer=rewardOffer(item);
-     let receipt=null;try{receipt=await previousReceipt?.(offer)}catch{}
-     if(receipt){skipped++;continue}
-     const before=await grantWallet(cookie);
-     if(!Number.isFinite(before)){skipped++;continue}
-     let approved=false;
-     try{approved=await beforeClaim?.(offer,{baselineBalance:before})===true}catch{}
-     if(!approved){skipped++;continue}
-     let state='pending_confirmation',meta={};
-     try{
-       await claimCompletedDoubaoReward(cookie,discovered.group,item.code,
-         withFetch({timeoutMs:12000}));
-       const latest=await discoverExtra(cookie);
-       const after=await grantWallet(cookie);
-       const verified=latest.offers.some(row=>row.code===item.code
-         &&row.group===item.group&&row.claimed&&row.credit===item.credit);
-       if(verified&&Number.isFinite(after)
-         &&Math.abs(after-before-item.credit)<0.000001){
-         state='confirmed';confirmed++;
-         meta={credit:item.credit,proof:'official_wallet_delta',verifiedAt:now()};
-       }else pending++;
-     }catch{pending++}
-     try{await onOutcome?.(offer,state,meta)}catch{}
-     if(state!=='confirmed')break;
-   }
-   // Only sanitized public data enters account snapshot; private task IDs
-   // never leave this driver or persist to activity receipt journal.
-   try{const latest=await discoverExtra(cookie),old=publicStatus.get(account.id)??{};
-     publicStatus.set(account.id,{...old,
-       benefits:latest.offers.map(rewardOffer).slice(0,40),benefitsCheckedAt:now(),
-       activityTaskCount:latest.offers.filter(x=>!x.claimed).length,
-       activityTaskExecutionState:'official_completed_reward_only'})}catch{}
-   return {state:pending?'pending_confirmation':confirmed?'confirmed':
-     eligible.length?'skipped':'no_task',
-     confirmed,pending,skipped,eligible:eligible.length};
- }
+    // The current official incentive rules restrict participation to the
+    // official desktop clients. Never use an undocumented claim route.
+    // Retain read-only discovery and reconcile previously issued receipts.
+    const old=publicStatus.get(account.id)??{};
+    publicStatus.set(account.id,{...old,
+      benefits:discovered.offers.map(rewardOffer).slice(0,40),benefitsCheckedAt:now(),
+      activityTaskCount:eligible.length,activityTaskExecutionState:'requires_verified_executor'});
+    return {state:eligible.length?'client_required':confirmed?'confirmed':'no_task',
+      confirmed,pending:0,skipped:eligible.length,eligible:eligible.length,
+      ...(eligible.length?{diagnosticCode:'DOUBAO_OFFICIAL_CLIENT'}:{})};
+  }
  async function checkIn({account,date}={}){
   const cookie=await secret(account);
   try{
@@ -403,25 +375,13 @@ export function createDoubaoDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
    if(!task)return {state:'no_task',message:'官方活动未列出今日签到任务'};
    if(task.checkedInToday===true)return {confirmed:true,date,
      message:'官方任务列表已确认今日签到'};
-    if(task.checkedInToday!==false)
-      return {state:'pending_confirmation',message:'官方没有明确报告今日未领取，禁止重复发送签到'};
-    // A submitted request may consume one activity chance even on rejection.
-    try{await claimCheckin(cookie,group,withFetch({timeoutMs:12000}))}
-    catch(error){
-      if(errorCode(error)==='710010702'||errorCode(error)==='710022004')
-        return {state:'client_required',message:'官方要求在网页完成活动确认，不自动重发或跳过验证'};
-      return {state:'pending_confirmation',message:'豆包网页版领取请求未确认，停止自动重复领取'};
-    }
-   for(const delayMs of [0,2000,4000]){
-    if(delayMs)await sleepMs(delayMs);
-    try{
-     const latest=await fetchCampaignDetail(cookie,group,withFetch({timeoutMs:12000}));
-     if(findDailyCheckin(latest.tasks||[])?.checkedInToday===true)
-      return {confirmed:true,date,message:'豆包网页版活动已回查确认今日签到'};
-    }catch{/* An inaccessible status endpoint cannot prove a reward. */}
-   }
-   return {state:'pending_confirmation',message:'豆包网页版已提交领取，官方活动详情尚未确认'};
-  }catch{return {state:'pending_confirmation',message:'豆包签到状态无法核验，不视为签到成功'}}
+     if(task.checkedInToday!==false)
+       return {state:'failed',diagnosticCode:'ELIGIBILITY_UNKNOWN',message:'官方签到资格未明确'};
+     // Do not consume a daily claim attempt through an unsupported web
+     // mutation. The PC incentive rules explicitly restrict participation.
+     return {state:'client_required',diagnosticCode:'DOUBAO_OFFICIAL_CLIENT',
+       message:'请在官方豆包电脑版或豆包工作电脑版完成活动；插件只读回查'};
+   }catch{return {state:'failed',diagnosticCode:'STATUS_UNAVAILABLE',message:'豆包签到状态无法核验'}}
  }
  async function rollbackCandidate({account}={}){
   const match=REF.exec(String(account?.credentialRef??''));

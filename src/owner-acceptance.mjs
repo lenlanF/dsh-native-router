@@ -40,7 +40,7 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
       }catch{report.catalog.push({providerId,state:'unavailable',modelCount:0,freeCount:0})}
      }
     }else if(report.mode==='channel-activity'||report.mode==='all-channel-activity'){
-     const keys=['attempted','confirmedSignins','newlyCreditedRewards','pendingAccounts','failedAccounts','noTaskAccounts'];
+     const keys=['attempted','confirmedSignins','newlyCreditedRewards','pendingAccounts','failedAccounts','noTaskAccounts','clientRequiredAccounts'];
      const selected=report.mode==='channel-activity'?[report.channel]:job.channels;
      if(report.mode==='all-channel-activity'){
        report.activityChannels=[];

@@ -61827,6 +61827,7 @@ async function fetchCheckinStatus(credential, product, fetcher = sanitizingFetch
   const data = body.data;
   if (typeof data !== "object" || data === null) return null;
   const record = data;
+  if (typeof record.active !== "boolean" || typeof record.today_checked_in !== "boolean") return null;
   return {
     active: readBool(record, "active"),
     todayCheckedIn: readBool(record, "today_checked_in"),
@@ -63132,6 +63133,7 @@ async function fetchQoderCheckinStatus(credential, product, fetcher = sanitizing
 async function fetchLobsteraiCheckinStatus(credential, product, clientVersion, fetcher = sanitizingFetch) {
   const slot2 = await fetchLobsteraiActivitySlot(credential, product, clientVersion, fetcher);
   if (slot2 === null) return { diagnosticCode: "LOBSTER_SLOT_READ" };
+  if (slot2.diagnosticCode) return { diagnosticCode: slot2.diagnosticCode };
   if (!slot2.slotState || slot2.slotState === "available" && !slot2.activityCode) return { diagnosticCode: "LOBSTER_SLOT_SHAPE" };
   if (slot2.slotState !== "available" || slot2.activityCode.length === 0) {
     return { active: false, todayCheckedIn: false, todayCredit: 0, slotState: slot2.slotState };
@@ -63382,27 +63384,21 @@ async function requestJson2(url, credential, product, fetcher, init = { method: 
       ...init.body === void 0 ? {} : { body: init.body },
       signal: AbortSignal.timeout(LOBSTERAI_REQUEST_TIMEOUT_MS)
     });
+    if (!response.ok) return { ok: false, diagnosticCode: response.status === 401 || response.status === 403 ? "LOBSTER_SLOT_AUTH" : response.status === 429 ? "LOBSTER_SLOT_LIMIT" : response.status === 404 || response.status === 410 ? "LOBSTER_SLOT_ENDPOINT" : "LOBSTER_SLOT_HTTP", message: "Official activity HTTP failure" };
     const text = await response.text();
     let parsed;
     try {
       parsed = JSON.parse(text);
     } catch {
-      return { ok: false, message: describeNonJsonResponse2(response.status, text) };
+      return { ok: false, diagnosticCode: "LOBSTER_SLOT_RESPONSE", message: "Invalid official response" };
     }
     if (typeof parsed !== "object" || parsed === null) {
-      return { ok: false, message: UNPARSABLE_RESPONSE_MESSAGE2 };
+      return { ok: false, diagnosticCode: "LOBSTER_SLOT_RESPONSE", message: UNPARSABLE_RESPONSE_MESSAGE2 };
     }
     return { ok: true, body: parsed };
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    return { ok: false, diagnosticCode: "LOBSTER_SLOT_TRANSPORT", message: "Official activity transport failure" };
   }
-}
-function describeNonJsonResponse2(status, text) {
-  if (status === 401 || status === 403) {
-    return `\u51ED\u636E\u5DF2\u5931\u6548\uFF08HTTP ${status}\uFF09\uFF0C\u8BF7\u91CD\u65B0\u767B\u5F55\u8BE5\u8D26\u53F7`;
-  }
-  const snippet = text.trim().slice(0, 80).replace(/\s+/g, " ");
-  return `\u670D\u52A1\u7AEF\u8FD4\u56DE\u4E86\u975E JSON \u54CD\u5E94\uFF08HTTP ${status}\uFF09\uFF1A${snippet}`;
 }
 function readNumber7(source, key) {
   const value = source[key];
@@ -63428,9 +63424,9 @@ async function fetchLobsteraiActivitySlot(credential, product, clientVersion, fe
     product,
     fetcher
   );
-  if (!result.ok) return null;
+  if (!result.ok) return { diagnosticCode: result.diagnosticCode || "LOBSTER_SLOT_READ" };
   const envelope = parseLobsteraiEnvelope(result.body);
-  if (!envelope.ok) return null;
+  if (!envelope.ok) return { diagnosticCode: "LOBSTER_SLOT_REJECTED" };
   const activity = typeof envelope.data.activity === "object" && envelope.data.activity !== null ? envelope.data.activity : {};
   const activityCode = typeof activity.activityCode === "string" ? activity.activityCode : "";
   return {
@@ -63457,6 +63453,7 @@ async function claimLobsteraiDailyCheckin(credential, product, clientVersion, fe
   if (slot2 === null) {
     return { kind: "failed", diagnosticCode: "LOBSTER_SLOT_READ", code: -1, message: "\u6D3B\u52A8\u69FD\u4F4D\u67E5\u8BE2\u5931\u8D25" };
   }
+  if (slot2.diagnosticCode) return { kind: "failed", diagnosticCode: slot2.diagnosticCode };
   if (slot2.slotState !== "available" || slot2.activityCode.length === 0) {
     return { kind: "inactive", message: `\u65E0\u53EF\u7528\u6D3B\u52A8\uFF08slotState=${slot2.slotState}\uFF09` };
   }

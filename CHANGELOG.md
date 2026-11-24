@@ -1,5 +1,12 @@
 # Change Log
 
+## 1.0.0-rc.115 — 官方活动契约与真实证据分类
+
+- Buddy 按官方 active / today_checked_in 明确布尔值决定每日活动资格，未知不提交；Loomy 同周期额度与钱包并发消耗交叉核验，缺证据时记录明确阶段。
+- LobsterAI 活动槽位读取区分授权、限流、入口缺失、HTTP、业务响应和连接异常，避免把错误响应当作无任务；不记录私密响应。
+- 豆包当前官方赠额活动限电脑版参与，插件停止不受支持的领取提交，保留独立账号、模型、额度及官方任务回查，历史未确认回执仍可核验；官方端待处理不再混入无任务统计。
+- 官方规则来源：https://lf3-cdn-tos.draftstatic.com/obj/ies-hotsoon-draft/incentive-campaign-rules/f7f2c423-c770-44e7-9be4-bd67a28f074e.html
+
 ## 1.0.0-rc.114 — 真实后台验收缺陷修复
 
 - Amazon Quick 精确自有账号绑定纳入统一所有权校验。

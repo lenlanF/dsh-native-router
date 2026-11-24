@@ -29,7 +29,7 @@ export function summarizeChannelExecution({before=[],after=[],results=[],today,s
   const afterMap=new Map(after.filter(row=>typeof row?.id==='string')
     .map(row=>[row.id,row]));
   let confirmedSignins=0,newlyCreditedRewards=0,pendingAccounts=0,
-    failedAccounts=0,noTaskAccounts=0;
+    failedAccounts=0,noTaskAccounts=0,clientRequiredAccounts=0;
   const seen=new Set();
   for(const result of results){
     if(typeof result?.accountId!=='string'||seen.has(result.accountId))continue;
@@ -45,10 +45,11 @@ export function summarizeChannelExecution({before=[],after=[],results=[],today,s
     else if(['failed','unavailable','account_changed','blocked'].includes(state)
       ||['failed','unavailable','blocked'].includes(result.activities?.state))
       failedAccounts++;
-    else if(['no_task','client_required','unsupported','disabled'].includes(state))
+    else if(state==='client_required'||result.activities?.state==='client_required')clientRequiredAccounts++;
+    else if(['no_task','unsupported','disabled'].includes(state))
       noTaskAccounts++;
   }
   return {attempted:results.length,confirmedSignins,newlyCreditedRewards,
-    pendingAccounts,failedAccounts,noTaskAccounts,
+    pendingAccounts,failedAccounts,noTaskAccounts,clientRequiredAccounts,
     verification:'official-receipt-only'};
 }
