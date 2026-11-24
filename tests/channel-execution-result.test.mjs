@@ -52,6 +52,18 @@ test('only official raccoon daily bill counts, and unknown/failure remain separa
   assert.equal(result.failedAccounts,1);
 });
 
+test('historical wallet receipts appearing after a refresh do not count as new activity',()=>{
+ const before=account({providerId:'own_loomy',benefits:[]});
+ const after=account({providerId:'own_loomy',benefits:[gift(),{...gift(),kind:'new',rewardVerifiedAt:stamp+2000}]});
+ const result=summarizeChannelExecution({before:[before],after:[after],
+ results:[{accountId:'one',record:{state:'pending_confirmation'}}],today:day,startedAt:stamp+1000});
+ assert.equal(result.newlyCreditedRewards,1);
+ assert.equal(result.pendingAccounts,1);
+ const historicalOnly=summarizeChannelExecution({before:[before],after:[{...after,benefits:[gift()]}],
+ results:[{accountId:'one',record:{state:'pending_confirmation'}}],today:day,startedAt:stamp+1000});
+ assert.equal(historicalOnly.newlyCreditedRewards,0);
+});
+
 test('a zero-result channel never claims execution or rewards',()=>{
   const result=summarizeChannelExecution({results:[],today:day});
   assert.deepEqual(result,{attempted:0,confirmedSignins:0,

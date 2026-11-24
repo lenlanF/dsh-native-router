@@ -91,7 +91,7 @@ const removeFixture=router.registerNativeChannelDriver(fixtureProvider,{
  listModels:async()=>[{id:'fixture-free',name:'Fixture · x0.00'}],
  generate:async({account,model,options})=>{
    assert.equal(account.id,fixtureId);assert.equal(model,'fixture-free');
-   assert.equal(options.maxTokens,32);fixtureGenerations++;
+   assert.equal(options.maxTokens,128);fixtureGenerations++;
    return {text:'OK',finishReason:'stop',toolCalls:[]};
  },
  checkIn:async({account,date})=>{

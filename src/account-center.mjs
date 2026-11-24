@@ -426,7 +426,8 @@ export function createAccountCenter({
      generationStarted=true;
      const reply=await Promise.race([driver.generate({account,provider,model:chosen.id,
      options:{messages:[{role:'user',content:[{type:'text',text:'请只回复 OK'}]}],
-      maxTokens:provider.id==='own_loomy'&&chosen.id==='spark-x2.6'?128:32,
+      maxTokens:(provider.id==='own_loomy'&&chosen.id==='spark-x2.6')||
+        (officialOnly&&['own_workbuddy-cn','own_workbuddy-global'].includes(provider.id))?128:32,
       sessionId:'native-router-test-'+id},signal:controller.signal}),cancelled]);    if(reply?.finishReason!=='stop'||typeof reply?.text!=='string'||!reply.text.trim()
       ||(Array.isArray(reply.toolCalls)&&reply.toolCalls.length))
      throw Object.assign(new Error('Model reply was incomplete'),{
