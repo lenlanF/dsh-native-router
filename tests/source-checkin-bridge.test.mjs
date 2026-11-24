@@ -10,23 +10,23 @@ const env={DSH_NATIVE_ROUTER_CHANNEL_PACK_ENABLE:'1',
  DSH_NATIVE_ROUTER_CHANNEL_PACK_ISOLATED_PROFILE:'1',
  DSH_HOME:home,DSH_CHANNEL_PACK_STATE_DIR:home};
 const spin=()=>new Promise(resolve=>setImmediate(resolve));
-async function fixture({initialChecked=false,afterChecked=true,available=true,enabled=true}={}){
+async function fixture({initialChecked=false,afterChecked=true,available=true,enabled=true,providerId='qoder',statusOverride={},outcomeKind='claimed'}={}){
  let active=false,claimed=false;
  const calls=[];
  const pool={async listAllAccounts(){return [
-  {id:'acct-a',provider:'qoder',enabled:true},
-  {id:'acct-b',provider:'qoder',enabled},
+  {id:'acct-a',provider:providerId,enabled:true},
+  {id:'acct-b',provider:providerId,enabled},
  ]}};
  const ops={
   async status(provider,accountId){
    calls.push('status:'+provider+':'+accountId);
    return {ok:true,value:{accounts:[{accountId,status:{available,
-     active:true,todayCheckedIn:claimed?afterChecked:initialChecked}}]}};
+     active:true,...statusOverride,todayCheckedIn:claimed?afterChecked:initialChecked}}]}};
   },
   async claim(provider,accountId){
    calls.push('claim:'+provider+':'+accountId);
    claimed=true;
-   return {ok:true,value:{results:[{accountId,outcome:{kind:'claimed',credit:5}}]}};
+   return {ok:true,value:{results:[{accountId,outcome:{kind:outcomeKind,credit:5}}]}};
   },
  };
  const scope={get(key,strict){
@@ -86,3 +86,29 @@ test('already-checked-in account is not claimed twice; disabled/unsupported acco
  assert.equal(disabled.calls.length,0);
  disabled.bridge.dispose();
 });
+for(const providerId of ['loomy','codearts']){
+ test(providerId+' signed claimable flag permits official daily task and confirms afterwards',async()=>{
+  const f=await fixture({providerId,available:undefined,statusOverride:{available:undefined,claimable:true},outcomeKind:'already-claimed'});
+  const result=await f.bridge.checkinAccount({providerId,sourceAccountId:'acct-b'});
+  assert.equal(result.confirmed,true);
+  assert.deepEqual(f.calls,[`status:${providerId}:acct-b`,`claim:${providerId}:acct-b`,`status:${providerId}:acct-b`]);
+  f.bridge.dispose();
+ });
+ test(providerId+' explicit inactive daily task does not send claim or count failure',async()=>{
+  const f=await fixture({providerId,statusOverride:{active:false,claimable:false,available:undefined}});
+  const result=await f.bridge.checkinAccount({providerId,sourceAccountId:'acct-b'});
+  assert.equal(result.state,'no_task');
+  assert.equal(result.claimPosted,false);
+  assert.equal(f.calls.length,1);f.bridge.dispose();
+ });
+ test(providerId+' contradictory or missing signed eligibility blocks submission',async()=>{
+  const f=await fixture({providerId,statusOverride:{claimable:false,available:true}});
+  const result=await f.bridge.checkinAccount({providerId,sourceAccountId:'acct-b'});
+  assert.notEqual(result.confirmed,true);assert.equal(f.calls.length,1);f.bridge.dispose();
+ });
+ test(providerId+' already-claimed without official confirmation remains pending',async()=>{
+  const f=await fixture({providerId,statusOverride:{available:undefined,claimable:true},outcomeKind:'already-claimed',afterChecked:false});
+  const result=await f.bridge.checkinAccount({providerId,sourceAccountId:'acct-b'});
+  assert.equal(result.state,'pending_confirmation');assert.equal(f.calls.length,3);f.bridge.dispose();
+ });
+}

@@ -1,6 +1,8 @@
 # DSH Native Router｜聚合路由
 
-**当前开发候选：1.0.0-rc.104。** 官方已确认签到自动回查并持久化，避免待确认后重复领取；恢复豆包百分比额度及 MiMo 官方恢复时间，区分历史额度与最新读取。详见 docs/RC104_OFFICIAL_SIGNIN_RECONCILIATION.md。
+**当前开发候选：1.0.0-rc.105。** 修复 Loomy / CodeArts 官方每日任务资格字段和 already-claimed 回执映射；严格保留官方同日状态回查与无任务判定，不重复领取。
+
+**此前版本：1.0.0-rc.104。** 官方已确认签到自动回查并持久化，避免待确认后重复领取；恢复豆包百分比额度及 MiMo 官方恢复时间，区分历史额度与最新读取。详见 docs/RC104_OFFICIAL_SIGNIN_RECONCILIATION.md。
 
 **此前版本：1.0.0-rc.103。** 正常聚合路由完整回复持久化到精确自有账号的推理证据，失败切换隔离各账号，旧版鉴权缓存缺观测时一次补齐；新增使用 DSH 官方授权链接、无浏览器的后台验收 CLI。详见 docs/RC103_ROUTED_EVIDENCE.md。
 
