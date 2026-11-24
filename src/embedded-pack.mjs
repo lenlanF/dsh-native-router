@@ -717,26 +717,26 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
           &&before?.claimable===false&&before?.todayCheckedIn===false)
           return {state:'no_task',claimPosted:false,
             message:'官方确认本账号当前没有可领取的每日任务'};
-        return {state:'failed',message:'官方尚未确认本账号有可领取计划，未发送领取请求'};
+         return {state:'failed',diagnosticCode:before?.diagnosticCode??(before?'ELIGIBILITY_UNKNOWN':'STATUS_UNAVAILABLE'),message:'官方尚未确认本账号有可领取计划，未发送领取请求'};
       }
       const claim=await ops.claim(providerId,sourceAccountId);    if(scope!==mountedScope())return {state:'unavailable'};
     const outcomes=claim?.ok===true&&Array.isArray(claim.value?.results)
       ?claim.value.results.filter(row=>row?.accountId===sourceAccountId):[];
-    if(outcomes.length===0)return {state:'failed',message:'上游未提供指定账号的签到回执'};
+     if(outcomes.length===0)return {state:'failed',diagnosticCode:'CLAIM_RECEIPT_MISSING',message:'上游未提供指定账号的签到回执'};
     // ZCode may demand the app's security challenge (vendor code 3007).
     // That is NOT a submitted or accepted plan. Never retry the POST until
     // the exact account completes its own authorized verification.
     if(outcomes.some(row=>row?.outcome?.kind==='captcha'))
       return {state:'client_required',message:'ZCode 官方要求在客户端完成验证码；未证明赠送到账'};
     if(outcomes.some(row=>row?.outcome?.kind==='failed'))
-      return {state:'failed',message:'上游签到未成功，等待下次人工或定时重试'};
+       return {state:'failed',diagnosticCode:outcomes.find(row=>row?.outcome?.kind==='failed')?.outcome?.diagnosticCode??'CLAIM_REJECTED',message:'上游签到未成功，等待下次人工或定时重试'};
     if(outcomes.every(row=>['inactive','ineligible'].includes(row?.outcome?.kind)))
       // This result followed a real claim POST, unlike a read-only empty card.
       // It MUST count against the bounded automatic submission attempts.
       return {state:'no_task',claimPosted:true,
         message:'来源活动当前无可领取的赠送计划；本次领取请求已经提交'};
     if(outcomes.some(row=>!['claimed','done','already','already-claimed'].includes(row?.outcome?.kind)))
-      return {state:'failed',message:'上游领取状态未知，不能冒称已受理'};
+       return {state:'failed',diagnosticCode:'CLAIM_STATUS_UNKNOWN',message:'上游领取状态未知，不能冒称已受理'};
     // Claim response is NOT success: some upstream APIs report a successful
     // request without actually checking in. A fresh same-day status is required.
     const after=exactStatus(await ops.status(providerId,sourceAccountId));

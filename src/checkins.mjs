@@ -5,7 +5,7 @@ import {createSourceCheckinCenter} from './source-checkins.mjs';
 import {createActivityClaimStore} from './activity-claims.mjs';
 import {checkinDisplayState,expiredCheckinConfirmation} from './account-facts.mjs';
 import {checkinGroups,latestConfirmedDate} from './checkin-summary.mjs';
-import {publicCheckinMessage,publicAccountFailureMessage} from './public-diagnostics.mjs';
+import {publicCheckinMessage,publicAccountFailureMessage,safeCheckinDiagnostic} from './public-diagnostics.mjs';
 
 import {retryAtomicRename} from './retry-atomic-rename.mjs';
 import {summarizeChannelExecution} from './channel-execution-result.mjs';
@@ -241,7 +241,7 @@ export function createCheckinCenter({configStore,accountCenter,store=createCheck
       historyBlocked:store.blocked===true,historyError:store.error??null,
       runAt:cfg.checkin.runAt,groups,accounts,
         history:history.slice(-80).reverse().map(item=>({...item,
-          message:publicCheckinMessage(item.state)}))};  }
+           diagnosticCode:safeCheckinDiagnostic(item.diagnosticCode),message:publicCheckinMessage(item.state,item.diagnosticCode)}))};  }
    async function run(accountId,{source='manual'}={}){
      if(sourceCenter&&!sourceCenter.has(accountId))await sourceCenter.refresh();
      if(sourceCenter?.has(accountId))return sourceCenter.run(accountId,{source});

@@ -78,6 +78,20 @@ test('source sign-in receipt and persisted history never store upstream credenti
  h.center.stop();
 });
 
+test('source check-in preserves only allowlisted failure stage, not vendor error text',async()=>{
+ for(const diagnosticCode of ['LOBSTER_CONTEXT_READ','PRIVATE_SOURCE_TOKEN']){
+  const h=fixture({rows:[row('lobsterai')],enabled:false,handler:async()=>({state:'failed',diagnosticCode,message:'PRIVATE_SOURCE_TOKEN'})});
+  try{
+   await h.center.refreshSources();
+   const result=await h.center.run(sourceAccountOpaqueId('lobsterai','acct-1'));
+   assert.equal(result.record.state,'failed');
+   assert.equal(result.record.diagnosticCode,diagnosticCode==='LOBSTER_CONTEXT_READ'?diagnosticCode:undefined);
+   assert.doesNotMatch(JSON.stringify(h.records),/PRIVATE_SOURCE_TOKEN/);
+   if(diagnosticCode==='LOBSTER_CONTEXT_READ')assert.match(result.record.message,/活动上下文读取失败/);
+  }finally{h.center.stop()}
+ }
+});
+
 test('legacy source history with private upstream text is redacted in every account and history view',async()=>{
  const h=fixture({enabled:false,rows:[row('loomy','legacy')]});
  const id=sourceAccountOpaqueId('loomy','legacy');
