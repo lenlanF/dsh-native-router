@@ -1,6 +1,6 @@
 // Owner-authenticated, in-process acceptance jobs. No external service,
 // foreground window, persisted config edits, or raw account data in reports.
-const modes=new Set(['inventory','free-models','channel-activity','all-channel-activity']);
+const modes=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity']);
 const channelKey=id=>String(id||'').replace(/^own_/,'');
 const channelPattern=/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
 const requestPattern=/^[a-f0-9]{32}$/;
@@ -9,11 +9,11 @@ const stateOf=value=>stateSet.has(value)?value:'unavailable';
 const safeCode=value=>typeof value==='string'&&/^[A-Z][A-Z0-9_]{0,47}$/.test(value)?value:undefined;
 const count=v=>Number.isSafeInteger(v)&&v>=0&&v<=10000?v:0;
 function reject(message,status=400){throw Object.assign(Error(message),{status})}
-export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,now=()=>Date.now()}={}){
+export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,ownedDirectory,now=()=>Date.now()}={}){
  let active=null,latest=null,disposed=false;
  const jobs=new Map();
  const output=job=>job?structuredClone(job.report):{state:'idle'};
- function snapshot(){return output(latest)}
+ function snapshot(requestId){return output(requestId===undefined?latest:jobs.get(requestId))}
  function currentBinding(account){
   const cfg=configStore.get();
   return cfg.accounts.some(x=>x.id===account.id&&x.providerId===account.providerId
@@ -28,7 +28,18 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,n
  async function run(job,targets){
   const report=job.report,stopped=()=>disposed||job.controller.signal.aborted;
   try{
-   if(report.mode==='channel-activity'||report.mode==='all-channel-activity'){
+    if(report.mode==='catalog'){
+     report.catalog=[];
+     for(const providerId of job.channels){
+      if(stopped())break;
+      try{
+       const result=await ownedDirectory.listModels(providerId);
+       const models=Array.isArray(result?.models)?result.models:[];
+       report.catalog.push({providerId,state:result?.state==='ready'&&models.length?'ready':'unavailable',modelCount:count(models.length),
+        freeCount:count(models.filter(x=>x.isFree===true||x.free===true).length)});
+      }catch{report.catalog.push({providerId,state:'unavailable',modelCount:0,freeCount:0})}
+     }
+    }else if(report.mode==='channel-activity'||report.mode==='all-channel-activity'){
      const keys=['attempted','confirmedSignins','newlyCreditedRewards','pendingAccounts','failedAccounts','noTaskAccounts'];
      const selected=report.mode==='channel-activity'?[report.channel]:job.channels;
      if(report.mode==='all-channel-activity'){
@@ -118,11 +129,11 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,n
   const cfg=configStore.get();
   const targets=cfg.accounts.filter(a=>(!selected||channelKey(a.providerId)===selected)&&eligible(a));
   const activityMode=mode==='channel-activity'||mode==='all-channel-activity';
-  if(!activityMode&&targets.length>16)reject('Select a narrower channel (maximum 16 accounts)',400);
+   if(!activityMode&&mode!=='catalog'&&targets.length>16)reject('Select a narrower channel (maximum 16 accounts)',400);
   const activityRows=activityMode?(checkinCenter.snapshot?.().accounts??[]).filter(a=>
     a.enabled===true&&(a.checkinSupported===true||a.activitiesSupported===true)
     &&channelPattern.test(channelKey(a.providerId))&&(!selected||channelKey(a.providerId)===selected)):[];
-  const channels=[...new Set(activityRows.map(a=>channelKey(a.providerId)))].sort();
+   const channels=mode==='catalog'?(ownedDirectory?.providers()??[]).filter(p=>p.family==='native-router-owned'&&p.loginVerified===true&&channelPattern.test(p.providerId)&&(!selected||channelKey(p.providerId)===selected)).map(p=>p.providerId):[...new Set(activityRows.map(a=>channelKey(a.providerId)))].sort();
   if(activityMode&&!channels.length)reject('No enabled activity executor for selected channel',409);
   if(channels.length>32||activityRows.length>128||channels.some(id=>activityRows.filter(a=>channelKey(a.providerId)===id).length>32))
     reject('Activity scope exceeds safe job bound; select a narrower channel',400);

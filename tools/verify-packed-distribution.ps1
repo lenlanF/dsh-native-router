@@ -29,6 +29,7 @@ import {WebServer} from '@deepseek-ai/dsh-host-webserver';
 import * as Connection from '@deepseek-ai/dsh-client-connection';
 import * as router from 'dsh-native-router';
 import {requestOwnerAcceptance} from 'dsh-native-router/owner-acceptance-cli';
+import {enableLocalOwnerJobs,revokeLocalOwnerJobs,submitLocalOwnerJob,readLocalOwnerReport} from 'dsh-native-router/local-owner-jobs';
 
 assert.ok(process.env.DSH_HOME?.startsWith('E:\\Temp\\dsh-native-router-isolated-packed-'));
 assert.equal(router.name,'dsh-native-router');
@@ -166,6 +167,24 @@ try{
  assert.equal(inventory.accounts[0].connection,'online');
  assert.equal(inventory.accounts[0].freeCandidates,1);
  assert.equal(inventory.accounts[0].hasBalance,true);
+ const localDir=join(process.env.DSH_HOME,'plugins','dsh-native-router','owner-jobs-v1');
+ assert.equal(existsSync(localDir),false,'Local delegation disabled by default');
+ enableLocalOwnerJobs(localDir,{consent:true});
+ try{
+  const local=submitLocalOwnerJob(localDir,{mode:'catalog',consent:true});
+  let localReport;
+  for(let i=0;i<90;i++){
+   localReport=readLocalOwnerReport(localDir,local.requestId);
+   if(localReport.state==='complete'||localReport.state==='failed')break;
+   await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  assert.equal(localReport.state,'complete','actual packed host must execute local catalog job');
+  assert.equal(localReport.catalog.length,1);
+  assert.equal(localReport.catalog[0].providerId,fixtureProvider);
+  assert.ok(localReport.catalog[0].modelCount>0);
+  assert.equal(ports.length,1);
+ }finally{revokeLocalOwnerJobs(localDir)}
+
  assert.doesNotMatch(JSON.stringify(inventory),/Synthetic account|wbp_/);
  assert.equal(fixtureGenerations,0);assert.equal(fixtureSignins,0);
  const inference=await runAcceptance('free-models','c'.repeat(32));

@@ -1,12 +1,13 @@
 {
   "name": "dsh-native-router",
-  "version": "1.0.0-rc.112", "private": false, "type": "module", "license": "MIT", "engines": {"node": ">=22.10.0"}, "keywords": ["deepseek-harness", "dsh", "cordis", "model-routing", "autofree", "model-pool", "failover"], "description": "Native DSH provider reuse, independent login, dynamic free model pool, manual model chains, and agent failover", "main": "./src/index.mjs", "exports": {
+  "version": "1.0.0-rc.113", "private": false, "type": "module", "license": "MIT", "engines": {"node": ">=22.10.0"}, "keywords": ["deepseek-harness", "dsh", "cordis", "model-routing", "autofree", "model-pool", "failover"], "description": "Native DSH provider reuse, independent login, dynamic free model pool, manual model chains, and agent failover", "main": "./src/index.mjs", "exports": {
     ".": "./src/index.mjs",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json",
     "./client": "./client.js",
     "./drivers": "./src/driver-registry.mjs",
-    "./owner-acceptance-cli": "./tools/owner-acceptance-cli.mjs"
+    "./owner-acceptance-cli": "./tools/owner-acceptance-cli.mjs",
+    "./local-owner-jobs": "./src/local-owner-jobs.mjs"
   },
   "files": [
     "src",
@@ -32,6 +33,8 @@
     "docs/MEOO_QWENWORK_NATIVE.md",
     "docs/RC83_ACCOUNT_HYDRATION.md",
     "tools/owner-acceptance-cli.mjs",
+    "tools/local-owner-jobs-cli.mjs",
+    "docs/RC113_LOCAL_OWNER_JOBS.md",
     "docs/RC104_OFFICIAL_SIGNIN_RECONCILIATION.md",
     "docs/RC103_ROUTED_EVIDENCE.md",
     "docs/RC102_HEADLESS_EVIDENCE.md",
