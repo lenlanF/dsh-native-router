@@ -233,10 +233,10 @@ test('Raccoon uncertain login bonus never retries POST; existing daily grant doe
 test('Raccoon vendor false-after-/tasks-error cannot trigger a new one-shot POST or settle reward',async()=>{
  const pool={listAllAccounts:async()=>[{id:'racc-unknown',provider:'raccoon',
   enabled:true,credentialRef:'RACC_UNKNOWN'}]};
- let called=0;const ops={
-  status:async(_provider,id)=>({ok:true,value:{accounts:[{accountId:id??'racc-unknown',
-   status:{active:true,todayCheckedIn:false,loginRewardPending:false,
-    dailyGranted:false,webTriggered:true}}]}}),
+ let called=0,dailyTriggers=0,dailyGranted=false;const ops={
+   status:async(_provider,id)=>({ok:true,value:{accounts:[{accountId:id??'racc-unknown',
+    status:{active:true,todayCheckedIn:dailyGranted,loginRewardPending:false,
+     dailyGranted,webTriggered:true,todayCredit:dailyGranted?100:0}}]}}),
   claim:async()=>{called++;throw Error('claim must be impossible')}
  };
  let livePool;
@@ -244,7 +244,8 @@ test('Raccoon vendor false-after-/tasks-error cannot trigger a new one-shot POST
   get:k=>k==='accountPool'?livePool:k==='nativeRouterSourceCheckins'?ops:undefined};
  const bridge=createEmbeddedChannelPack({ctx:{inject(_names,cb){cb(scope)}},
   getConfig:enabled,env:isolatedEnv,
-  raccoonTaskVerifier:async()=>({state:'unavailable'}),
+   raccoonTaskVerifier:async()=>({state:'unavailable'}),
+   raccoonDailyTrigger:async()=>{dailyTriggers++;dailyGranted=true;return {state:'triggered'}},
   loadPack:async()=>({apply(){livePool=pool}})});
  bridge.attach();await tick();await tick();
  try{
@@ -254,8 +255,11 @@ test('Raccoon vendor false-after-/tasks-error cannot trigger a new one-shot POST
   assert.equal(read.accounts[0].loginRewardTaskVerified,undefined);
   const out=await bridge.checkinAccount({providerId:'raccoon',
    sourceAccountId:'racc-unknown',beforeOneTimeClaim:()=>true});
-  assert.equal(out.state,'failed');
-  assert.equal(called,0,'never trust vendor default false when task GET failed');
+   assert.equal(out.confirmed,true);
+   assert.equal(out.loginRewardState,'unavailable');
+   assert.equal(out.activityRewardAmount,100);
+   assert.equal(dailyTriggers,1,'independent known daily GET may proceed');
+   assert.equal(called,0,'never trust vendor default false when task GET failed');
  }finally{bridge.dispose()}
 });
 

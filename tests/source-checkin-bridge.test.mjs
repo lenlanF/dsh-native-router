@@ -86,7 +86,7 @@ test('already-checked-in account is not claimed twice; disabled/unsupported acco
  assert.equal(disabled.calls.length,0);
  disabled.bridge.dispose();
 });
-for(const providerId of ['loomy','codearts']){
+for(const providerId of ['loomy','codearts','lobsterai']){
  test(providerId+' signed claimable flag permits official daily task and confirms afterwards',async()=>{
   const f=await fixture({providerId,available:undefined,statusOverride:{available:undefined,claimable:true},outcomeKind:'already-claimed'});
   const result=await f.bridge.checkinAccount({providerId,sourceAccountId:'acct-b'});
@@ -112,3 +112,16 @@ for(const providerId of ['loomy','codearts']){
   assert.equal(result.state,'pending_confirmation');assert.equal(f.calls.length,3);f.bridge.dispose();
  });
 }
+test('TRAE official enable and unchecked flags permit daily claim without available field',async()=>{
+ const f=await fixture({providerId:'trae',statusOverride:{available:undefined,active:true},outcomeKind:'claimed'});
+ try{const result=await f.bridge.checkinAccount({providerId:'trae',sourceAccountId:'acct-b'});
+ assert.equal(result.confirmed,true);assert.deepEqual(f.calls,['status:trae:acct-b','claim:trae:acct-b','status:trae:acct-b']);}finally{f.bridge.dispose()}
+});
+test('TRAE explicit negative availability blocks claims and inactive is no task',async()=>{
+ for(const statusOverride of [{active:true,available:false},{active:true,claimable:false,available:undefined},{active:false,available:undefined}]){
+ const f=await fixture({providerId:'trae',statusOverride});try{
+ const result=await f.bridge.checkinAccount({providerId:'trae',sourceAccountId:'acct-b'});
+ assert.notEqual(result.confirmed,true);assert.equal(f.calls.length,1);
+ if(statusOverride.active===false)assert.equal(result.state,'no_task');
+ }finally{f.bridge.dispose()}}
+});

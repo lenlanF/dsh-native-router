@@ -438,6 +438,12 @@ async function fetchZcodeClaimablePlans(credential,fetchImpl=sanitizingFetch){
             'case "' + method + '": {\n        const req = payload;\n        const accounts = await nativeRouterCreditAccounts(req);',
             'source-exact-account-' + method,
         ))
+    # TRAE must provide both official booleans, not inferred defaults.
+    patches.append((
+        'async function fetchTraeCheckinStatus(credential, _product, fetcher = sanitizingFetch) {\n  const result = await postJson3(TRAE_CHECKIN_STATUS_PATH, credential, "{}", fetcher, credential.uid);\n  if (!result.ok) return null;\n  const body = result.body;\n  const code = readClaimCode(body);\n  if (code !== 0) return null;',
+        'async function fetchTraeCheckinStatus(credential, _product, fetcher = sanitizingFetch) {\n  const result = await postJson3(TRAE_CHECKIN_STATUS_PATH, credential, "{}", fetcher, credential.uid);\n  if (!result.ok) return null;\n  const body = result.body;\n  const code = readClaimCode(body);\n  if (code !== 0 || typeof body.enable !== "boolean" || typeof body.checked_in !== "boolean") return null;',
+        'trae-explicit-official-daily-booleans',
+    ))
     names = []
     for old, new, name in patches:
         count = text.count(old)

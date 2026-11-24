@@ -627,10 +627,13 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
       // before any claim that could accidentally submit the one-time POST.
       const proof=await verifiedRaccoonTask(scope,sourceAccountId,matches[0]);
       if(scope!==mountedScope())return {state:'unavailable'};
-      if(proof.state==='unavailable')return current.todayCheckedIn===true?
-        {confirmed:true,loginRewardState:'unavailable',
-          message:'今日积分已到账；登录奖励资格查询不可用，未发送领取请求'}:
-        {state:'failed',message:'登录奖励资格查询不可用，禁止不确定的领取请求'};
+      // A failed one-time reward eligibility read must never allow its POST,
+      // but must not prevent a separately confirmed daily GET entitlement.
+      const loginUnknown=proof.state==='unavailable';
+      if(loginUnknown&&current.todayCheckedIn===true)return {
+        confirmed:true,loginRewardState:'unavailable',
+        message:'今日积分已到账；登录奖励资格查询不可用，未发送一次性领取请求'};
+
       if(proof.state==='pending'){
         // A missing approval callback is NOT consent to claim. If the
         // official service still says pending after a previous uncertain
@@ -677,7 +680,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
       const verified=await read();
       if(scope!==mountedScope())return {state:'unavailable'};
       if(verified?.todayCheckedIn===true)return {confirmed:true,
-        ...(loginConfirmed?{loginRewardState:'confirmed'}:{}),
+        ...(loginConfirmed?{loginRewardState:'confirmed'}:loginUnknown?{loginRewardState:'unavailable'}:{}),
         ...(Number.isFinite(verified.todayCredit)&&verified.todayCredit>0
           ?{activityRewardAmount:verified.todayCredit,activityRewardUnit:'积分'}:{}),
         message:'小浣熊每日免费积分已由官方账单确认'};
@@ -688,15 +691,19 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
     }
      if(upstreamCheckedInToday(before,today)===true)
        return {confirmed:true,message:'来源服务已确认今日签到'};
-      // Provider status contracts differ. CodeArts/Loomy expose claimable,
-      // not available. Never override a negative official eligibility flag.
-      const usesClaimable=['codearts','loomy','zcode'].includes(providerId);
+      // Match the pinned official provider contracts, not a generic field.
+      // TRAE explicitly reports an enabled, unchecked daily task; its
+      // upstream parser rejects missing booleans. LobsterAI uses claimable.
+      const usesClaimable=['codearts','loomy','lobsterai','zcode'].includes(providerId);
       const eligible=providerId==='zcode'
         ?before?.active===true&&before?.claimable===true
           &&Number.isInteger(before.planCount)&&before.planCount>0
-        :usesClaimable
-          ?before?.active===true&&before?.claimable===true&&before?.available!==false
-          :before?.active!==false&&before?.available===true&&before?.claimable!==false;
+        :providerId==='trae'
+          ?before?.active===true&&before?.todayCheckedIn===false
+            &&before?.available!==false&&before?.claimable!==false
+          :usesClaimable
+            ?before?.active===true&&before?.claimable===true&&before?.available!==false
+            :before?.active!==false&&before?.available===true&&before?.claimable!==false;
       if(before?.active===false)
         return {state:'no_task',claimPosted:false,
           message:'官方确认活动未开放或账号不适用，未发送领取请求'};
@@ -706,7 +713,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
           &&before?.claimable===false&&before?.planCount===0)
           return {state:'no_task',claimPosted:false,
             message:'官方当前没有可领取的 Start Plan；没有提交领取请求'};
-        if(['codearts','loomy'].includes(providerId)&&before?.active===true
+        if(['codearts','loomy','lobsterai'].includes(providerId)&&before?.active===true
           &&before?.claimable===false&&before?.todayCheckedIn===false)
           return {state:'no_task',claimPosted:false,
             message:'官方确认本账号当前没有可领取的每日任务'};

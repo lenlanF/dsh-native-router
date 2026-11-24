@@ -28,7 +28,7 @@ test('the DSH-native bundle is deterministically derived from unchanged pinned M
   const crlf=Buffer.from(original.toString('utf8').replace(/\n/g,'\r\n'),'utf8');
   assert.equal(sha(canonicalText(crlf)),sha(original));
  assert.equal(sha(bundled),native.generatedSha256);
-    assert.equal(native.patches.length,58);    assert.ok(native.patches.includes('loomy-sms-sender-requires-existing-owned-account'));
+    assert.equal(native.patches.length,59);assert.ok(native.patches.includes('trae-explicit-official-daily-booleans'));    assert.ok(native.patches.includes('loomy-sms-sender-requires-existing-owned-account'));
     assert.ok(native.patches.includes('loomy-sms-submit-refuses-cross-provider-credential-overwrite'));
    assert.ok(native.patches.includes('codearts-exact-official-credit-ratio'));
    assert.ok(native.patches.includes('zcode-rename-legacy-preview-for-dual-source'));
@@ -111,7 +111,7 @@ test('release package ships only native in-process bundle with host-provided pee
   assert.equal(pkg.private,false);
   assert.equal(pkg.license,'MIT');
   assert.equal(pkg.engines.node,'>=22.10.0');
-  assert.equal(pkg.version,'1.0.0-rc.108');
+  assert.equal(pkg.version,'1.0.0-rc.109');
   assert.ok(pkg.files.includes('vendor/channel-pack/SOURCE_RECEIPT.json'));
    assert.ok(!pkg.files.includes('vendor/channel-pack'));
   assert.ok(!pkg.files.includes('vendor/channel-pack/pack.js'));
