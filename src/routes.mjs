@@ -171,16 +171,18 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
             ?{state:'ready',models:await adapter.listModels()}
              :await ownedDirectory.listModels(id);
           const rows=source?.state==='ready'&&Array.isArray(source.models)?source.models:[];
-          const seen=new Set(),models=[];
-          for(const row of allowHostModels(id,rows)){
-            if(models.length>=250)break;
-            const model=normalizeRow(id,row);
-            if(!model||seen.has(model.id))continue;
-            seen.add(model.id);models.push(model);
-          }
-          result[i]={id,name:id==='native-router'?'聚合路由':id,
-            state:source?.state==='ready'?'ready':'unavailable',models};
-        }catch{result[i]={id,name:id,state:'unavailable',models:[]}}
+           const seen=new Set(),availableModels=[];
+           for(const row of rows){
+             if(availableModels.length>=250)break;
+             const model=normalizeRow(id,row);
+             if(!model||seen.has(model.id))continue;
+             seen.add(model.id);availableModels.push(model);
+           }
+           const models=allowHostModels(id,availableModels);
+           result[i]={id,name:id==='native-router'?'聚合路由':id,
+             state:source?.state==='ready'?'ready':'unavailable',
+             discoveredCount:availableModels.length,allowedCount:models.length,models};
+         }catch{result[i]={id,name:id,state:'unavailable',discoveredCount:0,allowedCount:0,models:[]}}
       }
     });
     await Promise.all(workers);

@@ -280,7 +280,7 @@ test('account workspace keeps cached account name and balance visible with prove
   const compact=uiNodes(root,node=>node.type==='select'
     &&node.props?.['aria-label']==='选择设置页面')[0];
   assert.ok(compact,'DSH embedded pane exposes a native compact module picker');
-  assert.equal(uiNodes(compact,node=>node.type==='option').length,10,
+  assert.equal(uiNodes(compact,node=>node.type==='option').length,11,
     'all modules stay accessible without a second sidebar');
   const toolbar=uiNodes(root,node=>node.props?.className==='dnr-toolbar')[0];
   const main=uiNodes(root,node=>node.props?.className==='dnr-main')[0];
@@ -339,10 +339,11 @@ test('dashboard shows original WorkBuddy routes, which enter directly without a 
   assert.match(overview,/WorkBuddy 国内/);
   assert.match(overview,/WorkBuddy 国际/);
   assert.match(overview,/已接入/);
-  assert.doesNotMatch(overview,/账号来源 · 分别核验/); rig.find(rig.render(),'button','复用管理')[0].props.onClick();
- rig.find(rig.render(),'button','宿主路由与模型')[0].props.onClick();
+   assert.doesNotMatch(overview,/账号来源 · 分别核验/);
+ rig.find(rig.render(),'button','已有模型路由管理')[0].props.onClick();
+ rig.find(rig.render(),'button','DSH 其他路由')[0].props.onClick();
  const page=rig.render();
- assert.match(rig.flatten(page).join(' '),/宿主原生渠道 · 自动接入/);
+  assert.match(rig.flatten(page).join(' '),/DSH 其他已注册路由 · 只读目录/);
  assert.match(rig.flatten(page).join(' '),/WorkBuddy 国际/);
  assert.equal(rig.find(page,'button','接入聚合路由').length,0);
 });
@@ -358,9 +359,9 @@ test('host channel click shows the original full model list on the right, not at
  const host=[{providerId:'workbuddy-global',family:'workbuddy-native-plugin-route',
    accountAccess:'plugin-managed-or-unknown',loginVerified:false}];
  const rig=createUiRig(new Map(),null,{state:'disabled'},{},host);await rig.init();
- rig.find(rig.render(),'button','复用管理')[0].props.onClick();
- rig.find(rig.render(),'button','宿主路由与模型')[0].props.onClick();
- const selected=rig.find(rig.render(),'button','WorkBuddy 国际已接入')[0];
+ rig.find(rig.render(),'button','已有模型路由管理')[0].props.onClick();
+ rig.find(rig.render(),'button','DSH 其他路由')[0].props.onClick();
+ const selected=uiNodes(rig.render(),n=>n.type==='button'&&rig.flatten(n).join('').startsWith('WorkBuddy 国际'))[0];
  assert.ok(selected,'selectable original provider exists in left pane');
  await selected.props.onClick();
  assert.ok(rig.mutations.some(x=>x.kind==='host-model-query'&&x.providerId==='workbuddy-global'));
@@ -377,9 +378,9 @@ test('unavailable original provider model catalog cannot invent a model, but ori
  const rig=createUiRig(new Map(),null,{state:'disabled'},{},host,
   {state:'unavailable',providerId:'deepseek-official',models:[]});
  await rig.init();
- rig.find(rig.render(),'button','复用管理')[0].props.onClick();
- rig.find(rig.render(),'button','宿主路由与模型')[0].props.onClick();
- const selected=rig.find(rig.render(),'button','deepseek-official已接入')[0];
+ rig.find(rig.render(),'button','已有模型路由管理')[0].props.onClick();
+ rig.find(rig.render(),'button','DSH 其他路由')[0].props.onClick();
+ const selected=uiNodes(rig.render(),n=>n.type==='button'&&rig.flatten(n).join('').startsWith('deepseek-official'))[0];
  assert.ok(selected);
  await selected.props.onClick();
  assert.match(rig.flatten(rig.render()).join(' '),/未提供可读取的模型目录/);
@@ -768,8 +769,8 @@ test('narrow settings layout uses responsive channel pills instead of the 136px 
    {providerId:'lingxi'}, {providerId:'minimax'}];
  const rig=createUiRig(new Map(),null,{state:'disabled'},{},host);
  await rig.init();
- rig.find(rig.render(),'button','复用管理')[0].props.onClick();
- rig.find(rig.render(),'button','宿主路由与模型')[0].props.onClick();
+ rig.find(rig.render(),'button','已有模型路由管理')[0].props.onClick();
+ rig.find(rig.render(),'button','DSH 其他路由')[0].props.onClick();
  const tree=rig.render(),nodes=[];
  const visit=node=>{
   if(Array.isArray(node))return node.forEach(visit);
@@ -781,7 +782,7 @@ test('narrow settings layout uses responsive channel pills instead of the 136px 
    &&n.props.style.gridTemplateColumns.includes('repeat(auto-fit'));
  assert.ok(layout,'Responsive 1/2-column layout required, never force a 136px column');
  assert.doesNotMatch(layout.props.style.gridTemplateColumns,/136px/);
- const channel=rig.find(tree,'button','WorkBuddy 国际已接入')[0];
+ const channel=uiNodes(tree,n=>n.type==='button'&&rig.flatten(n).join('').startsWith('WorkBuddy 国际'))[0];
  assert.ok(channel);
  assert.notEqual(channel.props.style.width,'100%');
  assert.equal(channel.props.style.display,'inline-flex');
@@ -908,8 +909,8 @@ test('WorkBuddy-style page shell keeps all ten settings destinations, scoped the
  const nav=uiNodes(page,node=>node.type==='nav')[0];
  assert.equal(nav?.props?.['aria-label'],'聚合路由设置导航');
  const buttons=uiNodes(nav,node=>node.type==='button');
- assert.equal(buttons.length,10);
- assert.equal(new Set(buttons.map(b=>rig.flatten(b).join(''))).size,10);
+ assert.equal(buttons.length,11);
+ assert.equal(new Set(buttons.map(b=>rig.flatten(b).join(''))).size,11);
  assert.equal(buttons.filter(b=>b.props['aria-current']==='page').length,1);
  rig.find(page,'button','模型链条')[0].props.onClick();
  page=rig.render();
@@ -1037,7 +1038,7 @@ test('compact mobile navigation selects every major page while desktop sidebar r
  assert.ok(mobile,'mobile navigation must exist');
  const select=uiNodes(mobile,node=>node.type==='select')[0];
  assert.equal(select?.props?.['aria-label'],'选择设置页面');
- assert.equal(uiNodes(mobile,node=>node.type==='option').length,10);
+ assert.equal(uiNodes(mobile,node=>node.type==='option').length,11);
  assert.equal(uiNodes(mobile,node=>node.type==='optgroup').length,4);
  const css=uiNodes(page,node=>node.type==='style')[0].props.dangerouslySetInnerHTML.__html;
  assert.match(css,/@media \(max-width:760px\).*?\.dnr-shell \.dnr-rail\{display:none\}/s);
@@ -1223,9 +1224,9 @@ test('reuse host supports explicit safe model and pricing refresh, with metadata
  const models={state:'ready',providerId:'workbuddy',models:[
    {id:'wb-standard',name:'WorkBuddy Standard',pricing:{input:0.01,output:0.03}}]};
  const rig=createUiRig(new Map(),null,{state:'disabled'},{},hosts,models);await rig.init();
- rig.find(rig.render(),'button','复用管理')[0].props.onClick();
- rig.find(rig.render(),'button','宿主路由与模型')[0].props.onClick();
- const first=rig.find(rig.render(),'button','WorkBuddy 国内已接入')[0];
+ rig.find(rig.render(),'button','已有模型路由管理')[0].props.onClick();
+ rig.find(rig.render(),'button','DSH 其他路由')[0].props.onClick();
+ const first=uiNodes(rig.render(),n=>n.type==='button'&&rig.flatten(n).join('').startsWith('WorkBuddy 国内'))[0];
  assert.ok(first);await first.props.onClick();
  let page=rig.render();
  assert.match(rig.flatten(page).join(' '),/输入 0.01 \/ 输出 0.03/);
@@ -1325,30 +1326,35 @@ test('native authorization stays available even if the embedded source bundle is
  assert.equal(rig.find(page,'button','申请独立设备授权')[0].props.disabled,false);
 });
 
-test('host model allowlist checkboxes start with all and save exact model IDs',async()=>{
+test('owned model allowlist saves exact IDs; external routes remain read-only',async()=>{
  const models=[{id:'flash',name:'Flash model'},{id:'pro',name:'Pro model'}];
  const rig=createUiRig(new Map(),null,{state:'disabled'},{},
-   [{providerId:'workbuddy'}],{state:'ready',providerId:'workbuddy',
-     models,availableModels:models});
+   [{providerId:'own_workbuddy',name:'Own WorkBuddy',family:'native-router-owned',loginVerified:true},
+    {providerId:'own_unverified',family:'native-router-owned',loginVerified:false},
+    {providerId:'workbuddy',family:'dsh-provider-route'}],undefined);
  await rig.init();
- rig.find(rig.render(),'button','复用管理')[0].props.onClick();
- rig.find(rig.render(),'button','宿主路由与模型')[0].props.onClick();
+ rig.find(rig.render(),'button','已有模型路由管理')[0].props.onClick();
  let page=rig.render();
- const open=uiNodes(page,node=>node.type==='button'
-   &&rig.flatten(node).join('').startsWith('WorkBuddy 国内'))[0];
- assert.ok(open);open.props.onClick();
- await new Promise(resolve=>setTimeout(resolve,10));
+ assert.doesNotMatch(rig.flatten(page).join(' '),/own_unverified/);
+ const open=uiNodes(page,n=>n.type==='button'&&rig.flatten(n).join('').startsWith('Own WorkBuddy'))[0];
+ assert.ok(open);await open.props.onClick();
  page=rig.render();
- assert.match(rig.flatten(page).join(' '),/未指定，默认全部 2 个模型/);
- const flash=uiNodes(page,node=>node.type==='input'
-   &&node.props?.['aria-label']==='允许宿主模型 flash')[0];
+ assert.match(rig.flatten(page).join(' '),/未指定，默认全部 1 个模型/);
+ const flash=uiNodes(page,n=>n.type==='input'&&n.props?.['aria-label']==='允许自有模型 wb-native-flash')[0];
  assert.ok(flash);flash.props.onChange({target:{checked:true}});
  page=rig.render();
- assert.match(rig.flatten(page).join(' '),/仅允许已选中的 1 个模型/);
- assert.equal(rig.cfg.hostModelSelection?.workbuddy,undefined,
-   'draft does not update live routing until Save');
+ assert.equal(rig.cfg.hostModelSelection?.own_workbuddy,undefined);
  await rig.find(page,'button','保存配置')[0].props.onClick();
- assert.deepEqual(Array.from(rig.cfg.hostModelSelection.workbuddy),['flash']);
+ assert.deepEqual(Array.from(rig.cfg.hostModelSelection.own_workbuddy),['wb-native-flash']);
+ rig.find(rig.render(),'button','DSH 其他路由')[0].props.onClick();
+ page=rig.render();
+ assert.doesNotMatch(rig.flatten(page).join(' '),/Own WorkBuddy/);
+ const external=uiNodes(page,n=>n.type==='button'&&rig.flatten(n).join('').startsWith('WorkBuddy 国内'))[0];
+ assert.ok(external);await external.props.onClick();
+ page=rig.render();
+ assert.equal(uiNodes(page,n=>n.type==='input'&&n.props?.['aria-label']?.startsWith('允许自有模型')).length,0);
+ rig.find(page,'button','复用管理')[0].props.onClick();
+ assert.equal(rig.find(rig.render(),'button','宿主路由与模型').length,0);
 });
 test('activity channel with an actual executor has a manual free-only action',async()=>{
  const snapshot={ok:true,channels:[{id:'loomy',name:'Loomy',accountCount:1,
