@@ -60145,7 +60145,7 @@ async function fetchTraeCheckinStatus(credential, _product, fetcher = sanitizing
   if (!result.ok) return null;
   const body = result.body;
   const code = readClaimCode(body);
-  if (code !== 0) return null;
+  if (code !== 0 || typeof body.enable !== "boolean" || typeof body.checked_in !== "boolean") return null;
   return {
     active: body.enable === true,
     todayCheckedIn: body.checked_in === true,

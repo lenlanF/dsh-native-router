@@ -4,8 +4,8 @@
   "originalFile": "pack.js",
   "originalSha256": "5b933808951453cab76227e68cea480c6321e746e152f9e78963d5562faceb27",
   "generatedFile": "pack-native.js",
-  "generatedBytes": 3042486,
-  "generatedSha256": "009117cc69aafecaa0d68b1a88e42e1a723a03fa2d58acb9bce9bddee3a8c545",
+  "generatedBytes": 3042562,
+  "generatedSha256": "57223e70d0beb3704ad4f5e9dc861c79f6f34b07e9ae359ad3ac852de14e0b81",
   "patches": [
     "private-settings-namespace",
     "private-profile-subdirectory",
@@ -50,6 +50,7 @@
     "source-exact-account-status-contract",
     "source-exact-account-credits.balances",
     "source-exact-account-account.list",
+    "trae-explicit-official-daily-booleans",
     "namespace-all-private-auth-services",
     "scope-llm-adapter-cleanup",
     "register-independent-source-provider-aliases",
