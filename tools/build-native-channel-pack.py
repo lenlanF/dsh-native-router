@@ -444,6 +444,44 @@ async function fetchZcodeClaimablePlans(credential,fetchImpl=sanitizingFetch){
         'async function fetchTraeCheckinStatus(credential, _product, fetcher = sanitizingFetch) {\n  const result = await postJson3(TRAE_CHECKIN_STATUS_PATH, credential, "{}", fetcher, credential.uid);\n  if (!result.ok) return null;\n  const body = result.body;\n  const code = readClaimCode(body);\n  if (code !== 0 || typeof body.enable !== "boolean" || typeof body.checked_in !== "boolean") return null;',
         'trae-explicit-official-daily-booleans',
     ))
+    # Preserve explicit official daily quota accounting; reject missing/null
+    # numeric fields that the vendor's generic Number() coerces to zero.
+    patches.append((
+        'async function fetchLoomyCreditDetail(credential, product, fetcher = sanitizingFetch) {',
+        '''function nativeRouterLoomyDailyEvidence(data) {
+  const n = value => (typeof value === "number" || typeof value === "string" && /^[0-9]+(?:\\.[0-9]+)?$/.test(value)) && Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 1e12 ? Number(value) : void 0;
+  const quota = n(data?.dailyQuota), balance = n(data?.dailyBalance), consumed = n(data?.dailyConsumed);
+  if (!(quota > 0) || balance === void 0 || consumed === void 0 || Math.abs(balance + consumed - quota) >= 1e-6) return void 0;
+  return { quota, balance, consumed };
+}
+async function fetchLoomyCreditDetail(credential, product, fetcher = sanitizingFetch) {''',
+        'loomy-strict-daily-quota-evidence',
+    ))
+    patches.append((
+        'dailyConsumed: readNumber(result.data?.dailyConsumed),\n    dailyCycleDate:',
+        'dailyConsumed: readNumber(result.data?.dailyConsumed),\n    dailyQuotaEvidence: nativeRouterLoomyDailyEvidence(result.data),\n    dailyCycleDate:',
+        'loomy-wallet-daily-evidence',
+    ))
+    patches.append((
+        'claimable: !claimedToday,\n    dailyCycleDate: cycle',
+        'claimable: !claimedToday,\n    dailyQuotaEvidence: detail.dailyQuotaEvidence,\n    dailyCycleDate: cycle',
+        'loomy-status-daily-evidence',
+    ))
+    patches.append((
+        'const alreadyProcessed = result.data?.alreadyProcessed === true;\n  if (alreadyProcessed) {',
+        'const alreadyProcessed = result.data?.alreadyProcessed === true;\n  const dailyEvidence = nativeRouterLoomyDailyEvidence(result.data);\n  const dailyInitialization = dailyEvidence && typeof result.data?.alreadyProcessed === "boolean" ? { ...dailyEvidence, alreadyProcessed } : void 0;\n  if (alreadyProcessed) {',
+        'loomy-first-login-official-receipt',
+    ))
+    patches.append((
+        'kind: "already-claimed",\n      message: dailyQuota ===',
+        'kind: "already-claimed",\n      dailyInitialization,\n      message: dailyQuota ===',
+        'loomy-already-initialized-receipt',
+    ))
+    patches.append((
+        'return { kind: "claimed", credit: granted, streakDays: 0, isStreakDay: false };',
+        'return { kind: "claimed", credit: granted, streakDays: 0, isStreakDay: false, dailyInitialization };',
+        'loomy-new-initialization-receipt',
+    ))
     names = []
     for old, new, name in patches:
         count = text.count(old)

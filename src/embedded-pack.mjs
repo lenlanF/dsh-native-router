@@ -743,6 +743,20 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
     if(scope!==mountedScope())return {state:'unavailable'};
      if(upstreamCheckedInToday(after,today)===true)
        return {confirmed:true,message:'上游状态回查确认今日签到'};
+    // Loomy first-login is an idempotent daily quota initializer, not a
+    // permanent points grant. Its authoritative current request plus fresh
+    // wallet readback can prove initialization even if the wallet omits date.
+    if(providerId==='loomy'&&outcomes.length===1&&after?.active===true){
+      const receipt=outcomes[0]?.outcome?.dailyInitialization;
+      const wallet=after.dailyQuotaEvidence;
+      const valid=x=>x&&['quota','balance','consumed'].every(k=>Number.isFinite(x[k])&&x[k]>=0&&x[k]<=1e12)
+        &&x.quota>0&&Math.abs(x.balance+x.consumed-x.quota)<1e-6;
+      const dayNow=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+      if(valid(receipt)&&valid(wallet)&&typeof receipt.alreadyProcessed==='boolean'
+        &&(!after.dailyCycleDate||String(after.dailyCycleDate).slice(0,10)===today)
+        &&dayNow===today&&['quota','balance','consumed'].every(k=>Math.abs(receipt[k]-wallet[k])<1e-6))
+        return {confirmed:true,dailyQuotaInitialized:true,message:'官方每日额度初始化回执与钱包回查一致；非永久积分新增'};
+    }
     return {state:'pending_confirmation',accepted:true,
       message:'签到操作已执行，但上游今日签到状态仍未确认'};
   }
