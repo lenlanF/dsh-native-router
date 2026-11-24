@@ -17,7 +17,7 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
   if(!configStore?.get)throw new Error('ConfigStore required');
   const autoFreePool=createAutoFreePool({hostProviderInventory,ownedPack,
     getConfig:()=>configStore.get()});
-   let verifiedAccount=()=>true;
+   let verifiedAccount=()=>true,observeInference=()=>{};
    const getConfig=()=>{
      const cfg=autoFreePool.effectiveConfig(configStore.get());
      cfg.accounts=cfg.accounts.filter(a=>{
@@ -61,7 +61,7 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
     }
     return (arg.provider.protocol==='anthropic-messages'?requestAnthropic:requestOpenAI)(arg,{fetchImpl,env,vault});
   };
-  const engine=createRoutingEngine({getConfig,request:transport,pool,onEvent:evt=>{
+  const engine=createRoutingEngine({getConfig,request:transport,pool,onAttemptOutcome:result=>observeInference(result),onEvent:evt=>{
     if(evt.kind==='failure'){counters.failedAttempts++;logger?.warn?.('native-router: '+evt.code+' from '+evt.providerId+'/'+evt.model)}
     if(evt.kind==='success'){
       counters.successfulTurns++;
@@ -124,6 +124,7 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
     async prepareCall(provider,model){return {model:await this.resolveModel(provider,model),stream}},
     stream,
      invalidateCatalog(){catalog.invalidate();autoFreePool.invalidate()},
+     setInferenceObserver:fn=>{observeInference=typeof fn==='function'?fn:()=>{}},
      setAccountVerificationResolver:fn=>{
        verifiedAccount=typeof fn==='function'?fn:()=>false;
        catalog.invalidate();

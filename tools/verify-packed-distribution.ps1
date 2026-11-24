@@ -28,6 +28,7 @@ import {LlmRuntime} from '@deepseek-ai/dsh-llm';
 import {WebServer} from '@deepseek-ai/dsh-host-webserver';
 import * as Connection from '@deepseek-ai/dsh-client-connection';
 import * as router from 'dsh-native-router';
+import {requestOwnerAcceptance} from 'dsh-native-router/owner-acceptance-cli';
 
 assert.ok(process.env.DSH_HOME?.startsWith('E:\\Temp\\dsh-native-router-isolated-packed-'));
 assert.equal(router.name,'dsh-native-router');
@@ -123,6 +124,8 @@ try{
  const initial=await fetch(acceptanceUrl,{headers:{cookie}});
  assert.equal(initial.status,200);
  assert.equal((await initial.json()).result.state,'idle');
+ const cliInitial=await requestOwnerAcceptance({loginLink:connection.authenticatedUrl(base+'/connect'),action:'status'});
+ assert.equal(cliInitial.state,'idle');
  const accepted=await submit({cookie});
  assert.equal(accepted.status,202);
  let acceptance;
@@ -280,7 +283,7 @@ console.log(JSON.stringify({result:'PASS',packagedModuleImported:true,
  sourcePackDefaultDisabled:true,sourceMountWithHostCollisions:true,
  sourceLoginRpcAuthenticated:true,sourceLoginReadOnlyAccountsValidated:true,
  sourceLoginSurvivesAliasConflict:true,thirteenIndependentAdapters:true,
- credentialsServiceReady:true,configNotWritten:true,backgroundAcceptanceOwnerOnly:true,backgroundAcceptanceThreeModes:true,backgroundClaimDedup:true,
+ credentialsServiceReady:true,configNotWritten:true,backgroundAcceptanceOwnerOnly:true,backgroundAcceptanceThreeModes:true,backgroundClaimDedup:true,headlessOfficialLoginClient:true,
  onlyDshWebServerListener:true,realAccounts:0,networkCloudCalls:0,
  independentProcesses:0}));
 process.exit(0);
