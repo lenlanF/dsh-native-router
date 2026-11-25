@@ -94,16 +94,19 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
   }});
   const catalog=createCatalog({getConfig,getEffectiveConfig:getConfig,fetchImpl,
     credentialOptions:{env,vault},channelDrivers,hostProviderInventory,autoFreePool});
+  function currentFreeTiers(){
+   const current=getConfig();
+   return autoFreePool.tiers().filter(tier=>{
+    const p=current.providers.find(x=>x.id===tier.providerId&&x.enabled);
+    return Boolean(p&&allowsHostModel(current,tier.providerId,tier.model)&&(p.protocol==='dsh-host'||
+      current.accounts.some(a=>a.providerId===tier.providerId&&a.enabled&&(!tier.accountIds?.length||tier.accountIds.includes(a.id)))));
+   });
+  }
   async function routeForModel(model){
     if(typeof model!=='string')throw new RoutingError('ERR_ROUTE_NOT_FOUND','Invalid DSH model');
     if(model==='autofree'){
       await autoFreePool.refresh();
-       const current=getConfig();
-       const items=autoFreePool.tiers().filter(tier=>{
-         const p=current.providers.find(x=>x.id===tier.providerId);
-          return allowsHostModel(current,tier.providerId,tier.model)&&(p?.protocol==='dsh-host'||current.accounts.some(a=>
-            a.providerId===tier.providerId&&a.enabled));
-       });
+      const items=currentFreeTiers();
       if(!items.length)throw new RoutingError('ERR_FREE_EXHAUSTED',
         'No upstream-confirmed free models are currently available; unknown pricing is excluded');
       const shift=freeCursor++%items.length;
@@ -154,6 +157,18 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
     autoFreeSnapshot(){return autoFreePool.snapshot()},
     async refreshAutoFree(){await autoFreePool.refresh({force:true});catalog.invalidate();
       return autoFreePool.snapshot()},
+    async auditAutoFree(){
+     const snapshot=await autoFreePool.refresh({force:true}),tiers=currentFreeTiers(),cfg=getConfig();
+     const providers=new Map(),accounts=new Map();
+     for(const tier of tiers){
+      if(!providers.has(tier.providerId)){providers.set(tier.providerId,{providerId:tier.providerId,routeCount:0,accountCount:0});accounts.set(tier.providerId,new Set())}
+      providers.get(tier.providerId).routeCount++;
+      for(const a of cfg.accounts)if(a.enabled&&a.providerId===tier.providerId&&(!tier.accountIds?.length||tier.accountIds.includes(a.id)))accounts.get(tier.providerId).add(a.id);
+     }
+     for(const row of providers.values())row.accountCount=accounts.get(row.providerId).size;
+     const manualCount=tiers.filter(t=>snapshot.models.some(m=>m.providerId===t.providerId&&m.model===t.model&&m.evidence?.startsWith('用户手动'))).length;
+     return {state:snapshot.state,catalogCount:snapshot.catalog.length,routeCount:tiers.length,manualCount,errors:snapshot.errors,providers:[...providers.values()]};
+    },
     getStatus(){const cfg=configStore.get();return {routes:cfg.routes.length,
       providers:getConfig().providers.length,accounts:getConfig().accounts.length,
       autoFree:{count:autoFreePool.snapshot().models.length,scannedAt:autoFreePool.snapshot().scannedAt},

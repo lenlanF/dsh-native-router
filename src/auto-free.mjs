@@ -208,10 +208,8 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
      add(mark.providerId,{id:mark.model,name:mark.model},isHost?'host':'owned-source',undefined,ids);
   }
   models.sort(sort);catalog.sort(sort);
-  cache={state:'ready',models,catalog,sourceAccounts,scannedAt:now(),hostCount,sourceCount,
-   unknownPricing,errors};
-  signatureSaved=signature();
-  return snapshot();
+   return {state:'ready',models,catalog,sourceAccounts,scannedAt:now(),hostCount,sourceCount,
+    unknownPricing,errors};
  }
  function refresh({force=false}={}){
   if(pending)return pending;
@@ -225,7 +223,10 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
    for(let attempt=0;attempt<2;attempt++){
     const startedSignature=signature(),startedRevision=revision;
     const result=await run();
-    if(startedRevision===revision&&startedSignature===signature())return result;
+     if(startedRevision===revision&&startedSignature===signature()){
+      cache=result;signatureSaved=startedSignature;return snapshot();
+     }
+     cache=empty();signatureSaved='';
    }
    cache=empty();signatureSaved='';
    return snapshot();

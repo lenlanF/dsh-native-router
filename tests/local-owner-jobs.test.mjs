@@ -10,7 +10,7 @@ test('explicit local OS owner grant, actual filesystem IPC and durable duplicate
  const root=mkdtempSync(join(tmpdir(),'dnr-local-owner-test-')),dir=join(root,'jobs');
  let calls=0;const service=createOwnerAcceptance({configStore:{get:()=>({providers:[],accounts:[]})},accountCenter:{list:()=>({accounts:[]})},checkinCenter:{
  snapshot:()=>({accounts:[]})},ownedDirectory:{providers:()=>[{providerId:'own_loomy',family:'native-router-owned',loginVerified:true},{providerId:'other',family:'external'}],
- listModels:async id=>{assert.equal(id,'own_loomy');calls++;return {state:'ready',models:[{id:'model',name:'model'}]}}}});
+ listModels:async id=>{assert.equal(id,'own_loomy');calls++;return {state:'ready',models:[{id:'model',name:'model'}]}}},adapter:{auditAutoFree:async()=>({state:'ready',catalogCount:3,routeCount:1,manualCount:0,errors:0,providers:[{providerId:'own_loomy',routeCount:1,accountCount:1}]})}});
  let stop=()=>{};
  try{
   assert.throws(()=>enableLocalOwnerJobs(dir));
@@ -27,7 +27,12 @@ test('explicit local OS owner grant, actual filesystem IPC and durable duplicate
   submitLocalOwnerJob(dir,{mode:'catalog',consent:true,requestId:id});
   for(let i=0;i<20&&existsSync(join(dir,'request.json'));i++)await delay(100);
   assert.equal(calls,1);assert.equal(existsSync(join(dir,'request.json')),false);
-  revokeLocalOwnerJobs(dir);assert.throws(()=>submitLocalOwnerJob(dir,{mode:'catalog',consent:true}));
+   assert.throws(()=>submitLocalOwnerJob(dir,{mode:'autofree-audit',channel:'loomy',consent:true}));
+   const audit=submitLocalOwnerJob(dir,{mode:'autofree-audit',consent:true});
+   for(let i=0;i<50;i++){if(readLocalOwnerReport(dir,audit.requestId).state==='complete')break;await delay(100)}
+   assert.equal(readLocalOwnerReport(dir,audit.requestId).autoFree.routeCount,1);
+   assert.equal(calls,1);
+   revokeLocalOwnerJobs(dir);assert.throws(()=>submitLocalOwnerJob(dir,{mode:'catalog',consent:true}));
  }finally{stop();service.dispose();rmSync(root,{recursive:true,force:true})}
 });
 test('malformed, expired and nonconsenting requests never dispatch',async()=>{
