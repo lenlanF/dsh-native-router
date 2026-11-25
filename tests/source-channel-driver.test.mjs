@@ -563,6 +563,21 @@ test('Loomy active stream excludes parallel calls and preserves the official rat
  await assert.rejects(driver.generate(input),{code:'SOURCE_BUSY'});release();await assert.rejects(first,{code:'RATE_LIMIT'});
  await assert.rejects(driver.generate(input),error=>error.code==='RATE_LIMIT'&&error.retryAfterMs>170000);assert.equal(opens,1);
 });
+test('Loomy cooling or busy account rejects before redundant catalog and account preflight',async()=>{
+ const rig=mockSource([{id:'l-free',providerId:'loomy',enabled:true}]);let catalogs=0,statuses=0,opens=0,release,started;
+ const entered=new Promise(r=>{started=r});
+ rig.embeddedPack.listModels=async()=>{catalogs++;return {state:'ready',models:[{id:'safe',costMultiplier:0,priceSource:'loomy-official-model-name-ratio'}]}};
+ rig.embeddedPack.readSourceStatuses=async()=>{statuses++;return {state:'ready',accounts:[{accountId:'l-free',authVerified:true}]}};
+ rig.embeddedPack.streamNative=async()=>{opens++;started();await new Promise(r=>{release=r});throw Object.assign(Error('rate limit'),{code:'RATE_LIMIT',retryAfterMs:180000})};
+ const driver=createSourceChannelDriver({providerId:'loomy',accountProviderId:'own_loomy',embeddedPack:rig.embeddedPack});
+ const id=sourceAccountOpaqueId('loomy','l-free'),account={id,providerId:'own_loomy',credentialRef:'driver:own_loomy:'+id};
+ const input={account,model:'safe',options:{freeOnly:true,messages:[{role:'user',content:'OK'}]}};
+ const first=driver.generate(input);await entered;
+ try{await assert.rejects(driver.generate(input),{code:'SOURCE_BUSY'})}finally{release();await assert.rejects(first,{code:'RATE_LIMIT'})}
+ await assert.rejects(driver.generate(input),{code:'RATE_LIMIT'});
+ assert.deepEqual([catalogs,statuses,opens],[1,1,1]);
+});
+
 test('native stream progress resets idle watchdog; a hung read is cancelled',async()=>{
  const rig=mockSource([{id:'l3',providerId:'loomy',enabled:true}]);let cancelled=false;
  rig.embeddedPack.streamNative=async req=>{req.signal.addEventListener('abort',()=>{cancelled=true});return (async function*(){yield {type:'block-start',index:0,blockType:'text'};yield {type:'text-delta',index:0,text:'partial'};await new Promise(()=>{});})()};

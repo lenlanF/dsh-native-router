@@ -323,6 +323,18 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
    const phase=value=>{try{options.onVerificationPhase?.(value)}catch{}};
    phase('DRIVER_PRECHECK');
    if(providerId==='zcode')throw unable('Legacy ZCode Start Plan endpoint is restricted to the official client','OFFICIAL_CLIENT_ONLY');
+   // Check local availability before costly official entitlement reads, then
+   // check again after asynchronous preflight to close the race.
+   requireSourceBinding(providerId,account,accountProviderId);
+   const streamKey=account.id,limitKey=streamKey+'\u0000'+model;
+   const assertAvailable=()=>{
+     if(signal?.aborted)throw unable('Source request cancelled','CANCELLED');
+     for(const [key,until] of rateUntil)if(until<=Date.now())rateUntil.delete(key);
+     const remaining=(rateUntil.get(limitKey)??0)-Date.now();
+     if(remaining>0)throw new UpstreamError('Source model is cooling down',{code:'RATE_LIMIT',status:429,retryAfterMs:remaining});
+     if(providerId==='loomy'&&activeStreams.has(streamKey))throw unable('Source account already has an active stream','SOURCE_BUSY');
+   };
+   assertAvailable();
    const selected=await resolve(account);
    if(!selected.enabled)throw unable('Source account is disabled','CREDENTIAL');
     const rows=await snapshot();
@@ -379,11 +391,7 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
           ?{reasoningEffort:'off',singleShotPriceProof:true}:{})};
      // One exact account must not amplify concurrent upstream calls. Respect
      // upstream rate windows in both normal routing and direct model tests.
-     const streamKey=account.id,limitKey=streamKey+'\u0000'+model;
-     for(const [key,until] of rateUntil)if(until<=Date.now())rateUntil.delete(key);
-     const remaining=(rateUntil.get(limitKey)??0)-Date.now();
-     if(remaining>0)throw new UpstreamError('Source model is cooling down',{code:'RATE_LIMIT',status:429,retryAfterMs:remaining});
-     if(providerId==='loomy'&&activeStreams.has(streamKey))throw unable('Source account already has an active stream','SOURCE_BUSY');
+     assertAvailable();
      if(providerId==='loomy')activeStreams.add(streamKey);
      const controller=new AbortController();
      let timer,timedOut=false,onAbort,openingStarted=false;
