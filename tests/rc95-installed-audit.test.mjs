@@ -72,6 +72,27 @@ test('installed-state audit reads true per-account bindings, redacts names/IDs/s
     assert.equal(readFileSync(file,'utf8'),value,'must never change installed state');
  }finally{rmSync(root,{recursive:true,force:true})}
 });
+
+test('retired channel is excluded from active audit without deleting historical records',()=>{
+ const base=process.platform==='win32'?'E:\\Temp':tmpdir();
+ const root=mkdtempSync(join(base,'dsh-audit-retired-'));
+ const place=join(root,'plugins','dsh-native-router');
+ mkdirSync(place,{recursive:true});
+ const active=account('active','own_loomy'),retired=account('retired','own_doubao');
+ const cfg=JSON.stringify({providers:[{id:active.providerId},{id:retired.providerId}],accounts:[active,retired],routes:[]});
+ try{
+  writeFileSync(join(place,'config.json'),cfg);
+  writeFileSync(join(place,'checkins.json'),JSON.stringify({history:[{providerId:active.providerId,date:'2026-11-23',state:'success'},{providerId:retired.providerId,date:'2026-11-23',state:'client_required'}]}));
+  writeFileSync(join(place,'reward-claims.json'),JSON.stringify({receipts:[{binding:bind(active),state:'confirmed'},{binding:bind(retired),state:'confirmed'}]}));
+  const result=auditInstalledDsh({dshHome:root,now:day});
+  assert.equal(result.providerCount,1);
+  assert.equal(result.accounts.configured,1);
+  assert.deepEqual(result.channels.map(x=>x.channel),['own_loomy']);
+  assert.equal(result.todayCheckins.count,1);
+  assert.equal(result.rewardReceipts.count,1);
+  assert.equal(readFileSync(join(place,'config.json'),'utf8'),cfg);
+ }finally{rmSync(root,{recursive:true,force:true})}
+});
 test('missing or damaged installed metadata yields a diagnostic, never invented success',()=>{
  const base=process.platform==='win32'?'E:\\Temp':tmpdir();
  const root=mkdtempSync(join(base,'dsh-audit-damaged-'));

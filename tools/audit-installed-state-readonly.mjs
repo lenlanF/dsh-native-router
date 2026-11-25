@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import {homedir} from 'node:os';
 import {createHash} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
+import {isRetiredProvider} from '../src/config.mjs';
 
 const validName=value=>typeof value==='string'&&value.trim().length>0
   &&!(/^(?:账号|账户|account|user)\s*[-_#]?\s*\d+$/i.test(value.trim()));
@@ -28,7 +29,11 @@ export function auditInstalledDsh({dshHome=join(homedir(),'.dsh'),
  const cfg=read('config.json'),publicRows=read('account-public-facts.json'),
   verification=read('account-verification.json'),
   signins=read('checkins.json'),receipts=read('reward-claims.json');
- const safeRows=Array.isArray(cfg?.accounts)?cfg.accounts:[];
+ const rawAccounts=Array.isArray(cfg?.accounts)?cfg.accounts:[];
+ const retiredAccounts=rawAccounts.filter(a=>isRetiredProvider(a?.providerId));
+ const retiredIds=new Set(retiredAccounts.map(a=>a.id));
+ const retiredBindings=new Set(retiredAccounts.flatMap(a=>[keyOf(a),createHash('sha256').update([a.providerId,a.id,a.credentialRef].join('\\0')).digest('hex')]));
+ const safeRows=rawAccounts.filter(a=>!isRetiredProvider(a?.providerId));
  const publicMap=new Map((Array.isArray(publicRows?.rows)?publicRows.rows:[])
   .filter(x=>typeof x?.binding==='string').map(x=>[x.binding,x]));
  const checkMap=new Map((Array.isArray(verification?.checks)?verification.checks:[])
@@ -86,21 +91,21 @@ export function auditInstalledDsh({dshHome=join(homedir(),'.dsh'),
    groups.set(acc.providerId,row);
  }
  const history=Array.isArray(signins?.history)?signins.history:[];
- const todayHistory=history.filter(x=>x?.date===today);
+ const todayHistory=history.filter(x=>x?.date===today&&!isRetiredProvider(x?.providerId)&&!retiredIds.has(x?.accountId));
  const todayByState=todayHistory.reduce((out,x)=>{
    const state=['success','failed','pending_confirmation','no_task',
      'client_required','unsupported'].includes(x?.state)?x.state:'other';
    out[state]=(out[state]??0)+1;return out;
  },{});
- const rewardRows=Array.isArray(receipts?.receipts)?receipts.receipts:[];
+ const rewardRows=(Array.isArray(receipts?.receipts)?receipts.receipts:[]).filter(x=>!retiredBindings.has(x?.binding)&&!String(x?.kind??'').startsWith('doubao_task_'));
  return {auditedAt:new Date(now).toISOString(),installedVersion:pkg?.version??'missing',
   configStatus:cfg?.invalid?'invalid':cfg?'present':'missing',
   publicFactsStatus:publicRows?.invalid?'invalid':publicRows?'present':'missing',
   verificationStatus:verification?.invalid?'invalid':verification?'present':'missing',
   globalAutomaticActivitiesEnabled:cfg?.checkin?.autoEnabled===true,
   perSourceAutoEnabled:cfg?.checkin?.autoSourceAccounts===true,
-  providerCount:Array.isArray(cfg?.providers)?cfg.providers.length:0,
-  routeCount:Array.isArray(cfg?.routes)?cfg.routes.length:0,
+  providerCount:Array.isArray(cfg?.providers)?cfg.providers.filter(p=>!isRetiredProvider(p?.id)).length:0,
+  routeCount:Array.isArray(cfg?.routes)?cfg.routes.filter(r=>!Array.isArray(r?.tiers)||!r.tiers.length||r.tiers.some(t=>!isRetiredProvider(t?.providerId))).length:0,
   accounts:total,channels:[...groups.values()].sort((a,b)=>a.channel.localeCompare(b.channel)),
   todayShanghai:today,
   todayCheckins:{count:todayHistory.length,byState:todayByState},
