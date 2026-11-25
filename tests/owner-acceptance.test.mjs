@@ -29,6 +29,14 @@ test('inventory is serial and redacts personal details; duplicate request is not
  assert.equal(f.service.start({requestId:id,mode:'inventory',consent:true}).state,'complete');
  assert.equal(f.calls.length,2);
 });
+test('inventory retains separate official identity, quota and catalog outcomes',async()=>{
+ const f=fixture({accountCenter:{list:()=>({accounts:[{id:'one',providerId:'own_demo',enabled:true,runtimeMode:'owned',nickname:'private-name',membershipState:'not_subscribed',usageState:'no_cycle'}]}),listTestModels:async()=>{throw Error('private-response')}}});
+ f.service.start({requestId:id,mode:'inventory',consent:true});const r=await done(f.service);
+ assert.equal(r.accounts[0].connection,'online');
+ assert.equal(r.accounts[0].membershipState,'not_subscribed');assert.equal(r.accounts[0].usageState,'no_cycle');
+ assert.equal(r.accounts[0].catalogState,'unavailable');assert.equal(r.accounts[0].state,'observed');
+ assert.equal(r.accounts[0].code,'CATALOG_UNAVAILABLE');assert.doesNotMatch(JSON.stringify(r),/private-response|private-name/);
+});
 test('model testing requires explicit consent and uses official-only evidence',async()=>{
  const f=fixture();assert.throws(()=>f.service.start({requestId:id,mode:'free-models'}));
  f.service.start({requestId:id,mode:'free-models',consent:true});const r=await done(f.service);

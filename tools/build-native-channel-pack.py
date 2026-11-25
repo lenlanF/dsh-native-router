@@ -521,7 +521,7 @@ async function fetchLoomyCreditDetail(credential, product, fetcher = sanitizingF
     start = text.index('async function requestJson2(')
     end = text.index('function describeNonJsonResponse2(',start)
     lobster_request = text[start:end]
-    lobster_patched = lobster_request.replace('const text = await response.text();','''if (!response.ok) return { ok:false, diagnosticCode: response.status === 401 || response.status === 403 ? "LOBSTER_SLOT_AUTH" : response.status === 429 ? "LOBSTER_SLOT_LIMIT" : response.status === 404 || response.status === 410 ? "LOBSTER_SLOT_ENDPOINT" : "LOBSTER_SLOT_HTTP", message:"Official activity HTTP failure" };
+    lobster_patched = lobster_request.replace('const text = await response.text();','''if (!response.ok) return { ok:false, diagnosticCode: response.status === 401 ? "LOBSTER_SLOT_AUTH" : response.status === 403 ? "LOBSTER_SLOT_FORBIDDEN" : response.status === 429 ? "LOBSTER_SLOT_LIMIT" : response.status === 404 || response.status === 410 ? "LOBSTER_SLOT_ENDPOINT" : "LOBSTER_SLOT_HTTP", message:"Official activity HTTP failure" };
     const text = await response.text();''',1).replace('ok: false, message: describeNonJsonResponse2(response.status, text)','ok: false, diagnosticCode:"LOBSTER_SLOT_RESPONSE", message:"Invalid official response"',1).replace('ok: false, message: UNPARSABLE_RESPONSE_MESSAGE2','ok: false, diagnosticCode:"LOBSTER_SLOT_RESPONSE", message:UNPARSABLE_RESPONSE_MESSAGE2',1).replace('ok: false, message: error instanceof Error ? error.message : String(error)','ok: false, diagnosticCode:"LOBSTER_SLOT_TRANSPORT", message:"Official activity transport failure"',1)
     patches.append((lobster_request,lobster_patched,'lobster-safe-http-diagnostics'))
     start = text.index('async function fetchLobsteraiActivitySlot(')
@@ -530,6 +530,60 @@ async function fetchLoomyCreditDetail(credential, product, fetcher = sanitizingF
     patches.append((lobster_slot,lobster_slot.replace('if (!result.ok) return null;', 'if (!result.ok) return { diagnosticCode: result.diagnosticCode || "LOBSTER_SLOT_READ" };',1).replace('if (!envelope.ok) return null;','if (!envelope.ok) return { diagnosticCode:"LOBSTER_SLOT_REJECTED" };',1),'lobster-slot-failure-kind'))
     patches.append(('if (slot === null) return { diagnosticCode: "LOBSTER_SLOT_READ" };','if (slot === null) return { diagnosticCode: "LOBSTER_SLOT_READ" };\n  if (slot.diagnosticCode) return { diagnosticCode: slot.diagnosticCode };','lobster-status-preserve-diagnostic'))
     patches.append(('if (slot2.slotState !== "available" || slot2.activityCode.length === 0) {','if (slot2.diagnosticCode) return {kind:"failed",diagnosticCode:slot2.diagnosticCode};\n  if (slot2.slotState !== "available" || slot2.activityCode.length === 0) {','lobster-claim-stop-on-read-failure'))
+    # Only the official read-only activity slot's 401 can trigger the existing
+    # account renewal service. 403 is a permission denial, not a refresh hint.
+    patches.append((
+        'async function fetchLobsteraiCheckinStatus(credential, product, clientVersion, fetcher = sanitizingFetch) {',
+        '''async function nativeRouterReadLobsterActivityStatus(credential, entry, deps) {
+  const first = await deps.read(credential);
+  if (first?.diagnosticCode !== "LOBSTER_SLOT_AUTH" || !entry) return first;
+  try {
+    if (!await deps.stillBound(entry)) return first;
+    let current = await deps.resolve(entry);
+    if (!current || typeof current.access_token !== "string" || !current.access_token) return first;
+    if (current.access_token === credential.access_token) {
+      if (!isLobsteraiRefreshable(current) || !await deps.stillBound(entry)) return first;
+      if (!await deps.refresh(entry)) return first;
+      if (!await deps.stillBound(entry)) return first;
+      current = await deps.resolve(entry);
+    }
+    if (!current || typeof current.access_token !== "string" || !current.access_token || !await deps.stillBound(entry)) return first;
+    const result = await deps.read(current);
+    return await deps.stillBound(entry) ? result : first;
+  } catch {
+    return { diagnosticCode: "LOBSTER_SLOT_REFRESH_FAILED" };
+  }
+}
+async function fetchLobsteraiCheckinStatus(credential, product, clientVersion, fetcher = sanitizingFetch) {''',
+        'lobster-official-status-renewal',
+    ))
+    patches.append((
+        '  const qoderFamily = [',
+        '''  const nativeRouterLobsterRefreshAt = new Map();
+  const qoderFamily = [''',
+        'lobster-renewal-cooldown',
+    ))
+    patches.append((
+        'fetchStatus: (credential) => fetchLobsteraiCheckinStatus(credential, LOBSTERAI, lobsterClientVersion),',
+        '''fetchStatus: (credential, _product, entry) => nativeRouterReadLobsterActivityStatus(credential, entry, {
+              read: (current) => fetchLobsteraiCheckinStatus(current, LOBSTERAI, lobsterClientVersion),
+              stillBound: async (member) => (await pool.listAccounts(LOBSTERAI.id)).filter(row => row.id === member.id && row.enabled === true && row.credentialRef === member.credentialRef).length === 1,
+              resolve: async (member) => {
+                const resolved = await ctx.credentials.resolve(credentialRef13(member.credentialRef));
+                return resolved ? JSON.parse(resolved.value) : null;
+              },
+              refresh: async (member) => {
+                const now = Date.now();
+                const key = JSON.stringify([member.id, member.credentialRef]);
+                for (const [binding, at] of nativeRouterLobsterRefreshAt) if (now - at >= 300000) nativeRouterLobsterRefreshAt.delete(binding);
+                if (nativeRouterLobsterRefreshAt.has(key) || nativeRouterLobsterRefreshAt.size >= 256) return false;
+                nativeRouterLobsterRefreshAt.set(key, now);
+                await lobsterai.refreshAccountCredential(member.credentialRef, pool, member.id);
+                return true;
+              }
+            }),''',
+        'lobster-wire-official-read-renewal',
+    ))
     names = []
     for old, new, name in patches:
         count = text.count(old)

@@ -59,6 +59,16 @@ test('real Desktop passToken SSO path (mock server) verifies account and perform
  assert.equal(rig.calls.filter(x=>x.url.includes('/api/route/chat/completions')).length,1);
  assert.equal(JSON.stringify(reply).includes(own.passToken),false);
 });
+test('MiMo model-directory identity probe does not depend on slow quota endpoints',async()=>{
+ const rig=fixture();
+ const profile=await rig.transport.probe({session:own,includeQuota:false});
+ assert.equal(profile.authVerified,true);
+ assert.equal(profile.accountName,'真实小米账户');
+ assert.equal('membershipState' in profile,false);
+ assert.equal('usageState' in profile,false);
+ assert.equal(rig.calls.filter(x=>x.url.endsWith('/api/user/xiaomi/me')).length,1);
+ assert.equal(rig.calls.filter(x=>x.url.endsWith('/api/user/xiaomi/subscription/self')||x.url.endsWith('/api/user/usage')).length,0);
+});
 test('MiMo Desktop exposes official member quota separate from API Token Plan',async()=>{
  const rig=fixture();
  const profile=await rig.transport.probe({session:own});

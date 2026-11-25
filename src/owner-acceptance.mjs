@@ -85,14 +85,20 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
        row.hasBalance=Number.isFinite(data?.balance)&&data.balance>=0;
        row.hasBalanceUnit=Boolean(data?.balanceUnit);
        row.balanceState=['available','cached','unavailable','not_returned','not_supported','not_checked'].includes(data?.balanceState)?data.balanceState:'unknown';
+       row.membershipState=['active','not_subscribed','unavailable','not_supported','not_checked'].includes(data?.membershipState)?data.membershipState:'unknown';
+       row.usageState=['available','no_cycle','unavailable','not_supported','not_checked'].includes(data?.usageState)?data.usageState:'unknown';
        row.quotaWindowCount=count(data?.quotaWindows?.length);
        row.hasRollingQuota=data?.usageState==='available'&&Number.isFinite(data.usagePercentRemaining);
        row.hasMembershipQuota=data?.membershipState==='active'&&Number.isFinite(data.membershipPercentRemaining);
        row.quotaObserved=row.quotaWindowCount>0||row.hasRollingQuota||row.hasMembershipQuota;
-       const catalog=await accountCenter.listTestModels(account.id,{officialOnly:true,signal:job.controller.signal});
-       row.freeCandidates=count(catalog?.freeCount);
-       row.advertisedCount=count(catalog?.models?.length);
+       try{
+        const catalog=await accountCenter.listTestModels(account.id,{officialOnly:true,signal:job.controller.signal});
+        row.freeCandidates=count(catalog?.freeCount);
+        row.advertisedCount=count(catalog?.models?.length);
+        row.catalogState=catalog?.state==='ready'?(row.advertisedCount?'ready':'empty'):'unavailable';
+       }catch{row.catalogState='unavailable';row.code='CATALOG_UNAVAILABLE'}
        row.state='observed';
+
       }
      }else{
       // Stop between accounts, not halfway through a provider's response.

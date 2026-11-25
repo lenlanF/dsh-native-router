@@ -5,7 +5,7 @@ import {pathToFileURL} from 'node:url';
 
 const requestIdPattern=/^[a-f0-9]{32}$/;
 const providerPattern=/^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
-const states=new Set(['idle','running','complete','cancelled','failed','observed','online','expired','limited','error','pending','client_required','verified','skipped','unavailable','ready','unknown','available','cached','not_returned','not_supported','not_checked']);
+const states=new Set(['idle','running','complete','cancelled','failed','observed','online','expired','limited','error','pending','client_required','verified','skipped','unavailable','ready','unknown','available','cached','not_returned','not_supported','not_checked','active','not_subscribed','no_cycle','empty']);
 const modeSet=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity']);
 const count=n=>Number.isSafeInteger(n)&&n>=0&&n<=10000?n:0;
 const state=x=>states.has(x)?x:'unknown';
@@ -19,7 +19,7 @@ function safeReport(raw){
  if(Number.isSafeInteger(raw.accountCount))out.accountCount=count(raw.accountCount);
  if(Array.isArray(raw.accounts))out.accounts=raw.accounts.slice(0,16).filter(x=>x&&providerPattern.test(x.providerId??'')).map(x=>{
   const item={slot:count(x.slot),providerId:x.providerId,state:state(x.state)};
-  for(const k of ['connection','modelState','balanceState'])if(x[k]!==undefined)item[k]=state(x[k]);
+  for(const k of ['connection','modelState','balanceState','membershipState','usageState','catalogState'])if(x[k]!==undefined)item[k]=state(x[k]);
   for(const k of ['hasProfile','hasBalance','hasBalanceUnit','hasRollingQuota','hasMembershipQuota','quotaObserved'])if(typeof x[k]==='boolean')item[k]=x[k];
   for(const k of ['quotaWindowCount','freeCandidates','advertisedCount'])if(Number.isSafeInteger(x[k]))item[k]=count(x[k]);
   if(typeof x.code==='string'&&/^[A-Z][A-Z0-9_]{0,47}$/.test(x.code))item.code=x.code;

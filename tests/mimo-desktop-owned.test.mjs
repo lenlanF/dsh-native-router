@@ -20,8 +20,8 @@ function harness({rejectReplace=false,authVerified=true,loginFactory,
  };
  let local={...loggedIn},readerCalls=0,quota={};
  const transport={
-  async probe({session}){
-   calls.push({kind:'auth',session});
+  async probe({session,includeQuota=true}){
+   calls.push({kind:'auth',session,includeQuota});
    return {state:authVerified?'online':'expired',authVerified,accountName:authVerified?'Xiaomi owner':'',...quota};
   },
   async generate({session,model,options}){
@@ -62,6 +62,7 @@ test('own MiMo Desktop is discovered read-only and imported into plugin vault on
  assert.equal((await h.center.verify(imported.id)).state,'online');
  assert.deepEqual(await h.driver.listModels({account:h.cfg.accounts[0]}),[
   {id:'mimo-v2.6-pro'},{id:'mimo-v2.6-flash'},{id:'mimo-v2.6-pro-ultraspeed'}]);
+ assert.equal(h.calls.at(-1).includeQuota,false,'catalog needs an independent identity read, not a second quota probe');
  const previousReads=h.readerCalls;
  h.stopDesktop();
  const adapter=createNativeRouterAdapter({configStore:h.configStore,
