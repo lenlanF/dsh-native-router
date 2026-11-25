@@ -4,6 +4,16 @@ import {createOwnedModelDirectory} from '../src/owned-model-directory.mjs';
 import {filterHostRoutes} from '../src/host-model-selection.mjs';
 import {sourceAccountOpaqueId} from '../src/source-account-ref.mjs';
 
+test('management directory excludes router root, all reserved own aliases and explicitly owned registrations but preserves real external same-name routes',async()=>{
+ const hostIds=['native-router','native-router-source-qoder','own_loomy','own_mimo_desktop','own_qwenwork','qoder','loomy','external','legacy-owned'];
+ const calls=[];
+ const d=createOwnedModelDirectory({configStore:{get:()=>({providers:[],accounts:[]})},
+  embeddedPack:{status:()=>({ownedProviderIds:['legacy-owned','native-router-source-qoder']})},
+  hostProviderInventory:{status:()=>({hostProviders:hostIds.map(providerId=>({providerId}))}),listHostModels:async id=>{calls.push(id);return {state:'ready',models:[{id:'model'}]}}}});
+ assert.deepEqual(d.providers().map(p=>p.providerId),['qoder','loomy','external']);
+ for(const id of ['native-router','native-router-source-qoder','own_mimo_desktop','legacy-owned'])assert.equal((await d.listModels(id)).state,'unavailable');
+ assert.equal((await d.listModels('qoder')).state,'ready');assert.deepEqual(calls,['qoder']);
+});
 test('private directory exposes all four native member routes only after official auth; uses own driver not host registry',async()=>{
  const ids=['own_mimo_desktop','own_meoo_web','own_qwenwork','own_aws_quick'];
  const config={providers:ids.map(id=>({id,name:id,enabled:true,protocol:'native-channel'})),

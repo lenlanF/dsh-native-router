@@ -30,6 +30,22 @@ function harness(embeddedPack,checkinCenter,accountCenter={list:()=>({channels:[
   }
   return {routes,hit,cleanup,configStore,get invalidations(){return invalidations}};
 }
+test('settings snapshot never waits for official account or checkin refresh; explicit refresh is single-flight',async()=>{
+ let accountCalls=0,sourceCalls=0,release;
+ const gate=new Promise(resolve=>{release=resolve});
+ const h=harness(undefined,{snapshot:()=>({accounts:[]}),refreshSources:async()=>{sourceCalls++;await gate}},{
+  list:()=>({channels:[],accounts:[],pools:[]}),refreshReadOnly:async()=>{accountCalls++;await gate}});
+ try{
+  const requests=Promise.all([h.hit('GET','/config'),h.hit('GET','/channels/accounts'),h.hit('GET','/checkins')]);
+  let timer;
+  try{const result=await Promise.race([requests,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('snapshot blocked on upstream')),200)})]);
+   assert.ok(result.every(x=>x.statusCode===200));assert.equal(accountCalls,0);assert.equal(sourceCalls,0);
+  }finally{clearTimeout(timer)}
+  const a=h.hit('POST','/runtime/refresh',{body:{}}),b=h.hit('POST','/runtime/refresh',{body:{}});
+  await new Promise(r=>setImmediate(r));assert.equal(accountCalls,1);assert.equal(sourceCalls,1);
+  release();assert.ok((await Promise.all([a,b])).every(x=>x.statusCode===200));
+ }finally{release();h.cleanup()}
+});
 test('settings API gives only configured references, never raw secrets',async()=>{
  const h=harness();
  const result=await h.hit('GET','/config');

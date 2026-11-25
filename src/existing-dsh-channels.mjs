@@ -16,6 +16,8 @@ export function createExistingDshChannelFacade({ctx,excludedHost,timeoutMs=15000
  // Provider discovery is deliberately separate from authenticated account discovery.
  // DSH plugins such as dsh-connect-workbuddy own their own login/session pool
  // and register workbuddy + workbuddy-global without an AccountPool service.
+ const internal=id=>id==='native-router'||id.startsWith('native-router-source-')||id.startsWith('own_')||
+   excludedHost?.status?.().ownedProviderIds?.includes(id);
  function hostProviders(){
   const llm=ctx?.llm??ctx?.get?.('llm',false);
   if(disposed||typeof llm?.listProviders!=='function')return [];
@@ -23,7 +25,7 @@ export function createExistingDshChannelFacade({ctx,excludedHost,timeoutMs=15000
    const registered=llm.listProviders();
    if(!Array.isArray(registered))return [];
    return [...new Set(registered.map(providerName).filter(safeId)
-     .filter(id=>id!=='native-router'&&!id.startsWith('native-router-source-')&&!isRetiredProvider(id)))].slice(0,80).map(providerId=>({
+      .filter(id=>!internal(id)&&!isRetiredProvider(id)))].slice(0,80).map(providerId=>({
        providerId,
        family:providerId==='workbuddy'||providerId==='workbuddy-global'
          ?'workbuddy-native-plugin-route':IDs.has(providerId)?'native-channel-route':'dsh-provider-route',
@@ -42,7 +44,7 @@ export function createExistingDshChannelFacade({ctx,excludedHost,timeoutMs=15000
   let providers;
   try{providers=llm.listProviders()}catch{return null}
   if(!Array.isArray(providers))return null;
-  const ids=providers.map(providerName).filter(p=>IDs.has(p));
+   const ids=providers.map(providerName).filter(p=>safeId(p)&&IDs.has(p)&&!internal(p));
   if(!ids.length)return null;
   return {pool,llm,providers:new Set(ids)};
  }

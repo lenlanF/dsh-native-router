@@ -71,7 +71,9 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
   function status(){return {state,reason,errorStage,errorKind,sourcePhase,
      sourceErrorType,sourceErrorLocation,
      rpcReady:state==='mounted'&&privateSourceRpcReady,
-     modelAdapterReady:SOURCE_PACK_PROVIDERS.filter(id=>modelAdapterStates[id]==='ready'),
+     modelAdapterReady:SOURCE_PACK_PROVIDERS.filter(id=>modelAdapterStates[id]==='ready'),     // Publish ownership of actual private registrations, not all supported source names.
+     ownedProviderIds:state==='mounted'?SOURCE_PACK_PROVIDERS.filter(id=>nativeOwned?modelAdapterStates[id]==='ready':sourceAllowed(id)).map(sourceAdapter):[],
+
      modelAdapterUnready:SOURCE_PACK_PROVIDERS.filter(id=>modelAdapterStates[id]&&modelAdapterStates[id]!=='ready'),
      modelAdapterUnreadyReasons:Object.fromEntries(Object.entries(modelAdapterStates)
        .filter(([id,value])=>SOURCE_PACK_PROVIDERS.includes(id)&&value!=='ready')),

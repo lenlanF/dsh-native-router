@@ -29,7 +29,8 @@ function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={stat
   const mutations=[];
   const response=content=>({ok:true,status:200,json:async()=>content});
   const fetch=async (url,options={})=>{
-    const key=url.split('/plugins/dsh-native-router')[1];
+    const key=url.split('/plugins/dsh-native-router')[1];    if(typeof sourceRpcOverrides[key]==='function')return sourceRpcOverrides[key]({url,options,response});
+
     if(url==='/api/dsh-native-router/channel-pack'){
       assert.equal(JSON.parse(options.body).method,'native-router-channel-pack');
       const input=JSON.parse(options.body),method=input.payload?.method;
@@ -51,6 +52,7 @@ function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={stat
       if(options.method==='POST'){const next=configStore.replace(JSON.parse(options.body));mutations.push({kind:'save'});return response({ok:true,config:next})}
       return response({ok:true,config:configStore.get()});
     }
+    if(key==='/runtime/refresh')return response({ok:true,state:'ready'});
     if(key==='/status')return response({ok:true,embeddedPack:embeddedStatus,sessionReuse:{hostProviders}});
     if(key==='/models/autofree'||key==='/models/autofree/refresh'){
       if(key.endsWith('/refresh'))mutations.push({kind:'autofree-refresh'});
@@ -84,7 +86,7 @@ function createUiRig(drivers=new Map(),embeddedPreview=null,embeddedStatus={stat
        return response({ok:true,result:{state:'stored_unverified',providerId:input.providerId,
          activation:'requires_original_stop_and_host_restart',originalAccountUnchanged:true}});
      }
-if(key==='/host/catalog'){
+if(key==='/host/catalog'||key==='/host/catalog/owned'||key==='/host/catalog/external'){
       mutations.push({kind:'host-catalog'});
       return response({ok:true,providers:[
         {id:'native-router',name:'聚合路由',state:'ready',
@@ -189,6 +191,29 @@ if(key==='/host/catalog'){
    async flushTabEffect(){render();tabEffectFn?.();for(let i=0;i<20;i++)await new Promise(resolve=>setTimeout(resolve,1))},
    find,flatten,mutations,get cfg(){return cfg}};
 }
+test('settings configuration and account view become usable before a delayed activity snapshot finishes',async()=>{
+ let release,started=0;
+ const gate=new Promise(resolve=>{release=resolve});
+ const rig=createUiRig(new Map(),null,{state:'disabled'},{'/activities':async({response})=>{started++;await gate;return response({ok:true,channels:[]})}},[],undefined,()=>true,{ok:true,accounts:[{id:'slow-fixture',providerId:'alpha',nickname:'Slow fixture account',connectionState:'online',configuredEnabled:true,enabled:true}],channels:[{id:'alpha',name:'Alpha'}],pools:[]});
+ try{
+  await rig.init();assert.equal(started,1);
+  rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
+  const page=rig.render();
+  assert.match(rig.flatten(page).join(' '),/Slow fixture account/);
+  assert.ok(rig.find(page,'button','保存配置')[0]);
+ }finally{release()}
+});
+test('external model directory excludes internal aliases and hides zero-model catalog rows while retaining real external channels',async()=>{
+ const hosts=['native-router','native-router-source-qoder','own_mimo_desktop','qoder','loomy'].map(providerId=>({providerId,family:'dsh-provider-route'}));
+ const rig=createUiRig(new Map(),null,{state:'disabled'},{'/host/catalog/external':({response})=>response({ok:true,scope:'external',providers:[{id:'qoder',state:'empty',directoryVisible:false,models:[]},{id:'loomy',state:'ready',directoryVisible:true,models:[{id:'external-model'}]}]})},hosts);
+ await rig.init();rig.find(rig.render(),'button','已有模型路由管理')[0].props.onClick();
+ rig.find(rig.render(),'button','DSH 其他路由')[0].props.onClick();
+ const refresh=rig.find(rig.render(),'button','刷新本组模型与资费')[0];assert.ok(refresh);
+ await refresh.props.onClick();
+ const page=rig.render(),labels=uiNodes(page,n=>n.props?.className==='dnr-model-channel-choice').map(n=>rig.flatten(n).join(' '));
+ assert.equal(labels.length,1);assert.match(labels[0],/loomy/);
+ assert.match(rig.flatten(page).join(' '),/1 暂无可用模型/);
+});
 test('channel activity page shows a separate five-column table per provider and only official reward facts',async()=>{
  const expiry=Date.parse('2026-11-27T00:00:00Z');
  const snapshot={ok:true,channels:[
@@ -1274,7 +1299,7 @@ test('reuse host supports explicit safe model and pricing refresh, with metadata
  assert.equal(rig.mutations.filter(m=>m.kind==='host-model-query').length,2);
  page=rig.render();
  assert.match(rig.flatten(page).join(' '),/本渠道变化：新增 0/);
- assert.ok(rig.find(page,'button','刷新全部模型与资费').length===1);
+ assert.ok(rig.find(page,'button','刷新本组模型与资费').length===1);
 });
 test('independent login is visible in channel account and local-session pages without original plugin',async()=>{
  const ownAccount={id:'sp_1234567890abcdef12345678',providerId:'own_loomy',
