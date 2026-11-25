@@ -1,3 +1,4 @@
+import {publicGiftWallet} from './gift-wallet.mjs';
 import {sourceAccountOpaqueId} from './source-account-ref.mjs';
 import {publicAccountName,publicBalance} from './account-facts.mjs';
 
@@ -132,6 +133,7 @@ export function mergeAccountSources({roster,embeddedAccounts,sourceRows=[],
       ...(chosenName?{nickname:chosenName,
         ...(publicAccountName(primary)?{}:{profileState:'cached'})}:{}),
       ...publicAmount,
+      ...(primary.giftCreditState?{giftedBalance:undefined,ordinaryBalance:undefined,giftRouteState:undefined,...publicGiftWallet(primary,publicAmount,{fromCache:borrowed||best?.balanceStale===true})}:{}),
       ...(borrowed||best?.balanceStale===true?{
         balanceState:'cached',balanceStale:true,
         ...(knownTime?{balanceCheckedAt:knownTime}:{})}:{}),

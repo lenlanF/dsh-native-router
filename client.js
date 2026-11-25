@@ -1088,7 +1088,7 @@ window.__ModuleLoader__.load({
                 h('div',{style:css.line},
                    (account.benefits||[]).filter(b=>b.active&&!b.claimed).map(b=>
                     h('span',{key:account.id+'-reward-'+b.kind,style:css.mutedTag},
-                      '可领取 '+(b.kind==='gift'?'官方活动赠送':'补偿积分')+
+                      (b.requiresAction?'需实际完成 ':'可领取 ')+(b.name||(b.kind==='gift'?'官方活动赠送':'补偿积分'))+
                       (Number.isFinite(b.credit)?' · '+b.credit+' 积分':''))),
                   account.checkinState?h('span',{style:css.mutedTag},
                    '今日签到：'+(checkinLabels[account.checkinState]||account.checkinState)):null,
@@ -1223,7 +1223,7 @@ window.__ModuleLoader__.load({
                       'data-validity':activity.validity},
                       stateText[activity.validity]||'待官方核验')),
                     h('td',{'data-label':'到期时间'},endText(activity.endAt)),
-                    h('td',{'data-label':'执行状态'},activity.progress||'待核实')))
+                    h('td',{'data-label':'执行状态'},(activity.execution==='manual'?'需实际操作 · ':'')+(activity.progress||'待核实'))))
                 :h('tr',null,h('td',{colSpan:5,className:'dnr-activity-empty'},
                   channel.accountCount>0?
                     '暂无官方确认可领取或已到账的免费活动'+

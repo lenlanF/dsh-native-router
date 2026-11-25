@@ -1,6 +1,5 @@
-// Loomy silent official onboarding-claim flow. These are provider's OWN
-// task-state/complete endpoints; no chat, PPT, sharing, skill installation,
-// scheduler, external publishing, or purchase calls are made.
+// Loomy onboarding status is not proof of task completion. Read official
+// status and reconcile existing receipts without asserting unfinished work.
 export const LOOMY_FREE_TASKS=Object.freeze({
  first_message:{name:'发送你的第一条消息',points:500},
  pick_skill:{name:'试试选择一个技能',points:1000},
@@ -44,16 +43,13 @@ const responseBody=async response=>{
     ?obj.data??null:null;
  }catch{return null}
 };
-async function request(c,path,{fetchImpl=fetch,key=null}={}){
+async function request(c,path,{fetchImpl=fetch}={}){
  const token=tokenOf(c);
  if(!token)return null;
  try{
-  const post=key!==null;
   const response=await fetchImpl(BASE+path,{
-   method:post?'POST':'GET',redirect:'error',
-   headers:{Accept:'application/json',token,
-     ...(post?{'Content-Type':'application/json'}:{})},
-   ...(post?{body:JSON.stringify({key})}:{}),
+   method:'GET',redirect:'error',
+   headers:{Accept:'application/json',token},
    signal:AbortSignal.timeout(API_TIMEOUT),
   });
   return responseBody(response);
@@ -67,7 +63,7 @@ export async function readLoomyFreeTasks({credential,fetchImpl=fetch}={}){
    .filter(([key])=>typeof data.tasks[key]==='boolean')
    .map(([key,task])=>({
      kind:'loomy_'+key,name:task.name,
-     credit:task.points,claimed:data.tasks[key]===true,active:true
+     credit:task.points,claimed:data.tasks[key]===true,active:true,requiresAction:true
    }));
  return tasks.length?{state:'available',tasks}:{state:'unavailable',tasks:[]};
 }
@@ -82,59 +78,20 @@ export async function readLoomyWallet({credential,fetchImpl=fetch}={}){
  return Number.isFinite(permanent)&&permanent>=0&&permanent<=1e12?
    {state:'available',permanent}:{state:'unavailable'};
 }
-const credited=(before,after,points)=>before?.state==='available'
- &&after?.state==='available'&&Number.isFinite(points)&&points>0
- &&Math.abs((after.permanent-before.permanent)-points)<0.000001;
 export async function claimLoomyFreeTasks({credential,fetchImpl=fetch,
- beforeClaim,onOutcome,onObserved,previousReceipt,now=()=>Date.now()}={}){
+ onObserved,previousReceipt,now=()=>Date.now()}={}){
  const initial=await readLoomyFreeTasks({credential,fetchImpl});
  if(initial.state!=='available')return {state:'unavailable',confirmed:0,pending:0,eligible:0};
- let confirmed=0,pending=0,eligible=0;
- // Provider task status and wallet statement must both be available before
- // we ever submit a free task-completion POST.
- let wallet=await readLoomyWallet({credential,fetchImpl});
- if(wallet.state!=='available')return {state:'unavailable',confirmed,pending,eligible};
+ const wallet=await readLoomyWallet({credential,fetchImpl});
+ if(wallet.state!=='available')return {state:'unavailable',confirmed:0,pending:0,eligible:0};
+ let eligible=0,pending=0;
  for(const offer of initial.tasks){
-  if(offer.claimed){
-   // Network errors can leave a previously accepted POST ambiguous. Only an
-   // exact wallet increase, compared with the durable pre-POST balance,
-   // upgrades its receipt. Old rc89 receipts had no baseline and stay hidden.
-   let previous=null;
-   try{previous=await previousReceipt?.(offer)}catch{}
-   if(previous&&previous.state!=='confirmed'&&Number.isFinite(previous.baselineBalance)
-       &&credited({state:'available',permanent:previous.baselineBalance},wallet,offer.credit)){
-     try{await onObserved?.(offer,'confirmed',{
-       credit:offer.credit,proof:'official_wallet_delta',verifiedAt:now()})}catch{}
-   }
-   continue;
-  }
-  eligible++;
-  // Record the official balance before the POST in the durable owner receipt.
-  // Failed wallet reads must not initiate any completion request.
-  wallet=await readLoomyWallet({credential,fetchImpl});
-  if(wallet.state!=='available')return {state:'unavailable',confirmed,pending,eligible};
-  let approved=false;
-  try{approved=await beforeClaim?.(offer,{baselineBalance:wallet.permanent})===true}catch{}
-  if(!approved)continue;
-  const key=offer.kind.slice('loomy_'.length);
-  // Only an API-level task completion, never a visible task operation.
-  await request(credential,'/onboarding/tasks/complete',{key,fetchImpl});
-  const status=await readLoomyFreeTasks({credential,fetchImpl});
-  const task=status.tasks.find(x=>x.kind===offer.kind);
-  const after=await readLoomyWallet({credential,fetchImpl});
-  const done=status.state==='available'&&task?.claimed===true
-    &&credited(wallet,after,offer.credit);
-  const metadata=done?{credit:offer.credit,
-    proof:'official_wallet_delta',verifiedAt:now()}:{};
-  try{await onOutcome?.(offer,done?'confirmed':'pending_confirmation',metadata)}catch{}
-  if(done)confirmed++;
-  else{
-   pending++;
-   // A task can demand genuine visible work, or the wallet can lag behind
-   // a checkbox. Never keep posting other offers on an unverified outcome.
-   break;
-  }
+  if(!offer.claimed){eligible++;continue}
+  // A historical submitted receipt may be reconciled; never initiate a
+  // completion mutation for an unperformed task. Multiple ambiguous offers
+  // can have the same award, so a shared wallet delta is not task-specific.
+  let previous=null;try{previous=await previousReceipt?.(offer)}catch{}
+  if(previous&&previous.state!=='confirmed')pending++;
  }
- return {state:pending?'pending_confirmation':confirmed?'confirmed':
-   eligible?'no_new_confirmed':'no_task',confirmed,pending,eligible};
+ return {state:eligible?'client_required':pending?'pending_confirmation':'no_task',confirmed:0,pending,eligible};
 }

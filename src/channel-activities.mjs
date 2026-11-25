@@ -14,7 +14,7 @@ const EMPTY_EXPLANATIONS=Object.freeze({
  qwenwork:'读取账号官方额度及模型倍率；尚未核验独立免费领取接口',
  aws_quick:'读取官方小时用量与额度窗口；尚未核验独立免费领取接口',
 
- loomy:'只接入官方新手任务完成接口；需要实际生成或分享等可感操作的活动不执行',
+ loomy:'每日额度按官方资格领取；新手活动需实际完成，未验证任务不自动提交',
 });
 const DIRECT_FREE_SIGNIN=new Set([
   'own_workbuddy-cn','own_workbuddy-global','own_lingxi']);
@@ -132,6 +132,11 @@ export function buildChannelActivityCatalog({config,accountRows=[],sourceRows=[]
         rewardUnit:Number.isFinite(benefit.credit)?'积分':null,
          validity:'valid',endAt:deadline,execution:'automatic',
          progress:'官方账户确认活动待领取 · 尚未证明积分入账'});
+    }
+    if(loomy&&account.connectionState==='online')for(const benefit of Array.isArray(account.benefits)?account.benefits:[]){
+      if(benefit?.requiresAction!==true||benefit.active!==true||benefit.claimed!==false||!/^loomy_(first_message|pick_skill|generate_ppt|set_schedule|install_skill|configure_remote|create_soul|share_soul)$/.test(benefit.kind))continue;
+      const deadline=endOf(benefit.endAt);if(deadline!==null&&deadline<=now)continue;
+      channel.activities.push({id:account.id+':'+benefit.kind+':action',accountId:account.id,accountName:name,name:safeText(benefit.name)||'官方新手活动',kind:benefit.kind,rewardAmount:asAmount(benefit.credit),rewardUnit:Number.isFinite(benefit.credit)?'积分':null,validity:'valid',endAt:deadline,execution:'manual',progress:'需实际完成官方任务 · 未到账'});
     }
     for(const benefit of Array.isArray(account.benefits)?account.benefits:[]){
       if(!benefit||!(workbuddy?['gift','compensation'].includes(benefit.kind)

@@ -117,20 +117,20 @@ test('Loomy official API-only tasks are read and claimed by exact owned source a
      sourceAccountId:'loomy-member-b',
      beforeClaim:()=>true,
      onOutcome:(offer,state)=>{assert.equal(state,'confirmed');confirmed++}});
-   assert.equal(claimed.confirmed,8);
-   assert.equal(confirmed,8);
-   assert.equal(posts,8);
-   assert.ok(keys.every(key=>states['loomy-member-b'][key]));
+   assert.equal(claimed.confirmed,0);assert.equal(claimed.state,'client_required');
+   assert.equal(confirmed,0);
+   assert.equal(posts,0);
+   assert.ok(keys.every(key=>!states['loomy-member-b'][key]));
    assert.ok(keys.every(key=>!states['loomy-member-a'][key]));
    const after=await bridge.readSourceStatuses('loomy');
    assert.ok(after.accounts.find(x=>x.accountId==='loomy-member-b')
-     .benefits.every(x=>x.claimed));
+     .benefits.every(x=>!x.claimed));
    assert.ok(after.accounts.find(x=>x.accountId==='loomy-member-a')
      .benefits.every(x=>!x.claimed));
    const wrong=await bridge.claimLoomyActivities({
      sourceAccountId:'unowned',beforeClaim:()=>true});
    assert.equal(wrong.state,'unavailable');
-   assert.equal(posts,8);
+   assert.equal(posts,0);
    assert.doesNotMatch(JSON.stringify(after),/LOOMY_A_TOKEN|LOOMY_B_TOKEN|FAKE_B_LOOMY/);
  }finally{bridge.dispose()}
 });

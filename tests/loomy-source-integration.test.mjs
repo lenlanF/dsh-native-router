@@ -14,7 +14,7 @@ const root=()=>{const base=process.platform==='win32'?'E:\\Temp':tmpdir();
 const keySet=['first_message','pick_skill','generate_ppt','set_schedule',
  'install_skill','configure_remote','create_soul','share_soul'];
 const ok=data=>new Response(JSON.stringify({code:'000000',data}),{status:200});
-test('Loomy source accounts perform all 8 API-only bonuses per account and remain safe after restart',async()=>{
+test('Loomy source accounts report manual tasks and do not assert completion after restart',async()=>{
  const dir=root();try{
   const config=normalizeConfig({providers:[{id:'own_loomy',enabled:true,
     name:'Loomy',protocol:'native-channel'}],
@@ -65,29 +65,20 @@ test('Loomy source accounts perform all 8 API-only bonuses per account and remai
   assert.equal(Object.values(postCounts).reduce((a,b)=>a+b,0),0,
    'discovery is read only');
   const done=await center.tick();
-  assert.equal(done.rewards.length,2);
-  assert.equal(done.rewards.reduce((sum,r)=>sum+r.confirmed,0),16);
-  assert.equal(postCounts.member_A,8);
-  assert.equal(postCounts.member_B,8);
-  assert.ok(methods.every(x=>x==='GET'||x==='POST'));
-  const entries=center.snapshot().accounts;
-  assert.equal(entries.length,2);
-  assert.ok(entries.every(x=>x.benefits.length===8&&
-    x.benefits.every(y=>y.claimed)));
-  assert.ok(entries.every(x=>x.activityClaims.confirmed===8));
-  assert.ok(entries.every(x=>x.benefits.every(y=>y.rewardVerified===true
-    &&y.rewardProof==='official_wallet_delta')));
-  assert.equal(wallet.member_A,10000);
-  assert.equal(wallet.member_B,10000);
-  assert.equal(readFileSync(claims,'utf8').includes('member_A'),false);
+  assert.equal(done.rewards.length,0);
+  assert.equal(done.rewards.reduce((sum,r)=>sum+r.confirmed,0),0);
+  assert.ok(methods.length>=4,'the automatic scheduler still reads both exact official accounts');
+  assert.deepEqual(postCounts,{member_A:0,member_B:0});
+  assert.ok(methods.every(x=>x==='GET'));
+  assert.ok(center.snapshot().accounts.every(x=>x.benefits.length===8&&x.benefits.every(y=>!y.claimed&&y.requiresAction)));
   center.stop();
   at+=3600000;center=mount();
   await center.refreshSources();
   const next=await center.tick();
-  assert.equal(next.rewards.length,0);
-  assert.deepEqual(postCounts,{member_A:8,member_B:8},
+  assert.equal(next.rewards.reduce((sum,r)=>sum+r.confirmed,0),0);
+  assert.deepEqual(postCounts,{member_A:0,member_B:0},
    'restart cannot submit bonus rewards twice');
-  assert.ok(center.snapshot().accounts.every(x=>x.activityClaims.confirmed===8));
+  assert.ok(center.snapshot().accounts.every(x=>x.activityClaims.confirmed===0));
   center.stop();
  }finally{rmSync(dir,{recursive:true,force:true})}
 });
