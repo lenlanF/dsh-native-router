@@ -102,7 +102,13 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
    seen.add(key);
    const normalized=typeof row==='string'?{id:row,name:row}:row;
    const evidence=kind==='owned-source'&&providerId==='zcode'?null:markedEvidence(normalized,providerId,peers??[normalized]);
-   const entry={providerId,model,name:typeof normalized.name==='string'?normalized.name.slice(0,120):model,kind,...(accountIds?.length?{accountIds:[...accountIds]}:{})};
+   const compared=peers??[normalized];
+   const rates=compared.map(p=>typeof p?.costMultiplier==='number'&&Number.isFinite(p.costMultiplier)&&p.costMultiplier>=0&&p.costMultiplier<=100?p.costMultiplier:null);
+   const conflict=compared.some(p=>p?.pricingConflict===true)||new Set(rates.filter(x=>x!==null)).size>1;
+   const incomplete=compared.some(p=>p?.pricingIncomplete===true)||rates.some(x=>x!==null)&&rates.some(x=>x===null);
+   const entry={providerId,model,name:typeof normalized.name==='string'?normalized.name.slice(0,120):model,kind,
+     ...(conflict?{pricingConflict:true}:incomplete?{pricingIncomplete:true}:rates.length&&rates[0]!==null?{costMultiplier:rates[0]}:{}),
+     ...(accountIds?.length?{accountIds:[...accountIds]}:{})};
    catalog.push({...entry,free:evidence!==null,...(evidence?{evidence}:{})});
    if(!evidence){unknownPricing++;return}
    models.push({...entry,evidence});
@@ -144,8 +150,11 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
     }
     for(const list of byModel.values()){
      const first=list[0].model,ids=[...new Set(list.map(x=>x.accountId))];
-     const all=ids.length===members.length&&list.every(x=>x.model.free===true&&!contradictsFree(x.model,providerId));
-     const row={...first,free:all,isFree:all,pricingIncomplete:ids.length!==members.length};
+     const rates=list.map(x=>x.model.costMultiplier??null);
+     const conflict=list.some(x=>x.model.pricingConflict===true)||new Set(rates.filter(x=>x!==null)).size>1;
+     const incomplete=ids.length!==members.length||list.some(x=>x.model.pricingIncomplete===true)||rates.some(x=>x!==null)&&rates.some(x=>x===null);
+     const all=!conflict&&!incomplete&&list.every(x=>x.model.free===true&&!contradictsFree(x.model,providerId));
+     const row={...first,free:all,isFree:all,pricingConflict:conflict,pricingIncomplete:incomplete};
      add(providerId,row,'owned-source',[row],ids);
     }
     for(const member of observed)if(!sourceAccounts.some(x=>x.accountId===member.id))

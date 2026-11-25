@@ -232,9 +232,9 @@ export async function hostRouteProof({llm,adapter,configStore,accountCenter,
   };
   if(!bindingIntact())return {state:'skipped',code:'DSH_ROUTE_ACCOUNT_UNSAFE'};
   const route='direct:'+providerId+':'+encodeURIComponent(modelId);
-  const advertised=await adapter.listModels();
+  const advertised=typeof adapter.canResolveOwnedDirect==='function'?adapter.canResolveOwnedDirect(providerId,modelId):(await adapter.listModels())?.some(row=>row?.id===route);
   if(!bindingIntact())return {state:'skipped',code:'DSH_ROUTE_ACCOUNT_UNSAFE'};
-  if(!Array.isArray(advertised)||!advertised.some(row=>row?.id===route))
+  if(!advertised)
     return {state:'skipped',code:'DSH_ROUTE_NOT_ADVERTISED'};
   const controller=new AbortController();
   const cancel=()=>controller.abort();

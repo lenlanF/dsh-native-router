@@ -34,8 +34,9 @@ export function createRoutingEngine({getConfig,request,pool=createAccountPool(),
         const current=live.routes.find(row=>row.id===route.id&&row.enabled);
         if(!current||current.mode!==route.mode||!current.tiers.some(row=>
           row.providerId===tier.providerId&&row.model===tier.model&&
-          (route.mode!=='free'||row.free)))return false;
+          (route.mode!=='free'||row.free)&&(!row.accountIds?.length||row.accountIds.includes(account.id))))return false;
       }
+      if(tier.accountBindings&&tier.accountBindings[account.id]!==account.credentialRef)return false;
       if(provider.protocol==='dsh-host')return account.id==='__host_'+provider.id;
       return live.accounts.some(row=>row.id===account.id&&row.providerId===account.providerId
         &&row.credentialRef===account.credentialRef&&row.enabled===true);
