@@ -1,5 +1,5 @@
 import {createRoutingEngine} from './router.mjs';
-import {createCatalog,directModelDecode} from './catalog.mjs';
+import {createCatalog,directModelDecode,conciseModelName} from './catalog.mjs';
 import {createAccountPool} from './accounts.mjs';
 import {requestOpenAI} from './provider/openai.mjs';
 import {requestAnthropic} from './provider/anthropic.mjs';
@@ -104,7 +104,44 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
       current.accounts.some(a=>a.providerId===tier.providerId&&a.enabled&&(!tier.accountIds?.length||tier.accountIds.includes(a.id)))));
    });
   }
-  async function routeForModel(model){
+  function ownedDirectProvider(providerId){
+    const p=configStore.get().providers.find(x=>x.id===providerId);
+    return ownedAccountCatalog&&p?.protocol==='native-channel'?p:null;
+  }
+  function canResolveOwnedDirect(providerId,model){
+    const p=ownedDirectProvider(providerId),driver=driverFor(providerId);
+    return Boolean(p?.enabled&&typeof driver?.generate==='function'&&!driver.modelAccessRestricted
+      &&(driver.isSourceBridge!==true||driver.runtimeReady===true)
+      &&allowsHostModel(configStore.get(),providerId,model));
+  }
+  async function scopedOwnedDirect(direct,signal){
+    const {providerId,model}=direct;
+    if(!canResolveOwnedDirect(providerId,model))return [];
+    const original=configStore.get().accounts.filter(a=>a.providerId===providerId&&a.enabled&&verifiedAccount(a)===true).slice(0,32);
+    const accepted=[];let index=0;
+    // An explicitly selected owned model must never trigger a full external
+    // catalogue scan. Match the selected model to its exact live account(s).
+    async function worker(){
+      while(index<original.length&&!signal?.aborted){
+        const a=original[index++],controller=new AbortController();
+        const cancel=()=>controller.abort();signal?.addEventListener('abort',cancel,{once:true});
+        if(signal?.aborted)cancel();
+        const timeout=setTimeout(cancel,30000);
+        let onAbort;
+        try{
+          const aborted=new Promise(resolve=>{onAbort=()=>resolve(null);controller.signal.addEventListener('abort',onAbort,{once:true});if(controller.signal.aborted)onAbort()});
+          const result=await Promise.race([aborted,Promise.resolve().then(()=>controller.signal.aborted?null:ownedAccountCatalog(a,{signal:controller.signal})).catch(()=>null)]);
+          if(!controller.signal.aborted&&result?.state==='ready'&&result.models?.some(m=>m.id===model&&!m.accessRestriction))accepted.push(a);
+        }finally{clearTimeout(timeout);signal?.removeEventListener('abort',cancel);if(onAbort)controller.signal.removeEventListener('abort',onAbort)}
+      }
+    }
+    await Promise.all(Array.from({length:Math.min(4,original.length)},()=>worker()));
+    if(signal?.aborted)throw new RoutingError('CANCELLED','DSH request cancelled');
+    if(!canResolveOwnedDirect(providerId,model))return [];
+    const live=configStore.get();
+    return accepted.filter(a=>verifiedAccount(a)===true&&live.accounts.some(b=>b.id===a.id&&b.providerId===providerId&&b.enabled&&b.credentialRef===a.credentialRef));
+  }
+  async function routeForModel(model,signal){
     if(typeof model!=='string')throw new RoutingError('ERR_ROUTE_NOT_FOUND','Invalid DSH model');
     if(model==='autofree'){
       await autoFreePool.refresh();
@@ -123,7 +160,12 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
     if(model.startsWith('chain:'))return model.slice(6);
     const direct=directModelDecode(model);
     if(direct){
-      const published=await catalog.list();
+      if(ownedDirectProvider(direct.providerId)){
+        const confirmed=await scopedOwnedDirect(direct,signal);
+        if(!confirmed.length)throw new RoutingError('ERR_ROUTE_NOT_FOUND','Direct model unavailable in exact owned account catalog');
+        return {id:model,name:model,mode:'pinned',enabled:true,tiers:[{providerId:direct.providerId,model:direct.model,free:false,accountIds:confirmed.map(a=>a.id),accountBindings:Object.fromEntries(confirmed.map(a=>[a.id,a.credentialRef]))}],maxSwitches:0};
+      }
+      const published=await catalog.list(signal);
       if(!published.some(row=>row.id===model))throw new RoutingError('ERR_ROUTE_NOT_FOUND','Direct model was not advertised by this provider');
       const config=getConfig(),provider=config.providers.find(p=>p.id===direct.providerId&&p.enabled);
       if(!provider)throw new RoutingError('ERR_ROUTE_NOT_FOUND','Provider not configured');
@@ -135,7 +177,7 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
     if(options.signal?.aborted){
       yield {type:'finish',reason:{kind:'aborted',failure:{message:'Request cancelled'}}};return;
     }
-    const id=await routeForModel(options.model);
+    const id=await routeForModel(options.model,options.signal);
     const output=await engine.execute(id,{signal:options.signal,sessionId:options.sessionId??options.agentId??'',needTools:Array.isArray(options.tools)&&options.tools.length>0,...options});
     yield* toDshEvents(output);
   }
@@ -145,7 +187,14 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
     imageRequestPricing(){return undefined},
     imageRequestTarget(){return undefined},
     async listModels(){return catalog.list()},
-    async resolveModel(provider,model){const rows=await catalog.list();const found=rows.find(x=>x.id===model);
+    canResolveOwnedDirect,
+    async resolveModel(provider,model){
+      const direct=directModelDecode(model),owned=direct&&ownedDirectProvider(direct.providerId);
+      if(owned){
+        const row=autoFreePool.snapshot().catalog.find(x=>x.providerId===owned.id&&x.model===direct.model);
+        return {provider:provider??PROVIDER,id:model,name:conciseModelName(owned.id,owned.name,direct.model,row?.name,row),inputModalities:['text']};
+      }
+      const rows=await catalog.list();const found=rows.find(x=>x.id===model);
       return {provider:provider??PROVIDER,id:model,name:found?.name??model,inputModalities:['text']}},
     async prepareCall(provider,model){return {model:await this.resolveModel(provider,model),stream}},
     stream,

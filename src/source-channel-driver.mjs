@@ -231,8 +231,8 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
      return {...(liveFacts.get(account?.id)??{}),
        modelInferenceVerifiedAt:inferenceProof.get(account?.id)?.at??null};
    },
-   async refreshAccountStatus({account}={}){
-     try{return await readLiveFacts(account)}
+   async refreshAccountStatus({account,signal}={}){
+     try{return await readLiveFacts(account,{signal})}
      catch{return {state:'unavailable',authVerified:false}}
    },
    async discover(){

@@ -140,3 +140,14 @@ test('owned-only AutoFree audit neither reads nor replaces the external provider
  assert.equal(externalReads,1);assert.equal(owned.catalogCount,1);assert.equal(owned.routeCount,1);assert.equal(owned.providers[0].providerId,providerId);
  assert.deepEqual(adapter.autoFreeSnapshot(),before);
 });
+
+test('owned direct route avoids other providers and pins only exact model-bearing accounts',async()=>{
+ const providerId='own_workbuddy-cn',ids=['a','b'];let externalReads=0;const reads=[],calls=[];
+ const cfg=normalizeConfig({providers:[{id:providerId,protocol:'native-channel',enabled:true}],accounts:ids.map(id=>({id,providerId,credentialRef:'driver:'+providerId+':'+id,enabled:true}))});
+ const adapter=createNativeRouterAdapter({configStore:{get:()=>cfg},hostProviderInventory:{status:()=>({hostProviders:[{providerId:'external-fixture'}]}),listHostModels:async()=>{externalReads++;throw Error('external must not be read')}},channelDrivers:new Map([[providerId,{generate:async({account})=>{calls.push(account.id);return {text:'OK',finishReason:'stop',toolCalls:[]}}}]])});
+ adapter.setAccountVerificationResolver(()=>true);adapter.setOwnedAccountCatalogResolver(async a=>{reads.push(a.id);return {state:'ready',models:[{id:a.id==='b'?'selected':'other',free:true}]}});
+ const selected='direct:'+providerId+':selected';await adapter.prepareCall('native-router',selected);assert.deepEqual(reads,[]);
+ const events=[];for await(const e of adapter.stream({model:selected,messages:[{role:'user',content:'OK'}]}))events.push(e);
+ assert.equal(externalReads,0);assert.deepEqual(reads.sort(),ids);assert.deepEqual(calls,['b']);assert.ok(events.some(e=>e.type==='finish'&&e.reason.kind==='stop'));
+ await assert.rejects(async()=>{for await(const e of adapter.stream({model:'direct:'+providerId+':not-present',messages:[]})){}},{code:'ERR_ROUTE_NOT_FOUND'});assert.deepEqual(calls,['b']);
+});

@@ -296,3 +296,11 @@ test('multi-account owned-source inventory creates separate enabled account entr
  assert.equal(effective.routes.length,0);
  assert.deepEqual(pool.tiers()[0].accountIds,[],'Host request will select and pin a verified exact owner account');
 });
+
+test('exact account rate conflict stays nonfree and cannot advertise a numeric multiplier',async()=>{
+ const providerId='own_workbuddy-cn',ids=['a','b'];const cfg=normalizeConfig({providers:[{id:providerId,name:'WorkBuddy',protocol:'native-channel',enabled:true}],accounts:ids.map(id=>({id,providerId,credentialRef:'driver:'+providerId+':'+id,enabled:true}))});
+ const pool=createAutoFreePool({getConfig:()=>cfg,ownedAccountEligible:()=>true,ownedAccountCatalog:async a=>({state:'ready',models:[{id:'conflict',name:'Conflicting x0.00',free:a.id==='a',costMultiplier:a.id==='a'?0:0.7},{id:'free',name:'Free model',free:true,costMultiplier:0},{id:'paid',name:'Paid model',free:false,costMultiplier:0.7}]})});
+ const result=await pool.refresh();assert.equal(result.catalog.find(r=>r.model==='conflict').pricingConflict,true);assert.equal(result.catalog.find(r=>r.model==='free').costMultiplier,0);assert.deepEqual(result.models.map(r=>r.model),['free']);
+ const picker=await createCatalog({getConfig:()=>cfg,autoFreePool:pool,channelDrivers:new Map([[providerId,{generate:async()=>{}}]])}).list();
+ assert.match(picker.find(r=>r.id.endsWith(':conflict')).name,/x\?$/);assert.match(picker.find(r=>r.id.endsWith(':free')).name,/x0\.00$/);assert.match(picker.find(r=>r.id.endsWith(':paid')).name,/x0\.7$/);
+});

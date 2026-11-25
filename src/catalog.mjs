@@ -18,13 +18,15 @@ export function conciseChannelName(providerId,name){
     &&normalized===providerId)return 'WorkBuddy';
   return normalized||fallback;
 }
-export function conciseModelName(providerId,channel,model,sourceName){
+export function conciseModelName(providerId,channel,model,sourceName,metadata){
   const label=typeof sourceName==='string'&&sourceName.trim()?sourceName:model;
   const match=label.match(multiplier);
   // Display only channel / model / actual source multiplier (or an unknown marker).
   const plain=label.replace(multiplier,'').replace(/\bFree now\b/gi,'')
     .replace(/[·\s()]+$/u,'').trim()||model;
-  return conciseChannelName(providerId,channel)+' · '+plain+' · '+(match?'x'+match[1]:'x?');
+  const rate=metadata?.costMultiplier;
+  const labelRate=metadata?.pricingConflict||metadata?.pricingIncomplete?'x?':Number.isFinite(rate)&&rate>=0&&rate<=100?'x'+String(rate).replace(/^(\d+)$/,'$1.00'):match?'x'+match[1]:'x?';
+  return conciseChannelName(providerId,channel)+' · '+plain+' · '+labelRate;
 }
 import {allowsHostModel} from './host-model-selection.mjs';
 export function createCatalog({getConfig,getEffectiveConfig,fetchImpl=fetch,
@@ -137,7 +139,7 @@ export function createCatalog({getConfig,getEffectiveConfig,fetchImpl=fetch,
        r.id,r.name,r.enabled,r.mode,r.tiers.map(t=>[t.providerId,t.model,t.accountIds])]).sort();
      const currentSourceAvailability=sourceState()+'|host:'+
        (hostProviderInventory?.status?.().hostProviders??[]).map(row=>row.providerId).sort().join(',')
-       +'|selector:'+JSON.stringify([accountSignature,providerSignature,routeSignature,
+       +'|autofree:'+(autoFreePool?.snapshot?.().scannedAt??'none')+'|selector:'+JSON.stringify([accountSignature,providerSignature,routeSignature,
          cfg.hostModelSelection??{}]);
      if(updatedAt&&sourceAvailability===currentSourceAvailability&&Date.now()-updatedAt<ttlMs)
        return cached.map(x=>({...x}));
@@ -156,7 +158,7 @@ export function createCatalog({getConfig,getEffectiveConfig,fetchImpl=fetch,
       const p=single?cfg.providers.find(x=>x.id===single.providerId):null;
       const found=single?all.find(x=>x.providerId===single.providerId&&x.model===single.model):null;
       return {provider:'native-router',id:'chain:'+r.id,
-        name:single&&p?conciseModelName(p.id,p.name,single.model,found?.name):
+        name:single&&p?conciseModelName(p.id,p.name,single.model,found?.name,found):
           '聚合路由 · '+r.name+' · x?',
         inputModalities:['text']};
     }));
@@ -191,7 +193,7 @@ export function createCatalog({getConfig,getEffectiveConfig,fetchImpl=fetch,
           if(['dsh-host','native-channel'].includes(p.protocol)&&!allowsHostModel(cfg,p.id,model))continue;
           const discovered=sourceModels.find(row=>row.model===model);
           const name=conciseModelName(p.id,p.name,model,
-            discovered?.name??liveNames.get(model));
+            discovered?.name??liveNames.get(model),discovered);
           entries.push({provider:'native-router',id:directModelId(p.id,model),
             name,inputModalities:['text']});
         }

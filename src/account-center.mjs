@@ -418,7 +418,7 @@ export function createAccountCenter({
   pending.add(id);
   const controller=new AbortController();
    let timedOut=false,generationStarted=false,phase='CATALOG';
-   const timer=setTimeout(()=>{timedOut=true;controller.abort()},90000);
+   const timer=setTimeout(()=>{timedOut=true;controller.abort()},provider.id==='own_loomy'?150000:90000);
   const abort=()=>controller.abort();
   if(signal?.aborted)abort();else signal?.addEventListener('abort',abort,{once:true});
   const cancelled=new Promise((_,reject)=>{
