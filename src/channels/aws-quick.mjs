@@ -275,11 +275,18 @@ export function createAwsQuickDriver({
   try{
    const backend=await ownBackend(account);
    await backend.ensure();
-   const session=await backend.session();
-   const stored=await readSession(account);
-   const info=await userInfo({...stored,...session,
-    tokens:{...stored.tokens,access_token:stored.tokens?.access_token}},
-    signal);
+    let session=await backend.session();
+    let stored=await readSession(account);
+    let info;
+    try{info=await userInfo({...stored,...session},signal)}
+    catch(error){
+     if(error?.status!==401||signal?.aborted)throw error;
+     // The access token may be revoked before its local expiry. Refresh
+     // once through the existing OAuth grant, then verify the same identity.
+     session=await backend.session({fresh:true});
+     stored=await readSession(account);
+     info=await userInfo({...stored,...session},signal);
+    }
    if(identityKey({...stored,user_info:{...stored.user_info,...info}})!==
      identityKey(stored))throw fail('CREDENTIAL');
    const quota=await usageFor(backend,signal).catch(e=>

@@ -385,6 +385,19 @@ test('accepted source claim is immediately followed by a fresh authenticated sta
   assert.equal(h.calls.length,1,'confirmed source must never claim again');
   h.center.stop();
 });
+test('Loomy accepted daily initialization is reconciled read-only on repeated manual action',async()=>{
+ let checked=false,reads=0;
+ const h=fixture({enabled:false,rows:[row('loomy','acct-1')],handler:async()=>({state:'pending_confirmation',accepted:true,diagnosticCode:'LOOMY_WALLET_UNCONFIRMED'}),
+  statusQuery:async()=>{reads++;return {state:'ready',accounts:[{accountId:'acct-1',todayCheckedIn:checked,active:true,authVerified:true}]}}});
+ try{
+  await h.center.refreshSources();const id=sourceAccountOpaqueId('loomy','acct-1');
+  assert.equal((await h.center.run(id)).record.state,'pending_confirmation');
+  const before=reads;assert.equal((await h.center.run(id)).record.state,'pending_confirmation');
+  assert.equal(h.calls.length,1);assert.ok(reads>before);
+  checked=true;assert.equal((await h.center.run(id)).record.state,'success');
+  assert.equal(h.calls.length,1);
+ }finally{h.center.stop()}
+});
 test('unconfirmed source acceptance does not remain pending forever',async()=>{
   const h=fixture({enabled:false,rows:[row('zcode','acct-2')],
     handler:async()=>({state:'pending_confirmation',accepted:true,

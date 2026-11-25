@@ -709,24 +709,24 @@ export function createDirectBackend({ load, persist, fetchImpl = fetch, log = ()
       cached = s
       return backend
     },
-    async session() {
+    async session({ fresh = false } = {}) {
       let s = cached || (await load())
       if (!s?.jwt) throw new OAuthError('session missing — log in again', { status: 401, kind: 'auth' })
       const now = Math.floor(Date.now() / 1000)
-      if (s.usable_until && s.usable_until - now > 120) { cached = s; return sncsShape(s) }
+      if (!fresh && s.usable_until && s.usable_until - now > 120) { cached = s; return sncsShape(s) }
       if (!s.tokens?.refresh_token) {
         // no refresh material: try the stored jwt; the server will 401 if dead
         if (s.jwt) { cached = s; return sncsShape(s) }
         throw new OAuthError('OAuth session expired and no refresh_token — log in again', { status: 401, kind: 'auth' })
       }
-      refreshing ??= refreshSession(s, { fetchImpl }).then(async (fresh) => {
-        await persist?.(fresh)
-        cached = fresh
+      refreshing ??= refreshSession(structuredClone(s), { fetchImpl }).then(async (refreshed) => {
+        await persist?.(refreshed)
+        cached = refreshed
         log('[oauth] token refreshed')
-        return fresh
+        return refreshed
       }).finally(() => { refreshing = null })
-      const fresh = await refreshing
-      return sncsShape(fresh)
+      const refreshed = await refreshing
+      return sncsShape(refreshed)
     },
     async outpostId() { return '' },
     async status() {

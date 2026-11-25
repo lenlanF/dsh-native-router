@@ -6,9 +6,10 @@ import {createNativeRouterAdapter} from '../src/adapter.mjs';
 import {normalizeConfig} from '../src/config.mjs';
 import {startFakeQuick} from './helpers/aws-quick-fake-quick.mjs';
 
-function createRig(server,{wrongMember=false,quotaUnavailable=false,invalid=0}={}){
+function createRig(server,{wrongMember=false,quotaUnavailable=false,invalid=0,earlyExpiry=false}={}){
  const records=new Map(),calls=[];
  let cfg=normalizeConfig({});
+ let identityReads=0;
  const vault={
   async resolve(k){if(!records.has(k))throw Error('Missing');return {value:records.get(k)}},
   async set(k,v){records.set(k,v)},
@@ -20,9 +21,14 @@ function createRig(server,{wrongMember=false,quotaUnavailable=false,invalid=0}={
   const url=new URL(String(input));
   calls.push({host:url.host,path:url.pathname,method:init.method,
    authorizationPresent:!!init.headers?.Authorization});
+  if(url.pathname.endsWith('/.well-known/openid-configuration'))return respond({token_endpoint:'https://oidc.us-east-1.amazonaws.com/token'});
+  if(url.pathname==='/token'&&earlyExpiry)return respond({accessToken:'rotated-access-fixture-0123456',idToken:'rotated-id-fixture-0123456',expiresIn:3600});
   if(url.pathname.endsWith('/integration/quick-work/user-info')){
    assert.equal(init.method,'POST');
-   assert.equal(init.headers?.Authorization,'Bearer access-token-fixture-0123456');
+   identityReads++;
+   if(earlyExpiry&&identityReads===2)return respond({message:'Unauthorized'},401);
+   assert.equal(init.headers?.Authorization,earlyExpiry&&identityReads>2?'Bearer rotated-access-fixture-0123456':'Bearer access-token-fixture-0123456');
+
    if(invalid)return respond({message:'Unauthorized'},401);
    return respond({email:wrongMember?'foreign@example.com':'quick-owner@example.com',
     displayName:'Quick Personal',userArn:'arn:aws:quicksight:us-east-1:123456789012:user/test/quick-owner',
@@ -150,6 +156,17 @@ test('Amazon Quick quota outage is not a fabricated zero balance or false logout
   const facts=r.driver.accountSnapshot(own(receipt));
   assert.equal(facts.balanceState,'unavailable');
   assert.equal('balance' in facts,false);
+ }finally{await r.driver.dispose();r.center.stop();await fake.close()}
+});
+test('Amazon Quick refreshes a rejected access token once even before local expiry',async()=>{
+ const fake=await startFakeQuick(),r=createRig(fake,{earlyExpiry:true});
+ try{
+  const receipt=await r.driver.stageSession(r.session);
+  const status=await r.driver.refreshAccountStatus({account:own(receipt)});
+  assert.equal(status.state,'online');
+  assert.equal(status.authVerified,true);
+  assert.equal(r.calls.filter(x=>x.path==='/token').length,1);
+  assert.equal(r.driver.accountSnapshot(own(receipt)).balance,3);
  }finally{await r.driver.dispose();r.center.stop();await fake.close()}
 });
 test('Amazon Quick transaction rollback is exact and stale cancel cannot delete an already committed account',async()=>{

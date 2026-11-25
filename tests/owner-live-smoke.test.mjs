@@ -14,7 +14,7 @@ async function fixture(fn){
  const base=process.platform==='win32'?'E:\\Temp':tmpdir();
  mkdirSync(base,{recursive:true});
  const dir=mkdtempSync(join(base,'dsh-live-smoke-'));
- try{return await fn(dir)}finally{rmSync(dir,{recursive:true,force:true})}
+ try{return await fn(dir)}finally{rmSync(dir,{recursive:true,force:true,maxRetries:3,retryDelay:100})}
 }
 function rig(dir,{listModels,verifyModel,env}={}){
  let calls=0,catalogCalls=0;
