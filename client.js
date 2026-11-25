@@ -205,6 +205,56 @@ window.__ModuleLoader__.load({
  .dnr-shell .dnr-panel-head>div{display:flex;flex-wrap:wrap}
  .dnr-shell .dnr-account-card{padding:10px}
 }
+/* Shared workspace design system: readable labels, consistent cards, clear action hierarchy. */
+.dnr-shell{font-size:14px;line-height:1.6}
+.dnr-shell .dnr-page-head h3{font-size:21px;letter-spacing:-.02em}
+.dnr-shell .dnr-page-head p,.dnr-shell .dnr-header-note{font-size:13px}
+.dnr-shell .dnr-panel{padding:16px!important;border-radius:12px!important;margin-bottom:12px!important}
+.dnr-shell .dnr-panel-head{gap:10px;margin-bottom:12px}
+.dnr-shell .dnr-panel-head>strong{font-size:15px;line-height:1.4}
+.dnr-shell .dnr-button{min-height:36px;padding:7px 11px;font-size:13px;border-radius:8px;white-space:normal;overflow-wrap:anywhere}
+.dnr-shell .dnr-button-danger{color:var(--dsw-alias-danger-primary,#bc6670);border-color:var(--dnr-border)}
+.dnr-shell .dnr-button-danger:hover:not(:disabled){border-color:var(--dsw-alias-danger-primary,#bc6670)}
+.dnr-shell .dnr-state-tag{display:inline-flex;align-items:center;gap:6px;max-width:100%;min-width:0;padding:4px 8px;border:1px solid var(--dnr-border);border-radius:7px;font-size:12px;line-height:1.4;color:var(--dnr-ink);background:var(--dnr-elevated);overflow-wrap:anywhere}
+.dnr-shell .dnr-state-tag::before{content:'';width:7px;height:7px;border-radius:50%;flex:0 0 7px;background:#8794a4}
+.dnr-shell .dnr-state-tag[data-tone="good"]::before{background:var(--dsw-alias-positive-primary,#32a578)}
+.dnr-shell .dnr-state-tag[data-tone="warn"]::before{background:#c39a39}
+.dnr-shell .dnr-state-tag[data-tone="bad"]::before{background:var(--dsw-alias-danger-primary,#c85a68)}
+.dnr-shell .dnr-workspace-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,126px),1fr));gap:8px;margin:0 0 14px}
+.dnr-shell .dnr-workspace-stat{border:1px solid var(--dnr-border);border-radius:10px;padding:10px 12px;min-width:0;background:var(--dnr-elevated)}
+.dnr-shell .dnr-workspace-stat span{display:block;color:var(--dnr-muted);font-size:12px}
+.dnr-shell .dnr-workspace-stat strong{font-size:23px;line-height:1.25;font-variant-numeric:tabular-nums;font-weight:720}
+.dnr-shell .dnr-workspace-filters{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:10px;align-items:end;margin-bottom:10px}
+.dnr-shell .dnr-workspace-filters label{display:flex;flex-direction:column;gap:5px;min-width:0}
+.dnr-shell .dnr-workspace-filters label>span{font-size:12px;font-weight:600;color:var(--dnr-muted)}
+.dnr-shell .dnr-filter-summary{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--dnr-muted);margin:8px 0 0}
+.dnr-shell .dnr-filter-bar{gap:7px;margin:4px 0 10px}
+.dnr-shell .dnr-filter-bar .dnr-button[aria-pressed="true"]{box-shadow:inset 0 -2px 0 var(--dnr-brand)}
+.dnr-shell .dnr-empty-state{border:1px dashed var(--dnr-border);border-radius:12px;padding:18px;text-align:center;color:var(--dnr-muted);margin:10px 0}
+.dnr-shell .dnr-empty-state strong{display:block;color:var(--dnr-ink);margin-bottom:6px;font-size:15px}
+.dnr-shell .dnr-channel-group{border-left-width:1px;border-radius:12px;margin:10px 0;background:var(--dnr-surface)}
+.dnr-shell .dnr-channel-group>summary{min-height:48px;padding:12px 14px;font-size:14px}
+.dnr-shell .dnr-channel-group[open]>summary{background:var(--dnr-elevated)}
+.dnr-shell .dnr-channel-caption{flex:0 1 auto;text-align:left}
+.dnr-shell .dnr-account-card{padding:14px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.dnr-shell .dnr-account-metric{border-radius:10px;padding:11px 12px}
+.dnr-shell .dnr-account-metric-label,.dnr-shell .dnr-account-metric-note,.dnr-shell .dnr-data-note{font-size:12px}
+.dnr-shell .dnr-account-actions{border-top:1px solid var(--dnr-border);padding-top:10px;justify-content:space-between;align-items:flex-start}
+.dnr-shell .dnr-account-actions .dnr-button{min-height:36px;padding:7px 10px}
+.dnr-shell .dnr-action-group{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
+.dnr-shell .dnr-model-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,auto);gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--dnr-border)}
+.dnr-shell .dnr-model-row:last-child{border-bottom:0}
+.dnr-shell .dnr-model-row strong{font-size:14px;overflow-wrap:anywhere}
+.dnr-shell .dnr-model-evidence{max-width:180px;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+@container dnr-workspace (max-width:560px){
+ .dnr-shell .dnr-panel{padding:12px!important}
+ .dnr-shell .dnr-workspace-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .dnr-shell .dnr-workspace-filters{grid-template-columns:minmax(0,1fr)}
+ .dnr-shell .dnr-button,.dnr-shell .dnr-account-actions .dnr-button,.dnr-shell .dnr-toolbar .dnr-button{min-height:44px}
+ .dnr-shell .dnr-account-actions{justify-content:flex-start}
+ .dnr-shell .dnr-model-row{grid-template-columns:minmax(0,1fr);gap:4px}
+ .dnr-shell .dnr-model-evidence{max-width:100%}
+}
 @media (prefers-reduced-motion:reduce){.dnr-shell button{transition:none!important}}
 `;
     const css={
@@ -248,7 +298,7 @@ window.__ModuleLoader__.load({
     }
     function Button({children,onClick,kind='normal',disabled=false,title,ariaLabel}){
       const isText=typeof children==='string'||typeof children==='number';
-      return h('button',{type:'button',className:'dnr-button'+(kind==='primary'?' dnr-button-primary':''),
+       return h('button',{type:'button',className:'dnr-button'+(kind==='primary'?' dnr-button-primary':kind==='danger'?' dnr-button-danger':''),
         title:title??(isText?String(children):undefined),
         'aria-label':ariaLabel??(isText?String(children):undefined),onClick,disabled},children);
     }
@@ -290,11 +340,11 @@ window.__ModuleLoader__.load({
       no_task:'今日无签到任务',client_required:'需官方客户端操作',unsupported:'待适配',
       not_run:'今日未签到',running:'执行中'};
     function StateTag({value,kind='account'}){
-      const good=value==='online'||value==='success';
-      const warn=['pending_confirmation','limited','not_run','not_checked','checking','running','recently_verified'].includes(value);
-      return h('span',{style:{borderRadius:99,padding:'3px 9px',fontSize:11,border:'1px solid '+(good?'#39a777':warn?'#b89237':'rgba(140,140,150,.55)'),
-        color:good?'#38b87a':warn?'#c29d44':'inherit',whiteSpace:'nowrap'}},
-        kind==='checkin'?(checkinLabels[value]||value):(accountLabels[value]||value));
+       const tone=['online','success','verified'].includes(value)?'good':
+         ['expired','failed','error'].includes(value)?'bad':
+         ['pending_confirmation','limited','not_run','not_checked','checking','running','recently_verified','pending'].includes(value)?'warn':'neutral';
+       return h('span',{className:'dnr-state-tag','data-tone':tone},
+         kind==='checkin'?(checkinLabels[value]||value||'待核实'):(accountLabels[value]||value||'待核实'));
     }
     function EmbeddedPackConsole({pack,upstream,channelCatalog,run,busy,modelProvider,setModelProvider,onModels,modelBusy,models,onSourceLogin,onSourcePoll,onSourceDismissLogin,pendingLogin,onSourceRefresh,onSourceReuseLoomy,sourceBusy,loomySmsPhone,onLoomySmsPhone,loomySmsCode,onLoomySmsCode,loomySmsSent,onLoomySmsSend,onLoomySmsSubmit}){
       const rows=upstream?.accounts||[],live=pack?.state==='mounted'&&pack?.rpcReady===true;
@@ -699,12 +749,13 @@ window.__ModuleLoader__.load({
           actions:h(Button,{kind:'primary',disabled:!!busy,onClick:onRefresh},
             busy?'扫描中…':'刷新模型目录')},
           h('p',{style:css.small},'DSH 中选择「聚合路由 / autofree」即可自动选用免费模型并在额度受限时切换。来源明确免费、WorkBuddy x0.00 积分倍率，以及用户人工标记分别记录；不创建模型链。'),
-          h('div',{style:{...css.metrics,gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))'}},
-            h(Metric,{label:'可调度模型',value:models.length,detail:'含人工标记'}),
-            h(Metric,{label:'已发现',value:catalog.length,detail:'所有来源'}),
-            h(Metric,{label:'尚无免费依据',value:pool?.unknownPricing??0,detail:'默认不调度'})),
-          pool?.state==='not_scanned'?h('p',{style:css.small},
-            '尚未取得模型目录。点击刷新；没有免费依据时不会自行使用可能计费的模型。'):null),
+           h('div',{className:'dnr-workspace-stats'},
+             ...[['免费候选',models.length],['已发现',catalog.length],['未确认免费',pool?.unknownPricing??0],['读取异常',pool?.errors??0]].map(([label,value])=>
+               h('div',{className:'dnr-workspace-stat',key:label},h('span',null,label),h('strong',null,value)))),
+           h('p',{style:css.small,role:'status'},busy?'正在读取各渠道模型，已有目录保留至刷新完成。':
+             pool?.state==='not_scanned'?'尚未取得模型目录。点击刷新；未知费用不自动调度。':
+             (pool?.scannedAt?'最近扫描 '+new Date(pool.scannedAt).toLocaleString()+' · ':'')+
+             (pool?.errors?'部分渠道读取失败，可刷新重试；':'')+'候选不等于已完成真实推理。')),
         h(Panel,{title:'人工免费规则 · 选择渠道和模型',
           actions:h('span',{style:css.mutedTag},'配置保存后生效')},
           h('p',{style:css.small},'平台未公布价格时可自行指定；这是你的人工计费判断，不等于来源官方保证免费。若模型未公开目录，请核对原插件中的模型 ID。'),
@@ -742,15 +793,13 @@ window.__ModuleLoader__.load({
                 h(Button,{onClick:()=>onResetMark(row.providerId,row.model)},'移除')))):null),
         h(Panel,{title:'AutoFree 当前候选模型'},
           models.length?models.map(row=>h('div',{key:row.providerId+':'+row.model,
-            style:{display:'grid',gridTemplateColumns:'minmax(0,1fr) auto',
-              alignItems:'center',gap:8,padding:'7px 0',
-              borderBottom:'1px solid rgba(125,144,167,.15)'}},
-            h('div',{style:{minWidth:0}},
-              h('strong',{style:{fontSize:12}},row.name||row.model),
-              h('div',{style:{...css.small,fontSize:11,overflowWrap:'anywhere'}},
-                row.providerId+' · '+row.model)),
-            h('span',{style:{...css.mutedTag,padding:'2px 5px',fontSize:10,
-              whiteSpace:'normal',maxWidth:155}},row.evidence))):
+             className:'dnr-model-row'},
+             h('div',{style:{minWidth:0}},
+               h('strong',null,row.name||row.model),
+               h('div',{style:{...css.small,overflowWrap:'anywhere'}},
+                 row.providerId+' · '+row.model),
+               row.accountIds?.length?h('span',{style:css.small},'适用 '+row.accountIds.length+' 个账号'):null),
+             h('span',{className:'dnr-model-evidence dnr-state-tag','data-tone':String(row.evidence||'').startsWith('用户手动')?'warn':'good'},row.evidence||'免费依据待核实'))):
             h('p',{style:css.small},'没有具有明确免费证据或人工免费标记、且来源可用的模型。AutoFree 会拒绝路由，不会默认改用收费模型。')));
     }
     function ModelTestConsole({account,busy,run,hasDraft}){
@@ -844,23 +893,23 @@ window.__ModuleLoader__.load({
       }
        // Unified inventory is authoritative; never render raw pool entries twice.
        const allChannels=(data.channels||[]);
-      const matchesStatus=a=>accountFilter==='all'||
-        accountFilter==='issues'&&!['online','disabled','provider_disabled'].includes(a.connectionState)||
-        accountFilter==='balance'&&Number.isFinite(a.balance);
-      const searchable=a=>[a.nickname,a.accountName,a.username,a.userName,
-        a.loginName,a.maskedPhone].some(x=>String(x||'').toLowerCase()
-        .includes(query.toLowerCase()));
-      const channels=allChannels.filter(c=>(!query||[c.name,c.id,c.authMethod]
-        .some(x=>String(x||'').toLowerCase().includes(query.toLowerCase()))||
-        accounts.some(a=>a.providerId===c.id&&searchable(a)))&&
-        (accountFilter==='all'||accounts.some(a=>a.providerId===c.id&&matchesStatus(a))));
-      const visibleChannels=query||!selectedChannel||selectedChannel==='all'?channels:
-        channels.filter(c=>c.id===selectedChannel);
-      const active=accounts.filter(a=>a.configuredEnabled).length;
-      const online=accounts.filter(a=>a.connectionState==='online').length;
-       const displayBalance=a=>Number.isFinite(a.balance)?
-         '余额：'+a.balance+(a.balanceUnit?' '+a.balanceUnit:'（官方未提供单位）'):
-         a.balanceState==='not_supported'?'余额：平台未提供此项数据':'余额：尚未取得有效数据';
+       const needle=String(query||'').trim().toLowerCase();
+       const matchesStatus=a=>accountFilter==='all'||
+         accountFilter==='issues'&&!['online','disabled','provider_disabled'].includes(a.connectionState)||
+         accountFilter==='balance'&&Number.isFinite(a.balance)||
+         accountFilter==='tested'&&Number.isFinite(a.modelInferenceVerifiedAt)&&a.modelInferenceVerifiedAt>0;
+       const searchable=a=>[a.nickname,a.accountName,a.username,a.userName,
+         a.loginName,a.maskedPhone].some(x=>String(x||'').toLowerCase().includes(needle));
+       const matchesChannel=c=>[c.name,c.id,c.authMethod].some(x=>String(x||'').toLowerCase().includes(needle));
+       const matchingMembers=c=>accounts.filter(a=>a.providerId===c.id&&matchesStatus(a)&&(!needle||matchesChannel(c)||searchable(a)));
+       const visibleChannels=allChannels.filter(c=>(!selectedChannel||selectedChannel==='all'||c.id===selectedChannel)&&
+         (matchingMembers(c).length>0||accountFilter==='all'&&(!needle||matchesChannel(c))));
+       const active=accounts.filter(a=>a.configuredEnabled).length;
+       const online=accounts.filter(a=>a.connectionState==='online').length;
+       const tested=accounts.filter(a=>Number.isFinite(a.modelInferenceVerifiedAt)&&a.modelInferenceVerifiedAt>0).length;
+       const issues=accounts.filter(a=>!['online','disabled','provider_disabled'].includes(a.connectionState)).length;
+       const shown=visibleChannels.reduce((sum,c)=>sum+matchingMembers(c).length,0);
+       const resetFilters=()=>{onQuery('');onSelectChannel('all');setAccountFilter('all')};
        return h(React.Fragment,null,
         h(Panel,{title:'全部渠道 · 账号状态',
            actions:h('div',{style:css.line},
@@ -877,18 +926,24 @@ window.__ModuleLoader__.load({
             ' · 无免费证据跳过 '+batch.skipped+' · 失败 '+batch.failed+
             (batch.running?' · 正在测试下一账号':' · 已完成；详情见各账号状态')+
             (batch.message?' · '+batch.message:'')):null,
-          h('div',{style:{...css.line,justifyContent:'space-between'}},
-             h('span',{style:css.small},'渠道 '+allChannels.length+' · 账号 '+accounts.length+
-               ' · 启用 '+active+' · 鉴权通过 '+online),
-            h('input',{'aria-label':'搜索渠道名称或登录方式',
-              style:{...css.input,maxWidth:230,flex:'1 1 170px'},
-              placeholder:'搜索渠道或登录方式',value:query,
-              onChange:e=>onQuery(e.target.value)})),
-          h('div',{className:'dnr-filter-bar',role:'group','aria-label':'账号状态筛选'},
-            ...[['all','全部账号'],['issues','仅看异常'],['balance','有余额或积分']]
-              .map(([id,label])=>h('button',{key:id,type:'button',
-                className:'dnr-button','aria-pressed':accountFilter===id,
-                onClick:()=>setAccountFilter(id)},label))),
+           h('div',{className:'dnr-workspace-stats'},
+             ...[['渠道',allChannels.length],['账号',accounts.length],['已鉴权',online],['已实测',tested]].map(([label,value])=>
+               h('div',{key:label,className:'dnr-workspace-stat'},h('span',null,label),h('strong',null,value)))),
+           h('div',{className:'dnr-workspace-filters'},
+             h('label',null,h('span',null,'搜索渠道或账号'),
+               h('input',{'aria-label':'搜索渠道名称或登录方式',type:'search',style:css.input,
+                 placeholder:'渠道、账号名称或登录方式',value:query,onChange:e=>onQuery(e.target.value)})),
+             h('label',null,h('span',null,'筛选渠道（默认全部）'),
+               h('select',{style:css.input,'aria-label':'筛选渠道',value:selectedChannel||'all',onChange:e=>onSelectChannel(e.target.value)},
+                 h('option',{value:'all'},'全部渠道'),
+                 allChannels.map(c=>h('option',{key:c.id,value:c.id},c.name+' · '+accounts.filter(a=>a.providerId===c.id).length+' 个账号'))))),
+           h('div',{className:'dnr-filter-bar',role:'group','aria-label':'账号状态筛选'},
+             ...[['all','全部账号'],['issues','仅看异常'],['balance','有余额或积分'],['tested','已实测']]
+               .map(([id,label])=>h('button',{key:id,type:'button',
+                 className:'dnr-button','aria-pressed':accountFilter===id,onClick:()=>setAccountFilter(id)},label))),
+           h('div',{className:'dnr-filter-summary',role:'status'},
+             h('span',null,'显示 '+visibleChannels.length+' 个渠道 / '+shown+' 个账号 · 启用 '+active+' · 待核验 '+issues),
+             needle||accountFilter!=='all'||selectedChannel&&selectedChannel!=='all'?h(Button,{onClick:resetFilters},'清除筛选'):null),
            h('details',{style:{...css.card,padding:8}},
              h('summary',{style:{cursor:'pointer',fontSize:12}},'勾选待鉴权渠道 · 已选 '+verifyChannels.length),
              h('div',{style:css.line},
@@ -897,18 +952,11 @@ window.__ModuleLoader__.load({
              h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,150px),1fr))',gap:5}},
                allChannels.map(c=>h('label',{key:c.id,style:{display:'flex',gap:6,alignItems:'center',minHeight:28}},
                  h('input',{type:'checkbox',checked:verifyChannels.includes(c.id),onChange:e=>{const checked=e.target.checked;setVerifyChannels(old=>checked?[...new Set([...old,c.id])]:old.filter(id=>id!==c.id))}}),c.name))),
-             h('p',{style:css.small},'只验证所选渠道未通过鉴权的启用账号。')),
-           h('label',{className:'dnr-input-field',style:{...css.field,maxWidth:350}},
-            h('span',{style:css.small},'筛选渠道（默认全部）'),
-            h('select',{style:css.input,value:selectedChannel||'all',
-              onChange:e=>onSelectChannel(e.target.value)},
-              h('option',{value:'all'},'全部渠道'),
-              allChannels.map(c=>h('option',{key:c.id,value:c.id},
-                c.name+' · '+accounts.filter(a=>a.providerId===c.id).length+' 个账号'))))),
-        visibleChannels.map((channel,channelIndex)=>{
-          const members=accounts.filter(a=>a.providerId===channel.id&&matchesStatus(a)
-            &&(!query||[channel.name,channel.id,channel.authMethod].some(x=>
-              String(x||'').toLowerCase().includes(query.toLowerCase()))||searchable(a)));
+              h('p',{style:css.small},'只验证所选渠道未通过鉴权的启用账号。'))),
+         !visibleChannels.length?h('div',{className:'dnr-empty-state'},h('strong',null,'没有符合当前筛选条件'),
+           h('p',null,'可调整搜索词、渠道或状态筛选。'),h(Button,{onClick:resetFilters},'重置筛选')):null,
+         visibleChannels.map((channel,channelIndex)=>{
+           const members=matchingMembers(channel);
            const pool=(data.pools||[]).find(x=>x.providerId===channel.id);
            const inferred=members.some(a=>Number.isFinite(a.modelInferenceVerifiedAt)
              &&a.modelInferenceVerifiedAt>0);
@@ -991,8 +1039,8 @@ window.__ModuleLoader__.load({
                    '模型实测成功 · '+new Date(account.modelInferenceVerifiedAt).toLocaleString()):
                  account.modelTestFailedAt?h('span',null,
                    '最近实测失败 · '+new Date(account.modelTestFailedAt).toLocaleString()):
-                 account.connectionState==='online'?h('span',null,'身份鉴权通过 · 推理尚待实测'):
-                   h('span',null,'登录状态待核验'),
+                  !account.modelInferenceVerifiedAt&&account.connectionState==='online'?h('span',null,'身份鉴权通过 · 推理尚待实测'):
+                    account.connectionState!=='online'?h('span',null,'登录状态：'+(accountLabels[account.connectionState]||'待核验')):null,
                  account.backupSources?.length?h('span',null,
                    '备援账号 '+account.backupSources.length):null),
                 h('div',{style:css.line},
@@ -1029,23 +1077,25 @@ window.__ModuleLoader__.load({
                  h('span',{style:css.small},account.sourceKind==='adopted'?
                    '复用原渠道授权，保存于本插件私有池；这不是一次新自主登录':
                    '本插件自主登录授权；是否可用以来源鉴权为准'),
-                 h(Button,{onClick:onOpenOwnedSource},'管理来源授权池')):               h('div',{style:{...css.line,marginBottom:0}},
+                  h(Button,{onClick:onOpenOwnedSource},'管理来源授权池')):h('div',{className:'dnr-account-actions'},
+                   h('div',{className:'dnr-action-group'},
                   h(Button,{disabled:!!busy||!account.refreshAvailable||!account.configuredEnabled,
                     kind:'primary',onClick:()=>run('/channels/accounts/action',
                       {action:'refresh',accountId:account.id},'已重新查询官方账号身份和额度')},'刷新账户资料'),
                   !account.refreshAvailable&&account.loginAvailable?h(Button,{disabled:!!busy||!account.configuredEnabled,
                     onClick:()=>run('/channels/accounts/action',{action:'login',accountId:account.id},
                       '已请求账号连接验证')},'校验身份'):null,
-                 account.modelTestAvailable?h(ModelTestConsole,{account,busy,run,hasDraft}):null,
-                 h(Button,{disabled:!!busy,onClick:()=>run('/channels/accounts/action',
-                   {action:'enable',accountId:account.id,enabled:!account.configuredEnabled},
-                   '账号启停状态已更新')},account.configuredEnabled?'停用':'启用'),
-                 h(Button,{disabled:!!busy,onClick:()=>{
+                   account.modelTestAvailable?h(ModelTestConsole,{account,busy,run,hasDraft}):null),
+                  h('div',{className:'dnr-action-group'},
+                  h(Button,{disabled:!!busy,onClick:()=>run('/channels/accounts/action',
+                    {action:'enable',accountId:account.id,enabled:!account.configuredEnabled},
+                    '账号启停状态已更新')},account.configuredEnabled?'停用':'启用'),
+                  h(Button,{kind:'danger',disabled:!!busy,onClick:()=>{
                    if(window.confirm('确认解除本插件账号 '+(account.nickname||account.id)+
                      ' 的关联？不撤销云端账号，已被模型链使用则拒绝。'))
                      run('/channels/accounts/action',{action:'logout',accountId:account.id},
                        '账号引用已解除');
-                 }},'解绑')))),
+                  }},'解绑'))))),
              !members.length?h('p',{style:css.small},
                '当前没有经账号库存确认的登录记录；不会将模型适配器视为登录成功。'):null,            h('div',{style:css.line},
               !channel.referenceOnly?h(Button,{onClick:()=>onManageAccounts(channel)},'管理账号池'):null,
@@ -1287,7 +1337,8 @@ window.__ModuleLoader__.load({
       const hostProviders=status?.sessionReuse?.hostProviders||
         channelsView?.sessionReuse?.hostProviders||[];
       const verified=accounts.filter(a=>a.connectionState==='online').length;
-      const eligible=checkins.filter(a=>a.checkinSupported&&a.enabled).length;
+       const inferred=accounts.filter(a=>Number.isFinite(a.modelInferenceVerifiedAt)&&a.modelInferenceVerifiedAt>0).length;
+       const eligible=checkins.filter(a=>a.checkinSupported&&a.enabled).length;
       const signed=checkins.filter(a=>a.checkinState==='success').length;
       const failed=checkins.filter(a=>a.checkinState==='failed').length;
       const pending=checkins.filter(a=>a.checkinState==='pending_confirmation').length;
@@ -1322,8 +1373,8 @@ window.__ModuleLoader__.load({
         h('div',{style:css.metrics},
           h(Metric,{label:'宿主已注册路由',value:status?hostProviders.length:'—',
             detail:'原插件维护认证',onClick:()=>onNavigate('reuse')}),
-          h(Metric,{label:'聚合账号',value:channelsView?accounts.length:'—',
-            detail:'已验证 '+verified,onClick:()=>onNavigate('channels')}),
+           h(Metric,{label:'聚合账号',value:channelsView?accounts.length:'—',
+             detail:'鉴权 '+verified+' · 推理实测 '+inferred,onClick:()=>onNavigate('channels')}),
           h(Metric,{label:'已启用模型链',value:enabledChains,
             detail:'共配置 '+cfg.routes.length+' 条',onClick:()=>onNavigate('routes')}),
           h(Metric,{label:'今日确认签到',value:checkinsView?signed:'—',

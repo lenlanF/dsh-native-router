@@ -292,6 +292,16 @@ test('native DSH tool-call reconstruction strictly enforces advertised tools',as
  assert.equal(result.finishReason,'tool_calls');
  await assert.rejects(()=>collectSourceDshStream(stream(),{tools:[]}),/Unadvertised tool call/);
 });
+test('stalled native stream responds to cancellation even when next and return never settle',async()=>{
+ const controller=new AbortController();let returned=0;
+ const stalled={[Symbol.asyncIterator](){return this},next(){return new Promise(()=>{})},return(){returned++;return new Promise(()=>{})}};
+ const pending=collectSourceDshStream(stalled,{signal:controller.signal});
+ controller.abort();
+ let timer;try{
+  await assert.rejects(Promise.race([pending,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('cancellation did not settle')),250)})]),e=>e.code==='CANCELLED');
+  assert.equal(returned,1);
+ }finally{clearTimeout(timer)}
+});
 test('incomplete, failed, invalid and oversized upstream DSH streams never release a partial answer',async()=>{
  async function* partial(){yield {type:'block-start',index:0,blockType:'text'};
   yield {type:'text-delta',index:0,text:'partial'};yield {type:'block-end',index:0};}
