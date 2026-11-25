@@ -1041,7 +1041,7 @@ window.__ModuleLoader__.load({
                  account.giftCreditState?h('div',{className:'dnr-account-metric'},
                    h('span',{className:'dnr-account-metric-label'},'官方赠送免费积分'),
                    h('strong',{className:'dnr-account-metric-value'},account.giftCreditState==='verified'?account.giftedBalance.toLocaleString()+' 积分':'待核实'),
-                   h('span',{className:'dnr-account-metric-note'},account.giftRouteState==='cost_bound_unverified'?'已识别赠送权益 · 自动调用成本上限待核实':'与普通余额独立统计')):null,
+                   h('span',{className:'dnr-account-metric-note'},account.giftRouteState==='cost_bound_unverified'?'已识别赠送权益 · 自动调用成本上限待核实':account.giftRouteState==='existing_daily_policy'?'每日赠送池 · 仅既有受限模型策略':'与普通余额独立统计')):null,
                  account.giftCreditState==='verified'?h('div',{className:'dnr-account-metric'},
                    h('span',{className:'dnr-account-metric-label'},'普通余额积分'),
                    h('strong',{className:'dnr-account-metric-value'},account.ordinaryBalance.toLocaleString()+' 积分')):null,

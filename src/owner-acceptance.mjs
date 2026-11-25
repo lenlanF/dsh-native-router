@@ -130,11 +130,11 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
        row.balanceState=['available','cached','unavailable','not_returned','not_supported','not_checked'].includes(data?.balanceState)?data.balanceState:'unknown';
        row.membershipState=['active','not_subscribed','unavailable','not_supported','not_checked'].includes(data?.membershipState)?data.membershipState:'unknown';
        row.usageState=['available','no_cycle','unavailable','not_supported','not_checked'].includes(data?.usageState)?data.usageState:'unknown';
-       if(account.providerId==='own_lingxi'){
+       if(['own_lingxi','own_loomy','own_workbuddy-cn','own_workbuddy-global','codearts','own_codearts'].includes(account.providerId)){
          row.giftWalletVerified=probe?.authVerified===true&&data?.giftCreditState==='verified';
          row.giftCreditAvailable=row.giftWalletVerified&&data.giftedBalance>0;
          row.ordinaryCreditObserved=row.giftWalletVerified&&Number.isFinite(data.ordinaryBalance);
-         row.giftRoutingReady=false;
+         row.giftRoutingReady=row.giftCreditAvailable&&data?.giftRouteState==='existing_daily_policy'&&probe?.loomyDailyGift>=2000;
        }
        row.quotaWindowCount=count(data?.quotaWindows?.length);
        row.hasRollingQuota=data?.usageState==='available'&&Number.isFinite(data.usagePercentRemaining);

@@ -2,6 +2,7 @@
 // provider's service. A stored account, model list, or cached nickname is NEVER
 // proof of authentication or model inference capability.
 import {publicAccountName} from './account-facts.mjs';
+import {giftWalletFacts} from './gift-wallet.mjs';
 const numeric=x=>typeof x==='number'&&Number.isFinite(x)&&x>=0?x:null;
 const record=x=>x&&typeof x==='object'&&!Array.isArray(x)?x:null;
 const safeUnit=x=>typeof x==='string'&&x.trim()&&x.trim().length<=24?x.trim():null;
@@ -74,10 +75,17 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
   // two distinct buckets: "永久积分" may be purchased, whereas "每日赠送"
   // consists solely of free daily credit. Never equate aggregate balance
   // with free allocation or infer a gift when the bucket is absent.
-  const loomyDailyGift=providerId==='loomy'&&!balanceRow?.error
-    ?packages.filter(pkg=>pkg?.name==='每日赠送'&&pkg.unit==='积分'
-      &&pkg.active!==false&&Number.isFinite(pkg.remaining)&&pkg.remaining>=0)
-      .reduce((sum,pkg)=>sum+pkg.remaining,0):0;
+  let giftWallet={};
+  if(['loomy','codearts'].includes(providerId))giftWallet={giftCreditState:'unconfirmed'};
+  const exactBuckets=(names,expectedUnit)=>!balanceRow?.error&&balanceValue!==null&&packages.length===names.length&&names.every(name=>packages.filter(p=>p?.name===name).length===1)&&packages.every(p=>p.unit===expectedUnit&&numeric(p.remaining)!==null&&p.active!==false);
+  if(providerId==='loomy'&&exactBuckets(['每日赠送','永久积分'],'积分')){
+    const gift=packages.find(p=>p.name==='每日赠送').remaining,ordinary=packages.find(p=>p.name==='永久积分').remaining;
+    giftWallet=giftWalletFacts({balance:balanceValue,gift,ordinary,now:observedAt,routeState:'existing_daily_policy'});
+  }
+  if(providerId==='codearts'&&exactBuckets(['总积分包','基础积分包','赠送积分包'],'credit')&&packages.find(p=>p.name==='总积分包').remaining===balanceValue){
+    giftWallet=giftWalletFacts({balance:balanceValue,gift:packages.find(p=>p.name==='赠送积分包').remaining,ordinary:packages.find(p=>p.name==='基础积分包').remaining,now:observedAt});
+  }
+  const loomyDailyGift=providerId==='loomy'&&giftWallet.giftCreditState==='verified'?giftWallet.giftedBalance:0;
   // ZCode's signed Start Plan balance names the MODEL (GLM-5.3-Flash),
   // not "free". The official plan_id is the only trusted discriminator
   // between that no-charge grant and purchased Coding Plan balances.
@@ -133,7 +141,7 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
       expiringAt:Math.min(...near.map(x=>x.end))}:null;
   })();
   return {
-    ...(nickname?{nickname}:{}),
+    ...(nickname?{nickname}:{}),...giftWallet,
     ...(providerId==='loomy'&&loomyDailyGift>0?{loomyDailyGift}:{}),      ...(providerId==='zcode'?{
         zcodeStatusObserved:status!==null&&!statusRow?.error,
         zcodeBalanceObserved:structured!==null&&!balanceRow?.error,

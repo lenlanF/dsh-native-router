@@ -9,6 +9,7 @@ import {visibleTools,openAiTools} from '../host-tools.mjs';
 import {validateModelCalls} from '../provider/openai.mjs';
 import {publicAccountName} from '../account-facts.mjs';
 import {parseLingxiWallet} from './lingxi-wallet.mjs';
+import {staleGiftWallet} from '../gift-wallet.mjs';
 
 // Loomy and ZCode are handled by the existing pinned MIT channel-pack.
 // Lingxi is absent from that upstream source and needs its own adapter.
@@ -226,8 +227,9 @@ export function createPrivateOwnedDriver({providerId,vault,makeCredentialRef,
   if(typeof model!=='string'||!model.trim()||model.length>160)
    throw new UpstreamError('Invalid independent model ID',{code:'MODEL'});
   const cred=await secretFor(account);
-  const response=await lingxiTurn(cred,model,options,signal);
-  return validateModelCalls(response,options.tools);
+  invalidateWallet(account);
+  try{const response=await lingxiTurn(cred,model,options,signal);
+  return validateModelCalls(response,options.tools)}finally{invalidateWallet(account)};
  }
  async function refresh({account}={}){
   try{
@@ -239,7 +241,11 @@ export function createPrivateOwnedDriver({providerId,vault,makeCredentialRef,
     message:'自有渠道鉴权检查未通过'};
   }
  }
-  const statusCache=new Map(),statusPending=new Map();
+  const statusCache=new Map(),statusPending=new Map(),walletRevision=new Map();
+  function invalidateWallet(account){
+    const id=account.id;walletRevision.set(id,(walletRevision.get(id)??0)+1);
+    const prior=statusCache.get(id);if(prior)statusCache.set(id,{at:0,data:staleGiftWallet(prior.data)});
+  }
   const statusTTL=3*60*1000;
   const beijingDate=()=>{
     const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',
@@ -313,7 +319,9 @@ export function createPrivateOwnedDriver({providerId,vault,makeCredentialRef,
     const id=account.id,cached=statusCache.get(id);
     if(!force&&cached&&now()-cached.at<statusTTL)return cached.data;
     if(statusPending.has(id))return statusPending.get(id);
+    const revision=walletRevision.get(id)??0;
     const job=readAccountStatus(account,signal).then(result=>{
+      if(revision!==(walletRevision.get(id)??0))return staleGiftWallet(result);
       if(result.state==='ready')statusCache.set(id,{at:Date.now(),data:result});
       else statusCache.set(id,{at:Date.now(),data:{
         ...(cached?.data??{}),state:'unavailable',
