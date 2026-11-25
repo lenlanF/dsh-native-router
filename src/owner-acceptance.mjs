@@ -95,6 +95,9 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
         const catalog=await accountCenter.listTestModels(account.id,{officialOnly:true,signal:job.controller.signal});
         row.freeCandidates=count(catalog?.freeCount);
         row.advertisedCount=count(catalog?.models?.length);
+        const rates=(Array.isArray(catalog?.models)?catalog.models:[]).map(m=>m.costMultiplier).filter(x=>typeof x==='number'&&Number.isFinite(x)&&x>=0&&x<=100);
+        row.knownRateCount=count(rates.length);row.zeroRateCount=count(rates.filter(x=>x===0).length);
+        if(rates.length)row.lowestMultiplier=Math.min(...rates);
         row.catalogState=catalog?.state==='ready'?(row.advertisedCount?'ready':'empty'):'unavailable';
        }catch{row.catalogState='unavailable';row.code='CATALOG_UNAVAILABLE'}
        row.state='observed';

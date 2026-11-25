@@ -321,12 +321,31 @@ export function createAccountCenter({
      &&row.costMultiplier===0)return 'CodeArts 官方零积分倍率';
    return freeEvidence(row,providerId);
  }
+ // Preserve numeric official pricing for presentation without copying upstream
+ // payloads or treating an unverified multiplier as permission to infer.
+ const numericRate=value=>{
+   if(typeof value==='string'&&/^\d{1,12}(?:\.\d{1,16})?$/.test(value.trim()))value=Number(value);
+   return typeof value==='number'&&Number.isFinite(value)&&value>=0?value:null;
+ };
+ function catalogPrice(row,providerId,rows){
+   const peers=rows.filter(x=>x?.id===row.id);
+   const metadata=peers.map(x=>{
+     const rate=numericRate(x.costMultiplier);
+     const ratio=rate!==null&&rate<=100&&(providerId!=='codearts'||x.priceSource==='codearts-official-credit-ratio')?rate:null;
+     const p=x.pricing??x.price??x.cost;
+     const input=numericRate(p?.input??p?.prompt??p?.inputCost),output=numericRate(p?.output??p?.completion??p?.outputCost);
+     return {...(ratio!==null?{costMultiplier:ratio,...(providerId==='codearts'?{priceSource:'codearts-official-credit-ratio'}:{})}:{}),
+       ...(input!==null&&output!==null?{pricing:{input,output}}:{})};
+   });
+   const first=metadata[0]??{};
+   return metadata.every(x=>JSON.stringify(x)===JSON.stringify(first))?first:{pricingConflict:true};
+ }
  function eligibleTestRow(row,providerId,{officialOnly=false,rows=[]}={}){
    if(typeof row?.id!=='string'||!row.id.trim()||row.id.length>120
       ||/[\u0000-\u001f]/.test(row.id))return null;
    const evidence=officialOnly?officialTestEvidence(row,providerId,rows):modelTestEvidence(row,providerId);
    return {id:row.id,name:typeof row.name==='string'&&row.name.length<=120
-     ?row.name:row.id,free:Boolean(evidence),...(evidence?{evidence}:{})};
+     ?row.name:row.id,free:Boolean(evidence),...(evidence?{evidence}:{}),...catalogPrice(row,providerId,rows)};
  }
  function assertTestAccount(id){
    const found=find(id),{account,provider,driver}=found;
