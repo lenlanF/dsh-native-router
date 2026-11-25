@@ -9,6 +9,8 @@ node tools/local-owner-jobs-cli.mjs enable --consent
 node tools/local-owner-jobs-cli.mjs submit catalog --consent
 # rc.124+: 只读审计全部 AutoFree 候选，不发送生成请求
 # node tools/local-owner-jobs-cli.mjs submit autofree-audit --consent
+# rc.132+: 实际执行一次 DSH 自有免费自动切换模型，官方免费资格限定；记录本请求的跨渠道切换证据
+# node tools/local-owner-jobs-cli.mjs submit owned-autofree-route --consent
 # rc.130+: 只读扫描本插件内部 AutoFree，不访问其他 DSH Provider，不更新全局缓存
 # node tools/local-owner-jobs-cli.mjs submit owned-autofree-audit --consent
 # rc.128+: 仅对明确指定的自有渠道执行真实宿主路由验收；所有候选账号须有官方免费证据

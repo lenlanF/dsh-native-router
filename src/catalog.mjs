@@ -31,7 +31,7 @@ export function conciseModelName(providerId,channel,model,sourceName,metadata){
 import {allowsHostModel} from './host-model-selection.mjs';
 export function createCatalog({getConfig,getEffectiveConfig,fetchImpl=fetch,
  resolveKey=resolveCredential,credentialOptions={},ttlMs=60000,
- channelDrivers=new Map(),hostProviderInventory,autoFreePool,
+ channelDrivers=new Map(),hostProviderInventory,autoFreePool,ownedFreeAvailable=()=>false,
  accountDiscoveryTimeoutMs=2600,providerDiscoveryTimeoutMs=6500,
  maxConcurrentDiscoveries=3}={}){
   const driverFor=id=>channelDrivers instanceof Map?channelDrivers.get(id):channelDrivers?.[id];
@@ -143,9 +143,11 @@ export function createCatalog({getConfig,getEffectiveConfig,fetchImpl=fetch,
          cfg.hostModelSelection??{}]);
      if(updatedAt&&sourceAvailability===currentSourceAvailability&&Date.now()-updatedAt<ttlMs)
        return cached.map(x=>({...x}));
-    const all=autoFreePool?.snapshot?.().catalog??[];
+    const snapshot=autoFreePool?.snapshot?.(),all=snapshot?.catalog??[];
     const result=autoFreePool?[{provider:'native-router',id:'autofree',
-      name:'聚合路由 · AutoFree · x?',inputModalities:['text']}]:[];    result.push(...cfg.routes.filter(r=>r.enabled&&r.tiers.some(tier=>{
+      name:'聚合路由 · AutoFree · x?',inputModalities:['text']}]:[];
+    if(ownedFreeAvailable(snapshot))result.push({provider:'native-router',id:'autofree-owned',name:'聚合路由 · 自有免费自动切换',inputModalities:['text']});
+    result.push(...cfg.routes.filter(r=>r.enabled&&r.tiers.some(tier=>{
       const p=cfg.providers.find(row=>row.id===tier.providerId);
        const driver=driverFor(p?.id);
        return p?.enabled && (p.protocol==='dsh-host'

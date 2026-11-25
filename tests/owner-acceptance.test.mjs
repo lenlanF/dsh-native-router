@@ -143,3 +143,10 @@ test('owned-only acceptance delegates a scoped audit with no generation or accou
  f.service.start({requestId:id,mode:'owned-autofree-audit',consent:true});const r=await done(f.service);
  assert.equal(r.state,'complete');assert.deepEqual(scope,{ownedOnly:true});assert.deepEqual(f.calls,[]);
 });
+
+test('owned free host proof is one explicitly authorized stream with correlated safe outcomes',async()=>{
+ let sent=0,closed=0;const f=fixture({adapter:{beginOwnedFreeProof(sessionId){assert.equal(sessionId,'native-router-proof-owned-'+id);return ()=>{closed++;return {failedAttempts:1,failedProviderCount:1,completedProvider:'own_demo',crossChannelSwitch:true,private:'private-trace'}}}},llm:{async *stream(req){sent++;assert.equal(req.model,'autofree-owned');assert.equal(req.maxTokens,128);yield {type:'text-delta',text:'private-output'};yield {type:'finish',reason:{kind:'stop'}}}}});
+ assert.throws(()=>f.service.start({requestId:id,mode:'owned-autofree-route',channel:'demo',consent:true}));
+ f.service.start({requestId:id,mode:'owned-autofree-route',consent:true});const result=await done(f.service);
+ assert.deepEqual(result.ownedRoute,{state:'verified',code:'DSH_HOST_ROUTE_COMPLETE',failedAttempts:1,failedProviderCount:1,completedProvider:'own_demo',crossChannelSwitch:true});assert.equal(sent,1);assert.equal(closed,1);assert.doesNotMatch(JSON.stringify(result),/private-output|private-trace|private-ref/);
+});

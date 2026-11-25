@@ -236,10 +236,23 @@ export async function hostRouteProof({llm,adapter,configStore,accountCenter,
   if(!bindingIntact())return {state:'skipped',code:'DSH_ROUTE_ACCOUNT_UNSAFE'};
   if(!advertised)
     return {state:'skipped',code:'DSH_ROUTE_NOT_ADVERTISED'};
+  return collectHostProof({llm,route,signal,now,bindingIntact,maxTokens:verifiedFreeHostBudget(providerId,modelId),timeoutMs:providerId==='own_loomy'?135000:90000,sessionId:'native-router-smoke-host'});
+}
+export async function ownedFreeRouteProof({llm,adapter,requestId,signal,now}){
+  if(typeof llm?.stream!=='function'||typeof adapter?.beginOwnedFreeProof!=='function')return {state:'skipped',code:'DSH_HOST_LLM_UNAVAILABLE'};
+  const sessionId='native-router-proof-owned-'+requestId;
+  const close=adapter.beginOwnedFreeProof(sessionId);
+  let result,trace;
+  try{result=await collectHostProof({llm,route:'autofree-owned',signal,now,bindingIntact:()=>true,maxTokens:128,timeoutMs:180000,sessionId})}
+  finally{trace=close()}
+  if(result.state==='verified'&&!trace.completedProvider)return {state:'failed',code:'DSH_OWNED_ROUTE_TRACE_MISSING',...trace};
+  return {...result,...trace};
+}
+async function collectHostProof({llm,route,signal,now,bindingIntact,maxTokens,timeoutMs,sessionId}){
   const controller=new AbortController();
   const cancel=()=>controller.abort();
   let timedOut=false;
-  const timer=setTimeout(()=>{timedOut=true;cancel()},providerId==='own_loomy'?135000:90000);
+  const timer=setTimeout(()=>{timedOut=true;cancel()},timeoutMs);
   if(signal?.aborted)cancel();else signal?.addEventListener('abort',cancel,{once:true});
   let content=false,finished=false,finishReason='',events=0,iterator,ended=false;
   const step=async fn=>{
@@ -263,8 +276,7 @@ export async function hostRouteProof({llm,adapter,configStore,accountCenter,
     const stream=await step(async()=>{
       const value=await llm.stream({provider:'native-router',model:route,
         messages:[{role:'user',content:[{type:'text',text:'请只回复 OK'}]}],
-        maxTokens:verifiedFreeHostBudget(providerId,modelId),
-        sessionId:'native-router-smoke-host',signal:controller.signal});
+        maxTokens,sessionId,signal:controller.signal});
       if(controller.signal.aborted&&typeof value?.[Symbol.asyncIterator]==='function'){
         try{Promise.resolve(value[Symbol.asyncIterator]().return?.()).catch(()=>{})}catch{}
       }

@@ -28,10 +28,10 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
      });
      return filterHostRoutes(cfg);
    };
-  let freeCursor=0;
+  let freeCursor=0,ownedFreeCursor=0;
   const pool=createAccountPool();
   const counters={successfulTurns:0,failedAttempts:0,inputTokens:0,outputTokens:0};
-  const history=[];
+  const history=[],ownedProofs=new Map();
   const driverFor=id=>channelDrivers instanceof Map?channelDrivers.get(id):channelDrivers?.[id];
   const transport=async arg=>{
     if(arg.provider.protocol==='dsh-host'){
@@ -58,7 +58,7 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
        const driver=driverFor(arg.provider.id);
       if(typeof driver?.generate!=='function')throw new UpstreamError('Native provider driver unavailable',{code:'PROVIDER_NOT_READY'});
        // Recheck the selected exact account before automatic free inference.
-       const hostProof=arg.options.sessionId==='native-router-smoke-host';
+       const hostProof=arg.options.sessionId==='native-router-smoke-host'||arg.options.officialFreeOnly===true;
        if(hostProof&&(!ownedAccountCatalog||!configStore.get().accounts.some(a=>a.id===arg.account.id&&a.providerId===arg.provider.id&&a.credentialRef===arg.account.credentialRef&&a.enabled)))throw new UpstreamError('Official account catalog unavailable',{code:'COST_NOT_CONFIRMED_FREE'});
        if((hostProof||arg.options.autoFreeSelection===true)&&ownedAccountCatalog&&configStore.get().accounts.some(a=>a.id===arg.account.id&&a.providerId===arg.provider.id)){
         const before=configStore.get(),policy=JSON.stringify(before.freePool??{});
@@ -84,7 +84,9 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
     }
     return (arg.provider.protocol==='anthropic-messages'?requestAnthropic:requestOpenAI)(arg,{fetchImpl,env,vault});
   };
-  const engine=createRoutingEngine({getConfig,request:transport,pool,onAttemptOutcome:result=>observeInference(result),onEvent:evt=>{
+  const engine=createRoutingEngine({getConfig,request:transport,pool,onAttemptOutcome:result=>observeInference(result),onEvent:(evt,sessionId)=>{
+    const proof=evt.routeId==='autofree-owned'?ownedProofs.get(sessionId):null;
+    if(proof){if(evt.kind==='failure'){proof.failedAttempts++;proof.failedProviders.add(evt.providerId)}else if(evt.kind==='success')proof.completedProvider=evt.providerId;}
     if(evt.kind==='failure'){counters.failedAttempts++;logger?.warn?.('native-router: '+evt.code+' from '+evt.providerId+'/'+evt.model)}
     if(evt.kind==='success'){
       counters.successfulTurns++;
@@ -95,7 +97,7 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
     history.push({at:Date.now(),...safe});if(history.length>50)history.shift();
   }});
   const catalog=createCatalog({getConfig,getEffectiveConfig:getConfig,fetchImpl,
-    credentialOptions:{env,vault},channelDrivers,hostProviderInventory,autoFreePool});
+    credentialOptions:{env,vault},channelDrivers,hostProviderInventory,autoFreePool,ownedFreeAvailable:snapshot=>ownedFreeTiers(snapshot).length>0});
   function currentFreeTiers(snapshot,includeHost=true){
    const current=getConfig(snapshot,includeHost);
    return autoFreePool.tiers(snapshot,includeHost).filter(tier=>{
@@ -103,6 +105,21 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
     return Boolean(p&&allowsHostModel(current,tier.providerId,tier.model)&&(p.protocol==='dsh-host'||
       current.accounts.some(a=>a.providerId===tier.providerId&&a.enabled&&(!tier.accountIds?.length||tier.accountIds.includes(a.id)))));
    });
+  }
+  function ownedFreeTiers(snapshot){
+    if(!ownedAccountCatalog||snapshot?.state!=='ready')return [];
+    const cfg=configStore.get();
+      // Restrict this explicit picker entry to configured native accounts and
+      // official evidence. Manual declarations remain available in AutoFree.
+      return currentFreeTiers(snapshot,false).flatMap(tier=>{
+        const evidence=snapshot.models.find(x=>x.providerId===tier.providerId&&x.model===tier.model);
+        const p=cfg.providers.find(x=>x.id===tier.providerId&&x.enabled&&x.protocol==='native-channel');
+        if(!p||!evidence?.evidence||evidence.kind!=='owned-source'||evidence.evidence.startsWith('用户手动'))return [];
+        const driver=driverFor(p.id);
+        if(typeof driver?.generate!=='function'||driver.modelAccessRestricted||driver.isSourceBridge===true&&driver.runtimeReady!==true)return [];
+        const members=cfg.accounts.filter(a=>a.providerId===p.id&&a.enabled&&verifiedAccount(a)===true&&(!tier.accountIds?.length||tier.accountIds.includes(a.id)));
+        return members.length?[{...tier,accountIds:members.map(a=>a.id),accountBindings:Object.fromEntries(members.map(a=>[a.id,a.credentialRef]))}]:[];
+      });
   }
   function ownedDirectProvider(providerId){
     const p=configStore.get().providers.find(x=>x.id===providerId);
@@ -143,6 +160,19 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
   }
   async function routeForModel(model,signal){
     if(typeof model!=='string')throw new RoutingError('ERR_ROUTE_NOT_FOUND','Invalid DSH model');
+    if(model==='autofree-owned'){
+      if(!ownedAccountCatalog)throw new RoutingError('ERR_FREE_EXHAUSTED','Owned account catalog unavailable');
+      const snapshot=await autoFreePool.scanOwned();
+      const cfg=configStore.get();
+      const items=ownedFreeTiers(snapshot);
+      if(!items.length)throw new RoutingError('ERR_FREE_EXHAUSTED','No currently verified official free owned model');
+      const shift=ownedFreeCursor++%items.length,rotated=[...items.slice(shift),...items.slice(0,shift)];
+      // Try a different channel before additional models of a failed one.
+      const first=[],rest=[],providers=new Set();
+      for(const item of rotated){(providers.has(item.providerId)?rest:first).push(item);providers.add(item.providerId)}
+      const tiers=[...first,...rest].slice(0,50);
+      return {id:model,name:'AutoFree Owned',mode:'free',enabled:true,tiers,freePolicySignature:JSON.stringify(cfg.freePool??{}),maxSwitches:tiers.length-1,exhaustionCooldownMs:21600000};
+    }
     if(model==='autofree'){
       await autoFreePool.refresh();
       const items=currentFreeTiers();
@@ -188,7 +218,14 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
     imageRequestTarget(){return undefined},
     async listModels(){return catalog.list()},
     canResolveOwnedDirect,
+    beginOwnedFreeProof(sessionId){
+      if(typeof sessionId!=='string'||!/^native-router-proof-owned-[a-f0-9]{32}$/.test(sessionId)||ownedProofs.size>=1)throw Error('Owned proof already running or invalid');
+      const record={failedAttempts:0,failedProviders:new Set(),completedProvider:null};ownedProofs.set(sessionId,record);
+      return ()=>{if(ownedProofs.get(sessionId)===record)ownedProofs.delete(sessionId);return {failedAttempts:record.failedAttempts,failedProviderCount:record.failedProviders.size,
+        completedProvider:record.completedProvider,crossChannelSwitch:!!record.completedProvider&&[...record.failedProviders].some(p=>p!==record.completedProvider)}};
+    },
     async resolveModel(provider,model){
+      if(model==='autofree-owned')return {provider:provider??PROVIDER,id:model,name:'聚合路由 · 自有免费自动切换',inputModalities:['text']};
       const direct=directModelDecode(model),owned=direct&&ownedDirectProvider(direct.providerId);
       if(owned){
         const row=autoFreePool.snapshot().catalog.find(x=>x.providerId===owned.id&&x.model===direct.model);
