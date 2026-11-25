@@ -2,6 +2,12 @@
 
 此处记录工程证据和可复用方法，生产状态每轮重新读取。
 
+## rc.124 工作线
+
+- 生产仍 rc.122，rc.123 main 已合并。补充 Lingxi、MiMo、Meoo、QwenWork、AWS Quick、Loomy 六渠道实时只读 inventory：全在线；Lingxi 7/14 费率已知、最低 x0.04；MiMo not_subscribed/no_cycle；Quick 有 1 额度周期；Loomy 1 免费目录候选，其余 0。未重复领取或收费调用，临时委托撤销。旧版生产无法执行新审计，未将只读结果当推理证明。
+- 新增只读 autofree-audit，复用实际候选筛选；输出候选/账号计数和手动免费计数，不执行推理。inventory 增加实时 ZCode 计划及 Loomy 钱包诊断；修复扫描提交与配置变化竞争以及精确账号范围过滤。Owner IPC/CLI 保留原权限、显式授权与去重。
+- 升级后联合验收 autofree-audit、ZCode/Loomy inventory 诊断、官方允许的免费模型；CodeArts/ZCode 真实姓名、Loomy 回执与生产推理、剩余渠道免费权益和正式路由故障切换仍未闭环。
+
 ## rc.123 工作线
 
 - 已核验 rc.122 安装。生产官方目录 15 渠道共 224 条目；WorkBuddy CN 2/2、Global 2/2 账号真实免费推理成功；Loomy 目录 1 免费候选但 generation precheck 返回 COST_NOT_CONFIRMED_FREE / ENTITLEMENT_READ，未进入模型流。CodeArts 11 明确费率、最低 x0.07；ZCode 2 模型、无确认免费候选；二者名称仍缺。未重复领取、未执行收费调用，临时委托已撤销。

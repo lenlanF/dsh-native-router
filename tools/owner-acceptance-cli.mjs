@@ -6,7 +6,7 @@ import {pathToFileURL} from 'node:url';
 const requestIdPattern=/^[a-f0-9]{32}$/;
 const providerPattern=/^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const states=new Set(['idle','running','complete','cancelled','failed','observed','online','expired','limited','error','pending','client_required','verified','skipped','unavailable','ready','unknown','available','cached','not_returned','not_supported','not_checked','active','not_subscribed','no_cycle','empty']);
-const modeSet=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity']);
+const modeSet=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity','autofree-audit']);
 const count=n=>Number.isSafeInteger(n)&&n>=0&&n<=10000?n:0;
 const state=x=>states.has(x)?x:'unknown';
 function safeReport(raw){
@@ -20,8 +20,8 @@ function safeReport(raw){
  if(Array.isArray(raw.accounts))out.accounts=raw.accounts.slice(0,16).filter(x=>x&&providerPattern.test(x.providerId??'')).map(x=>{
   const item={slot:count(x.slot),providerId:x.providerId,state:state(x.state)};
   for(const k of ['connection','modelState','balanceState','membershipState','usageState','catalogState'])if(x[k]!==undefined)item[k]=state(x[k]);
-  for(const k of ['hasProfile','hasBalance','hasBalanceUnit','hasRollingQuota','hasMembershipQuota','quotaObserved'])if(typeof x[k]==='boolean')item[k]=x[k];
-  for(const k of ['quotaWindowCount','freeCandidates','advertisedCount','knownRateCount','zeroRateCount'])if(Number.isSafeInteger(x[k]))item[k]=count(x[k]);
+  for(const k of ['hasProfile','hasBalance','hasBalanceUnit','hasRollingQuota','hasMembershipQuota','quotaObserved','zcodeStatusObserved','zcodeBalanceObserved','zcodeGiftConfirmed','loomyGiftConfirmed','dailyQuotaObserved'])if(typeof x[k]==='boolean')item[k]=x[k];
+  for(const k of ['quotaWindowCount','freeCandidates','advertisedCount','knownRateCount','zeroRateCount','zcodePlanBuckets','zcodeFlashBuckets','zcodePreviewStartPlans'])if(Number.isSafeInteger(x[k]))item[k]=count(x[k]);
   if(typeof x.lowestMultiplier==='number'&&Number.isFinite(x.lowestMultiplier)&&x.lowestMultiplier>=0&&x.lowestMultiplier<=100)item.lowestMultiplier=x.lowestMultiplier;
   if(['CATALOG','DRIVER_PRECHECK','ENTITLEMENT_READ','STREAM_OPEN','STREAM_READ'].includes(x.phase))item.phase=x.phase;
   if(typeof x.code==='string'&&/^[A-Z][A-Z0-9_]{0,47}$/.test(x.code))item.code=x.code;
@@ -36,6 +36,7 @@ function safeReport(raw){
      providerId:x.providerId,state:state(x.state),
      ...Object.fromEntries(['attempted','confirmedSignins','newlyCreditedRewards','pendingAccounts','failedAccounts','noTaskAccounts','clientRequiredAccounts'].map(k=>[k,count(x[k])])),
      ...(typeof x.code==='string'&&/^[A-Z][A-Z0-9_]{0,47}$/.test(x.code)?{code:x.code}:{})}));
+ if(raw.autoFree&&typeof raw.autoFree==='object')out.autoFree={state:state(raw.autoFree.state),catalogCount:count(raw.autoFree.catalogCount),routeCount:count(raw.autoFree.routeCount),manualCount:count(raw.autoFree.manualCount),errors:count(raw.autoFree.errors),providers:(Array.isArray(raw.autoFree.providers)?raw.autoFree.providers:[]).slice(0,128).filter(x=>providerPattern.test(x?.providerId??'')).map(x=>({providerId:x.providerId,routeCount:count(x.routeCount),accountCount:count(x.accountCount)}))};
  return out;
 }
 function checkedLoginLink(value){
@@ -53,7 +54,7 @@ export async function requestOwnerAcceptance({loginLink,action='status',mode,cha
  if(!['status','start','cancel'].includes(action))throw Error('Unsupported acceptance action');
  if(action==='start'&&(!modeSet.has(mode)||consent!==true||
    channel!==undefined&&!providerPattern.test(channel)||
-    mode==='channel-activity'&&!channel||mode==='all-channel-activity'&&channel!==undefined))throw Error('Explicit mode, consent and required channel are necessary');
+     mode==='channel-activity'&&!channel||['all-channel-activity','autofree-audit'].includes(mode)&&channel!==undefined))throw Error('Explicit mode, consent and required channel are necessary');
  if(action!=='status'&&!requestIdPattern.test(requestId??''))throw Error('Valid request ID required');
  const url=checkedLoginLink(loginLink);
  let login;

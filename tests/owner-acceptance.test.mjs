@@ -16,10 +16,29 @@ function fixture(overrides={}){
  const checkinCenter={snapshot:()=>({accounts:[{providerId:'own_demo',enabled:true,checkinSupported:true}]}),refreshSources:async()=>{},runActivityChannel:async channel=>{
    calls.push(['claim',channel]);return {summary:{attempted:1,confirmedSignins:1,newlyCreditedRewards:0,pendingAccounts:0,failedAccounts:0,noTaskAccounts:0}};
  }};
- const service=createOwnerAcceptance({configStore:{get:()=>structuredClone(cfg)},accountCenter,checkinCenter,now:()=>1000});
+ const service=createOwnerAcceptance({configStore:{get:()=>structuredClone(cfg)},accountCenter,checkinCenter,adapter:overrides.adapter,now:()=>1000});
  return {service,calls,setCfg:value=>{cfg=value}};
 }
 const done=async service=>{for(let i=0;i<40;i++){const r=service.snapshot();if(r.state!=='running')return r;await new Promise(r=>setImmediate(r))}throw Error('job not settled')};
+test('autofree audit invokes the real routing candidate audit without inference or mutation',async()=>{
+ let auditCalls=0;
+ const f=fixture({adapter:{auditAutoFree:async()=>{auditCalls++;return {state:'ready',catalogCount:8,routeCount:2,manualCount:1,errors:0,providers:[{providerId:'own_demo',routeCount:2,accountCount:1}],private:'do not export'}}}});
+ f.service.start({requestId:id,mode:'autofree-audit',consent:true});
+ const r=await done(f.service);
+ assert.equal(r.state,'complete');assert.equal(auditCalls,1);assert.deepEqual(f.calls,[]);
+ assert.deepEqual(r.autoFree,{state:'ready',catalogCount:8,routeCount:2,manualCount:1,errors:0,providers:[{providerId:'own_demo',routeCount:2,accountCount:1}]});
+ assert.throws(()=>f.service.start({requestId:'b'.repeat(32),mode:'autofree-audit',channel:'own_demo',consent:true}));
+});
+test('inventory reports live gift diagnostics without serializing balances or private profile',async()=>{
+ const f=fixture({accountCenter:{
+   driverFor:()=>({refreshAccountStatus:async()=>{}}),
+   refreshReadOnly:async()=>[{state:'ready',authVerified:true,balanceState:'available',zcodeStatusObserved:true,zcodeBalanceObserved:true,zcodePlanBuckets:1,zcodeFlashBuckets:1,zcodePreviewStartPlans:2,giftedBalance:99,loomyDailyGift:5000,dailyQuotaEvidence:{quota:5000,balance:5000,consumed:0},private:'SECRET'}]
+ }});
+ f.service.start({requestId:id,mode:'inventory',consent:true});const r=await done(f.service),a=r.accounts[0];
+ assert.equal(a.zcodePlanBuckets,1);assert.equal(a.zcodePreviewStartPlans,2);assert.equal(a.zcodeGiftConfirmed,false);
+ assert.equal(a.loomyGiftConfirmed,true);assert.equal(a.dailyQuotaObserved,true);
+ assert.equal('giftedBalance' in a,false);assert.equal('loomyDailyGift' in a,false);assert.doesNotMatch(JSON.stringify(r),/SECRET/);
+});
 test('inventory is serial and redacts personal details; duplicate request is not rerun',async()=>{
  const f=fixture();assert.equal(f.service.start({requestId:id,mode:'inventory',consent:true}).state,'running');
  const r=await done(f.service);assert.equal(r.state,'complete');assert.equal(r.accounts[0].connection,'online');

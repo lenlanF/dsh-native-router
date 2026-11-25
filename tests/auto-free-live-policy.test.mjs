@@ -21,6 +21,16 @@ test('configured independent accounts enter AutoFree and a changed live fee fall
  assert.ok(reads.get('account-1')>=2);
  assert.ok(events.length>0);
 });
+test('AutoFree audit uses the current eligible account tiers without generating or exposing bindings',async()=>{
+ const providerId='own_workbuddy-cn';
+ const cfg=normalizeConfig({providers:[{id:providerId,protocol:'native-channel',enabled:true}],accounts:['live','unverified'].map(id=>({id,providerId,credentialRef:'driver:'+providerId+':'+id,enabled:true}))});
+ let generated=0;
+ const adapter=createNativeRouterAdapter({configStore:{get:()=>cfg},channelDrivers:new Map([[providerId,{generate:async()=>{generated++;return {text:'OK',finishReason:'stop',toolCalls:[]}}}]])});
+ adapter.setAccountVerificationResolver(a=>a.id==='live');
+ adapter.setOwnedAccountCatalogResolver(async()=>({state:'ready',models:[{id:'safe',free:true},{id:'not-free',free:false}]}));
+ assert.deepEqual(await adapter.auditAutoFree(),{state:'ready',catalogCount:2,routeCount:1,manualCount:0,errors:0,providers:[{providerId,routeCount:1,accountCount:1}]});
+ assert.equal(generated,0);
+});
 const makePack=(models)=>({
  status:()=>({state:'mounted',experimentalMultiAccountProviders:[]}),
  async listAccounts(){return {state:'ready',accounts:[

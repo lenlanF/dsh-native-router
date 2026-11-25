@@ -1,6 +1,6 @@
 // Owner-authenticated, in-process acceptance jobs. No external service,
 // foreground window, persisted config edits, or raw account data in reports.
-const modes=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity']);
+const modes=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity','autofree-audit']);
 const channelKey=id=>String(id||'').replace(/^own_/,'');
 const channelPattern=/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
 const requestPattern=/^[a-f0-9]{32}$/;
@@ -9,7 +9,7 @@ const stateOf=value=>stateSet.has(value)?value:'unavailable';
 const safeCode=value=>typeof value==='string'&&/^[A-Z][A-Z0-9_]{0,47}$/.test(value)?value:undefined;
 const count=v=>Number.isSafeInteger(v)&&v>=0&&v<=10000?v:0;
 function reject(message,status=400){throw Object.assign(Error(message),{status})}
-export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,ownedDirectory,now=()=>Date.now()}={}){
+export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,ownedDirectory,adapter,now=()=>Date.now()}={}){
  let active=null,latest=null,disposed=false;
  const jobs=new Map();
  const output=job=>job?structuredClone(job.report):{state:'idle'};
@@ -28,7 +28,14 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
  async function run(job,targets){
   const report=job.report,stopped=()=>disposed||job.controller.signal.aborted;
   try{
-    if(report.mode==='catalog'){
+     if(report.mode==='autofree-audit'){
+      const result=await adapter?.auditAutoFree?.();
+      if(!result||result.state!=='ready')throw Error('AutoFree audit unavailable');
+      report.autoFree={state:'ready',catalogCount:count(result.catalogCount),routeCount:count(result.routeCount),
+       manualCount:count(result.manualCount),errors:count(result.errors),
+       providers:(Array.isArray(result.providers)?result.providers:[]).filter(x=>channelPattern.test(x?.providerId??'')).slice(0,128)
+        .map(x=>({providerId:x.providerId,routeCount:count(x.routeCount),accountCount:count(x.accountCount)}))};
+     }else if(report.mode==='catalog'){
      report.catalog=[];
      for(const providerId of job.channels){
       if(stopped())break;
@@ -80,7 +87,19 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
        row.connection=hasReader&&probe?.authVerified===true&&['ready','online'].includes(probe.state)
          ?'online':probe?.state==='ready'?'pending':stateOf(probe?.state);
       if(!stopped()&&eligible(account)){
-       const data=publicRow(account);
+        // Only current official evidence; never serialize balances or identities.
+        if(hasReader&&probe?.authVerified===true&&['ready','online'].includes(probe.state)){
+         for(const k of ['zcodeStatusObserved','zcodeBalanceObserved'])if(typeof probe[k]==='boolean')row[k]=probe[k];
+         for(const k of ['zcodePlanBuckets','zcodeFlashBuckets','zcodePreviewStartPlans'])if(Number.isSafeInteger(probe[k])&&probe[k]>=0)row[k]=count(probe[k]);
+         if(account.providerId==='own_zcode'||typeof probe.zcodeBalanceObserved==='boolean')
+          row.zcodeGiftConfirmed=probe.balanceState==='available'&&Number.isFinite(probe.giftedBalance)&&probe.giftedBalance>=1024;
+         if(account.providerId==='own_loomy'||Number.isFinite(probe.loomyDailyGift)||probe.dailyQuotaEvidence){
+          row.loomyGiftConfirmed=probe.balanceState==='available'&&Number.isFinite(probe.loomyDailyGift)&&probe.loomyDailyGift>=2000;
+          const q=probe.dailyQuotaEvidence;
+          row.dailyQuotaObserved=Boolean(q&&['quota','balance','consumed'].every(k=>Number.isFinite(q[k])&&q[k]>=0)&&q.quota>0&&Math.abs(q.quota-q.balance-q.consumed)<1e-6);
+         }
+        }
+        const data=publicRow(account);
        row.hasProfile=Boolean(data?.nickname||data?.maskedPhone);
        row.hasBalance=Number.isFinite(data?.balance)&&data.balance>=0;
        row.hasBalanceUnit=Boolean(data?.balanceUnit);
@@ -124,7 +143,7 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
   if(disposed)reject('Acceptance service stopped',503);
   if(typeof requestId!=='string'||!requestPattern.test(requestId)||!modes.has(mode)||consent!==true
     ||channel!==undefined&&(typeof channel!=='string'||!channelPattern.test(channel))
-    ||mode==='channel-activity'&&channel===undefined||mode==='all-channel-activity'&&channel!==undefined)reject('Invalid explicit acceptance request');
+    ||mode==='channel-activity'&&channel===undefined||['all-channel-activity','autofree-audit'].includes(mode)&&channel!==undefined)reject('Invalid explicit acceptance request');
   const selected=channel===undefined?undefined:channelKey(channel);
   const signature=JSON.stringify([mode,selected]);
   const old=jobs.get(requestId);
@@ -139,7 +158,7 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
   const cfg=configStore.get();
   const targets=cfg.accounts.filter(a=>(!selected||channelKey(a.providerId)===selected)&&eligible(a));
   const activityMode=mode==='channel-activity'||mode==='all-channel-activity';
-   if(!activityMode&&mode!=='catalog'&&targets.length>16)reject('Select a narrower channel (maximum 16 accounts)',400);
+   if(!activityMode&&!['catalog','autofree-audit'].includes(mode)&&targets.length>16)reject('Select a narrower channel (maximum 16 accounts)',400);
   const activityRows=activityMode?(checkinCenter.snapshot?.().accounts??[]).filter(a=>
     a.enabled===true&&(a.checkinSupported===true||a.activitiesSupported===true)
     &&channelPattern.test(channelKey(a.providerId))&&(!selected||channelKey(a.providerId)===selected)):[];

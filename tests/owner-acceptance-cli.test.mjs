@@ -18,6 +18,16 @@ test('official headless client exchanges only owner-supplied loopback link, then
  assert.deepEqual(JSON.parse(calls[1].options.body),{action:'start',requestId:id,mode:'channel-activity',consent:true,channel:'loomy'});
  assert.doesNotMatch(JSON.stringify(result),/synthetic-session|fixture-login|DO_NOT_RETURN/);
 });
+test('headless AutoFree audit sanitizes counts and refuses a channel before network access',async()=>{
+ let calls=0;
+ const fetchImpl=async()=>++calls===1?new Response(null,{status:303,headers:{'set-cookie':'dsh-auth-fixture=synthetic-session'}}):Response.json({ok:true,result:{state:'complete',mode:'autofree-audit',autoFree:{state:'ready',catalogCount:9,routeCount:2,manualCount:0,errors:0,private:'SECRET',providers:[{providerId:'own_demo',routeCount:2,accountCount:1,credentialRef:'SECRET'}]}}});
+ const link='http://127.0.0.1:4444/?token=fixture-login';
+ await assert.rejects(requestOwnerAcceptance({loginLink:link,action:'start',mode:'autofree-audit',channel:'own_demo',requestId:id,consent:true,fetchImpl}));
+ assert.equal(calls,0);
+ const result=await requestOwnerAcceptance({loginLink:link,fetchImpl});
+ assert.deepEqual(result.autoFree,{state:'ready',catalogCount:9,routeCount:2,manualCount:0,errors:0,providers:[{providerId:'own_demo',routeCount:2,accountCount:1}]});
+ assert.doesNotMatch(JSON.stringify(result),/SECRET/);
+});
 test('headless inventory preserves safe quota and catalog state but redacts arbitrary strings',async()=>{
  let calls=0;const r=await requestOwnerAcceptance({loginLink:'http://127.0.0.1:4444/?token=fixture-login',fetchImpl:async()=>++calls===1?new Response(null,{status:303,headers:{'set-cookie':'dsh-auth-fixture=synthetic-session'}}):Response.json({ok:true,result:{state:'complete',accounts:[{slot:1,providerId:'own_demo',state:'observed',membershipState:'not_subscribed',usageState:'no_cycle',catalogState:'empty',balanceState:'PRIVATE_FIXTURE'}]}})});
  assert.equal(r.accounts[0].membershipState,'not_subscribed');assert.equal(r.accounts[0].usageState,'no_cycle');assert.equal(r.accounts[0].catalogState,'empty');assert.equal(r.accounts[0].balanceState,'unknown');
