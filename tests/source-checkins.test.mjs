@@ -398,6 +398,34 @@ test('Loomy accepted daily initialization is reconciled read-only on repeated ma
   assert.equal(h.calls.length,1);
  }finally{h.center.stop()}
 });
+test('Loomy accepted quota receipt survives restart and reconciles a later same-day wallet without another POST',async()=>{
+ const receipt={quota:500,balance:420,consumed:80,alreadyProcessed:true};
+ let wallet=null;
+ const make=()=>fixture({enabled:false,rows:[row('loomy','acct-1')],handler:async()=>({state:'pending_confirmation',accepted:true,diagnosticCode:'LOOMY_WALLET_UNCONFIRMED',dailyInitialization:receipt,dailyInitializationDay:'2026-11-17'}),
+  statusQuery:async()=>({state:'ready',accounts:[{accountId:'acct-1',todayCheckedIn:null,active:true,authVerified:true,dailyQuotaEvidence:wallet,dailyCycleDate:'2026-11-17'}]})});
+ const id=sourceAccountOpaqueId('loomy','acct-1'),h=make();
+ try{
+  await h.center.refreshSources();
+  assert.equal((await h.center.run(id)).record.state,'pending_confirmation');
+  assert.deepEqual(h.records.at(-1).dailyInitialization,receipt);
+ }finally{h.center.stop()}
+ const restart=make();restart.records.push(...structuredClone(h.records));
+ try{
+  wallet={quota:500,balance:450,consumed:50};
+  await restart.center.refreshSources({force:true});assert.equal(restart.records.at(-1).state,'pending_confirmation');
+  const original=restart.records.at(-1).dailyInitializationBinding;
+  restart.records.at(-1).dailyInitializationBinding='wrong-binding';
+  wallet={quota:500,balance:400,consumed:100};
+  await restart.center.refreshSources({force:true});assert.equal(restart.records.at(-1).state,'pending_confirmation');
+  restart.records.at(-1).dailyInitializationBinding=original;
+  wallet={quota:500,balance:400,consumed:100};
+  await restart.center.refreshSources({force:true});
+  assert.equal(restart.records.at(-1).state,'success');
+  assert.equal(restart.records.at(-1).dailyQuotaInitialized,true);
+  assert.equal(restart.calls.length,0);
+  await restart.center.refreshSources();assert.equal(restart.records.filter(r=>r.state==='success').length,1);
+ }finally{restart.center.stop()}
+});
 test('unconfirmed source acceptance does not remain pending forever',async()=>{
   const h=fixture({enabled:false,rows:[row('zcode','acct-2')],
     handler:async()=>({state:'pending_confirmation',accepted:true,

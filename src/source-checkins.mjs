@@ -5,7 +5,8 @@ import {channelAutoEnabled} from './config.mjs';
 import {publicAccountName,publicBalance,checkinDisplayState,expiredCheckinConfirmation} from './account-facts.mjs';
 import {verificationWithinPeriod} from './account-verification-store.mjs';
 import {publicCheckinMessage,publicAccountFailureMessage,safeCheckinDiagnostic} from './public-diagnostics.mjs';
-import {LOOMY_FREE_TASKS} from './channels/loomy-rewards.mjs';
+import {LOOMY_FREE_TASKS,loomyDailyQuota,loomyDailyReceipt,loomyDailyConfirmation} from './channels/loomy-rewards.mjs';
+import {createHash} from 'node:crypto';
 
 const supported=new Set(SOURCE_DAILY_SIGNIN_PROVIDERS);const RETRY_DELAY_MS=60*60*1000;
 const MAX_AUTO_ATTEMPTS=3,RACCOON_MAX_AUTO_ATTEMPTS=14;
@@ -63,6 +64,13 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
       &&(a.providerId===row.providerId||a.providerId==='own_'+row.providerId));
   }
   const bindingFor=row=>boundAccount(row)?.credentialRef??null;
+  const dailyBinding=row=>createHash('sha256').update(JSON.stringify([row.providerId,row.id,row.sourceAccountId,bindingFor(row)])).digest('hex');
+  const dailyConfirmed=(row,receipt,status)=>row.providerId==='loomy'&&receipt?.state==='pending_confirmation'
+    &&receipt.date===today()&&receipt.dailyInitializationBinding===dailyBinding(row)
+    &&status?.authVerified===true&&loomyDailyConfirmation(receipt.dailyInitialization,status,today())===null;
+  const dailySuccess=(row)=>({date:today(),accountId:row.id,providerId:row.providerId,
+    state:'success',message:'官方每日额度初始化回执与钱包回查一致（非永久积分新增）',
+    dailyQuotaInitialized:true,at:now(),source:'status'});
   const raccoonOffer=Object.freeze({kind:'raccoon_login'});
   const raccoonAccount=row=>({providerId:'own_raccoon',id:row.id,
     credentialRef:bindingFor(row)??'source:'+row.providerId+':'+row.id});
@@ -217,6 +225,8 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
               authVerified:entry.authVerified===true,
               ...(typeof entry.claimable==='boolean'?{claimable:entry.claimable}:{}),
               ...(entry.noClaimablePlans===true?{noClaimablePlans:true}:{}),
+              ...(row.providerId==='loomy'&&entry.authVerified===true&&loomyDailyQuota(entry.dailyQuotaEvidence)
+                ?{dailyQuotaEvidence:loomyDailyQuota(entry.dailyQuotaEvidence),dailyCycleDate:typeof entry.dailyCycleDate==='string'?entry.dailyCycleDate.slice(0,10):''}:{}),
               ...(row.providerId==='loomy'&&Array.isArray(entry.benefits)?{
                 benefits:loomyBenefits(entry)}:{}),
                ...(row.providerId==='raccoon'&&typeof entry.loginRewardPending==='boolean'
@@ -253,6 +263,9 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
              &&!history(row.id).some(x=>x.state==='success')){
              try{store.append({date:today(),accountId:row.id,providerId:row.providerId,
                state:'success',message:'官方只读任务状态确认今日已签到',at:now(),source:'status'})}catch{}
+           }else if(!pending.has(row.id)&&!store.blocked&&dailyConfirmed(row,latest(row.id),entry)
+             &&!history(row.id).some(x=>x.state==='success')){
+             try{store.append(dailySuccess(row))}catch{}
            }
          }
         // A successful provider response is not a successful authentication
@@ -421,13 +434,18 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
   try{
     if(row.providerId==='loomy'&&previous?.state==='pending_confirmation'){
       // Initialization was accepted; further attempts must be read-only.
+      const priorObservation=statusCache.get(id);
       await refresh({force:true,onlyProviderId:row.providerId});
       assertAuthorized();
       const observed=statusCache.get(id);
       // A readback without authenticated status cannot close a pending receipt.
-      if(observed?.day===today()&&observed?.authVerified===true&&observed?.todayCheckedIn===true){
+      if(observed!==priorObservation&&observed?.day===today()&&observed?.authVerified===true&&observed?.todayCheckedIn===true){
         const record=store.append({date:today(),accountId:id,providerId:row.providerId,
           state:'success',message:publicCheckinMessage('success'),at:now(),source:'status'});
+        return {alreadyConfirmed:true,record,activities:await runFreeActivities(id,{source})};
+      }
+      if(observed!==priorObservation&&observed?.day===today()&&dailyConfirmed(row,previous,observed)){
+        const record=store.append(dailySuccess(row));
         return {alreadyConfirmed:true,record,activities:await runFreeActivities(id,{source})};
       }
       return {alreadyPending:true,record:previous,activities:await runFreeActivities(id,{source})};
@@ -456,15 +474,25 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
      else if(reply?.state==='pending_confirmation'
        &&(reply?.accepted===true||row.providerId==='raccoon'
          &&reply.loginRewardState==='pending_confirmation')){
-       // Read-only confirmation must follow a confirmed acceptance response.
-       await refresh({force:true,onlyProviderId:row.providerId});
-       if(statusCache.get(id)?.day===today()&&statusCache.get(id)?.todayCheckedIn===true){
-         state='success';message='上游签到状态已回查确认';
-       }else{state='pending_confirmation';message=publicCheckinMessage(state,reply?.diagnosticCode);}
+        // Reconcile only a fresh response, not a stale cached wallet.
+        const priorObservation=statusCache.get(id);
+        await refresh({force:true,onlyProviderId:row.providerId});
+        const observed=statusCache.get(id);
+        const current=observed!==priorObservation&&observed?.day===today()&&observed?.authVerified===true;
+        if(current&&observed.todayCheckedIn===true){
+          state='success';message='上游签到状态已回查确认';
+        }else if(current&&row.providerId==='loomy'&&reply.dailyInitializationDay===today()
+          &&loomyDailyConfirmation(reply.dailyInitialization,observed,today())===null){
+          state='success';reply={...reply,dailyQuotaInitialized:true};
+          message='官方每日额度初始化回执与钱包回查一致（非永久积分新增）';
+        }else{state='pending_confirmation';message=publicCheckinMessage(state,reply?.diagnosticCode);}
       }else{message=publicCheckinMessage('failed',reply?.diagnosticCode)}
    assertAuthorized();
+   const dailyReceipt=row.providerId==='loomy'&&state==='pending_confirmation'&&reply?.accepted===true&&reply.dailyInitializationDay===today()?loomyDailyReceipt(reply.dailyInitialization):null;
    const record=store.append({date:today(),accountId:id,providerId:row.providerId,
      state,message,at:now(),source,
+     ...(dailyReceipt?{dailyInitialization:dailyReceipt,dailyInitializationBinding:dailyBinding(row)}:{}),
+     ...(state==='success'&&reply?.dailyQuotaInitialized===true?{dailyQuotaInitialized:true}:{}),
      ...(state!=='success'&&safeCheckinDiagnostic(reply?.diagnosticCode)?{diagnosticCode:safeCheckinDiagnostic(reply.diagnosticCode)}:{}),
     // Persist explicit read-only provenance across restarts. Older no_task
     // records and any claim POST result must still consume the attempt budget.

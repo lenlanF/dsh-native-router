@@ -11,6 +11,24 @@ export const LOOMY_FREE_TASKS=Object.freeze({
  create_soul:{name:'创建你的第一个搭子',points:1500},
  share_soul:{name:'把搭子分享给朋友',points:2000},
 });
+// Retain only reconciled numeric daily-quota evidence, never provider payloads.
+export function loomyDailyQuota(value){
+ if(!value||!['quota','balance','consumed'].every(k=>Number.isFinite(value[k])&&value[k]>=0&&value[k]<=1e12)
+   ||value.quota<=0||Math.abs(value.balance+value.consumed-value.quota)>=1e-6)return null;
+ return {quota:value.quota,balance:value.balance,consumed:value.consumed};
+}
+export function loomyDailyReceipt(value){
+ const quota=loomyDailyQuota(value);
+ return quota&&typeof value.alreadyProcessed==='boolean'?{...quota,alreadyProcessed:value.alreadyProcessed}:null;
+}
+export function loomyDailyConfirmation(receipt,status,day,currentDay=day){
+ const accepted=loomyDailyReceipt(receipt),wallet=loomyDailyQuota(status?.dailyQuotaEvidence);
+ if(!accepted)return 'LOOMY_RECEIPT_MISSING';
+ if(status?.active!==true||!wallet)return 'LOOMY_WALLET_UNCONFIRMED';
+ if(currentDay!==day||(status.dailyCycleDate&&String(status.dailyCycleDate).slice(0,10)!==day))return 'LOOMY_DAY_MISMATCH';
+ if(Math.abs(accepted.quota-wallet.quota)>=1e-6||wallet.consumed+1e-6<accepted.consumed)return 'LOOMY_QUOTA_MISMATCH';
+ return null;
+}
 const BASE='https://loomyad.xunfei.cn/api/v1';
 const API_TIMEOUT=9000;
 const tokenOf=c=>typeof c?.access_token==='string'&&c.access_token.length>=8
