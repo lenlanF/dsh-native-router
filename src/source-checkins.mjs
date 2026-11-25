@@ -419,6 +419,19 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
   pending.add(id);
   let reply,state='failed',message='未确认';
   try{
+    if(row.providerId==='loomy'&&previous?.state==='pending_confirmation'){
+      // Initialization was accepted; further attempts must be read-only.
+      await refresh({force:true,onlyProviderId:row.providerId});
+      assertAuthorized();
+      const observed=statusCache.get(id);
+      // A readback without authenticated status cannot close a pending receipt.
+      if(observed?.day===today()&&observed?.authVerified===true&&observed?.todayCheckedIn===true){
+        const record=store.append({date:today(),accountId:id,providerId:row.providerId,
+          state:'success',message:publicCheckinMessage('success'),at:now(),source:'status'});
+        return {alreadyConfirmed:true,record,activities:await runFreeActivities(id,{source})};
+      }
+      return {alreadyPending:true,record:previous,activities:await runFreeActivities(id,{source})};
+    }
     try{reply=await sourcePack.checkinAccount({providerId:row.providerId,
       sourceAccountId:row.sourceAccountId,
       ...(row.providerId==='raccoon'?{
