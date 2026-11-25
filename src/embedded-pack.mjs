@@ -397,30 +397,44 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
       if(rows===timeoutMarker)return {state:'timeout',providerId,models:[]};
       if(scope!==mountedScope())return {state:'unavailable',providerId,models:[]};
       if(!Array.isArray(rows))return {state:'error',providerId,models:[]};
-      const models=[],seen=new Set();
-      for(const row of rows){
-        if(models.length>=256)break;
-        if(row&&typeof row==='object'&&row.provider
-          &&row.provider!==providerId&&row.provider!==sourceAdapter(providerId))continue;        const id=typeof row==='string'?row:row?.id;
-        if(typeof id!=='string'||!id.trim()||id.length>160
-          ||/[\u0000-\u001f]/.test(id)||seen.has(id))continue;
-        seen.add(id);
-        const name=typeof row?.name==='string'&&row.name.length<=120
-          &&!/[\u0000-\u001f]/.test(row.name)?row.name:id;
-        models.push({id,name,
-          ...(providerId==='codearts'&&row?.catalogSource==='codearts-signed-official-model-catalog'
-            ?{catalogSource:row.catalogSource}:{}),
-          ...(row?.isFree===true||row?.free===true||row?.upstreamFreeLabel===true?{upstreamFreeLabel:true}:{}),
+       const models=[],seen=new Map();
+       const positive=value=>(typeof value==='number'||typeof value==='string'&&value.trim()!=='')&&Number.isFinite(Number(value))&&Number(value)>0;
+       for(const row of rows){
+         if(row&&typeof row==='object'&&row.provider
+           &&row.provider!==providerId&&row.provider!==sourceAdapter(providerId))continue;
+         const id=typeof row==='string'?row:row?.id;
+         if(typeof id!=='string'||!id.trim()||id.length>160||/[\u0000-\u001f]/.test(id))continue;
+         const negative=row?.isFree===false||row?.free===false||row?.pricingConflict===true;
+         const positivePrice=positive(row?.costMultiplier)||[row?.pricing,row?.price,row?.cost].some(p=>p&&typeof p==='object'&&['input','output','prompt','completion','inputCost','outputCost'].some(k=>positive(p[k])));
+         const free=row?.isFree===true||row?.free===true||row?.upstreamFreeLabel===true;
+         const previous=seen.get(id);
+         if(previous){
+           if(negative||positivePrice||previous.isFree===false&&free){
+             delete previous.upstreamFreeLabel;previous.pricingConflict=true;previous.isFree=false;
+             delete previous.costMultiplier;delete previous.priceSource;delete previous.pricing;
+           }
+           continue;
+         }
+         if(models.length>=256)continue;
+         const name=typeof row?.name==='string'&&row.name.length<=120
+           &&!/[\u0000-\u001f]/.test(row.name)?row.name:id;
+         const model={id,name,
+           ...(providerId==='codearts'&&row?.catalogSource==='codearts-signed-official-model-catalog'?{catalogSource:row.catalogSource}:{}),
+           ...(negative||positivePrice?{isFree:false}:free?{upstreamFreeLabel:true}:{}),
+           ...(row?.pricingConflict===true||free&&(negative||positivePrice)?{pricingConflict:true}:{}),
            ...(row?.priceSource==='codearts-official-credit-ratio'
              &&Number.isSafeInteger(row.catalogObservedAt)
              &&row.catalogObservedAt<=Date.now()+30000
              &&row.catalogObservedAt>Date.now()-15*60*1000
              &&typeof row.costMultiplier==='number'
              &&Number.isFinite(row.costMultiplier)&&row.costMultiplier>=0&&row.costMultiplier<=100
-             ?{costMultiplier:row.costMultiplier,priceSource:row.priceSource}:{}),          ...(row?.pricing&&typeof row.pricing==='object'
-            &&['number','string'].includes(typeof row.pricing.input)
-            &&['number','string'].includes(typeof row.pricing.output)
-            ?{pricing:{input:row.pricing.input,output:row.pricing.output}}:{})});      }
+             ?{costMultiplier:row.costMultiplier,priceSource:row.priceSource}:{}),
+           ...(row?.pricing&&typeof row.pricing==='object'
+             &&['number','string'].includes(typeof row.pricing.input)
+             &&['number','string'].includes(typeof row.pricing.output)
+             ?{pricing:{input:row.pricing.input,output:row.pricing.output}}:{})};
+         seen.set(id,model);models.push(model);
+       }
       return {state:'ready',providerId,models};
     }catch{return {state:'error',providerId,models:[]}}
      finally{clearTimeout(timer)}
@@ -770,7 +784,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
    // Account-scoped read-only identity, check-in and balance bridge.
    // Reuse the same upstream implementations as the standalone channels;
    // never confuse "no credit plan" with authentication failure.
-   async function readSourceStatuses(providerId,accountId){
+   async function readSourceStatuses(providerId,accountId,{includeActivities=true}={}){
      if(!SOURCE_PACK_PROVIDERS.includes(providerId)||!sourceAllowed(providerId))
        return {state:'unsupported',accounts:[]};
      const scope=mountedScope();
@@ -811,7 +825,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
       // account-level GET concurrency with shorter read-only timeouts; unknown
       // results stay unknown rather than marking any reward claimed.
       const raccoonProofs=new Map();
-      if(providerId==='raccoon'){
+      if(includeActivities&&providerId==='raccoon'){
         const ids=[...allIds];let index=0;
         await Promise.all(Array.from({length:Math.min(4,ids.length)},async()=>{
           while(index<ids.length&&scope===mountedScope()){
@@ -822,7 +836,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
         }));
       }
       const loomyProofs=new Map();
-      if(providerId==='loomy'){
+      if(includeActivities&&providerId==='loomy'){
         const ids=[...allIds];let index=0;
         await Promise.all(Array.from({length:Math.min(4,ids.length)},async()=>{
           while(index<ids.length&&scope===mountedScope()){
@@ -868,7 +882,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
         const rawEnd=exact?.endAt??exact?.expiresAt;
         const end=typeof rawEnd==='number'&&Number.isFinite(rawEnd)&&rawEnd>0?
           rawEnd<1e11?rawEnd*1000:rawEnd:
-          typeof rawEnd==='string'&&/^\\d{4}-\\d{2}-\\d{2}T/.test(rawEnd)?
+          typeof rawEnd==='string'&&/^\d{4}-\d{2}-\d{2}T/.test(rawEnd)?
             Date.parse(rawEnd):null;
         const rawPhone=identityMap.get(accountId)?.phone??exact?.phone;
         const phone=typeof rawPhone==='string'&&/^\d{11}$/.test(rawPhone)

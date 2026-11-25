@@ -105,6 +105,15 @@ test('CodeArts one-post proof rechecks official minimum, pins account and blocks
  await assert.rejects(()=>driver.generate({account,model:'only-cheapest',options}),/price|minimum|最低|Lowest|changed/i);
  assert.equal(src.calls.length,1,'fee change must prevent a second charged request');
 });
+test('source channel preserves explicit nonfree and pricing conflict even when positive free flags or gift evidence exist',async()=>{
+ const src=mockSource([{id:'loomy-gift',providerId:'loomy',enabled:true}]);
+ src.embeddedPack.listModels=async()=>({state:'ready',models:[{id:'spark-x2.6',isFree:false,upstreamFreeLabel:true,pricingConflict:true}]});
+ src.embeddedPack.readSourceStatuses=async()=>({state:'ready',accounts:[{accountId:'loomy-gift',authVerified:true,balanceState:'available',loomyDailyGift:5000}]});
+ const driver=createSourceChannelDriver({providerId:'loomy',accountProviderId:'own_loomy',embeddedPack:src.embeddedPack});
+ const id=sourceAccountOpaqueId('loomy','loomy-gift'),account={id,providerId:'own_loomy',credentialRef:'driver:own_loomy:'+id};
+ const row=(await driver.listModels({account}))[0];
+ assert.equal(row.isFree,false);assert.equal(row.pricingConflict,true);assert.equal(freeEvidence(row,'own_loomy'),null);
+});
 test('Loomy only grants Spark X2.6 free test from authenticated official daily gift bucket',async()=>{
  const src=mockSource([{id:'loomy-gift',providerId:'loomy',enabled:true}]);
  src.embeddedPack.listModels=async()=>({state:'ready',models:[
@@ -137,10 +146,10 @@ for(const [channel,own,model,giftKey,minGift] of [
   test(channel+' native smoke cannot issue a charged request if its gift is spent between catalog and generation',async()=>{
    const src=mockSource([{id:'safe-gift',providerId:channel,enabled:true}]);  let gift=5000;
   src.embeddedPack.listModels=async()=>({state:'ready',models:[{id:model,name:'Gift model'}]});
-  src.embeddedPack.readSourceStatuses=async()=>({state:'ready',accounts:[{
-   accountId:'safe-gift',authVerified:true,balanceState:'available',
-   balance:50000,[giftKey]:gift,
-  }]});
+   src.embeddedPack.readSourceStatuses=async(_provider,_id,options)=>{
+    assert.equal(options.includeActivities,false,'free inference must not block on unrelated activity endpoints');
+    return {state:'ready',accounts:[{accountId:'safe-gift',authVerified:true,balanceState:'available',balance:50000,[giftKey]:gift}]};
+   };
   const driver=createSourceChannelDriver({providerId:channel,accountProviderId:own,embeddedPack:src.embeddedPack});
   const id=sourceAccountOpaqueId(channel,'safe-gift');
   const account={id,providerId:own,credentialRef:'driver:'+own+':'+id};
