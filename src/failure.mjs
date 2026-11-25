@@ -43,6 +43,7 @@ export function classifyFailure(error, signal) {
       ?{code:'QUOTA',retryable:true,scope:'account',cooldownMs:21600000}
       :{code:'RATE_LIMIT',retryable:true,scope:'account',cooldownMs:error.retryAfterMs||60000};
   }
+  if(error?.code==='COST_NOT_CONFIRMED_FREE')return {code:'COST_NOT_CONFIRMED_FREE',retryable:true,scope:'account',cooldownMs:30000};
   if(error?.code === 'TRANSPORT')return {code:'TRANSPORT',retryable:true,scope:'account',cooldownMs:10000};
   if(error?.code === 'TIMEOUT')return {code:'TIMEOUT',retryable:true,scope:'account',cooldownMs:30000};
   if(error?.code === 'SERVER')return {code:'SERVER',retryable:true,scope:'account',cooldownMs:30000};

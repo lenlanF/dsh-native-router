@@ -145,6 +145,7 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
     const ownedDirectory=createOwnedModelDirectory({configStore:ownStore,accountCenter,checkinCenter,embeddedPack,hostProviderInventory:existingHostSource});
     const ownerAcceptance=createOwnerAcceptance({configStore:ownStore,accountCenter,checkinCenter,ownedDirectory});
    ownAdapter.setInferenceObserver?.(accountCenter.observeRoutedInference);
+   ownAdapter.setOwnedAccountCatalogResolver?.((account,options)=>accountCenter.listTestModels(account.id,{officialOnly:true,signal:options?.signal}));
    const sourceVerified=(providerId,id)=>sourceHealth().some(a=>
      a.id===id&&a.providerId===providerId&&a.connectionState==='online'&&a.enabled);
    // A verified private QR account is eligible even while the separate

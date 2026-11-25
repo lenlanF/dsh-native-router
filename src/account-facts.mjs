@@ -6,12 +6,12 @@ const generatedName=/^(?:账号\s*#?\s*\d+|account\s*#?\s*\d+|id:.+|.+\s*[·•-
 export function publicAccountName(...sources){
   for(const source of sources){
      if(!source||typeof source!=='object')continue;
-     for(const key of ['displayName','nickname','nickName','screenName','accountName','account_name','username','userName','user_name','loginName','login_name','accountLogin','login','email','name','label']){
+     for(const key of ['displayName','display_name','nickname','nickName','screenName','accountName','account_name','username','userName','user_name','loginName','login_name','accountLogin','login','email','name','accountLabel','account_label','label']){
       const value=source[key];
       if(typeof value!=='string')continue;
       const name=value.trim();
       if(!name||name.length>120||name===source.id||name===source.accountId||
-        nameSensitive.test(name)||opaqueName.test(name)||generatedName.test(name)||
+        nameSensitive.test(name)||opaqueName.test(name)||generatedName.test(name)||/^设备(?:\s|[:：]|[a-f0-9])/i.test(name)||
         /^[A-Za-z0-9_.~+-]{48,}$/.test(name))continue;
       if(/^\d{11}$/.test(name))return name.replace(/^(\d{3})\d{4}(\d{4})$/,'$1****$2');
       return name;
@@ -27,9 +27,10 @@ export function credentialPublicIdentity(payload){
   if(!payload||typeof payload!=='object'||Array.isArray(payload))return {};
   const label=publicAccountName({
      accountName:payload.account_name??payload.user_name??payload.accountName,
-     username:payload.username,displayName:payload.display_name,
+     username:payload.username??payload.userName,displayName:payload.display_name??payload.displayName,
      nickname:payload.nickname,nickName:payload.nickName,name:payload.name,
-  },payload.account,payload.profile);  const phone=typeof payload.phone==='string'&&/^\d{11}$/.test(payload.phone)?
+     accountLabel:payload.account_label??payload.accountLabel,
+  },payload.account,payload.profile,payload.user);  const phone=typeof payload.phone==='string'&&/^\d{11}$/.test(payload.phone)?
     payload.phone.replace(/^(\d{3})\d{4}(\d{4})$/,'$1****$2'):'';
   return {...(label?{accountName:label}:{}),
     ...(phone?{maskedPhone:phone}:{})};

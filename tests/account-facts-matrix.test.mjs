@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {publicAccountName,publicBalance,checkinDisplayState,
+import {publicAccountName,publicBalance,checkinDisplayState,credentialPublicIdentity,
   expiredCheckinConfirmation,CHECKIN_CONFIRMATION_TIMEOUT_MS} from '../src/account-facts.mjs';
 import {REFERENCE_CHANNELS} from '../src/channels.mjs';
 import {SOURCE_PACK_PROVIDERS} from '../src/embedded-pack.mjs';
@@ -8,6 +8,12 @@ import {createAccountCenter} from '../src/account-center.mjs';
 import {normalizeConfig} from '../src/config.mjs';
 import {mergeAccountSources} from '../src/account-source-view.mjs';
 import {sourceAccountOpaqueId} from '../src/source-account-ref.mjs';
+test('public account labels recover official alternate fields but reject device labels and mask phones',()=>{
+ assert.equal(publicAccountName({display_name:'真实昵称'}),'真实昵称');
+ assert.equal(credentialPublicIdentity({account_label:'真实账号'}).accountName,'真实账号');
+ assert.equal(credentialPublicIdentity({accountLabel:'设备 123'}).accountName,undefined);
+ assert.equal(credentialPublicIdentity({accountLabel:'13812345678'}).accountName,'138****5678');
+});
 
 test('all 13 built-in source providers are represented by channel metadata',()=>{
  const ids=REFERENCE_CHANNELS.map(row=>row.id);
