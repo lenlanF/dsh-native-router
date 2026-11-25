@@ -309,17 +309,8 @@ export function createAccountCenter({
    const explicit=(configStore.get().freePool?.models??[])
      .find(x=>x.providerId===providerId&&x.model===row.id);
    if(explicit?.free===false)return null;
-   const positive=value=>(typeof value==='number'||typeof value==='string'&&value.trim()!=='')
-     &&Number.isFinite(Number(value))&&Number(value)>0;
    const peers=rows.filter(x=>x?.id===row.id);
-   if(peers.some(x=>x.free===false||x.isFree===false||positive(x.costMultiplier)
-     ||[x.pricing,x.price,x.cost].some(price=>price&&typeof price==='object'
-       &&['input','output','prompt','completion','inputCost','outputCost'].some(k=>positive(price[k])))
-     ||(/^own_workbuddy(?:-|$)/.test(providerId)&&
-       /(?:^|[\s·(])x\s*(?:[1-9]\d*(?:\.\d+)?|0\.\d*[1-9]\d*)(?:$|[\s·)])/i.test(x.name??''))))return null;
-   if(providerId==='codearts'&&row.priceSource==='codearts-official-credit-ratio'
-     &&row.costMultiplier===0)return 'CodeArts 官方零积分倍率';
-   return freeEvidence(row,providerId);
+   return freeEvidence(row,providerId,peers);
  }
  // Preserve numeric official pricing for presentation without copying upstream
  // payloads or treating an unverified multiplier as permission to infer.
@@ -411,8 +402,8 @@ export function createAccountCenter({
   }
   pending.add(id);
   const controller=new AbortController();
-   let timedOut=false,generationStarted=false;
-  const timer=setTimeout(()=>{timedOut=true;controller.abort()},90000);
+   let timedOut=false,generationStarted=false,phase='CATALOG';
+   const timer=setTimeout(()=>{timedOut=true;controller.abort()},90000);
   const abort=()=>controller.abort();
   if(signal?.aborted)abort();else signal?.addEventListener('abort',abort,{once:true});
   const cancelled=new Promise((_,reject)=>{
@@ -443,12 +434,13 @@ export function createAccountCenter({
     if(!stillAuthorizedTestAccount({account,provider}))
       return {id,state:'skipped',code:'ACCOUNT_CHANGED',at:now(),
         message:'账号已停用或凭据绑定已改变；未发送真实推理请求'};
-     generationStarted=true;
+     if(controller.signal.aborted)return {id,state:'skipped',code:'CANCELLED',at:now(),phase,message:'验收已取消，未发送推理请求'};
+     generationStarted=true;phase='DRIVER_PRECHECK';
      const reply=await Promise.race([driver.generate({account,provider,model:chosen.id,
      options:{messages:[{role:'user',content:[{type:'text',text:'请只回复 OK'}]}],
       maxTokens:(provider.id==='own_loomy'&&chosen.id==='spark-x2.6')||
         (officialOnly&&['own_workbuddy-cn','own_workbuddy-global'].includes(provider.id))?128:32,
-      sessionId:'native-router-test-'+id},signal:controller.signal}),cancelled]);    if(reply?.finishReason!=='stop'||typeof reply?.text!=='string'||!reply.text.trim()
+      sessionId:'native-router-test-'+id,onVerificationPhase:value=>{if(['DRIVER_PRECHECK','ENTITLEMENT_READ','STREAM_OPEN','STREAM_READ'].includes(value))phase=value}},signal:controller.signal}),cancelled]);    if(reply?.finishReason!=='stop'||typeof reply?.text!=='string'||!reply.text.trim()
       ||(Array.isArray(reply.toolCalls)&&reply.toolCalls.length))
      throw Object.assign(new Error('Model reply was incomplete'),{
        code:'TRUNCATED',safeStreamPhase:reply?.finishReason==='length'?'MAX_TOKENS':'NO_COMPLETE_TEXT'});    if(!stillAuthorizedTestAccount({account,provider})
@@ -476,12 +468,13 @@ export function createAccountCenter({
      message:'已通过自有账号真实完成一次最小模型回复（不是模型目录模拟）'};
    }catch(error){
     const at=now();
-    if(!generationStarted)return {id,state:'skipped',at,
-      code:stillAuthorizedTestAccount({account,provider})?'CATALOG_UNAVAILABLE':'ACCOUNT_CHANGED',
-      message:'本账号只读模型目录不可用或授权已变更；未发送实际生成，保留此前的成功记录'};
+     if(!generationStarted)return {id,state:'skipped',at,phase,
+       code:signal?.aborted?'CANCELLED':stillAuthorizedTestAccount({account,provider})?'CATALOG_UNAVAILABLE':'ACCOUNT_CHANGED',
+       message:'本账号只读模型目录不可用或授权已变更；未发送实际生成，保留此前的成功记录'};
     if(!stillAuthorizedTestAccount({account,provider}))
       return {id,state:'failed',at,code:'ACCOUNT_CHANGED',
         message:'实际生成请求已发出但账号授权已变更；旧结果不写入模型验证记录'};
+    if(error?.code==='COST_NOT_CONFIRMED_FREE'||signal?.aborted)return {id,state:'skipped',at,phase,code:signal?.aborted?'CANCELLED':'COST_NOT_CONFIRMED_FREE',message:'费用条件未确认或验收已取消；未新增成功记录，保留此前证明'};
     inferenceProof.delete(id);
    inferenceFailures.set(id,{at,credentialRef:account.credentialRef});
    try{verificationStore?.setModelTestFailure?.(account,{at})}catch{}
@@ -493,7 +486,7 @@ export function createAccountCenter({
      SERVER:'渠道服务暂时异常',CANCELLED:'请求被取消',
      INVALID_REQUEST:'模型请求格式不受支持',
      UNKNOWN:'模型没有返回完整的成功回复'};
-    return {id,state:'failed',at,code,
+    return {id,state:'failed',at,code,phase,
        ...(['STREAM_CLOSED','OUTPUT_LIMIT'].includes(code)&&['NON_SSE_INCOMPLETE','NO_SSE_FRAMES',         'FINISH_FRAME_MISSING_DONE','MISSING_DONE_AND_FINISH',
          'DONE_MISSING_FINISH','UNCLASSIFIED_SSE','UPSTREAM_FINISH_ERROR',
          'MISSING_NATIVE_FINISH','UNCLOSED_NATIVE_BLOCK','MAX_TOKENS','NO_COMPLETE_TEXT']

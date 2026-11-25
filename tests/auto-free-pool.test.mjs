@@ -7,6 +7,22 @@ import {sourceAccountOpaqueId} from '../src/source-account-ref.mjs';
 import {createRoutingEngine} from '../src/router.mjs';
 import {createAccountCenter} from '../src/account-center.mjs';
 
+test('positive rate and duplicate contradictory host rows cannot qualify automatically',async()=>{
+ assert.equal(freeEvidence({id:'contradictory',isFree:true,costMultiplier:0.04}),null);
+ const host={status:()=>({hostProviders:[{providerId:'workbuddy'}]}),listHostModels:async()=>({state:'ready',models:[{id:'conflict',isFree:true},{id:'conflict',pricing:{input:1,output:0}},{id:'safe',isFree:true}]})};
+ const pool=createAutoFreePool({getConfig:()=>normalizeConfig({}),hostProviderInventory:host});
+ assert.deepEqual((await pool.refresh()).models.map(m=>m.model),['safe']);
+});
+test('configured catalog requires every checked account to agree on free entitlement',async()=>{
+ const providerId='own_workbuddy-cn',ids=['a-one','a-two'];
+ const cfg=normalizeConfig({providers:[{id:providerId,protocol:'native-channel',enabled:true}],accounts:ids.map(id=>({id,providerId,credentialRef:'driver:'+providerId+':'+id,enabled:true}))});
+ const pool=createAutoFreePool({getConfig:()=>cfg,ownedAccountEligible:()=>true,ownedAccountCatalog:async a=>({state:'ready',models:[{id:'same',free:a.id===ids[0]},{id:'safe',free:true}]})});
+ const result=await pool.refresh();
+ assert.deepEqual(result.models.map(x=>x.model),['safe']);
+ assert.deepEqual(pool.tiers()[0].accountIds,ids);
+ result.models[0].accountIds.length=0;
+ assert.deepEqual(pool.tiers()[0].accountIds,ids);
+});
 function originalHost({models=[{id:'host-free',isFree:true},{id:'host-paid',isFree:false}]}={}){
  let calls=0,registered=true;
  return {setRegistered(v){registered=v},calls:()=>calls,

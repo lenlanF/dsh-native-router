@@ -4,6 +4,23 @@ import {createNativeRouterAdapter} from '../src/adapter.mjs';
 import {normalizeConfig} from '../src/config.mjs';
 import {UpstreamError} from '../src/failure.mjs';
 
+test('configured independent accounts enter AutoFree and a changed live fee falls back without paid inference',async()=>{
+ const providers=['own_workbuddy-cn','own_lingxi'].map(id=>({id,protocol:'native-channel',enabled:true}));
+ const accounts=providers.map((p,i)=>({id:'account-'+i,providerId:p.id,credentialRef:'driver:'+p.id+':account-'+i,enabled:true}));
+ const cfg=normalizeConfig({providers,accounts});
+ const attempted=[],reads=new Map();
+ const adapter=createNativeRouterAdapter({configStore:{get:()=>cfg},channelDrivers:new Map(providers.map(p=>[p.id,{generate:async()=>{attempted.push(p.id);return {text:'OK',finishReason:'stop',toolCalls:[]}}}]))});
+ adapter.setAccountVerificationResolver(()=>true);
+ adapter.setOwnedAccountCatalogResolver(async a=>{
+  const n=(reads.get(a.id)??0)+1;reads.set(a.id,n);
+  return {state:'ready',models:[{id:'flash',free:a.providerId!=='own_lingxi'||n===1}]};
+ });
+ const events=[];
+ for await(const e of adapter.stream({model:'autofree',sessionId:'live-free-check',messages:[{role:'user',content:[{type:'text',text:'ping'}]}]}))events.push(e);
+ assert.deepEqual(attempted,['own_workbuddy-cn']);
+ assert.ok(reads.get('account-1')>=2);
+ assert.ok(events.length>0);
+});
 const makePack=(models)=>({
  status:()=>({state:'mounted',experimentalMultiAccountProviders:[]}),
  async listAccounts(){return {state:'ready',accounts:[

@@ -107,6 +107,7 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
       // Stop between accounts, not halfway through a provider's response.
        const result=await accountCenter.verifyModel(account.id,{officialOnly:true});
       row.modelState=stateOf(result?.state);row.code=safeCode(result?.code);
+      if(['CATALOG','DRIVER_PRECHECK','ENTITLEMENT_READ','STREAM_OPEN','STREAM_READ'].includes(result?.phase))row.phase=result.phase;
       // Never copy model response or arbitrary upstream strings.
       row.state=row.modelState;
      }

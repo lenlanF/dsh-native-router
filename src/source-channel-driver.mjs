@@ -283,6 +283,8 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
    },
 
   async generate({account,model,options={},signal}={}){
+   const phase=value=>{try{options.onVerificationPhase?.(value)}catch{}};
+   phase('DRIVER_PRECHECK');
    const selected=await resolve(account);
    if(!selected.enabled)throw unable('Source account is disabled','CREDENTIAL');
     const rows=await snapshot();
@@ -299,6 +301,7 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
        ||options.sessionId==='native-router-smoke-host'
         ||options.sessionId==='native-router-bounded-cost');
       if(smoke&&accountProviderId==='own_loomy'&&providerId==='loomy'       &&model==='spark-x2.6'){
+       phase('ENTITLEMENT_READ');
        const facts=await readLiveFacts(account).catch(()=>null);
        if(facts?.authVerified!==true||facts.balanceState!=='available'
          ||!Number.isFinite(facts.loomyDailyGift)||facts.loomyDailyGift<2000)
@@ -306,6 +309,7 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
      }
      if(smoke&&accountProviderId==='own_zcode'&&providerId==='zcode'
        &&zcodeGiftFlash(model)){
+       phase('ENTITLEMENT_READ');
        const facts=await readLiveFacts(account).catch(()=>null);
        if(facts?.authVerified!==true||facts.balanceState!=='available'
          ||!Number.isFinite(facts.giftedBalance)||facts.giftedBalance<1024)
@@ -342,7 +346,9 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
         ...(providerId==='codearts'&&options.singleLowCostProof===true
           ?{reasoningEffort:'off',singleShotPriceProof:true}:{})};
      try{
+       phase('STREAM_OPEN');
        const native=await embeddedPack.streamNative(request);
+       phase('STREAM_READ');
        const output=await collectSourceDshStream(native,{tools:options.tools,signal});
        if(embeddedPack.status?.().state!=='mounted')
          throw unable('Isolated DSH source was disposed before completion');

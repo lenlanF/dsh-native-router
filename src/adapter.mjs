@@ -15,9 +15,11 @@ import {allowsHostModel,filterHostRoutes} from './host-model-selection.mjs';
 export const PROVIDER='native-router';
 export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=process.env,vault,logger,channelDrivers=new Map(),hostProviderInventory,ownedPack}={}){
   if(!configStore?.get)throw new Error('ConfigStore required');
-  const autoFreePool=createAutoFreePool({hostProviderInventory,ownedPack,
-    getConfig:()=>configStore.get()});
-   let verifiedAccount=()=>true,observeInference=()=>{};
+   let verifiedAccount=()=>true,observeInference=()=>{},ownedAccountCatalog=null;
+   const autoFreePool=createAutoFreePool({hostProviderInventory,ownedPack,
+     getConfig:()=>configStore.get(),ownedAccountCatalog:a=>ownedAccountCatalog?.(a),
+     ownedCatalogEnabled:()=>ownedAccountCatalog!==null,
+     ownedAccountEligible:a=>ownedAccountCatalog!==null&&verifiedAccount(a)===true});
    const getConfig=()=>{
      const cfg=autoFreePool.effectiveConfig(configStore.get());
      cfg.accounts=cfg.accounts.filter(a=>{
@@ -55,7 +57,24 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
          throw new UpstreamError('Model excluded by owner channel allowlist',{code:'MODEL_NOT_ALLOWED'});
        const driver=driverFor(arg.provider.id);
       if(typeof driver?.generate!=='function')throw new UpstreamError('Native provider driver unavailable',{code:'PROVIDER_NOT_READY'});
-      const result=await driver.generate({provider:arg.provider,account:arg.account,model:arg.model,
+       // Recheck the selected exact account before automatic free inference.
+       if(arg.options.autoFreeSelection===true&&ownedAccountCatalog&&configStore.get().accounts.some(a=>a.id===arg.account.id&&a.providerId===arg.provider.id)){
+        const before=configStore.get(),policy=JSON.stringify(before.freePool??{});
+        const rule=before.freePool?.models?.find(x=>x.providerId===arg.provider.id&&x.model===arg.model);
+        const manual=rule?.free===true||(!rule&&before.freePool?.providerIds?.includes(arg.provider.id));
+        if(!manual){
+         const live=await Promise.resolve().then(()=>ownedAccountCatalog(arg.account,{signal:arg.signal})).catch(()=>null);
+         if(live?.state!=='ready'||!live.models?.some(m=>m.id===arg.model&&m.free===true))
+          throw new UpstreamError('Current account free entitlement not confirmed',{code:'COST_NOT_CONFIRMED_FREE'});
+        }
+        if(arg.signal?.aborted)throw new UpstreamError('Model request cancelled',{code:'CANCELLED'});
+        const current=configStore.get();
+        if(policy!==JSON.stringify(current.freePool??{})||!current.accounts.some(a=>a.id===arg.account.id&&a.providerId===arg.provider.id&&a.enabled&&a.credentialRef===arg.account.credentialRef)
+          ||!current.providers.some(p=>p.id===arg.provider.id&&p.enabled&&p.protocol==='native-channel')||!verifiedAccount(arg.account)
+          ||!allowsHostModel(current,arg.provider.id,arg.model))
+          throw new UpstreamError('Free route authorization changed',{code:'COST_NOT_CONFIRMED_FREE'});
+       }
+       const result=await driver.generate({provider:arg.provider,account:arg.account,model:arg.model,
         options:arg.options,signal:arg.signal});
       if(!result||typeof result!=='object'||!['stop','tool_calls','length'].includes(result.finishReason))
         throw new UpstreamError('Native provider returned invalid completed response',{code:'TOOL_PROTOCOL'});
@@ -127,6 +146,7 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
     stream,
      invalidateCatalog(){catalog.invalidate();autoFreePool.invalidate()},
      setInferenceObserver:fn=>{observeInference=typeof fn==='function'?fn:()=>{}},
+     setOwnedAccountCatalogResolver:fn=>{ownedAccountCatalog=typeof fn==='function'?fn:null;autoFreePool.invalidate();catalog.invalidate()},
      setAccountVerificationResolver:fn=>{
        verifiedAccount=typeof fn==='function'?fn:()=>false;
        catalog.invalidate();

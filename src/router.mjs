@@ -51,7 +51,7 @@ export function createRoutingEngine({getConfig,request,pool=createAccountPool(),
         tried++;
         try{
            const output=await request({provider,account,model:tier.model,signal,
-             options:{...options,sessionId,freeOnly:route.mode==='free'}});
+             options:{...options,sessionId,freeOnly:route.mode==='free',autoFreeSelection:route.id==='autofree'&&route.mode==='free'}});
            if(!permitted(provider,account,tier))            throw new RoutingError('ERR_ACCOUNT_CHANGED',
               'Owner revoked Provider or credential during model execution');
           pool.success(sessionId,account);
