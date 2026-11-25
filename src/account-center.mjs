@@ -339,10 +339,10 @@ export function createAccountCenter({
    if(peers.some(x=>x.pricingIncomplete===true))return {pricingIncomplete:true};
    const metadata=peers.map(x=>{
      const rate=numericRate(x.costMultiplier);
-     const ratio=rate!==null&&rate<=100&&(providerId!=='codearts'||x.priceSource==='codearts-official-credit-ratio')?rate:null;
+     const ratio=rate!==null&&rate<=100&&(providerId!=='codearts'||x.priceSource==='codearts-official-credit-ratio')&&(!['loomy','own_loomy'].includes(providerId)||x.priceSource==='loomy-official-model-name-ratio')?rate:null;
      const p=x.pricing??x.price??x.cost;
      const input=numericRate(p?.input??p?.prompt??p?.inputCost),output=numericRate(p?.output??p?.completion??p?.outputCost);
-     return {...(ratio!==null?{costMultiplier:ratio,...(providerId==='codearts'?{priceSource:'codearts-official-credit-ratio'}:{})}:{}),
+     return {...(ratio!==null?{costMultiplier:ratio,...(providerId==='codearts'?{priceSource:'codearts-official-credit-ratio'}:['loomy','own_loomy'].includes(providerId)?{priceSource:'loomy-official-model-name-ratio'}:{})}:{}),
        ...(input!==null&&output!==null?{pricing:{input,output}}:{})};
    });
    const first=metadata[0]??{};
@@ -353,7 +353,7 @@ export function createAccountCenter({
       ||/[\u0000-\u001f]/.test(row.id))return null;
    const evidence=officialOnly?officialTestEvidence(row,providerId,rows):modelTestEvidence(row,providerId);
    return {id:row.id,name:typeof row.name==='string'&&row.name.length<=120
-     ?row.name:row.id,free:Boolean(evidence),...(evidence?{evidence}:{}),...(row.accessRestriction==='OFFICIAL_CLIENT_ONLY'?{accessRestriction:row.accessRestriction}:{}),...catalogPrice(row,providerId,rows)};
+     ?row.name:row.id,free:Boolean(evidence),...(evidence?{evidence}:{}),...(row.accessRestriction==='OFFICIAL_CLIENT_ONLY'?{accessRestriction:row.accessRestriction}:{}),...(row.giftRouteState==='cost_bound_unverified'?{giftRouteState:row.giftRouteState}:{}),...catalogPrice(row,providerId,rows)};
  }
  function assertTestAccount(id){
    const found=find(id),{account,provider,driver}=found;

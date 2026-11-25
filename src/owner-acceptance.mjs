@@ -134,7 +134,7 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
          row.giftWalletVerified=probe?.authVerified===true&&data?.giftCreditState==='verified';
          row.giftCreditAvailable=row.giftWalletVerified&&data.giftedBalance>0;
          row.ordinaryCreditObserved=row.giftWalletVerified&&Number.isFinite(data.ordinaryBalance);
-         row.giftRoutingReady=row.giftCreditAvailable&&data?.giftRouteState==='existing_daily_policy'&&probe?.loomyDailyGift>=2000;
+         row.giftRoutingReady=false;
        }
        row.quotaWindowCount=count(data?.quotaWindows?.length);
        row.hasRollingQuota=data?.usageState==='available'&&Number.isFinite(data.usagePercentRemaining);

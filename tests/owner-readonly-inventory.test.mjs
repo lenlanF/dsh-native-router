@@ -7,7 +7,7 @@ test('all-channel read-only inventory is exact-account and never calls inference
   refreshAccountStatus:async({account:a})=>{assert.equal(a,account);
     reads.push('status');return {state:'ready',authVerified:true,balanceState:'available'}},
   listModels:async({account:a})=>{assert.equal(a,account);reads.push('models');
-    return [{id:'spark-x2.6',freeAllowance:'loomy-daily-gift'},
+    return [{id:'spark-x2.6',priceSource:'loomy-official-model-name-ratio',costMultiplier:0},
       {id:'paid',upstreamFreeLabel:false}]},
   generate(){throw Error('must never call')},
   checkIn(){throw Error('must never call')},

@@ -8,6 +8,8 @@ import {flattenContent} from './protocol.mjs';
 import {validateModelCalls} from './provider/openai.mjs';
 import {SOURCE_PACK_PROVIDERS} from './embedded-pack.mjs';
 import {publicAccountName} from './account-facts.mjs';
+import {freeEvidence} from './auto-free.mjs';
+import {staleGiftWallet} from './gift-wallet.mjs';
 
 const MAX_OUTPUT_BYTES=16*1024*1024;
 const MAX_TOOL_CALLS=8;
@@ -189,7 +191,8 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
   return matched[0];
   }
   const liveFacts=new Map(),inferenceProof=new Map(),activeStreams=new Set(),rateUntil=new Map(),walletRevision=new Map();
-  const invalidateWallet=account=>{const id=account.id;walletRevision.set(id,(walletRevision.get(id)??0)+1);const row=liveFacts.get(id);if(row)liveFacts.set(id,{...row,balanceState:Number.isFinite(row.balance)?'cached':'unavailable',giftCreditState:'unconfirmed',loomyDailyGift:undefined,quotaWindows:[]})};
+  const invalidateWallet=account=>{const id=account.id;walletRevision.set(id,(walletRevision.get(id)??0)+1);const row=liveFacts.get(id);if(row)liveFacts.set(id,staleGiftWallet(row))};
+  const forgetAuth=account=>{if(!account?.id)return;inferenceProof.delete(account.id);const row=liveFacts.get(account.id);if(row)liveFacts.set(account.id,{...staleGiftWallet(row),authVerified:false,profileState:'cached'})};
   const idleMs=Number.isFinite(streamIdleTimeoutMs)?Math.max(10,Math.min(120000,streamIdleTimeoutMs)):120000;
   async function readLiveFacts(account,{includeActivities=true,signal}={}){
     if(signal?.aborted)return {state:'unavailable',authVerified:false};
@@ -215,7 +218,7 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
     const result={...facts,
       ...(verifiedName?{nickname:verifiedName}:{}),state:'ready',
       checkedAt:remote.checkedAt??Date.now()};
-    if(revision!==(walletRevision.get(account.id)??0))return {...result,balanceState:'cached',giftCreditState:'unconfirmed',loomyDailyGift:undefined,quotaWindows:[]};
+    if(revision!==(walletRevision.get(account.id)??0))return staleGiftWallet(result);
     if(includeActivities)liveFacts.set(account.id,result);
     return result;
   }
@@ -236,7 +239,7 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
    },
    async refreshAccountStatus({account,signal}={}){
      let result;try{result=await readLiveFacts(account,{signal})}catch{result={state:'unavailable',authVerified:false}}
-     if(result?.authVerified!==true){const old=liveFacts.get(account?.id);if(old)liveFacts.set(account.id,{...old,authVerified:false,balanceState:Number.isFinite(old.balance)?'cached':'unavailable',giftCreditState:'unconfirmed',loomyDailyGift:undefined,quotaWindows:[]})}
+     if(account&&result?.authVerified!==true)forgetAuth(account);
      return result;
    },
    async discover(){
@@ -254,8 +257,9 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
      return {id:candidateId,credentialRef:'driver:'+accountProviderId+':'+candidateId};
    },
    async listModels({account,signal}={}){
-     await resolve(account);
-     const result=await embeddedPack.listModels(providerId);
+     const selected=await resolve(account);
+     if(!selected.enabled)throw unable('Source account disabled','CREDENTIAL');
+     const result=await embeddedPack.listModels(providerId,{sourceAccountId:selected.id,signal});
       if(result.state!=='ready')throw unable('Source provider model list is unavailable');
       // Keep the account and its official model directory inspectable. The
       // legacy private adapter does not establish third-party inference rights.
@@ -263,8 +267,8 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
         id:row.id,...(typeof row.name==='string'?{name:row.name}:{}),isFree:false,
         accessRestriction:'OFFICIAL_CLIENT_ONLY'}));
       // Loomy official points/records reports a separate daily gifted pool.
-      // The owned channel pack selects this before permanent purchased points.
-      // Allow only Spark X2.6 and only with a substantial verified gift buffer.
+      // Gift availability is informational; the upstream billing contract
+      // does not guarantee a per-request maximum or prevent paid spillover.
       let giftedLoomy=false;
       if(providerId==='loomy'&&accountProviderId==='own_loomy'
         &&result.models?.some(row=>row?.id==='spark-x2.6')){
@@ -285,15 +289,16 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
             &&typeof row.costMultiplier==='number'&&Number.isFinite(row.costMultiplier)
             &&row.costMultiplier>=0&&row.costMultiplier<=100
             ?{costMultiplier:row.costMultiplier,priceSource:row.priceSource}:{}),
+          ...(providerId==='loomy'&&row.priceSource==='loomy-official-model-name-ratio'&&Number.isFinite(row.costMultiplier)&&row.costMultiplier>=0&&row.costMultiplier<=100?{costMultiplier:row.costMultiplier,priceSource:row.priceSource}:{}),
           ...(row.pricing?{pricing:{...row.pricing}}:{}),
-          ...(giftedLoomy&&row.id==='spark-x2.6'?{freeAllowance:'loomy-daily-gift'}:{})}));
+          ...(giftedLoomy&&row.id==='spark-x2.6'?{giftAllowance:'loomy-daily-gift',giftRouteState:'cost_bound_unverified'}:{})}));
    },
-   // Model directory merely indicates advertised candidates. Account-level
-   // proof requires official provider API, or an actual successful inference.
+   // Historical inference is evidence of a past request, not current auth.
+   // Online state requires the current official provider account API.
    async refresh({account}={}){
      try{
        const selected=await resolve(account);
-       if(!selected.enabled)return {state:'expired',message:'本插件独立账号池已停用'};
+       if(!selected.enabled){forgetAuth(account);return {state:'expired',message:'本插件独立账号池已停用'}};
        const info=embeddedPack.status?.()??{state:'unavailable'};
        if(info.state!=='mounted')
          return {state:'error',message:'本插件内置渠道包未就绪，无法使用独立模型'};
@@ -302,14 +307,15 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
        if(Array.isArray(info.modelAdapterReady)&&!info.modelAdapterReady.includes(providerId))
          return {state:'pending',message:'独立账号已保存，等待本插件模型适配器就绪'};
        const remote=await readLiveFacts(account);
-       if(remote.authVerified===true||inferenceProof.has(account.id))
+       if(remote.authVerified!==true)forgetAuth(account);
+       if(remote.authVerified===true)
          return {state:'online',message:inferenceProof.has(account.id)?
            '本插件使用自有账号已完成真实模型推理':
            '本插件凭据通过渠道官方接口鉴权；模型推理尚待单独验证'};
        return {state:'pending',
          message:'已建立独立账号，但渠道官方尚未返回可信鉴权结果；不能显示可用'};
      }catch{
-       return {state:'error',message:'本插件独立账号不可读取或授权引用已失效'};
+       forgetAuth(account);return {state:'error',message:'本插件独立账号不可读取或授权引用已失效'};
      }
    },
 
@@ -332,12 +338,14 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
        options.sessionId.startsWith('native-router-test-')
        ||options.sessionId==='native-router-smoke-host'
         ||options.sessionId==='native-router-bounded-cost');
-      if(smoke&&accountProviderId==='own_loomy'&&providerId==='loomy'       &&model==='spark-x2.6'){
+      if(smoke&&providerId==='loomy'){
        phase('ENTITLEMENT_READ');
+       const catalog=await embeddedPack.listModels(providerId,{sourceAccountId:selected.id,signal}).catch(()=>null);
+       const peers=catalog?.state==='ready'?catalog.models.filter(row=>row.id===model):[];
+       if(!peers.length||peers.some(row=>row.priceSource!=='loomy-official-model-name-ratio'||row.costMultiplier!==0)||!freeEvidence(peers[0],accountProviderId,peers))
+         throw unable('Official zero rate not verified; gift balance alone cannot guarantee free use','COST_NOT_CONFIRMED_FREE');
        const facts=await readLiveFacts(account,{includeActivities:false,signal}).catch(()=>null);
-       if(facts?.authVerified!==true||facts.balanceState!=='available'
-         ||!Number.isFinite(facts.loomyDailyGift)||facts.loomyDailyGift<2000)
-         throw unable('Insufficient official Loomy free daily gift at generation time','COST_NOT_CONFIRMED_FREE');
+       if(facts?.authVerified!==true)throw unable('Official account status not verified','CREDENTIAL');
      }
       if(options.singleLowCostProof===true){
         if(providerId!=='codearts'||accountProviderId!=='codearts'
@@ -409,6 +417,7 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
     if(signal?.aborted){if(openingStarted)rateUntil.set(limitKey,Math.max(rateUntil.get(limitKey)??0,Date.now()+60000));throw unable('Isolated source request cancelled','CANCELLED')}
      const failure=new UpstreamError('Isolated DSH native source request failed',
        timedOut?{code:'TIMEOUT',status:408}:safeDshFailureFacts(error));
+     if(['AUTH','CREDENTIAL','MISSING_CREDENTIAL'].includes(failure.code)||[401,403].includes(failure.status))forgetAuth(account);
      if(failure.code==='RATE_LIMIT'||failure.code==='TIMEOUT'||failure.status===429){
        const wait=failure.retryAfterMs||60000;
        rateUntil.set(limitKey,Math.max(rateUntil.get(limitKey)??0,Date.now()+wait));

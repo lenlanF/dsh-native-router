@@ -108,7 +108,7 @@ test('source channel preserves explicit nonfree and pricing conflict even when p
  const row=(await driver.listModels({account}))[0];
  assert.equal(row.isFree,false);assert.equal(row.pricingConflict,true);assert.equal(freeEvidence(row,'own_loomy'),null);
 });
-test('Loomy only grants Spark X2.6 free test from authenticated official daily gift bucket',async()=>{
+test('Loomy daily gift is independently visible and is not a zero-rate assertion',async()=>{
  const src=mockSource([{id:'loomy-gift',providerId:'loomy',enabled:true}]);
  src.embeddedPack.listModels=async()=>({state:'ready',models:[
   {id:'spark-x2.6',name:'Spark X2.6'},{id:'qwen3.8-flash',name:'Paid Qwen'}]});
@@ -122,7 +122,7 @@ test('Loomy only grants Spark X2.6 free test from authenticated official daily g
  const id=sourceAccountOpaqueId('loomy','loomy-gift');
  const account={id,providerId:'own_loomy',credentialRef:'driver:own_loomy:'+id};
  const rows=await driver.listModels({account});
- assert.match(freeEvidence(rows[0],'own_loomy')??'',/每日赠送积分/);
+ assert.equal(rows[0].giftAllowance,'loomy-daily-gift');assert.equal(freeEvidence(rows[0],'own_loomy'),null);
  assert.equal(freeEvidence(rows[1],'own_loomy'),null,'other models never inherit gifted allowance');
  gift=100;total=22000;
  assert.equal(freeEvidence((await driver.listModels({account}))[0],'own_loomy'),null,
@@ -147,7 +147,7 @@ for(const [channel,own,model,giftKey,minGift] of [
   const id=sourceAccountOpaqueId(channel,'safe-gift');
   const account={id,providerId:own,credentialRef:'driver:'+own+':'+id};
   const advertised=await driver.listModels({account});
-  assert.ok(freeEvidence(advertised[0],own),channel+' should have a genuine gift first');
+  assert.equal(advertised[0].giftAllowance,'loomy-daily-gift');assert.equal(freeEvidence(advertised[0],own),null);
   gift=minGift-1;
   await assert.rejects(()=>driver.generate({account,model,options:{
     sessionId:'native-router-test-fake',maxTokens:32,messages:[{role:'user',content:'OK'}]
@@ -158,13 +158,16 @@ for(const [channel,own,model,giftKey,minGift] of [
      messages:[{role:'user',content:'OK'}]
    }}),/gift|free/i);
    assert.equal(src.calls.length,0,'free-only route must recheck gifts, never spend permanent credits');  gift=5000;
+  src.embeddedPack.listModels=async()=>({state:'ready',models:[{id:model,priceSource:'loomy-official-model-name-ratio',costMultiplier:0}]});
   const actual=await driver.generate({account,model,options:{
     sessionId:'native-router-test-fake',maxTokens:32,messages:[{role:'user',content:'OK'}]
   }});
   assert.equal(actual.text,'source reply');
-   assert.equal(src.calls.length,1,'only fresh official gift allows actual generation');
+   assert.equal(src.calls.length,1,'only a current official zero-rate catalog allows strict free generation');
    if(channel==='loomy')assert.equal(src.calls[0].reasoningEffort,'none',
-     'Loomy bounded owner smoke must request no-thinking mode for minimal usage'); });
+     'Loomy owner smoke must request no-thinking mode for minimal usage');
+   src.embeddedPack.listModels=async()=>({state:'ready',models:[{id:model,priceSource:'loomy-official-model-name-ratio',costMultiplier:.1}]});
+   await assert.rejects(()=>driver.generate({account,model,options:{freeOnly:true,messages:[{role:'user',content:'OK'}]}}),{code:'COST_NOT_CONFIRMED_FREE'});assert.equal(src.calls.length,1); });
 }
 
 test('independent Loomy verifier uses only own account pool and authenticated credit status',async()=>{
@@ -566,4 +569,15 @@ test('native stream progress resets idle watchdog; a hung read is cancelled',asy
  const driver=createSourceChannelDriver({providerId:'loomy',embeddedPack:rig.embeddedPack,streamIdleTimeoutMs:30});
  const id=sourceAccountOpaqueId('loomy','l3');
  await assert.rejects(driver.generate({account:{id,providerId:'loomy',credentialRef:'driver:loomy:'+id},model:'test',options:{messages:[{role:'user',content:'OK'}]}}),{code:'TIMEOUT'});assert.equal(cancelled,true);
+});
+
+test('historical successful inference never overrides current failed source authentication',async()=>{
+ const rig=mockSource([{id:'reauth',providerId:'loomy',enabled:true}]);
+ let online=true;rig.embeddedPack.readSourceStatuses=async()=>({state:'ready',accounts:[{accountId:'reauth',authVerified:online,balance:100,balanceState:'available'}]});
+ const driver=createSourceChannelDriver({providerId:'loomy',embeddedPack:rig.embeddedPack});
+ const id=sourceAccountOpaqueId('loomy','reauth'),account={id,providerId:'loomy',credentialRef:'driver:loomy:'+id};
+ assert.equal((await driver.refresh({account})).state,'online');await driver.generate({account,model:'demo',options:{messages:[{role:'user',content:'OK'}]}});
+ assert.ok(driver.accountSnapshot(account).modelInferenceVerifiedAt>0);online=false;
+ assert.equal((await driver.refresh({account})).state,'pending');assert.equal(driver.accountSnapshot(account).modelInferenceVerifiedAt,null);
+ assert.equal(driver.accountSnapshot(account).authVerified,false);assert.equal(driver.accountSnapshot(account).balanceState,'cached');
 });
