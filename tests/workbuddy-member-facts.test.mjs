@@ -109,3 +109,11 @@ test('WorkBuddy benefit parsing never treats missing active/claimed as claimable
  assert.deepEqual(parseWorkBuddyBenefit({data:{active:true,claimed:false,credit_num:80}},'gift'),
   {kind:'gift',active:true,claimed:false,credit:80});
 });
+
+test('WorkBuddy never reports an expired monthly cycle or partial wallet as current total',()=>{
+ const now=Date.parse('2026-11-25T00:00:00Z');const expired={CapacityType:4,CycleCapacityRemainPrecise:'500',CycleEndTime:'2026-11-24T00:00:00Z'};
+ const active={CapacityType:1,CapacityRemainPrecise:'80',ExpiredTime:'2026-12-01T00:00:00Z'};
+ assert.equal(parseWorkBuddyCredits({data:{Response:{Data:{Accounts:[expired,active]}}}},{now}),null);
+ assert.equal(parseWorkBuddyCredits({data:{Response:{Data:{Accounts:[active,{CapacityType:1,CapacityRemainPrecise:'unknown'}]}}}},{now}),null);
+ const allExpired=parseWorkBuddyCredits({data:{Response:{Data:{Accounts:[{...active,ExpiredTime:'2026-11-24T00:00:00Z'}]}}}},{now});assert.equal(allExpired.balance,0);assert.equal(allExpired.quotaState,'no_active_package');
+});

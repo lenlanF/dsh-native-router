@@ -1002,10 +1002,11 @@ window.__ModuleLoader__.load({
              className:'dnr-channel-group',
              initiallyOpen:channelIndex===0||!!query||selectedChannel&&selectedChannel!=='all'||
                members.some(a=>['expired','error','limited'].includes(a.connectionState)),
-             title:channel.name+' · '+members.length+' 个账号',
+             title:channel.name+' · '+members.length+(channel.identitySummary?' 条授权记录':' 个账号'),
              actions:h('span',{style:css.small},readiness)},
             h('div',{style:css.line},
               h('span',{style:css.small},'登录方式：'+(channel.authMethod||'由来源管理')),
+              channel.identitySummary?h('span',{style:css.small},'已启用独立授权 '+channel.identitySummary.enabledRecords+' / '+channel.identitySummary.configuredRecords+' 条 · 官方已确认 '+channel.identitySummary.distinctConfirmedSubjects+' 个不同身份 · '+channel.identitySummary.unconfirmedRecords+' 条待核验'):null,
               pool?h('span',{style:css.small},'自动候选 '+pool.enabled+' · 已验证 '+pool.verified):null),
              members.map((account,accountIndex)=>h('div',{key:account.id,className:'dnr-account-card'},
                h('div',{className:'dnr-account-head'},

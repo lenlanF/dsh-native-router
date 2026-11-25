@@ -49,7 +49,7 @@ const empty=()=>({state:'not_scanned',models:[],catalog:[],sourceAccounts:[],
 import {allowsHostModel} from './host-model-selection.mjs';
 export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
  now=()=>Date.now(),ttlMs=90000,timeoutMs=2600,ownedAccountCatalog,ownedAccountEligible,ownedCatalogEnabled=()=>typeof ownedAccountCatalog==='function'}={}){
- let cache=empty(),signatureSaved='',pending=null,revision=0;
+ let cache=empty(),signatureSaved='',pending=null,ownedPending=null,revision=0;
  const hostIds=()=>{
   try{return (hostProviderInventory?.status?.().hostProviders??[])
     .map(x=>x.providerId).filter(id=>isId(id)&&id!=='native-router'
@@ -59,13 +59,13 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
  };
  const packStatus=()=>ownedPack?.status?.()??{state:'disabled'};
  const owner=()=>getConfig?.()?.freePool??{providerIds:[],models:[]};
- const signature=()=>{
+ const signature=(ownedOnly=false)=>{
   const cfg=getConfig?.()??{};
   // Do not reuse the previous source roster after the owner logs out,
   const accounts=(cfg.accounts??[]).map(a=>[a.id,a.providerId,a.enabled,a.credentialRef,ownedAccountEligible?.(a)===true]).sort();
   const ignored=(cfg.sessionReuse?.ignoredIds??[]).slice().sort();
   const origins=Object.entries(cfg.sessionReuse?.linkedOrigins??{}).sort();
-  return JSON.stringify([hostIds(),packStatus().state,owner(),
+  return JSON.stringify([ownedOnly?[]:hostIds(),packStatus().state,owner(),
     (cfg.providers??[]).map(p=>[p.id,p.enabled,p.protocol]).sort(),
     accounts,ignored,origins,cfg.hostModelSelection??{}]);
  };
@@ -84,8 +84,8 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
    return '用户手动标记渠道全部模型免费（费用由用户确认）';
   return freeEvidence(row,providerId,peers);
  }
- async function run(){
-  const hosts=hostIds(),models=[],catalog=[],sourceAccounts=[],seen=new Set();
+ async function run({ownedOnly=false}={}){
+  const hosts=ownedOnly?[]:hostIds(),models=[],catalog=[],sourceAccounts=[],seen=new Set();
   let unknownPricing=0,errors=0,hostCount=0,sourceCount=0;  const issues=new Map();
   const recordIssue=(providerId,code)=>{
    errors++;
@@ -245,17 +245,31 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
   })().finally(()=>{pending=null});
   return pending;
  }
- function effectiveConfig(raw){
+ // Read-only isolated audit: it never queries any external Provider and
+ // never replaces the full AutoFree routing cache with a partial snapshot.
+ function scanOwned(){
+   if(ownedPending)return ownedPending;
+   ownedPending=(async()=>{
+    for(let attempt=0;attempt<2;attempt++){
+     const before=signature(true),startedRevision=revision;
+     const result=await run({ownedOnly:true});
+     if(before===signature(true)&&startedRevision===revision)return structuredClone(result);
+    }
+    return empty();
+   })().finally(()=>{ownedPending=null});
+   return ownedPending;
+ }
+ function effectiveConfig(raw,sourceSnapshot=cache,includeHost=true){
   const cfg=structuredClone(raw??getConfig?.()??{});
   cfg.providers??=[];cfg.accounts??=[];
   const ids=new Set(cfg.providers.map(p=>p.id));
-  for(const providerId of hostIds()){
+  for(const providerId of includeHost?hostIds():[]){
    if(ids.has(providerId))continue;
    cfg.providers.push({id:providerId,name:providerId+' · DSH 已注册',
     protocol:'dsh-host',baseUrl:'',enabled:true,models:[],
     supportsTools:true,timeoutMs:120000});ids.add(providerId);
   }
-  const sourceProviders=new Set(cache.catalog.filter(x=>x.kind==='owned-source').map(x=>x.providerId));
+  const sourceProviders=new Set(sourceSnapshot.catalog.filter(x=>x.kind==='owned-source').map(x=>x.providerId));
   for(const providerId of sourceProviders){
    if(ids.has(providerId))continue;
    cfg.providers.push({id:providerId,name:providerId.slice(4)+' · 自有授权',
@@ -263,7 +277,7 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
     supportsTools:true,timeoutMs:120000});ids.add(providerId);
   }
   const accountIds=new Set(cfg.accounts.map(a=>a.id));
-  for(const row of cache.sourceAccounts){
+  for(const row of sourceSnapshot.sourceAccounts){
    if(!sourceProviders.has(row.providerId)||!ids.has(row.providerId)||accountIds.has(row.accountId)
     ||cfg.sessionReuse?.ignoredIds?.includes(row.accountId)
     ||cfg.providers.find(p=>p.id===row.providerId)?.protocol!=='native-channel')continue;
@@ -273,9 +287,9 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
   }
   return cfg;
  }
- function tiers(){
-  const cfg=effectiveConfig();
-  return cache.models.filter(row=>{
+ function tiers(sourceSnapshot=cache,includeHost=true){
+  const cfg=effectiveConfig(undefined,sourceSnapshot,includeHost);
+  return sourceSnapshot.models.filter(row=>{
    const p=cfg.providers.find(p=>p.id===row.providerId&&p.enabled);
    if(!p||p.protocol!==(row.kind==='host'?'dsh-host':'native-channel'))return false;
     return row.kind==='host'||cfg.accounts.some(a=>a.enabled&&a.providerId===row.providerId&&(!row.accountIds?.length||row.accountIds.includes(a.id)));
@@ -285,7 +299,7 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
       accountIds:row.accountIds?.length?ids:row.kind==='owned-source'&&ids.length===1?ids:[]};
    });
  }
- return {refresh,snapshot,effectiveConfig,tiers,invalidate(){
+ return {refresh,scanOwned,snapshot,effectiveConfig,tiers,invalidate(){
   revision++;cache=empty();signatureSaved='';
  }};
 }

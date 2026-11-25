@@ -20,8 +20,8 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
      getConfig:()=>configStore.get(),ownedAccountCatalog:a=>ownedAccountCatalog?.(a),
      ownedCatalogEnabled:()=>ownedAccountCatalog!==null,
      ownedAccountEligible:a=>ownedAccountCatalog!==null&&verifiedAccount(a)===true});
-   const getConfig=()=>{
-     const cfg=autoFreePool.effectiveConfig(configStore.get());
+   const getConfig=(snapshot,includeHost=true)=>{
+     const cfg=autoFreePool.effectiveConfig(configStore.get(),snapshot,includeHost);
      cfg.accounts=cfg.accounts.filter(a=>{
        const p=cfg.providers.find(provider=>provider.id===a.providerId);
        return p?.protocol!=='native-channel'||verifiedAccount(a)===true;
@@ -96,9 +96,9 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
   }});
   const catalog=createCatalog({getConfig,getEffectiveConfig:getConfig,fetchImpl,
     credentialOptions:{env,vault},channelDrivers,hostProviderInventory,autoFreePool});
-  function currentFreeTiers(){
-   const current=getConfig();
-   return autoFreePool.tiers().filter(tier=>{
+  function currentFreeTiers(snapshot,includeHost=true){
+   const current=getConfig(snapshot,includeHost);
+   return autoFreePool.tiers(snapshot,includeHost).filter(tier=>{
     const p=current.providers.find(x=>x.id===tier.providerId&&x.enabled);
     return Boolean(p&&allowsHostModel(current,tier.providerId,tier.model)&&(p.protocol==='dsh-host'||
       current.accounts.some(a=>a.providerId===tier.providerId&&a.enabled&&(!tier.accountIds?.length||tier.accountIds.includes(a.id)))));
@@ -159,8 +159,8 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
     autoFreeSnapshot(){return autoFreePool.snapshot()},
     async refreshAutoFree(){await autoFreePool.refresh({force:true});catalog.invalidate();
       return autoFreePool.snapshot()},
-    async auditAutoFree(){
-     const snapshot=await autoFreePool.refresh({force:true}),tiers=currentFreeTiers(),cfg=getConfig();
+    async auditAutoFree({ownedOnly=false}={}){
+     const snapshot=ownedOnly?await autoFreePool.scanOwned():await autoFreePool.refresh({force:true}),tiers=currentFreeTiers(snapshot,!ownedOnly),cfg=getConfig(snapshot,!ownedOnly);
      const providers=new Map(),accounts=new Map();
      for(const tier of tiers){
       if(!providers.has(tier.providerId)){providers.set(tier.providerId,{providerId:tier.providerId,routeCount:0,accountCount:0});accounts.set(tier.providerId,new Set())}

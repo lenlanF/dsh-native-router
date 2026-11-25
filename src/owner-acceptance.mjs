@@ -1,7 +1,7 @@
 // Owner-authenticated, in-process acceptance jobs. No external service,
 // foreground window, persisted config edits, or raw account data in reports.
 import {hostRouteProof} from './owner-live-smoke.mjs';
-const modes=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity','autofree-audit','host-route']);
+const modes=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity','autofree-audit','owned-autofree-audit','host-route']);
 const channelKey=id=>String(id||'').replace(/^own_/,'');
 const channelPattern=/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
 const requestPattern=/^[a-f0-9]{32}$/;
@@ -29,8 +29,8 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
  async function run(job,targets){
   const report=job.report,stopped=()=>disposed||job.controller.signal.aborted;
   try{
-     if(report.mode==='autofree-audit'){
-      const result=await adapter?.auditAutoFree?.();
+     if(['autofree-audit','owned-autofree-audit'].includes(report.mode)){
+      const result=await adapter?.auditAutoFree?.({ownedOnly:report.mode==='owned-autofree-audit'});
       if(!result||result.state!=='ready')throw Error('AutoFree audit unavailable');
       report.autoFree={state:'ready',catalogCount:count(result.catalogCount),routeCount:count(result.routeCount),
        manualCount:count(result.manualCount),errors:count(result.errors),
@@ -42,7 +42,9 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
       const account=targets[0],row={slot:1,providerId:account.providerId,scope:'provider'};
       try{
        const catalog=await accountCenter.listTestModels(account.id,{signal:job.controller.signal,officialOnly:true});
-       const model=catalog?.state==='ready'?catalog.models?.find(m=>m.free===true):null;
+       const candidates=catalog?.state==='ready'?catalog.models?.filter(m=>m.free===true)??[]:[];
+       const preferred=account.providerId==='own_workbuddy-cn'?'hy4flash-free':account.providerId==='own_workbuddy-global'?'deepseek-v4.1-flash':account.providerId==='own_loomy'?'spark-x2.6':null;
+       const model=candidates.find(m=>m.id===preferred)??candidates[0];
        const result=stopped()?{state:'skipped',code:'CANCELLED'}:
          !eligible(account)?{state:'skipped',code:'ACCOUNT_CHANGED'}:
          !model?{state:'skipped',code:'NO_CONFIRMED_FREE_MODEL'}:
@@ -118,6 +120,7 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
         }
         const data=publicRow(account);
        row.hasProfile=Boolean(data?.nickname||data?.maskedPhone);
+       row.profileState=['verified','cached','not_returned'].includes(data?.profileState)?data.profileState:'unknown';
        row.hasBalance=Number.isFinite(data?.balance)&&data.balance>=0;
        row.hasBalanceUnit=Boolean(data?.balanceUnit);
        row.balanceState=['available','cached','unavailable','not_returned','not_supported','not_checked'].includes(data?.balanceState)?data.balanceState:'unknown';
@@ -151,6 +154,13 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
     if(!eligible(account)){report.accounts.push({slot:row.slot,providerId:row.providerId,state:'skipped',code:'ACCOUNT_CHANGED'})}
     else report.accounts.push({...row,state:row.state??'skipped',...(!row.state?{code:'CANCELLED'}:{})});
    }
+   if(report.mode==='inventory'){
+    const summaries=['own_workbuddy-cn','own_workbuddy-global'].filter(id=>targets.some(a=>a.providerId===id)).map(providerId=>{
+     const item=accountCenter.workbuddyIdentitySummary?.(providerId);
+     return item?{providerId,configuredRecords:count(item.configuredRecords),enabledRecords:count(item.enabledRecords),confirmedRecords:count(item.confirmedRecords),distinctConfirmedSubjects:count(item.distinctConfirmedSubjects),unconfirmedRecords:count(item.unconfirmedRecords)}:null;
+    }).filter(Boolean);
+    if(summaries.length)report.workbuddyIdentity=summaries;
+   }
    report.state=stopped()?'cancelled':'complete';
   }catch{report.state=stopped()?'cancelled':'failed';report.code='OPERATION_UNAVAILABLE'}
   finally{report.completedAt=now();if(active===job)active=null}
@@ -160,7 +170,7 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
   if(disposed)reject('Acceptance service stopped',503);
   if(typeof requestId!=='string'||!requestPattern.test(requestId)||!modes.has(mode)||consent!==true
     ||channel!==undefined&&(typeof channel!=='string'||!channelPattern.test(channel))
-    ||['channel-activity','host-route'].includes(mode)&&channel===undefined||['all-channel-activity','autofree-audit'].includes(mode)&&channel!==undefined)reject('Invalid explicit acceptance request');
+    ||['channel-activity','host-route'].includes(mode)&&channel===undefined||['all-channel-activity','autofree-audit','owned-autofree-audit'].includes(mode)&&channel!==undefined)reject('Invalid explicit acceptance request');
   const selected=channel===undefined?undefined:channelKey(channel);
   const signature=JSON.stringify([mode,selected]);
   const old=jobs.get(requestId);
@@ -176,7 +186,7 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
   const targets=cfg.accounts.filter(a=>(!selected||channelKey(a.providerId)===selected)&&eligible(a));
   if(mode==='host-route'&&(!targets.length||new Set(targets.map(a=>a.providerId)).size!==1))reject('Select exactly one enabled owned provider',409);
   const activityMode=mode==='channel-activity'||mode==='all-channel-activity';
-   if(!activityMode&&!['catalog','autofree-audit'].includes(mode)&&targets.length>16)reject('Select a narrower channel (maximum 16 accounts)',400);
+   if(!activityMode&&!['catalog','autofree-audit','owned-autofree-audit'].includes(mode)&&targets.length>16)reject('Select a narrower channel (maximum 16 accounts)',400);
   const activityRows=activityMode?(checkinCenter.snapshot?.().accounts??[]).filter(a=>
     a.enabled===true&&(a.checkinSupported===true||a.activitiesSupported===true)
     &&channelPattern.test(channelKey(a.providerId))&&(!selected||channelKey(a.providerId)===selected)):[];

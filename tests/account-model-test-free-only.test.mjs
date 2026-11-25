@@ -262,3 +262,8 @@ test('background acceptance honors explicit paid exclusion of otherwise free mod
  assert.equal((await h.center.verifyModel(h.id,{officialOnly:true})).state,'skipped');
  assert.equal(h.generates,0);h.center.stop();
 });
+
+test('official account catalog preserves explicit per-model pricing conflict and incomplete evidence',async()=>{
+ const h=rig({models:[{id:'conflict',pricingConflict:true,upstreamFreeLabel:true},{id:'incomplete',pricingIncomplete:true,upstreamFreeLabel:true},{id:'paid',costMultiplier:0.2,isFree:false}]});
+ try{const r=await h.center.listTestModels(h.id,{officialOnly:true});assert.equal(r.freeCount,0);assert.equal(r.models[0].pricingConflict,true);assert.equal(r.models[1].pricingIncomplete,true);assert.equal(r.models[2].costMultiplier,0.2)}finally{h.center.stop()}
+});

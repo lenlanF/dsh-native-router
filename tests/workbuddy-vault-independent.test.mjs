@@ -12,6 +12,7 @@ import {createActivityClaimStore} from '../src/activity-claims.mjs';
 import {freeEvidence} from '../src/auto-free.mjs';
 import {normalizeConfig} from '../src/config.mjs';
 import {createNativeRouterAdapter} from '../src/adapter.mjs';
+import {createAccountCenter} from '../src/account-center.mjs';
 
 const sha=v=>createHash('sha256').update(v).digest('hex');
 const safeRoot=()=>mkdtempSync(join(tmpdir(),'dsh-workbuddy-own-test-'));
@@ -396,4 +397,40 @@ test('WorkBuddy vault refuses malicious file ids, wrong region and disabled sour
    consent:true})).state,'source_missing_or_changed');
   assert.equal(r.store.size,0);
  }finally{r.cleanup()}
+});
+
+test('WorkBuddy global catalogs keep exact UID and never prefer a free duplicate over a positive official multiplier',async()=>{
+ const rig=testRig('global');try{
+  const source=(await rig.inventory.scan()).accounts.find(a=>a.providerId===rig.source);
+  await rig.adoption.adopt({providerId:rig.source,accountId:source.accountId,consent:true});
+  const account=rig.cfg.accounts[0],uids=[];
+  const driver=createWorkBuddyDriver({ownedRegion:'global',ownedVault:{resolve:async k=>({value:rig.store.get(k)})},makeCredentialRef:x=>x,
+   fetchImpl:async(url,opts)=>{uids.push(opts.headers['x-user-id']);const cli=opts.headers['user-agent'].startsWith('CLI/');return new Response(JSON.stringify({code:0,data:{models:[{id:'conflict',name:'Conflict',credits:cli?'x0.00 credits':'x0.79 credits'},{id:'paid',credits:'x0.25 credits'},{id:'zero',credits:'x0.00 credits'}]}}))}});
+  const rows=await driver.listModels({account});assert.deepEqual(uids,['FAKE_UID_global','FAKE_UID_global']);
+  assert.equal(rows.find(m=>m.id==='conflict').pricingConflict,true);assert.equal(freeEvidence(rows.find(m=>m.id==='conflict'),rig.own),null);
+  assert.equal(rows.find(m=>m.id==='paid').costMultiplier,0.25);assert.equal(rows.find(m=>m.id==='zero').costMultiplier,0);
+ }finally{rig.cleanup()}
+});
+
+test('WorkBuddy verified identity summary counts subjects rather than duplicate authorization records',async()=>{
+ const providerId='own_workbuddy-cn',ids=['a','b','c'].map(c=>'wbp_'+c.repeat(24));
+ const accounts=ids.map(id=>({id,providerId,credentialRef:'driver:'+providerId+':'+id,enabled:true}));
+ const records=new Map(ids.map((id,i)=>['NATIVE_ROUTER_WB_'+id.slice(4).toUpperCase(),JSON.stringify({accessToken:'TEST_'+i,domain:'www.workbuddy.cn',uid:i===2?'other':'same',nickname:'Local label '+i,expiresAt:Math.floor(Date.now()/1000)+3600})]));
+ let rejectThird=true;const driver=createWorkBuddyDriver({ownedRegion:'cn',makeCredentialRef:x=>x,ownedVault:{resolve:async key=>({value:records.get(key)})},fetchImpl:async(url,opts)=>{
+  const uid=opts.headers['x-user-id'];
+  if(url.endsWith('/v2/plugin/account')||url.endsWith('/v2/plugin/login/account'))return new Response(JSON.stringify({code:0,data:{uid:uid==='other'&&rejectThird?'wrong':uid,nickname:'Same visible label'}}));
+  if(url.endsWith('/v2/billing/meter/get-user-resource'))return new Response(JSON.stringify({code:0,data:{Response:{Data:{Accounts:[]}}}}));
+  return new Response('{}',{status:404});
+ }});
+ let cfg=normalizeConfig({providers:[{id:providerId,protocol:'native-channel',enabled:true}],accounts});
+ const center=createAccountCenter({configStore:{get:()=>cfg,replace:x=>(cfg=normalizeConfig(x))},drivers:new Map([[providerId,driver]])});
+ try{
+  for(const account of accounts)await driver.refreshAccountStatus({account});
+  assert.deepEqual(center.workbuddyIdentitySummary(providerId),{configuredRecords:3,enabledRecords:3,confirmedRecords:2,distinctConfirmedSubjects:1,unconfirmedRecords:1});
+  assert.equal(center.list().accounts[2].profileState,'cached');
+  assert.equal(center.list().accounts[0].profileState,'verified');
+  rejectThird=false;await driver.refreshAccountStatus({account:accounts[2]});
+  assert.deepEqual(center.workbuddyIdentitySummary(providerId),{configuredRecords:3,enabledRecords:3,confirmedRecords:3,distinctConfirmedSubjects:2,unconfirmedRecords:0});
+  assert.doesNotMatch(JSON.stringify(center.list()),/TEST_[012]|verifiedSubjects|identitySalt|"group":/);
+ }finally{center.stop()}
 });
