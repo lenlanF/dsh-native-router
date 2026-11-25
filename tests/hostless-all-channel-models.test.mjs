@@ -7,7 +7,7 @@ import {createNativeRouterAdapter} from '../src/adapter.mjs';
 import {normalizeConfig} from '../src/config.mjs';
 import {runtimeOwnership} from '../src/account-runtime-ownership.mjs';
 
-test('all 13 owned channels finish an actual DSH router turn without any original provider, desktop process, or borrowed pool',async()=>{
+test('12 permitted owned channels finish a router turn; restricted ZCode remains read-only',async()=>{
  const privateCalls=[],borrowedCalls=[];
  const sourceAccounts=SOURCE_PACK_PROVIDERS.map(providerId=>({
    id:'isolated-'+providerId,providerId,enabled:true,nickname:''
@@ -63,6 +63,11 @@ test('all 13 owned channels finish an actual DSH router turn without any origina
  for(const providerId of SOURCE_PACK_PROVIDERS){
   const account=accounts.find(x=>x.providerId==='own_'+providerId);
   assert.equal((await drivers.get(account.providerId).refresh({account})).state,'online');
+  if(providerId==='zcode'){
+   assert.equal((await adapter.listModels()).some(x=>x.id.startsWith('direct:own_zcode:')),false);
+   await assert.rejects(async()=>{for await(const _ of adapter.stream({model:'direct:own_zcode:test-chat',messages:[]})){}},{code:'ERR_ROUTE_NOT_FOUND'});
+   continue;
+  }
   const events=[];
   for await(const event of adapter.stream({
    model:'direct:own_'+providerId+':test-chat',
@@ -72,8 +77,8 @@ test('all 13 owned channels finish an actual DSH router turn without any origina
    'must use own channel for '+providerId);
   assert.deepEqual(events.at(-1),{type:'finish',reason:{kind:'stop'}});
  }
- assert.equal(privateCalls.filter(x=>x.startsWith('owned:inference:')).length,13);
+ assert.equal(privateCalls.filter(x=>x.startsWith('owned:inference:')).length,12);
  assert.deepEqual(borrowedCalls,[],'never reach original plugin or desktop');
- assert.equal(adapter.getStatus().metrics.successfulTurns,13);
+ assert.equal(adapter.getStatus().metrics.successfulTurns,12);
  void original; // Keep poisoned external source local; never supply it to owned adapters.
 });

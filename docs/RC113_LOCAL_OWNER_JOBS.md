@@ -9,6 +9,8 @@ node tools/local-owner-jobs-cli.mjs enable --consent
 node tools/local-owner-jobs-cli.mjs submit catalog --consent
 # rc.124+: 只读审计全部 AutoFree 候选，不发送生成请求
 # node tools/local-owner-jobs-cli.mjs submit autofree-audit --consent
+# rc.128+: 仅对明确指定的自有渠道执行真实宿主路由验收；所有候选账号须有官方免费证据
+# node tools/local-owner-jobs-cli.mjs submit host-route workbuddy-cn --consent
 node tools/local-owner-jobs-cli.mjs status <requestId>
 node tools/local-owner-jobs-cli.mjs revoke
 ```

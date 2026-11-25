@@ -452,6 +452,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
    async function streamNative({providerId,sourceAccountId,model,messages,tools,signal,maxTokens,reasoningEffort,singleShotPriceProof}={}){    if(!sourceAllowed(providerId)||typeof sourceAccountId!=='string'      ||!sourceAccountId||sourceAccountId.length>100||typeof model!=='string'||!model.trim()
       ||model.length>160||!Array.isArray(messages)||!messages.length)
       throw Error('Invalid isolated source model request');
+    if(providerId==='zcode')throw Object.assign(Error('ZCode private Start Plan is official-client-only'),{code:'OFFICIAL_CLIENT_ONLY'});
     const scope=mountedScope();
     if(!scope)throw Error('Isolated source pack not mounted');
     if(signal?.aborted)throw Error('Source model request aborted');

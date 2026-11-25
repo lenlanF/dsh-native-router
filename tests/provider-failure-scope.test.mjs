@@ -146,7 +146,7 @@ test('full AutoFree adapter skips a down multi-account Provider and continues th
  const members=[
   {providerId:'loomy',id:'member-1',enabled:true},
   {providerId:'loomy',id:'member-2',enabled:true},
-  {providerId:'zcode',id:'backup-1',enabled:true},
+  {providerId:'raccoon',id:'backup-1',enabled:true},
  ];
  const pack={status:()=>({state:'mounted',experimentalMultiAccountProviders:['loomy']}),
   listAccounts:async()=>({state:'ready',accounts:members}),
@@ -164,7 +164,7 @@ test('full AutoFree adapter skips a down multi-account Provider and continues th
    return {text:'Free backup completed',finishReason:'stop',toolCalls:[]};
   }};
  const adapter=createNativeRouterAdapter({configStore:{get:()=>cfg},ownedPack:pack,
-  channelDrivers:new Map([['own_loomy',failing],['own_zcode',backup]])});
+  channelDrivers:new Map([['own_loomy',failing],['own_raccoon',backup]])});
  adapter.setAccountVerificationResolver(()=>true);
  const stream=async()=>{
   const events=[];
@@ -173,7 +173,7 @@ test('full AutoFree adapter skips a down multi-account Provider and continues th
   return events;
  };
  const loomyIds=new Set(['member-1','member-2'].map(x=>sourceAccountOpaqueId('loomy',x)));
- const backupId=sourceAccountOpaqueId('zcode','backup-1');
+ const backupId=sourceAccountOpaqueId('raccoon','backup-1');
  for(let turn=0;turn<3;turn++){
   const result=await stream();
   assert.equal(result.find(x=>x.type==='text-delta')?.text,'Free backup completed');

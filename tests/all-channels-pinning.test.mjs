@@ -4,7 +4,7 @@ import {mkdtempSync,rmSync} from 'node:fs';
 import {createEmbeddedChannelPack,SOURCE_PACK_PROVIDERS} from '../src/embedded-pack.mjs';
 
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
-test('all 13 MIT channels pin an explicitly selected second account without any cross-account or cross-provider fallback',async()=>{
+test('12 permitted MIT channels pin the selected account; restricted ZCode never resolves credentials',async()=>{
  const dir=mkdtempSync('E:\\Temp\\dsh-native-router-isolated-');
  const rows=SOURCE_PACK_PROVIDERS.flatMap(provider=>[
   {id:provider+'-a',provider,enabled:true,credentialRef:'REF_'+provider+'_A'},
@@ -59,6 +59,11 @@ test('all 13 MIT channels pin an explicitly selected second account without any 
   for(const providerId of SOURCE_PACK_PROVIDERS){
    const request={providerId,sourceAccountId:providerId+'-b',model:'test-model',
     messages:[{role:'user',content:[{type:'text',text:'hello'}]}],tools:[]};
+   if(providerId==='zcode'){
+    const before=accesses.length;
+    await assert.rejects(bridge.streamNative(request),{code:'OFFICIAL_CLIENT_ONLY'});
+    assert.equal(accesses.length,before);continue;
+   }
    const output=[];
    for await(const event of await bridge.streamNative(request))output.push(event);
    assert.equal(output.find(x=>x.type==='text-delta').text,'REF_'+providerId+'_B',providerId);

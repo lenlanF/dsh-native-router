@@ -744,8 +744,8 @@ window.__ModuleLoader__.load({
                     h('strong',{style:{fontSize:12,fontWeight:630,display:'block',overflowWrap:'anywhere'}},m.name||m.id),
                     h('div',{style:{...css.small,fontSize:11,overflowWrap:'anywhere'}},m.id)),
                   h('div',{style:{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:3}},
-                     h('span',{className:'dnr-model-evidence dnr-state-tag','data-tone':m.pricingConflict||m.pricingIncomplete?'warn':m.isFree||m.freeHint?'good':'neutral'},
-                       m.pricingConflict?'账号费率不一致':m.pricingIncomplete?'账号费率未完整核验':m.isFree||m.freeHint?'来源标记免费':
+                     h('span',{className:'dnr-model-evidence dnr-state-tag','data-tone':m.accessRestriction||m.pricingConflict||m.pricingIncomplete?'warn':m.isFree||m.freeHint?'good':'neutral'},
+                       m.accessRestriction==='OFFICIAL_CLIENT_ONLY'?'仅限官方客户端':m.pricingConflict?'账号费率不一致':m.pricingIncomplete?'账号费率未完整核验':m.isFree||m.freeHint?'来源标记免费':
                        Number.isFinite(m.costMultiplier)?'x'+String(m.costMultiplier):
                       ['workbuddy','workbuddy-global'].includes(selectedHost)&&
                         /(?:^|[\s·(])x\s*0(?:\.0+)?(?:$|[\s·)])/i.test(m.name||'')?'x0.00':'费用待确认'),
@@ -1119,7 +1119,7 @@ window.__ModuleLoader__.load({
                   !account.refreshAvailable&&account.loginAvailable?h(Button,{disabled:!!busy||!account.configuredEnabled,
                     onClick:()=>run('/channels/accounts/action',{action:'login',accountId:account.id},
                       '已请求账号连接验证')},'校验身份'):null,
-                   account.modelTestAvailable?h(ModelTestConsole,{account,busy,run,hasDraft}):null),
+                   account.modelTestAvailable?h(ModelTestConsole,{account,busy,run,hasDraft}):account.modelAccessRestricted==='OFFICIAL_CLIENT_ONLY'?h('span',{style:css.small},'仅限官方客户端；保留账号及权益查询'):null),
                   h('div',{className:'dnr-action-group'},
                   h(Button,{disabled:!!busy,onClick:()=>run('/channels/accounts/action',
                     {action:'enable',accountId:account.id,enabled:!account.configuredEnabled},

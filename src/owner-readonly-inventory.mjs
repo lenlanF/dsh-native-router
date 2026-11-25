@@ -50,9 +50,7 @@ export async function ownerReadOnlyInventory({account,driver,signal}={}){
     const id=row.id.trim();
     const official=eligibleRate(row);
     const zero=official&&row.costMultiplier===0;
-    const free=zero||row.freeAllowance==='zcode-start-plan-gift'
-      ||row.freeAllowance==='loomy-daily-gift'
-      ||row.upstreamFreeLabel===true||row.isFree===true||row.free===true;
+    const free=account.providerId!=='own_zcode'&&row.accessRestriction!=='OFFICIAL_CLIENT_ONLY'&&(zero||row.freeAllowance==='loomy-daily-gift'||row.upstreamFreeLabel===true||row.isFree===true||row.free===true);
     const entry=unique.get(id)??{official:false,zero:false,free:false,positive:false};
     entry.official||=official;
     entry.zero||=zero;
@@ -77,6 +75,7 @@ export async function ownerReadOnlyInventory({account,driver,signal}={}){
       ||account.providerId==='own_lingxi'&&Number.isFinite(status?.balance)
         &&status.balance>=0};
   if(account.providerId==='own_zcode'){
+    result.zcodeGiftRoutable=false;
     result.zcodePreviewStartPlans=Number.isInteger(status?.zcodePreviewStartPlans)
       ?status.zcodePreviewStartPlans:null;
     result.zcodeGiftConfirmed=authVerified&&status?.balanceState==='available'

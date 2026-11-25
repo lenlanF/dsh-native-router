@@ -51,6 +51,7 @@ export function classifyFailure(error, signal) {
     return {code:'CANCELLED',retryable:false,scope:'request'};
   if(error?.code==='INVALID_REQUEST'||error?.code==='CONTEXT_WINDOW_EXCEEDED')
     return {code:'INVALID_REQUEST',retryable:false,scope:'request'};
+  if(error?.code==='OFFICIAL_CLIENT_ONLY')return {code:'OFFICIAL_CLIENT_ONLY',retryable:true,scope:'provider',cooldownMs:60000};
   if(error?.code === 'PROVIDER_NOT_READY')return {code:'PROVIDER_NOT_READY',retryable:true,scope:'provider',cooldownMs:60000};
   const status=Number(error?.status || 0);
   if (status === 429) return {code:'RATE_LIMIT',retryable:true,scope:'account',cooldownMs:error.retryAfterMs || 60000};

@@ -6,7 +6,7 @@ import {pathToFileURL} from 'node:url';
 const requestIdPattern=/^[a-f0-9]{32}$/;
 const providerPattern=/^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const states=new Set(['idle','running','complete','cancelled','failed','observed','online','expired','limited','error','pending','client_required','verified','skipped','unavailable','ready','unknown','available','cached','not_returned','not_supported','not_checked','active','not_subscribed','no_cycle','empty']);
-const modeSet=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity','autofree-audit']);
+const modeSet=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity','autofree-audit','host-route']);
 const count=n=>Number.isSafeInteger(n)&&n>=0&&n<=10000?n:0;
 const state=x=>states.has(x)?x:'unknown';
 function safeReport(raw){
@@ -19,8 +19,10 @@ function safeReport(raw){
  if(Number.isSafeInteger(raw.accountCount))out.accountCount=count(raw.accountCount);
  if(Array.isArray(raw.accounts))out.accounts=raw.accounts.slice(0,16).filter(x=>x&&providerPattern.test(x.providerId??'')).map(x=>{
   const item={slot:count(x.slot),providerId:x.providerId,state:state(x.state)};
+  if(x.scope==='provider')item.scope='provider';
+  if(['MISSING_FINISH','MAX_TOKENS','TOOL_CALLS','NO_TEXT','UNEXPECTED_FINISH'].includes(x.hostPhase))item.hostPhase=x.hostPhase;
   for(const k of ['connection','modelState','balanceState','membershipState','usageState','catalogState'])if(x[k]!==undefined)item[k]=state(x[k]);
-  for(const k of ['hasProfile','hasBalance','hasBalanceUnit','hasRollingQuota','hasMembershipQuota','quotaObserved','zcodeStatusObserved','zcodeBalanceObserved','zcodeGiftConfirmed','loomyGiftConfirmed','dailyQuotaObserved'])if(typeof x[k]==='boolean')item[k]=x[k];
+  for(const k of ['hasProfile','hasBalance','hasBalanceUnit','hasRollingQuota','hasMembershipQuota','quotaObserved','zcodeStatusObserved','zcodeBalanceObserved','zcodeGiftConfirmed','zcodeGiftRoutable','loomyGiftConfirmed','dailyQuotaObserved'])if(typeof x[k]==='boolean')item[k]=x[k];
   for(const k of ['quotaWindowCount','freeCandidates','advertisedCount','knownRateCount','zeroRateCount','zcodePlanBuckets','zcodeFlashBuckets','zcodePreviewStartPlans'])if(Number.isSafeInteger(x[k]))item[k]=count(x[k]);
   if(typeof x.lowestMultiplier==='number'&&Number.isFinite(x.lowestMultiplier)&&x.lowestMultiplier>=0&&x.lowestMultiplier<=100)item.lowestMultiplier=x.lowestMultiplier;
   if(['CATALOG','DRIVER_PRECHECK','ENTITLEMENT_READ','STREAM_OPEN','STREAM_READ','STREAM_FIRST_EVENT','STREAM_REASONING','STREAM_TEXT','STREAM_FINISH'].includes(x.phase))item.phase=x.phase;
@@ -55,7 +57,7 @@ export async function requestOwnerAcceptance({loginLink,action='status',mode,cha
  if(!['status','start','cancel'].includes(action))throw Error('Unsupported acceptance action');
  if(action==='start'&&(!modeSet.has(mode)||consent!==true||
    channel!==undefined&&!providerPattern.test(channel)||
-     mode==='channel-activity'&&!channel||['all-channel-activity','autofree-audit'].includes(mode)&&channel!==undefined))throw Error('Explicit mode, consent and required channel are necessary');
+     ['channel-activity','host-route'].includes(mode)&&!channel||['all-channel-activity','autofree-audit'].includes(mode)&&channel!==undefined))throw Error('Explicit mode, consent and required channel are necessary');
  if(action!=='status'&&!requestIdPattern.test(requestId??''))throw Error('Valid request ID required');
  const url=checkedLoginLink(loginLink);
  let login;

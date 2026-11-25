@@ -42,7 +42,7 @@ test('all 13 owned source drivers read account facts from their OWN channel API 
       providerId,accountProviderId:owner,embeddedPack:ownPack,
     });
     const account={id,providerId:owner,credentialRef:'driver:'+owner+':'+id};
-    assert.deepEqual((await driver.listModels({account})),[{id:'test-model'}]);
+    assert.deepEqual((await driver.listModels({account})),[providerId==='zcode'?{id:'test-model',isFree:false,accessRestriction:'OFFICIAL_CLIENT_ONLY'}:{id:'test-model'}]);
     assert.equal(driver.accountSnapshot(account).modelInferenceVerifiedAt,null);
     const facts=await driver.refreshAccountStatus({account});
     assert.equal(facts.nickname,providerId+'-real-user');
@@ -52,6 +52,12 @@ test('all 13 owned source drivers read account facts from their OWN channel API 
     assert.equal((await driver.refresh({account})).state,'online');
     assert.equal(driver.accountSnapshot(account).modelInferenceVerifiedAt,null,
       'account read-only authentication is distinct from successful inference');
+    if(providerId==='zcode'){
+      await assert.rejects(driver.generate({account,model:'test-model',options:{}}),error=>error.code==='OFFICIAL_CLIENT_ONLY');
+      assert.equal(driver.accountSnapshot(account).modelInferenceVerifiedAt,null);
+      assert.ok(!calls.some(x=>x==='generate:'+providerId+':'+sourceAccountId));
+      continue;
+    }
     const output=await driver.generate({account,model:'test-model',options:{
       messages:[{role:'user',content:[{type:'text',text:'ping'}]}],
     }});

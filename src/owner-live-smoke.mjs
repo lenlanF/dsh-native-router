@@ -201,7 +201,7 @@ async function quotaEvidence({account,accountCenter,configStore,signal}){
 }
 // The DSH Host path is distinct from the per-account driver call above: it
 // verifies DSH llm.stream -> registered native-router -> direct channel adapter.
-async function hostRouteProof({llm,adapter,configStore,accountCenter,
+export async function hostRouteProof({llm,adapter,configStore,accountCenter,
   providerId,modelId,signal,now}){
   if(typeof llm?.stream!=='function'||typeof adapter?.listModels!=='function')
     return {state:'skipped',code:'DSH_HOST_LLM_UNAVAILABLE'};
@@ -219,35 +219,65 @@ async function hostRouteProof({llm,adapter,configStore,accountCenter,
       ||!['online','recently_verified'].includes(publicRow.connectionState))
       return {state:'skipped',code:'DSH_ROUTE_ACCOUNT_UNSAFE'};
     let catalog;
-    try{catalog=await accountCenter.listTestModels(peer.id,{signal})}catch{}
+    try{catalog=await accountCenter.listTestModels(peer.id,{signal,officialOnly:true})}catch{}
     if(catalog?.state!=='ready'||!catalog.models?.some(row=>row.id===modelId&&row.free===true))
       return {state:'skipped',code:'DSH_ROUTE_COST_UNVERIFIED'};
   }
-  const after=configStore.get();
-  if(!after.providers.some(p=>p.id===providerId&&p.enabled)
-    ||binding.some(([id,ref])=>!after.accounts.some(a=>a.id===id
-      &&a.providerId===providerId&&a.credentialRef===ref&&a.enabled))
-    ||after.accounts.filter(a=>a.enabled&&a.providerId===providerId).length!==binding.length)
-    return {state:'skipped',code:'DSH_ROUTE_ACCOUNT_UNSAFE'};
-  const route='direct:'+providerId+':'+modelId;
+  const bindingIntact=()=>{
+    const after=configStore.get();
+    return after.providers.some(p=>p.id===providerId&&p.enabled)
+      &&binding.every(([id,ref])=>after.accounts.some(a=>a.id===id
+        &&a.providerId===providerId&&a.credentialRef===ref&&a.enabled))
+      &&after.accounts.filter(a=>a.enabled&&a.providerId===providerId).length===binding.length;
+  };
+  if(!bindingIntact())return {state:'skipped',code:'DSH_ROUTE_ACCOUNT_UNSAFE'};
+  const route='direct:'+providerId+':'+encodeURIComponent(modelId);
   const advertised=await adapter.listModels();
+  if(!bindingIntact())return {state:'skipped',code:'DSH_ROUTE_ACCOUNT_UNSAFE'};
   if(!Array.isArray(advertised)||!advertised.some(row=>row?.id===route))
     return {state:'skipped',code:'DSH_ROUTE_NOT_ADVERTISED'};
   const controller=new AbortController();
   const cancel=()=>controller.abort();
   const timer=setTimeout(cancel,90000);
   if(signal?.aborted)cancel();else signal?.addEventListener('abort',cancel,{once:true});
-  let content=false,finished=false,finishReason='',events=0;
+  let content=false,finished=false,finishReason='',events=0,iterator,ended=false;
+  const step=async fn=>{
+    if(controller.signal.aborted)throw Error('Host proof cancelled');
+    let onAbort;
+    try{
+      const cancelled=new Promise((_,reject)=>{
+        onAbort=()=>reject(Error('Host proof cancelled'));
+        controller.signal.addEventListener('abort',onAbort,{once:true});
+        if(controller.signal.aborted)onAbort();
+      });
+      return await Promise.race([Promise.resolve().then(()=>{
+        if(controller.signal.aborted)throw Error('Host proof cancelled');
+        return fn();
+      }),cancelled]);
+    }finally{if(onAbort)controller.signal.removeEventListener('abort',onAbort)}
+  };
   try{
     if(controller.signal.aborted)return {state:'skipped',code:'CANCELLED'};
-    const stream=await llm.stream({provider:'native-router',model:route,
-      messages:[{role:'user',content:[{type:'text',text:'请只回复 OK'}]}],
-       maxTokens:verifiedFreeHostBudget(providerId,modelId),
-       sessionId:'native-router-smoke-host',signal:controller.signal});
-     if(typeof stream?.[Symbol.asyncIterator]!=='function')      return {state:'failed',code:'DSH_STREAM_UNAVAILABLE'};
-    for await(const evt of stream){
+    if(!bindingIntact())return {state:'skipped',code:'DSH_ROUTE_ACCOUNT_UNSAFE'};
+    const stream=await step(async()=>{
+      const value=await llm.stream({provider:'native-router',model:route,
+        messages:[{role:'user',content:[{type:'text',text:'请只回复 OK'}]}],
+        maxTokens:verifiedFreeHostBudget(providerId,modelId),
+        sessionId:'native-router-smoke-host',signal:controller.signal});
+      if(controller.signal.aborted&&typeof value?.[Symbol.asyncIterator]==='function'){
+        try{Promise.resolve(value[Symbol.asyncIterator]().return?.()).catch(()=>{})}catch{}
+      }
+      return value;
+    });
+    if(typeof stream?.[Symbol.asyncIterator]!=='function')return {state:'failed',code:'DSH_STREAM_UNAVAILABLE'};
+    iterator=stream[Symbol.asyncIterator]();
+    for(;;){
+      const next=await step(()=>iterator.next());
+      if(controller.signal.aborted)throw Error('Host proof cancelled');
+      if(next.done){ended=true;break}
+      const evt=next.value;
       events++;
-      if(events>4096||controller.signal.aborted)return {state:'failed',code:'DSH_STREAM_INTERRUPTED'};
+      if(events>4096||finished)return {state:'failed',code:'DSH_STREAM_INTERRUPTED'};
       if(evt?.type==='text-delta'&&typeof evt.text==='string'&&evt.text.trim())content=true;
       if(evt?.type==='finish'){
         finished=true;finishReason=evt.reason?.kind??'';
@@ -259,10 +289,14 @@ async function hostRouteProof({llm,adapter,configStore,accountCenter,
         !content?'NO_TEXT':'UNEXPECTED_FINISH';
       return {state:'failed',code:'DSH_STREAM_INCOMPLETE',hostPhase};
     }
+    if(!bindingIntact())return {state:'failed',code:'DSH_ROUTE_ACCOUNT_UNSAFE'};
     return {state:'verified',code:'DSH_HOST_ROUTE_COMPLETE',proofAt:now()};
   }catch{
     return {state:'failed',code:controller.signal.aborted?'CANCELLED':'DSH_HOST_ROUTE_FAILED'};
-  }finally{clearTimeout(timer);signal?.removeEventListener('abort',cancel)}
+  }finally{
+    clearTimeout(timer);signal?.removeEventListener('abort',cancel);
+    if(iterator&&!ended){cancel();try{Promise.resolve(iterator.return?.()).catch(()=>{})}catch{}}
+  }
 }
 
 

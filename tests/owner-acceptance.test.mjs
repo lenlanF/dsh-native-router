@@ -16,10 +16,18 @@ function fixture(overrides={}){
  const checkinCenter={snapshot:()=>({accounts:[{providerId:'own_demo',enabled:true,checkinSupported:true}]}),refreshSources:async()=>{},runActivityChannel:async channel=>{
    calls.push(['claim',channel]);return {summary:{attempted:1,confirmedSignins:1,newlyCreditedRewards:0,pendingAccounts:0,failedAccounts:0,noTaskAccounts:0}};
  }};
- const service=createOwnerAcceptance({configStore:{get:()=>structuredClone(cfg)},accountCenter,checkinCenter,adapter:overrides.adapter,now:()=>1000});
+ const service=createOwnerAcceptance({configStore:{get:()=>structuredClone(cfg)},accountCenter,checkinCenter,adapter:overrides.adapter,llm:overrides.llm,now:()=>1000});
  return {service,calls,setCfg:value=>{cfg=value}};
 }
 const done=async service=>{for(let i=0;i<40;i++){const r=service.snapshot();if(r.state!=='running')return r;await new Promise(r=>setImmediate(r))}throw Error('job not settled')};
+test('explicit host-route acceptance performs one real DSH stream and redacts content',async()=>{
+ let sends=0;
+ const f=fixture({accountCenter:{list:()=>({accounts:[{id:'one',providerId:'own_demo',enabled:true,runtimeMode:'owned',modelTestAvailable:true,connectionState:'online'}]})},adapter:{listModels:async()=>[{id:'direct:own_demo:zero'}]},llm:{async *stream(req){sends++;assert.equal(req.provider,'native-router');assert.equal(req.model,'direct:own_demo:zero');yield {type:'text-delta',text:'PRIVATE_FIXTURE'};yield {type:'finish',reason:{kind:'stop'}}}}});
+ assert.throws(()=>f.service.start({requestId:id,mode:'host-route',consent:true}));
+ f.service.start({requestId:id,mode:'host-route',channel:'demo',consent:true});
+ const r=await done(f.service);assert.equal(r.state,'complete');assert.equal(r.accounts[0].state,'verified');assert.equal(r.accounts[0].code,'DSH_HOST_ROUTE_COMPLETE');assert.equal(sends,1);assert.doesNotMatch(JSON.stringify(r),/PRIVATE_FIXTURE|private-ref/);
+ f.service.start({requestId:id,mode:'host-route',channel:'demo',consent:true});assert.equal(sends,1);
+});
 test('autofree audit invokes the real routing candidate audit without inference or mutation',async()=>{
  let auditCalls=0;
  const f=fixture({adapter:{auditAutoFree:async()=>{auditCalls++;return {state:'ready',catalogCount:8,routeCount:2,manualCount:1,errors:0,providers:[{providerId:'own_demo',routeCount:2,accountCount:1}],private:'do not export'}}}});
