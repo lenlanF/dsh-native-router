@@ -6,6 +6,10 @@ import {createActivityClaimStore} from '../src/activity-claims.mjs';
 
 const credential={access_token:['FAKE','LOOMY','TEST','TOKEN'].join('_')};
 const ok=data=>new Response(JSON.stringify({code:'000000',data}),{status:200});
+test('Loomy wallet accepts decimal strings and refuses nonnumeric or negative balances',async()=>{
+ for(const balance of ['1200','1200.25',1200.25])assert.deepEqual(await readLoomyWallet({credential,fetchImpl:async()=>ok({balance})}),{state:'available',permanent:Number(balance)});
+ for(const balance of ['',null,'-1','1e6',' 12 ',Infinity])assert.deepEqual(await readLoomyWallet({credential,fetchImpl:async()=>ok({balance})}),{state:'unavailable'});
+});
 test('Loomy eight independent on-board offers total official 10000 points',()=>{
  assert.equal(Object.keys(LOOMY_FREE_TASKS).length,8);
  assert.equal(Object.values(LOOMY_FREE_TASKS).reduce((s,r)=>s+r.points,0),10000);

@@ -25,13 +25,14 @@ export function publicMaskedPhone(...sources){
 }
 export function credentialPublicIdentity(payload){
   if(!payload||typeof payload!=='object'||Array.isArray(payload))return {};
-  const label=publicAccountName({
-     accountName:payload.account_name??payload.user_name??payload.accountName,
-     username:payload.username??payload.userName,displayName:payload.display_name??payload.displayName,
-     nickname:payload.nickname,nickName:payload.nickName,name:payload.name,
-     accountLabel:payload.account_label??payload.accountLabel,
-  },payload.account,payload.profile,payload.user);  const phone=typeof payload.phone==='string'&&/^\d{11}$/.test(payload.phone)?
-    payload.phone.replace(/^(\d{3})\d{4}(\d{4})$/,'$1****$2'):'';
+  // Evaluate each public alias independently: empty strings and device labels
+  // must never hide a later real name. Only exact-account profile objects
+  // are considered, not arbitrary credential strings or opaque user IDs.
+  const profiles=[payload,payload.account,payload.profile,payload.user,payload.userInfo,payload.user_info]
+    .filter(x=>x&&typeof x==='object'&&!Array.isArray(x));
+  const label=publicAccountName(...profiles);
+  const phoneValue=profiles.flatMap(x=>[x.phone,x.mobile]).find(x=>typeof x==='string'&&/^\d{11}$/.test(x));
+  const phone=phoneValue?phoneValue.replace(/^(\d{3})\d{4}(\d{4})$/,'$1****$2'):'';
   return {...(label?{accountName:label}:{}),
     ...(phone?{maskedPhone:phone}:{})};
 }

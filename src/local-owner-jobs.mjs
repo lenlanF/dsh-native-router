@@ -5,7 +5,7 @@ import {join,resolve} from 'node:path';
 import {randomBytes} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 const ID=/^[a-f0-9]{32}$/;
-const modes=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity','autofree-audit']);
+const modes=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity','autofree-audit','host-route']);
 const CHANNEL=/^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const TTL=5*60*1000;
 const windows=process.platform==='win32';
@@ -82,7 +82,7 @@ export function revokeLocalOwnerJobs(dir){dir=resolve(dir);enabled(dir);unlinkSy
 function validate(body,now,grantId){
  if(!body||body.grantId!==grantId||body.consent!==true||typeof body.requestId!=='string'||!ID.test(body.requestId)||!modes.has(body.mode)||
  (body.channel!==undefined&&!CHANNEL.test(body.channel))||
- (body.mode==='channel-activity'&&!body.channel)||(['all-channel-activity','autofree-audit'].includes(body.mode)&&body.channel!==undefined)||
+ (['channel-activity','host-route'].includes(body.mode)&&!body.channel)||(['all-channel-activity','autofree-audit'].includes(body.mode)&&body.channel!==undefined)||
  !Number.isSafeInteger(body.issuedAt)||!Number.isSafeInteger(body.expiresAt)||
  body.issuedAt>now+10000||body.expiresAt<=now||body.expiresAt-body.issuedAt>TTL||
  body.expiresAt<=body.issuedAt)throw Error('Invalid local owner request');

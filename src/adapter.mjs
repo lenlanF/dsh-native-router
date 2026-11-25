@@ -58,10 +58,12 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
        const driver=driverFor(arg.provider.id);
       if(typeof driver?.generate!=='function')throw new UpstreamError('Native provider driver unavailable',{code:'PROVIDER_NOT_READY'});
        // Recheck the selected exact account before automatic free inference.
-       if(arg.options.autoFreeSelection===true&&ownedAccountCatalog&&configStore.get().accounts.some(a=>a.id===arg.account.id&&a.providerId===arg.provider.id)){
+       const hostProof=arg.options.sessionId==='native-router-smoke-host';
+       if(hostProof&&!ownedAccountCatalog)throw new UpstreamError('Official account catalog unavailable',{code:'COST_NOT_CONFIRMED_FREE'});
+       if((hostProof||arg.options.autoFreeSelection===true)&&ownedAccountCatalog&&configStore.get().accounts.some(a=>a.id===arg.account.id&&a.providerId===arg.provider.id)){
         const before=configStore.get(),policy=JSON.stringify(before.freePool??{});
         const rule=before.freePool?.models?.find(x=>x.providerId===arg.provider.id&&x.model===arg.model);
-        const manual=rule?.free===true||(!rule&&before.freePool?.providerIds?.includes(arg.provider.id));
+        const manual=!hostProof&&(rule?.free===true||(!rule&&before.freePool?.providerIds?.includes(arg.provider.id)));
         if(!manual){
          const live=await Promise.resolve().then(()=>ownedAccountCatalog(arg.account,{signal:arg.signal})).catch(()=>null);
          if(live?.state!=='ready'||!live.models?.some(m=>m.id===arg.model&&m.free===true))

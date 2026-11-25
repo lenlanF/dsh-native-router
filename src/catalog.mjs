@@ -149,7 +149,7 @@ export function createCatalog({getConfig,getEffectiveConfig,fetchImpl=fetch,
        return p?.enabled && (p.protocol==='dsh-host'
          ?hostRegistered(p.id)&&!tier.accountIds?.length
          :(p.protocol!=='native-channel'||
-          (typeof driver?.generate==='function'&&(driver?.isSourceBridge!==true||driver.runtimeReady===true)))
+          (typeof driver?.generate==='function'&&!driver.modelAccessRestricted&&(driver?.isSourceBridge!==true||driver.runtimeReady===true)))
           && cfg.accounts.some(a=>a.enabled&&a.providerId===tier.providerId));
     })).map(r=>{
       const single=r.tiers.length===1?r.tiers[0]:null;
@@ -171,7 +171,7 @@ export function createCatalog({getConfig,getEffectiveConfig,fetchImpl=fetch,
       while(nextProvider<providers.length&&!signal?.aborted){
         const index=nextProvider++,p=providers[index],driver=driverFor(p.id);
         if(p.protocol==='dsh-host'&&!hostRegistered(p.id))continue;
-        if(p.protocol==='native-channel'&&(typeof driver?.generate!=='function'
+        if(p.protocol==='native-channel'&&(typeof driver?.generate!=='function'||driver.modelAccessRestricted
           ||(driver?.isSourceBridge===true&&driver.runtimeReady!==true)))continue;
         const sourceModels=all.filter(row=>row.providerId===p.id);
         const models=new Set([...p.models,...sourceModels.map(row=>row.model)].filter(model=>

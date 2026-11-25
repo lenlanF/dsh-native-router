@@ -64,7 +64,7 @@ export function createOwnedModelDirectory({configStore,accountCenter,checkinCent
   let ready=false;
   if(entry.kind==='source'){
    const result=await embeddedPack?.listModels?.(entry.sourceId);
-   if(result?.state==='ready'&&targets().get(id)?.sourceId===entry.sourceId){merge(result.models);ready=true}
+   if(result?.state==='ready'&&targets().get(id)?.sourceId===entry.sourceId){merge(entry.sourceId==='zcode'?result.models.map(row=>({...row,isFree:false,free:false,accessRestriction:'OFFICIAL_CLIENT_ONLY'})):result.models);ready=true}
   }else for(const accountId of entry.members.slice(0,32)){
    try{
     const result=await accountCenter.listTestModels(accountId,{officialOnly:true});
@@ -84,7 +84,8 @@ export function createOwnedModelDirectory({configStore,accountCenter,checkinCent
     const shape=x=>JSON.stringify([x.costMultiplier??null,x.priceSource??null,x.pricing??null]);
     const conflict=peers.some(x=>x.pricingConflict===true||shape(x)!==shape(first));
     models.set(modelId,{id:modelId,name:first.name??modelId,
-      isFree:complete&&!conflict&&peers.every(x=>x.free===true),
+      isFree:complete&&!conflict&&peers.every(x=>x.free===true&&!x.accessRestriction),
+      ...(peers.some(x=>x.accessRestriction==='OFFICIAL_CLIENT_ONLY')?{accessRestriction:'OFFICIAL_CLIENT_ONLY'}:{}),
       ...(conflict?{pricingConflict:true}:!complete?{pricingIncomplete:true}:{
        ...(Number.isFinite(first.costMultiplier)?{costMultiplier:first.costMultiplier}:{}),
        ...(first.priceSource?{priceSource:first.priceSource}:{}),

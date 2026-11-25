@@ -212,7 +212,8 @@ export function createAccountCenter({
          message:!account.enabled?'此账号已停用':!provider.enabled?'所属渠道已停用':check.message,
          busy:pending.has(account.id),
          modelTestAvailable:runtimeMode(account)==='owned'&&provider.protocol==='native-channel'
-          &&typeof driver?.listModels==='function'&&typeof driver?.generate==='function',
+          &&typeof driver?.listModels==='function'&&typeof driver?.generate==='function'&&!driver.modelAccessRestricted,
+         ...(driver?.modelAccessRestricted==='OFFICIAL_CLIENT_ONLY'?{modelAccessRestricted:'OFFICIAL_CLIENT_ONLY'}:{}),
          loginAvailable:!!driver?.login||['openai-chat','anthropic-messages'].includes(provider.protocol),
          refreshAvailable:!!driver?.refresh||['openai-chat','anthropic-messages'].includes(provider.protocol),
          checkinAvailable:typeof driver?.checkIn==='function',
@@ -296,6 +297,7 @@ export function createAccountCenter({
  // Model verification uses this plugin's own account/driver, never a
  // borrowed client or original-plugin process. Free price must be explicit.
  function modelTestEvidence(row,providerId){
+   if(providerId==='own_zcode'||row.accessRestriction==='OFFICIAL_CLIENT_ONLY')return null;
    const rules=configStore.get().freePool??{};
    const explicit=(rules.models??[]).find(x=>x.providerId===providerId&&x.model===row.id);
    if(explicit)return explicit.free?'用户手动声明免费（费用由用户确认）':null;
@@ -336,7 +338,7 @@ export function createAccountCenter({
       ||/[\u0000-\u001f]/.test(row.id))return null;
    const evidence=officialOnly?officialTestEvidence(row,providerId,rows):modelTestEvidence(row,providerId);
    return {id:row.id,name:typeof row.name==='string'&&row.name.length<=120
-     ?row.name:row.id,free:Boolean(evidence),...(evidence?{evidence}:{}),...catalogPrice(row,providerId,rows)};
+     ?row.name:row.id,free:Boolean(evidence),...(evidence?{evidence}:{}),...(row.accessRestriction==='OFFICIAL_CLIENT_ONLY'?{accessRestriction:row.accessRestriction}:{}),...catalogPrice(row,providerId,rows)};
  }
  function assertTestAccount(id){
    const found=find(id),{account,provider,driver}=found;

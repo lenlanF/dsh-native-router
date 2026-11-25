@@ -41,7 +41,7 @@ test('opt-in source discovery returns stable opaque references; import copies NO
  const other=createSourceChannelDriver({providerId:'loomy',embeddedPack:rig.embeddedPack});
  await assert.rejects(()=>other.importCandidate({candidateId:candidates[0].id,consent:true}),/no longer exists/);
 });
-test('ZCode private Start Plan grants only GLM-5.3 Flash when authenticated gift allowance is sufficient',async()=>{
+test('ZCode legacy private Start Plan remains inspectable but never grants third-party inference',async()=>{
  const rig=mockSource([{id:'gift-01',providerId:'zcode',enabled:true}]);
  rig.embeddedPack.listModels=async()=>({state:'ready',models:[
    {id:'GLM-5.3-Flash',name:'GLM 5.3 Flash'},{id:'glm-5.3',name:'GLM 5.3'}]});
@@ -53,16 +53,10 @@ test('ZCode private Start Plan grants only GLM-5.3 Flash when authenticated gift
  const id=sourceAccountOpaqueId('zcode','gift-01');
  const account={id,providerId:'own_zcode',credentialRef:'driver:own_zcode:'+id};
  const rows=await driver.listModels({account});
-  assert.match(freeEvidence(rows.find(x=>x.id==='GLM-5.3-Flash'),'own_zcode')??'',/赠送免费额度/);
-  assert.equal(freeEvidence(rows.find(x=>x.id==='glm-5.3'),'own_zcode'),null,   'premium Coding Plan must not inherit gifted Start Plan entitlement');
-  balance=1000;giftedBalance=1000;
-  assert.equal(freeEvidence((await driver.listModels({account}))[0],'own_zcode'),null);
-  balance=5000;giftedBalance=0;
-  assert.equal(freeEvidence((await driver.listModels({account}))[0],'own_zcode'),null,
-    'a paid-only official total cannot masquerade as gifted Start Plan balance');
-  giftedBalance=5000;authenticated=false;
-  assert.equal(freeEvidence((await driver.listModels({account}))[0],'own_zcode'),null);
- assert.equal(rig.calls.length,0,'gift check is read-only; no model generation issued');
+ for(const row of rows){assert.equal(row.accessRestriction,'OFFICIAL_CLIENT_ONLY');assert.equal(freeEvidence(row,'own_zcode'),null);}
+ for(const model of rows.map(x=>x.id))await assert.rejects(()=>driver.generate({account,model,options:{freeOnly:true}}),error=>error.code==='OFFICIAL_CLIENT_ONLY');
+ const facts=await driver.refreshAccountStatus({account});assert.equal(facts.giftedBalance,5000);assert.equal(facts.authVerified,true);
+ assert.equal(rig.calls.length,0,'restricted source must not send inference');
 });
 test('CodeArts model list preserves verified exact official credit ratio and rejects invented prices',async()=>{
  const src=mockSource([{id:'official-c',providerId:'codearts',enabled:true}]);
@@ -141,7 +135,6 @@ test('Loomy only grants Spark X2.6 free test from authenticated official daily g
 
 for(const [channel,own,model,giftKey,minGift] of [
   ['loomy','own_loomy','spark-x2.6','loomyDailyGift',2000],
-  ['zcode','own_zcode','GLM-5.3-Flash','giftedBalance',1024],
 ]){
   test(channel+' native smoke cannot issue a charged request if its gift is spent between catalog and generation',async()=>{
    const src=mockSource([{id:'safe-gift',providerId:channel,enabled:true}]);  let gift=5000;

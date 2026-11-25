@@ -26,8 +26,7 @@ export function contradictsFree(row,providerId=''){
 export function freeEvidence(model,providerId='',peers=[model]){
  if(!model||typeof model!=='object'||peers.some(row=>contradictsFree(row,providerId)))return null;
  if(providerId==='codearts'&&model.priceSource==='codearts-official-credit-ratio'&&model.costMultiplier===0)return 'CodeArts 官方零积分倍率';
-  if(providerId==='own_zcode'&&model.freeAllowance==='zcode-start-plan-gift'
-      &&typeof model.id==='string'&&/^glm-5\.3-flash$/i.test(model.id))    return 'ZCode Start Plan 官方赠送免费额度（不使用付费 Coding Plan）';
+ if(providerId==='own_zcode'||model.accessRestriction==='OFFICIAL_CLIENT_ONLY'||model.freeAllowance==='zcode-start-plan-gift')return null;
    if(providerId==='own_loomy'&&model.freeAllowance==='loomy-daily-gift'
       &&model.id==='spark-x2.6')
      return 'Loomy 官方每日赠送积分专用 Spark X2.6（永久积分不可用）';
@@ -78,6 +77,7 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
  };
  function snapshot(){return structuredClone(cache)}
  function markedEvidence(row,providerId,peers){
+  if(providerId==='own_zcode'||row.accessRestriction==='OFFICIAL_CLIENT_ONLY'||row.freeAllowance==='zcode-start-plan-gift')return null;
   const cfg=owner(),override=(cfg.models??[]).find(x=>x.providerId===providerId&&x.model===row.id);
   if(override)return override.free?'用户手动标记免费（费用由用户确认）':null;
   if((cfg.providerIds??[]).includes(providerId))
@@ -101,9 +101,8 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
    if(seen.has(key)||catalog.length>=600)return;
    seen.add(key);
    const normalized=typeof row==='string'?{id:row,name:row}:row;
-   const evidence=markedEvidence(normalized,providerId,peers??[normalized]);
-   const entry={providerId,model,
-    name:typeof normalized.name==='string'?normalized.name.slice(0,120):model,kind,...(accountIds?.length?{accountIds:[...accountIds]}:{})};
+   const evidence=kind==='owned-source'&&providerId==='zcode'?null:markedEvidence(normalized,providerId,peers??[normalized]);
+   const entry={providerId,model,name:typeof normalized.name==='string'?normalized.name.slice(0,120):model,kind,...(accountIds?.length?{accountIds:[...accountIds]}:{})};
    catalog.push({...entry,free:evidence!==null,...(evidence?{evidence}:{})});
    if(!evidence){unknownPricing++;return}
    models.push({...entry,evidence});

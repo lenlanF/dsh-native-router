@@ -112,7 +112,7 @@ test('release package ships only native in-process bundle with host-provided pee
   assert.equal(pkg.private,false);
   assert.equal(pkg.license,'MIT');
   assert.equal(pkg.engines.node,'>=22.10.0');
-    assert.equal(pkg.version,'1.0.0-rc.127');
+    assert.equal(pkg.version,'1.0.0-rc.128');
    assert.ok(pkg.files.includes('tools/local-owner-jobs-cli.mjs'));
   assert.ok(pkg.files.includes('vendor/channel-pack/SOURCE_RECEIPT.json'));
    assert.ok(!pkg.files.includes('vendor/channel-pack'));

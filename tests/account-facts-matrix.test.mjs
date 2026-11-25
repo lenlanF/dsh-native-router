@@ -13,6 +13,10 @@ test('public account labels recover official alternate fields but reject device 
  assert.equal(credentialPublicIdentity({account_label:'真实账号'}).accountName,'真实账号');
  assert.equal(credentialPublicIdentity({accountLabel:'设备 123'}).accountName,undefined);
  assert.equal(credentialPublicIdentity({accountLabel:'13812345678'}).accountName,'138****5678');
+ assert.equal(credentialPublicIdentity({account_name:'',user_name:'真实账号'}).accountName,'真实账号');
+ assert.equal(credentialPublicIdentity({display_name:'设备 123',displayName:'真实昵称'}).accountName,'真实昵称');
+ assert.deepEqual(credentialPublicIdentity({userInfo:{displayName:'真实用户',mobile:'13812345678'}}),{accountName:'真实用户',maskedPhone:'138****5678'});
+ assert.equal(credentialPublicIdentity({user_id:'raw-id',access_token:'secret'}).accountName,undefined);
 });
 
 test('all 13 built-in source providers are represented by channel metadata',()=>{

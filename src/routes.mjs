@@ -174,6 +174,7 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
          &&v.length<=32&&/^[\w\s.$/+-]+$/.test(v);
        const pricing=safePrice(input)&&safePrice(output)?{input,output}:null;
        return {id:model,name,...(free?{freeHint:free}:{}),
+         ...(row?.accessRestriction==='OFFICIAL_CLIENT_ONLY'?{accessRestriction:'OFFICIAL_CLIENT_ONLY'}:{}),
          ...(pricing?{pricing}:{})};
     };
     const workers=Array.from({length:Math.min(8,ids.length)},async()=>{

@@ -83,7 +83,13 @@ for(const original of ['loomy','zcode-start-plan']){
   const router=createNativeRouterAdapter({configStore:f.configStore,
    channelDrivers:new Map([[f.own,driver]]),vault:{resolve:()=>{throw Error('Original vault must not be used')}}});
   const direct=(await router.listModels()).find(x=>x.id.startsWith('direct:'+f.own+':'));
-  assert.ok(direct,'Adopted source should be directly selectable');
+  if(f.provider==='zcode'){
+   assert.equal(direct,undefined,'Restricted account is read-only after migration');
+   assert.equal(router.getStatus().metrics.successfulTurns,0);
+   assert.equal((await f.adoption.adopt({providerId:original,accountId:f.accountId,consent:true})).state,'already_owned');
+   assert.equal(f.writes.length,2);return;
+  }
+  assert.ok(direct,'Permitted adopted source should be directly selectable');
   const events=[];
   for await(const event of router.stream({model:direct.id,
    messages:[{role:'user',content:[{type:'text',text:'test'}]}]}))events.push(event);

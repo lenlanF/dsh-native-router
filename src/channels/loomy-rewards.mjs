@@ -78,7 +78,7 @@ export async function readLoomyWallet({credential,fetchImpl=fetch}={}){
    {fetchImpl});
  const value=data?.balance;
  const permanent=typeof value==='number'?value:
-   typeof value==='string'&&/^\\d+(?:\\.\\d+)?$/.test(value)?Number(value):NaN;
+   typeof value==='string'&&/^\d+(?:\.\d+)?$/.test(value)?Number(value):NaN;
  return Number.isFinite(permanent)&&permanent>=0&&permanent<=1e12?
    {state:'available',permanent}:{state:'unavailable'};
 }

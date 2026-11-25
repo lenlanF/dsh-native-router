@@ -54,7 +54,7 @@ test('inventory-audit examines all enabled accounts read-only, without charging 
  assert.equal(report.runtime,'dsh-plugin-official-account-inventory');
  assert.equal(report.accounts.length,2);
  assert.ok(report.accounts.every(row=>row.code==='OFFICIAL_ACCOUNT_AND_CATALOG'));
- assert.ok(report.accounts.every(row=>row.officialFreeCandidates===1));
+ assert.ok(report.accounts.every(row=>row.officialFreeCandidates===(row.providerId==='own_zcode'?0:1)));
  assert.doesNotMatch(JSON.stringify(report),/wbp_aa|sp_bb|secret|credentialRef/);
  assert.equal((await runOwnerLiveSmoke(h.input)).state,'already_consumed');
 }));
@@ -96,7 +96,7 @@ test('inventory reads distinct Providers concurrently, same-Provider accounts se
  const report=JSON.parse(readFileSync(join(dir,'owner-live-smoke-result-'+nonce+'.json'),'utf8'));
  assert.deepEqual(report.accounts.map(a=>a.slot),accounts.map((_,i)=>i+1));
  assert.ok(report.accounts.every(row=>row.code==='OFFICIAL_ACCOUNT_AND_CATALOG'));
- assert.ok(report.accounts.every(row=>row.officialFreeCandidates===1));
+ assert.ok(report.accounts.every(row=>row.officialFreeCandidates===(row.providerId==='own_zcode'?0:1)));
  assert.doesNotMatch(JSON.stringify(report),/inventory-[0-9]|credentialRef/);
 }));
 test('parallel inventory refuses a changed second account without reading its private channel',async()=>fixture(async dir=>{
@@ -266,6 +266,30 @@ test('true DSH Host llm.stream path validates a free provider route without repe
  assert.equal(h.report().accounts[0].scope,'provider');
  assert.equal(h.report().accounts[0].code,'DSH_HOST_ROUTE_COMPLETE');
  assert.doesNotMatch(JSON.stringify(h.report()),/responsePreview|cookie|FAKE_PRIVATE/);
+}));
+test('host proof refuses a changed account binding while the advertised catalog is loading',async()=>fixture(async dir=>{
+ const h=rig(dir,{listModels:()=>({state:'ready',models:[{id:'official-zero',free:true}]})});
+ h.request();const file=join(dir,'owner-live-smoke-request.json');
+ writeFileSync(file,JSON.stringify({...JSON.parse(readFileSync(file,'utf8')),mode:'host-route',slots:[1]}));
+ const original=h.input.configStore.get;let changed=false,sends=0;
+ h.input.configStore.get=()=>{const cfg=original();return changed?{...cfg,accounts:cfg.accounts.map((a,i)=>i===0?{...a,credentialRef:'driver:changed'}:a)}:cfg};
+ const adapter={listModels:async()=>{changed=true;return [{id:'direct:own_workbuddy-cn:official-zero'}]}};
+ const llm={async *stream(){sends++;yield {type:'text-delta',text:'OK'};yield {type:'finish',reason:{kind:'stop'}}}};
+ await runOwnerLiveSmoke({...h.input,llm,adapter});
+ assert.equal(sends,0);
+ assert.equal(h.report().accounts[0].code,'DSH_ROUTE_ACCOUNT_UNSAFE');
+}));
+test('host proof cancellation does not hang on a stalled stream or its cleanup',async()=>fixture(async dir=>{
+ const h=rig(dir,{listModels:()=>({state:'ready',models:[{id:'official-zero',free:true}]})});
+ h.request();const file=join(dir,'owner-live-smoke-request.json');
+ writeFileSync(file,JSON.stringify({...JSON.parse(readFileSync(file,'utf8')),mode:'host-route',slots:[1]}));
+ const controller=new AbortController();let returned=0;
+ const llm={stream(){return {[Symbol.asyncIterator](){return this},next(){controller.abort();return new Promise(()=>{})},return(){returned++;return new Promise(()=>{})}}}};
+ const adapter={listModels:async()=>[{id:'direct:own_workbuddy-cn:official-zero'}]};
+ let timer;try{
+  await Promise.race([runOwnerLiveSmoke({...h.input,llm,adapter,signal:controller.signal}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('host proof hung after cancellation')),250)})]);
+  assert.equal(returned,1);assert.equal(h.report().accounts[0].code,'CANCELLED');
+ }finally{clearTimeout(timer)}
 }));
 test('real zero-rate WorkBuddy host smoke has a larger bounded reply budget without changing paid channels',async()=>fixture(async dir=>{
  const h=rig(dir,{listModels:()=>({state:'ready',models:[{id:'hy4flash-free',free:true}]})});

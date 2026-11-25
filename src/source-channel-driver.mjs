@@ -170,7 +170,7 @@ export async function collectSourceDshStream(stream,{tools=[],signal,onProgress}
   total_tokens:usage.totalTokens};
  return validateModelCalls(output,tools);
 }
-const zcodeGiftFlash=model=>typeof model==='string'&&/^glm-5\.3-flash$/i.test(model);
+// The legacy ZCode source adapter targets the official-client-only Start Plan endpoint.
 export function createSourceChannelDriver({providerId,embeddedPack,accountProviderId=providerId}={}){
  if(!validSource(providerId)||!embeddedPack
    ||![providerId,'own_'+providerId].includes(accountProviderId))
@@ -222,6 +222,7 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
    isSourceBridge:true,
    get runtimeReady(){const status=embeddedPack.status?.();return status?.state==='mounted'
      &&(!Array.isArray(status.channels)||status.channels.includes(providerId))},
+   ...(providerId==='zcode'?{modelAccessRestricted:'OFFICIAL_CLIENT_ONLY'}:{}),
    authMethod:accountProviderId.startsWith('own_')?
      '本插件自有凭据 · 直接查询渠道官方服务':'渠道账号引用 · 尚未独立接管',
    accountSnapshot(account){
@@ -250,17 +251,11 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
      await resolve(account);
      const result=await embeddedPack.listModels(providerId);
       if(result.state!=='ready')throw unable('Source provider model list is unavailable');
-      // ZCode Start Plan has a separate official JWT-backed gifted quota.
-      // A positive authenticated balance alone is NOT a free model: only
-      // the known GLM-5.3 Flash route and a sufficiently funded gift bucket
-      // may be offered. Never label ZCode Coding Plan or other models free.
-      let giftedStartPlan=false;
-       if(providerId==='zcode'&&accountProviderId==='own_zcode'
-         &&result.models?.some(row=>zcodeGiftFlash(row?.id))){
-         const facts=await readLiveFacts(account,{includeActivities:false,signal}).catch(()=>null);        giftedStartPlan=facts?.authVerified===true
-          &&facts.balanceState==='available'
-          &&Number.isFinite(facts.giftedBalance)&&facts.giftedBalance>=1024;
-      }
+      // Keep the account and its official model directory inspectable. The
+      // legacy private adapter does not establish third-party inference rights.
+      if(providerId==='zcode')return result.models.filter(row=>row&&typeof row.id==='string').map(row=>({
+        id:row.id,...(typeof row.name==='string'?{name:row.name}:{}),isFree:false,
+        accessRestriction:'OFFICIAL_CLIENT_ONLY'}));
       // Loomy official points/records reports a separate daily gifted pool.
       // The owned channel pack selects this before permanent purchased points.
       // Allow only Spark X2.6 and only with a substantial verified gift buffer.
@@ -284,9 +279,8 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
             &&typeof row.costMultiplier==='number'&&Number.isFinite(row.costMultiplier)
             &&row.costMultiplier>=0&&row.costMultiplier<=100
             ?{costMultiplier:row.costMultiplier,priceSource:row.priceSource}:{}),
-          ...(row.pricing?{pricing:{...row.pricing}}:{}),           ...(giftedStartPlan&&zcodeGiftFlash(row.id)
-              ?{freeAllowance:'zcode-start-plan-gift'}:{}),           ...(giftedLoomy&&row.id==='spark-x2.6'
-             ?{freeAllowance:'loomy-daily-gift'}:{})}));
+          ...(row.pricing?{pricing:{...row.pricing}}:{}),
+          ...(giftedLoomy&&row.id==='spark-x2.6'?{freeAllowance:'loomy-daily-gift'}:{})}));
    },
    // Model directory merely indicates advertised candidates. Account-level
    // proof requires official provider API, or an actual successful inference.
@@ -316,6 +310,7 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
   async generate({account,model,options={},signal}={}){
    const phase=value=>{try{options.onVerificationPhase?.(value)}catch{}};
    phase('DRIVER_PRECHECK');
+   if(providerId==='zcode')throw unable('Legacy ZCode Start Plan endpoint is restricted to the official client','OFFICIAL_CLIENT_ONLY');
    const selected=await resolve(account);
    if(!selected.enabled)throw unable('Source account is disabled','CREDENTIAL');
     const rows=await snapshot();
@@ -337,14 +332,6 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
        if(facts?.authVerified!==true||facts.balanceState!=='available'
          ||!Number.isFinite(facts.loomyDailyGift)||facts.loomyDailyGift<2000)
          throw unable('Insufficient official Loomy free daily gift at generation time','COST_NOT_CONFIRMED_FREE');
-     }
-     if(smoke&&accountProviderId==='own_zcode'&&providerId==='zcode'
-       &&zcodeGiftFlash(model)){
-       phase('ENTITLEMENT_READ');
-       const facts=await readLiveFacts(account,{includeActivities:false,signal}).catch(()=>null);
-       if(facts?.authVerified!==true||facts.balanceState!=='available'
-         ||!Number.isFinite(facts.giftedBalance)||facts.giftedBalance<1024)
-         throw unable('Insufficient official ZCode gift at generation time','COST_NOT_CONFIRMED_FREE');
      }
       if(options.singleLowCostProof===true){
         if(providerId!=='codearts'||accountProviderId!=='codearts'

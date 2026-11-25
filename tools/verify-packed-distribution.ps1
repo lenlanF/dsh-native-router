@@ -91,7 +91,7 @@ const removeFixture=router.registerNativeChannelDriver(fixtureProvider,{
  listModels:async()=>[{id:'fixture-free',name:'Fixture · x0.00'}],
  generate:async({account,model,options})=>{
    assert.equal(account.id,fixtureId);assert.equal(model,'fixture-free');
-   assert.equal(options.maxTokens,128);fixtureGenerations++;
+   assert.equal(options.maxTokens,fixtureGenerations===0?128:32);fixtureGenerations++;
    return {text:'OK',finishReason:'stop',toolCalls:[]};
  },
  checkIn:async({account,date})=>{
@@ -189,6 +189,9 @@ try{
  assert.equal(fixtureGenerations,0);assert.equal(fixtureSignins,0);
  const inference=await runAcceptance('free-models','c'.repeat(32));
  assert.equal(inference.accounts[0].modelState,'verified');assert.equal(fixtureGenerations,1);
+ const hostProof=await runAcceptance('host-route','f'.repeat(32),'workbuddy-cn');
+ assert.equal(hostProof.accounts[0].state,'verified');
+ assert.equal(hostProof.accounts[0].code,'DSH_HOST_ROUTE_COMPLETE');assert.equal(fixtureGenerations,2);
  const activity=await runAcceptance('channel-activity','d'.repeat(32),'workbuddy-cn');
  assert.equal(activity.state,'complete');assert.equal(activity.activity.confirmedSignins,1);
  assert.equal(activity.activity.newlyCreditedRewards,0);
