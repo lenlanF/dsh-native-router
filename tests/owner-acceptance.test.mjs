@@ -137,3 +137,9 @@ test('inventory uses a selected account official reader without duplicate generi
  assert.equal(r.accounts[0].state,'observed');
  assert.deepEqual(f.calls,[['catalog','one',true]]);
 });
+
+test('owned-only acceptance delegates a scoped audit with no generation or account mutation',async()=>{
+ let scope;const f=fixture({adapter:{auditAutoFree:async options=>{scope=options;return {state:'ready',catalogCount:1,routeCount:0,errors:0,providers:[]}}}});
+ f.service.start({requestId:id,mode:'owned-autofree-audit',consent:true});const r=await done(f.service);
+ assert.equal(r.state,'complete');assert.deepEqual(scope,{ownedOnly:true});assert.deepEqual(f.calls,[]);
+});

@@ -80,7 +80,7 @@ export function createOwnedModelDirectory({configStore,accountCenter,checkinCent
    for(const [modelId,observed] of observedMembers){
     const peers=current.members.map(member=>observed.get(member)).filter(Boolean);
     if(!peers.length)continue;
-    const first=peers[0],complete=peers.length===current.members.length;
+    const first=peers[0],complete=peers.length===current.members.length&&!peers.some(x=>x.pricingIncomplete===true);
     const shape=x=>JSON.stringify([x.costMultiplier??null,x.priceSource??null,x.pricing??null]);
     const conflict=peers.some(x=>x.pricingConflict===true||shape(x)!==shape(first));
     models.set(modelId,{id:modelId,name:first.name??modelId,

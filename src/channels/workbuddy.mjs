@@ -32,9 +32,23 @@ const privateText=value=>typeof value==='string'&&value.trim().length<=16384?val
 // WorkBuddy's live /v3/config models carry their credit rate in `credits`
 // (e.g. "x0.00 credits"), NOT in `name`. The MIT original parser uses this
 // exact field; never infer a zero cost from model names, fallback rosters or IDs.
-function officialZeroCredit(item){
-  return typeof item?.credits==='string'
-    && /^\s*x\s*0(?:\.0+)?(?:\s+credits?)?\s*$/i.test(item.credits);
+function officialCreditRate(item){
+  const match=typeof item?.credits==='string'&&/^\s*x\s*(\d+(?:\.\d+)?)(?:\s+credits?)?\s*$/i.exec(item.credits);
+  const rate=match?Number(match[1]):NaN;
+  return Number.isFinite(rate)&&rate>=0&&rate<=100?rate:null;
+}
+function catalogRow(item){
+  const rate=officialCreditRate(item);
+  return {id:item.id,name:typeof item.name==='string'?item.name:item.id,
+    ...(rate!==null?{costMultiplier:rate}:{}),...(rate===0?{upstreamFreeLabel:true}:rate!==null?{isFree:false}:{})};
+}
+function mergeCatalogRow(first,next){
+  if(!first)return next;
+  if(first.pricingConflict||next.pricingConflict||first.costMultiplier!==undefined&&next.costMultiplier!==undefined&&first.costMultiplier!==next.costMultiplier)
+    return {id:first.id,name:first.name,isFree:false,pricingConflict:true};
+  if(first.costMultiplier===undefined||next.costMultiplier===undefined)
+    return {id:first.id,name:first.name,isFree:false,pricingIncomplete:true};
+  return first;
 }
 function timestamp(value){
   const num=Number(value);
@@ -254,7 +268,7 @@ export function createWorkBuddyDriver({
       delete hd['x-agent-intent'];
     }
     if(model)hd['x-model-id']=model;
-    if(auth.sub)hd['x-user-id']=auth.sub;
+    if(auth.sub&&!auth.uid)hd['x-user-id']=auth.sub;
     if(auth.enterprise)hd['x-enterprise-id']=auth.enterprise;
     if(auth.tenant)hd['x-tenant-id']=auth.tenant;
     return hd;
@@ -345,7 +359,7 @@ export function createWorkBuddyDriver({
         const send=a=>fetchImpl(endpoint(a)+path,{
           headers:{
             authorization:'Bearer '+a.access,accept:'application/json',
-            ...(a.accountId?{'x-user-id':a.accountId}:{}),
+            ...((a.uid||a.accountId)?{'x-user-id':a.uid||a.accountId}:{}),
             'x-domain':ownedRegion==='cn'?'www.workbuddy.cn':'www.workbuddy.ai',
             'x-product':'SaaS','x-requested-with':'XMLHttpRequest',
             'user-agent':userAgent,
@@ -365,8 +379,7 @@ export function createWorkBuddyDriver({
         for(const item of doc.data.models){
           if(typeof item?.id==='string'&&item.id.length<160&&item.id
              &&item.supportsToolCall!==false)
-             map.set(item.id,{id:item.id,name:typeof item.name==='string'?item.name:item.id,
-               ...(officialZeroCredit(item)?{upstreamFreeLabel:true}:{})});
+             map.set(item.id,mergeCatalogRow(map.get(item.id),catalogRow(item)));
         }
         const cli=Array.isArray(doc?.data?.agents)
           ?doc.data.agents.find(x=>x?.name==='cli'&&Array.isArray(x.models)):null;
@@ -380,8 +393,7 @@ export function createWorkBuddyDriver({
           const desktop=await readCatalog('/v3/config','WorkBuddy/5.8.3').catch(()=>[]);
           const seen=new Map();
            for(const item of [...cli,...desktop]){
-             const prior=seen.get(item.id);
-             if(!prior||(!prior.upstreamFreeLabel&&item.upstreamFreeLabel))seen.set(item.id,item);
+             seen.set(item.id,mergeCatalogRow(seen.get(item.id),item));
            }
           rows=[...seen.values()];
         }else{
@@ -400,8 +412,7 @@ export function createWorkBuddyDriver({
     const rows=response?.data?.models;
     if(!Array.isArray(rows))throw new UpstreamError('WorkBuddy model catalog unavailable',{code:'BAD_JSON'});
     return rows.filter(x=>typeof x?.id==='string'&&x.id&&x.supportsToolCall!==false)
-       .map(x=>({id:x.id,name:typeof x.name==='string'?x.name:x.id,
-         ...(officialZeroCredit(x)?{upstreamFreeLabel:true}:{})}));
+       .map(catalogRow);
   }
   // Metadata-only diagnosis of incomplete OpenAI SSE. No model content, headers,
   // cookie, user identity or upstream free-form error is ever retained.
@@ -417,8 +428,14 @@ export function createWorkBuddyDriver({
   }
   const memberReader=createWorkBuddyMemberReader({fetchImpl,now,baseOverride:allowTestEndpoint});
   const growthReader=createWorkBuddyGrowthReader({fetchImpl,baseOverride:allowTestEndpoint});
-  const memberSnapshots=new Map(),benefitInflight=new Set();
+  const memberSnapshots=new Map(),benefitInflight=new Set(),verifiedSubjects=new Map();
+  const identitySalt=randomUUID();
+  function verifiedIdentityGroup(account){
+    const row=verifiedSubjects.get(account?.id);
+    return row?.binding===account?.credentialRef&&now()-row.at>=0&&now()-row.at<=15*60000?row.group:null;
+  }
   async function fetchMemberFacts(account,signal){
+    verifiedSubjects.delete(account.id);
     const auth=await validSession(account,signal);
     const region=ownedRegion??(auth.endpoint===DOMAIN_INTL?'global':'cn');
     const [profile,credits,benefits,growth,daily]=await Promise.allSettled([
@@ -433,6 +450,8 @@ export function createWorkBuddyDriver({
     const latest=memberSnapshots.get(account.id)??{};
     const profileRow=profile.status==='fulfilled'?profile.value:{};
     const creditRow=credits.status==='fulfilled'?credits.value:null;
+    if(signal?.aborted)throw new UpstreamError('Member read cancelled',{code:'CANCELLED'});
+    if(ownedRegion&&auth.uid&&profileRow?.authVerified===true)verifiedSubjects.set(account.id,{binding:account.credentialRef,at:now(),group:sha(identitySalt+'\0'+region+'\0'+auth.uid)});
     const benefitsRow=benefits.status==='fulfilled'?benefits.value:null;
     const growthRows=growth.status==='fulfilled'?growth.value.map(({_target,...row})=>row):[];
     const dailyRow=daily.status==='fulfilled'?daily.value:null;
@@ -456,14 +475,15 @@ export function createWorkBuddyDriver({
         activityCheckedAt:now(),
       }:{activityState:'unavailable',activityActive:false,
         activityClaimable:false,activityCheckedAt:now()}),
-      ...(creditRow??{
+      ...(creditRow?{...creditRow,creditFetchState:'available',expiringPoints:creditRow.expiringPoints??0,expiringAt:creditRow.expiringAt??null}: {
         balanceState:Number.isFinite(latest.balance)?'cached':'not_returned',
-        creditFetchState:'unavailable',
+        quotaWindows:[],creditFetchState:'unavailable',
       }),
       ...(publicBenefits?{benefits:publicBenefits,
         availableBenefits:publicBenefits.filter(x=>x.active&&!x.claimed).length,
         benefitsCheckedAt:now()}:{}),
       profileCheckedAt:now(),
+      profileState:profileRow?.authVerified===true&&profileRow.accountName?'verified':name?'cached':'not_returned',
     };
     memberSnapshots.set(account.id,next);
     return {state:creditRow||profileRow?.authVerified===true?'online':'unavailable',
@@ -630,6 +650,8 @@ export function createWorkBuddyDriver({
      return daily;
    }
    return {
+     accountReadTimeoutMs:23000,catalogReadTimeoutMs:20000,
+     ...(ownedRegion?{verifiedIdentityGroup}:{}),
      ...(ownedRegion?{checkIn:workbuddyCheckIn,
        claimActivities:workbuddyClaimActivities}:{}),
     authMethod:ownedRegion?'WorkBuddy 自有凭据 · 已与原 DSH 插件分离':
@@ -687,7 +709,7 @@ export function createWorkBuddyDriver({
      accountSnapshot(account){
        const row=memberSnapshots.get(account?.id)??{};
        const name=publicAccountName(row,account);
-       return {...row,...(name?{accountName:name}:{})};
+       return {...row,...(name?{accountName:name,profileState:row.profileState==='verified'&&now()-row.profileCheckedAt>=0&&now()-row.profileCheckedAt<=15*60000?'verified':'cached'}:{})};
      },
      async refreshAccountStatus({account,signal}={}){
        try{
@@ -695,7 +717,11 @@ export function createWorkBuddyDriver({
         return {state:facts.authVerified===true?'online':'unavailable',
          authVerified:facts.authVerified===true,
          ...(facts.authVerified===true?{checkedAt:now()}:{})};
-       }catch{return {state:'unavailable',authVerified:false}}
+       }catch(error){
+        const old=memberSnapshots.get(account?.id);
+        if(old)memberSnapshots.set(account.id,{...old,profileState:old.accountName?'cached':'not_returned',balanceState:Number.isFinite(old.balance)?'cached':'not_returned',quotaWindows:[]});
+        return {state:error?.status===401||error?.code==='CREDENTIAL'?'expired':'unavailable',authVerified:false};
+       }
      },
     async logout({account}={}){
        if(ownedRegion){
@@ -703,7 +729,7 @@ export function createWorkBuddyDriver({
          const found=OWNED_REF.exec(String(account?.credentialRef??''));
          if(!found||found[1]!==owner||found[2]!==account?.id)throw Error('Invalid owned WorkBuddy identity');
          await ownedVault?.unset?.(await ownedCredentialRef(account.id));
-         tokenCache.delete(account.id);
+         tokenCache.delete(account.id);memberSnapshots.delete(account.id);verifiedSubjects.delete(account.id);
          return {revokedUpstream:false,message:'已解除聚合路由独立授权，原插件账号未改变'};
        }
       const id=TOKEN_REF.exec(account?.credentialRef??'')?.[1];

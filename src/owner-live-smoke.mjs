@@ -238,7 +238,8 @@ export async function hostRouteProof({llm,adapter,configStore,accountCenter,
     return {state:'skipped',code:'DSH_ROUTE_NOT_ADVERTISED'};
   const controller=new AbortController();
   const cancel=()=>controller.abort();
-  const timer=setTimeout(cancel,90000);
+  let timedOut=false;
+  const timer=setTimeout(()=>{timedOut=true;cancel()},providerId==='own_loomy'?135000:90000);
   if(signal?.aborted)cancel();else signal?.addEventListener('abort',cancel,{once:true});
   let content=false,finished=false,finishReason='',events=0,iterator,ended=false;
   const step=async fn=>{
@@ -292,7 +293,7 @@ export async function hostRouteProof({llm,adapter,configStore,accountCenter,
     if(!bindingIntact())return {state:'failed',code:'DSH_ROUTE_ACCOUNT_UNSAFE'};
     return {state:'verified',code:'DSH_HOST_ROUTE_COMPLETE',proofAt:now()};
   }catch{
-    return {state:'failed',code:controller.signal.aborted?'CANCELLED':'DSH_HOST_ROUTE_FAILED'};
+    return {state:'failed',code:timedOut?'DSH_HOST_PROOF_TIMEOUT':controller.signal.aborted?'CANCELLED':'DSH_HOST_ROUTE_FAILED'};
   }finally{
     clearTimeout(timer);signal?.removeEventListener('abort',cancel);
     if(iterator&&!ended){cancel();try{Promise.resolve(iterator.return?.()).catch(()=>{})}catch{}}

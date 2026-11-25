@@ -129,3 +129,14 @@ test('AutoFree response and tool calls are rejected when owner marks the active 
  assert.equal(events.length,0,'no text or executable DSH tool event may escape the revoked free tier');
 });
 
+
+test('owned-only AutoFree audit neither reads nor replaces the external provider catalog',async()=>{
+ const providerId='own_workbuddy-cn',id='one';let externalReads=0;
+ const cfg=normalizeConfig({providers:[{id:providerId,protocol:'native-channel',enabled:true}],accounts:[{id,providerId,credentialRef:'driver:'+providerId+':'+id,enabled:true}]});
+ const adapter=createNativeRouterAdapter({configStore:{get:()=>cfg},hostProviderInventory:{status:()=>({hostProviders:[{providerId:'external-fixture'}]}),listHostModels:async()=>{externalReads++;return {state:'ready',models:[{id:'external',free:true}]}}}});
+ adapter.setAccountVerificationResolver(()=>true);adapter.setOwnedAccountCatalogResolver(async()=>({state:'ready',models:[{id:'own-free',free:true}]}));
+ const initial=await adapter.auditAutoFree();assert.equal(externalReads,1);assert.equal(initial.routeCount,2);
+ const before=adapter.autoFreeSnapshot();const owned=await adapter.auditAutoFree({ownedOnly:true});
+ assert.equal(externalReads,1);assert.equal(owned.catalogCount,1);assert.equal(owned.routeCount,1);assert.equal(owned.providers[0].providerId,providerId);
+ assert.deepEqual(adapter.autoFreeSnapshot(),before);
+});

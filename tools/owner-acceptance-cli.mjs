@@ -6,7 +6,7 @@ import {pathToFileURL} from 'node:url';
 const requestIdPattern=/^[a-f0-9]{32}$/;
 const providerPattern=/^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const states=new Set(['idle','running','complete','cancelled','failed','observed','online','expired','limited','error','pending','client_required','verified','skipped','unavailable','ready','unknown','available','cached','not_returned','not_supported','not_checked','active','not_subscribed','no_cycle','empty']);
-const modeSet=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity','autofree-audit','host-route']);
+const modeSet=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity','autofree-audit','owned-autofree-audit','host-route']);
 const count=n=>Number.isSafeInteger(n)&&n>=0&&n<=10000?n:0;
 const state=x=>states.has(x)?x:'unknown';
 function safeReport(raw){
@@ -20,6 +20,7 @@ function safeReport(raw){
  if(Array.isArray(raw.accounts))out.accounts=raw.accounts.slice(0,16).filter(x=>x&&providerPattern.test(x.providerId??'')).map(x=>{
   const item={slot:count(x.slot),providerId:x.providerId,state:state(x.state)};
   if(x.scope==='provider')item.scope='provider';
+  if(['verified','cached','not_returned','unknown'].includes(x.profileState))item.profileState=x.profileState;
   if(['MISSING_FINISH','MAX_TOKENS','TOOL_CALLS','NO_TEXT','UNEXPECTED_FINISH'].includes(x.hostPhase))item.hostPhase=x.hostPhase;
   for(const k of ['connection','modelState','balanceState','membershipState','usageState','catalogState'])if(x[k]!==undefined)item[k]=state(x[k]);
   for(const k of ['hasProfile','hasBalance','hasBalanceUnit','hasRollingQuota','hasMembershipQuota','quotaObserved','zcodeStatusObserved','zcodeBalanceObserved','zcodeGiftConfirmed','zcodeGiftRoutable','loomyGiftConfirmed','dailyQuotaObserved'])if(typeof x[k]==='boolean')item[k]=x[k];
@@ -29,6 +30,7 @@ function safeReport(raw){
   if(typeof x.code==='string'&&/^[A-Z][A-Z0-9_]{0,47}$/.test(x.code))item.code=x.code;
   return item;
  });
+ if(Array.isArray(raw.workbuddyIdentity))out.workbuddyIdentity=raw.workbuddyIdentity.filter(x=>['own_workbuddy-cn','own_workbuddy-global'].includes(x?.providerId)).slice(0,2).map(x=>({providerId:x.providerId,...Object.fromEntries(['configuredRecords','enabledRecords','confirmedRecords','distinctConfirmedSubjects','unconfirmedRecords'].map(k=>[k,count(x[k])]))}));
  if(raw.activity&&typeof raw.activity==='object')out.activity=Object.fromEntries(
    ['attempted','confirmedSignins','newlyCreditedRewards','pendingAccounts','failedAccounts','noTaskAccounts','clientRequiredAccounts'].map(k=>[k,count(raw.activity[k])]));
  if(Array.isArray(raw.catalog))out.catalog=raw.catalog.slice(0,32).filter(x=>x&&providerPattern.test(x.providerId??'')).map(x=>({providerId:x.providerId,state:state(x.state),modelCount:count(x.modelCount),freeCount:count(x.freeCount)}));
@@ -57,7 +59,7 @@ export async function requestOwnerAcceptance({loginLink,action='status',mode,cha
  if(!['status','start','cancel'].includes(action))throw Error('Unsupported acceptance action');
  if(action==='start'&&(!modeSet.has(mode)||consent!==true||
    channel!==undefined&&!providerPattern.test(channel)||
-     ['channel-activity','host-route'].includes(mode)&&!channel||['all-channel-activity','autofree-audit'].includes(mode)&&channel!==undefined))throw Error('Explicit mode, consent and required channel are necessary');
+     ['channel-activity','host-route'].includes(mode)&&!channel||['all-channel-activity','autofree-audit','owned-autofree-audit'].includes(mode)&&channel!==undefined))throw Error('Explicit mode, consent and required channel are necessary');
  if(action!=='status'&&!requestIdPattern.test(requestId??''))throw Error('Valid request ID required');
  const url=checkedLoginLink(loginLink);
  let login;

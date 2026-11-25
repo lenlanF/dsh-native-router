@@ -81,6 +81,16 @@ export function createAccountCenter({
      publicFactsStore.observe(account,live,{verifiedAt:observedAt});
    }catch{}
  }
+ function workbuddyIdentitySummary(providerId){
+   if(!['own_workbuddy-cn','own_workbuddy-global'].includes(providerId))return null;
+   const cfg=configStore.get(),configured=cfg.accounts.filter(a=>a.providerId===providerId),rows=configured.filter(a=>a.enabled===true),driver=cfg.providers.some(p=>p.id===providerId&&p.enabled)?driverFor(providerId):null;
+   const verified=[];
+   for(const account of rows){
+     const key=driver?.verifiedIdentityGroup?.(account);
+     if(typeof key==='string'&&key)verified.push(key);
+   }
+   return {configuredRecords:configured.length,enabledRecords:rows.length,confirmedRecords:verified.length,distinctConfirmedSubjects:new Set(verified).size,unconfirmedRecords:rows.length-verified.length};
+ }
  function list(){
    const cfg=configStore.get(),registered=describeChannels(cfg,drivers instanceof Map?drivers:new Map(Object.entries(drivers??{})));
    const statusMap=new Map(cfg.accounts.map(account=>[account.id,checkFor(account)]));
@@ -88,7 +98,8 @@ export function createAccountCenter({
      channels:registered.map(channel=>{
        const accounts=cfg.accounts.filter(a=>a.providerId===channel.id);
        return {...channel,providerEnabled:cfg.providers.find(p=>p.id===channel.id)?.enabled??false,
-         totalAccounts:accounts.length,enabledAccounts:accounts.filter(a=>a.enabled).length};
+         totalAccounts:accounts.length,enabledAccounts:accounts.filter(a=>a.enabled).length,
+         ...(['own_workbuddy-cn','own_workbuddy-global'].includes(channel.id)?{identitySummary:workbuddyIdentitySummary(channel.id)}:{})};
      }),
      accounts:cfg.accounts.map(account=>{
        const provider=cfg.providers.find(p=>p.id===account.providerId);
@@ -151,7 +162,7 @@ export function createAccountCenter({
            return {id:account.id,providerId:account.providerId,providerName:provider.name,
              ...(name?{nickname:name}:{}),
              ...(maskedPhone?{maskedPhone}:{}),
-             profileState:name||maskedPhone?profileFromCache?'cached':'verified':'not_returned',
+             profileState:name||maskedPhone?profileFromCache||live.profileState==='cached'?'cached':'verified':'not_returned',
              ...balance,quotaWindows,
              ...(balance.balanceUnit==='积分'
                &&Number.isFinite(fromCache?cached?.expiringPoints:live.expiringPoints)
@@ -322,6 +333,8 @@ export function createAccountCenter({
  };
  function catalogPrice(row,providerId,rows){
    const peers=rows.filter(x=>x?.id===row.id);
+   if(peers.some(x=>x.pricingConflict===true))return {pricingConflict:true};
+   if(peers.some(x=>x.pricingIncomplete===true))return {pricingIncomplete:true};
    const metadata=peers.map(x=>{
      const rate=numericRate(x.costMultiplier);
      const ratio=rate!==null&&rate<=100&&(providerId!=='codearts'||x.priceSource==='codearts-official-credit-ratio')?rate:null;
@@ -1061,5 +1074,5 @@ export function createAccountCenter({
   if(initialTimer)clearTimeout(initialTimer);
   automaticTimer=null;initialTimer=null;
  }
-  return {list,verify,verifyModel,listTestModels,observeRoutedInference,setEnabled,logout,discover,importCandidate,refreshAll,refreshReadOnly,autoCheckDue,start,stop,drivers,driverFor,find,commitMimoDesktopAccount,startMimoLogin,pollMimoLogin,cancelMimoLogin,commitMeooAccount,addMeooCookie,startMeooLogin,pollMeooLogin,cancelMeooLogin,commitQwenAccount,startQwenLogin,pollQwenLogin,cancelQwenLogin,commitAwsQuickAccount,importAwsQuickLocal,startAwsQuickLogin,pollAwsQuickLogin,submitAwsQuickLogin,cancelAwsQuickLogin};
+  return {list,workbuddyIdentitySummary,verify,verifyModel,listTestModels,observeRoutedInference,setEnabled,logout,discover,importCandidate,refreshAll,refreshReadOnly,autoCheckDue,start,stop,drivers,driverFor,find,commitMimoDesktopAccount,startMimoLogin,pollMimoLogin,cancelMimoLogin,commitMeooAccount,addMeooCookie,startMeooLogin,pollMeooLogin,cancelMeooLogin,commitQwenAccount,startQwenLogin,pollQwenLogin,cancelQwenLogin,commitAwsQuickAccount,importAwsQuickLocal,startAwsQuickLogin,pollAwsQuickLogin,submitAwsQuickLogin,cancelAwsQuickLogin};
 }

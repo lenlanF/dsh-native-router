@@ -32,30 +32,32 @@ export function parseWorkBuddyCredits(payload,{enterprise=false,now=Date.now()}=
      ?{expiringPoints:remain,expiringAt:refresh}:{}),
    balanceCheckedAt:now,balanceState:'available'};
  }
- if(!Array.isArray(answer.Accounts))return null;
+ if(!Array.isArray(answer.Accounts)||answer.Accounts.length>MAX_ROWS)return null;
  if(!answer.Accounts.length)return {balance:0,balanceUnit:'积分',quotaWindows:[],
    quotaState:'no_active_package',balanceCheckedAt:now,balanceState:'available'};
  let total=0;const packages=[];
  for(const row of answer.Accounts.slice(0,MAX_ROWS)){
-  if(!record(row))continue;
+  if(!record(row))return null;
   const kind=Number(row.CapacityType)===4?'monthly':'grant';
   const hasCycle=row.CycleCapacityRemainPrecise!==undefined||
    row.CycleCapacityRemain!==undefined;
   const remaining=num(hasCycle?row.CycleCapacityRemainPrecise??row.CycleCapacityRemain:
    row.CapacityRemainPrecise??row.CapacityRemain);
-  if(remaining===null)continue;
+  if(remaining===null)return null;
   const size=num(hasCycle?row.CycleCapacitySizePrecise??row.CycleCapacitySize??
    row.CapacitySizePrecise??row.CapacitySize:
    row.CapacitySizePrecise??row.CapacitySize);
   const reset=date(row.CycleEndTime),expires=date(row.ExpiredTime);
-  if(kind==='grant'&&(remaining===0||expires!==null&&expires<=now))continue;
+  if(expires!==null&&expires<=now)continue;
+  if(kind==='monthly'&&reset!==null&&reset+1000<=now)return null;
+  if(kind==='grant'&&remaining===0)continue;
   total+=remaining;
   packages.push({kind,label:clampName(row.PackageName)|| (kind==='monthly'?'月度积分':'活动赠送'),
    total:size??remaining,used:size===null?0:Math.max(size-remaining,0),left:remaining,
    ...(kind==='monthly'&&reset?{endAt:reset+1000}:{}),
    ...(kind==='grant'&&expires?{endAt:expires}:{})});
  }
- if(!packages.length)return null; // An enterprise's empty personal list is NOT zero.
+ if(!packages.length)return {balance:0,balanceUnit:'积分',quotaWindows:[],quotaState:'no_active_package',balanceCheckedAt:now,balanceState:'available'};
  // Official independent WorkBuddy credit packages form the summed wallet;
  // only these exact non-overlapping points buckets may be aggregated into
  // an expiring-soon total. Five-hour/week model limits must never be added.
@@ -73,12 +75,10 @@ export function parseWorkBuddyProfile(payload,auth={}){
  if(!uid)return {};
  // When vault gave a stable UID, do not attach another person's profile.
  if(auth.uid&&uid!==String(auth.uid))return {};
- const name=publicAccountName({displayName:profile.displayName,
-  enterpriseUserName:profile.enterpriseUserName,nickname:profile.nickname,
+ const name=publicAccountName({id:uid,displayName:profile.displayName,
+  accountName:profile.enterpriseUserName,nickname:profile.nickname,
   nickName:profile.NickName,name:profile.ScreenName,
-  username:profile.preferred_username},
-  {nickname:auth.nickname,displayName:auth.displayName,
-   enterpriseUserName:auth.enterpriseUserName});
+  username:profile.preferred_username});
   return name?{accountName:name,authVerified:true}:{authVerified:true};
 }
 export function parseWorkBuddyBenefit(payload,kind){
@@ -131,7 +131,7 @@ export function createWorkBuddyMemberReader({fetchImpl=fetch,now=()=>Date.now(),
   for(const path of ['/v2/plugin/account','/v2/plugin/login/account']){
    try{
     const data=parseWorkBuddyProfile(await req(path),auth);
-    if(data.accountName)return data;
+    if(data.authVerified===true)return data;
    }catch{}
   }
   const name=publicAccountName({
