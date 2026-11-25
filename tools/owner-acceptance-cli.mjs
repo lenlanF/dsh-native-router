@@ -23,7 +23,7 @@ function safeReport(raw){
   for(const k of ['hasProfile','hasBalance','hasBalanceUnit','hasRollingQuota','hasMembershipQuota','quotaObserved','zcodeStatusObserved','zcodeBalanceObserved','zcodeGiftConfirmed','loomyGiftConfirmed','dailyQuotaObserved'])if(typeof x[k]==='boolean')item[k]=x[k];
   for(const k of ['quotaWindowCount','freeCandidates','advertisedCount','knownRateCount','zeroRateCount','zcodePlanBuckets','zcodeFlashBuckets','zcodePreviewStartPlans'])if(Number.isSafeInteger(x[k]))item[k]=count(x[k]);
   if(typeof x.lowestMultiplier==='number'&&Number.isFinite(x.lowestMultiplier)&&x.lowestMultiplier>=0&&x.lowestMultiplier<=100)item.lowestMultiplier=x.lowestMultiplier;
-  if(['CATALOG','DRIVER_PRECHECK','ENTITLEMENT_READ','STREAM_OPEN','STREAM_READ'].includes(x.phase))item.phase=x.phase;
+  if(['CATALOG','DRIVER_PRECHECK','ENTITLEMENT_READ','STREAM_OPEN','STREAM_READ','STREAM_FIRST_EVENT','STREAM_REASONING','STREAM_TEXT','STREAM_FINISH'].includes(x.phase))item.phase=x.phase;
   if(typeof x.code==='string'&&/^[A-Z][A-Z0-9_]{0,47}$/.test(x.code))item.code=x.code;
   return item;
  });
@@ -37,6 +37,7 @@ function safeReport(raw){
      ...Object.fromEntries(['attempted','confirmedSignins','newlyCreditedRewards','pendingAccounts','failedAccounts','noTaskAccounts','clientRequiredAccounts'].map(k=>[k,count(x[k])])),
      ...(typeof x.code==='string'&&/^[A-Z][A-Z0-9_]{0,47}$/.test(x.code)?{code:x.code}:{})}));
  if(raw.autoFree&&typeof raw.autoFree==='object')out.autoFree={state:state(raw.autoFree.state),catalogCount:count(raw.autoFree.catalogCount),routeCount:count(raw.autoFree.routeCount),manualCount:count(raw.autoFree.manualCount),errors:count(raw.autoFree.errors),providers:(Array.isArray(raw.autoFree.providers)?raw.autoFree.providers:[]).slice(0,128).filter(x=>providerPattern.test(x?.providerId??'')).map(x=>({providerId:x.providerId,routeCount:count(x.routeCount),accountCount:count(x.accountCount)}))};
+ if(out.autoFree&&Array.isArray(raw.autoFree.issues)&&raw.autoFree.issues.length)out.autoFree.issues=raw.autoFree.issues.filter(x=>providerPattern.test(x?.providerId??'')&&['HOST_CATALOG_UNAVAILABLE','ACCOUNT_CATALOG_UNAVAILABLE','SOURCE_ACCOUNT_SCOPE_UNVERIFIED','SOURCE_CATALOG_UNAVAILABLE','SOURCE_ROSTER_UNAVAILABLE','SCAN_UNAVAILABLE'].includes(x.code)).slice(0,128).map(x=>({providerId:x.providerId,code:x.code,count:count(x.count)}));
  return out;
 }
 function checkedLoginLink(value){

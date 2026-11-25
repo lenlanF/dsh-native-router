@@ -45,7 +45,7 @@ function capText(value){
 // Complete the upstream DSH stream into ONE atomic response. The native router
 // does not expose partial output before routing/failover has committed to a tier.
 // Never execute tools: only return DSH-host-authorized tool calls after validation.
-export async function collectSourceDshStream(stream,{tools=[],signal}={}){
+export async function collectSourceDshStream(stream,{tools=[],signal,onProgress}={}){
  if(!stream||typeof stream[Symbol.asyncIterator]!=='function')
   throw unable('DSH source adapter did not return an async stream','TOOL_PROTOCOL');
  let text='',reasoning='',usage=null,finish=null,total=0;
@@ -55,7 +55,7 @@ export async function collectSourceDshStream(stream,{tools=[],signal}={}){
   if(total>MAX_OUTPUT_BYTES)throw unable('Native model output exceeded size limit','RESPONSE_SIZE');
  }
   const iterator=stream[Symbol.asyncIterator]();
-  let ended=false;
+   let ended=false,lastProgress='';
   const readNext=async()=>{
    if(!signal)return iterator.next();
    if(signal.aborted)throw unable('Native model request was cancelled','CANCELLED');
@@ -147,6 +147,9 @@ export async function collectSourceDshStream(stream,{tools=[],signal}={}){
      finish=item.reason.kind;    break;
    default:throw unable('Unsupported native model event type','TOOL_PROTOCOL');
   }
+   // Only bounded phase names leave the collector, never response content.
+   const progress=finish!==null?'STREAM_FINISH':text.length?'STREAM_TEXT':reasoning.length?'STREAM_REASONING':'STREAM_FIRST_EVENT';
+   if(progress!==lastProgress){lastProgress=progress;onProgress?.(progress)}
   }}finally{
    // Cancellation must not wait on an upstream iterator whose next/return
    // is stuck. Request cleanup once; ignore late errors, never emit partial text.
@@ -378,7 +381,7 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
        phase('STREAM_OPEN');
        const native=await embeddedPack.streamNative(request);
        phase('STREAM_READ');
-       const output=await collectSourceDshStream(native,{tools:options.tools,signal});
+        const output=await collectSourceDshStream(native,{tools:options.tools,signal,onProgress:phase});
        if(embeddedPack.status?.().state!=='mounted')
          throw unable('Isolated DSH source was disposed before completion');
        if(output.finishReason==='stop'&&typeof output.text==='string'&&output.text.trim())

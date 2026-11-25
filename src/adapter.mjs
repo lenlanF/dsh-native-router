@@ -167,7 +167,7 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
      }
      for(const row of providers.values())row.accountCount=accounts.get(row.providerId).size;
      const manualCount=tiers.filter(t=>snapshot.models.some(m=>m.providerId===t.providerId&&m.model===t.model&&m.evidence?.startsWith('用户手动'))).length;
-     return {state:snapshot.state,catalogCount:snapshot.catalog.length,routeCount:tiers.length,manualCount,errors:snapshot.errors,providers:[...providers.values()]};
+      return {state:snapshot.state,catalogCount:snapshot.catalog.length,routeCount:tiers.length,manualCount,errors:snapshot.errors,providers:[...providers.values()],...(snapshot.issues?.length?{issues:snapshot.issues}: {})};
     },
     getStatus(){const cfg=configStore.get();return {routes:cfg.routes.length,
       providers:getConfig().providers.length,accounts:getConfig().accounts.length,

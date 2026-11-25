@@ -46,7 +46,7 @@ export function freeEvidence(model,providerId='',peers=[model]){
  return null;
 }
 const empty=()=>({state:'not_scanned',models:[],catalog:[],sourceAccounts:[],
- scannedAt:null,hostCount:0,sourceCount:0,unknownPricing:0,errors:0});
+ scannedAt:null,hostCount:0,sourceCount:0,unknownPricing:0,errors:0,issues:[]});
 import {allowsHostModel} from './host-model-selection.mjs';
 export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
  now=()=>Date.now(),ttlMs=90000,timeoutMs=2600,ownedAccountCatalog,ownedAccountEligible,ownedCatalogEnabled=()=>typeof ownedAccountCatalog==='function'}={}){
@@ -86,7 +86,14 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
  }
  async function run(){
   const hosts=hostIds(),models=[],catalog=[],sourceAccounts=[],seen=new Set();
-  let unknownPricing=0,errors=0,hostCount=0,sourceCount=0;
+  let unknownPricing=0,errors=0,hostCount=0,sourceCount=0;  const issues=new Map();
+  const recordIssue=(providerId,code)=>{
+   errors++;
+   const key=providerId+':'+code;
+   const row=issues.get(key)??{providerId,code,count:0};
+   row.count++;issues.set(key,row);
+  };
+
   function add(providerId,row,kind,peers,accountIds){
    const model=typeof row==='string'?row:row?.id;
    if(!isId(providerId)||!isModel(model)||!allowsHostModel(getConfig?.(),providerId,model))return;
@@ -102,8 +109,8 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
    models.push({...entry,evidence});
   }
   const jobs=hosts.map(providerId=>async()=>{
-   const result=await bounded(()=>hostProviderInventory.listHostModels(providerId));
-   if(result?.state!=='ready'||!Array.isArray(result.models)){errors++;return}
+    const result=await bounded(()=>hostProviderInventory.listHostModels(providerId)).catch(()=>null);
+    if(result?.state!=='ready'||!Array.isArray(result.models)){recordIssue(providerId,'HOST_CATALOG_UNAVAILABLE');return}
    hostCount++;
     for(const model of result.models)add(providerId,model,'host',result.models.filter(x=>(typeof x==='string'?x:x?.id)===(typeof model==='string'?model:model?.id)));
   });
@@ -126,7 +133,7 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
     for(const a of members){
      const result=await bounded(()=>ownedAccountCatalog(a),30000).catch(()=>null);
      if(result?.state==='ready'&&Array.isArray(result.models))observed.push({id:a.id,models:result.models});
-     else errors++;
+      else recordIssue(providerId,'ACCOUNT_CATALOG_UNAVAILABLE');
     }
     if(!observed.length)return;
     sourceCount++;
@@ -159,7 +166,7 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
    return ownBound?sourceId:'own_'+sourceId;
   };
   if(pack.state==='mounted'){
-   const accounts=await bounded(()=>ownedPack.listAccounts());
+    const accounts=await bounded(()=>ownedPack.listAccounts()).catch(()=>null);
    if(accounts?.state==='ready'&&Array.isArray(accounts.accounts)){
     const byProvider=new Map();
     for(const row of accounts.accounts){
@@ -171,27 +178,33 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
      const list=byProvider.get(row.providerId)??[];
      list.push(row);byProvider.set(row.providerId,list);
     }
-    for(const [providerId,rows] of byProvider){
-     if(rows.length>1&&!pack.experimentalMultiAccountProviders?.includes(providerId)){
-      errors++;continue; // no unverifiable exact-account selection
+     for(const [providerId,rows] of byProvider){
+      const eligibleProviderIds=new Set(rows.map(row=>targetProvider(providerId,sourceAccountOpaqueId(providerId,row.id))));
+      // Configured independent channels already have exact-account reads above.
+      // Do not call or count a second generic source catalog for them.
+      const unconfigured=[...eligibleProviderIds].filter(id=>!configuredNative.has(id));
+      if(!unconfigured.length)continue;
+      if(rows.length>1&&!pack.experimentalMultiAccountProviders?.includes(providerId)){
+       for(const target of unconfigured)recordIssue(target,'SOURCE_ACCOUNT_SCOPE_UNVERIFIED');
+       continue;
+      }
+      jobs.push(async()=>{
+       const result=await bounded(()=>ownedPack.listModels(providerId)).catch(()=>null);
+       if(result?.state!=='ready'||!Array.isArray(result.models)){
+        for(const target of unconfigured)recordIssue(target,'SOURCE_CATALOG_UNAVAILABLE');return;
+       }
+       sourceCount++;
+       for(const model of result.models)for(const target of unconfigured)
+        add(target,model,'owned-source',result.models.filter(x=>(typeof x==='string'?x:x?.id)===(typeof model==='string'?model:model?.id)));
+      });
      }
-     jobs.push(async()=>{
-      const result=await bounded(()=>ownedPack.listModels(providerId));
-      if(result?.state!=='ready'||!Array.isArray(result.models)){errors++;return}
-      sourceCount++;
-      const eligibleProviderIds=new Set(rows.map(row=>
-        targetProvider(providerId,sourceAccountOpaqueId(providerId,row.id))));
-      for(const model of result.models)for(const target of eligibleProviderIds)
-        if(!configuredNative.has(target))add(target,model,'owned-source',result.models.filter(x=>(typeof x==='string'?x:x?.id)===(typeof model==='string'?model:model?.id)));
-     });
-    }
-   }else errors++;
+    }else recordIssue('source-pack','SOURCE_ROSTER_UNAVAILABLE');
   }
   let index=0;
   await Promise.all(Array.from({length:Math.min(6,jobs.length)},async()=>{
    while(index<jobs.length){
     const job=jobs[index++];
-    try{await job()}catch{errors++}
+     try{await job()}catch{recordIssue('catalog-scan','SCAN_UNAVAILABLE')}
    }
   }));
   const sort=(a,b)=>a.providerId.localeCompare(b.providerId)||a.model.localeCompare(b.model);
@@ -209,7 +222,7 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
   }
   models.sort(sort);catalog.sort(sort);
    return {state:'ready',models,catalog,sourceAccounts,scannedAt:now(),hostCount,sourceCount,
-    unknownPricing,errors};
+     unknownPricing,errors,issues:[...issues.values()].sort((a,b)=>a.providerId.localeCompare(b.providerId)||a.code.localeCompare(b.code))};
  }
  function refresh({force=false}={}){
   if(pending)return pending;
