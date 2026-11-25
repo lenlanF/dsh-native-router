@@ -4,7 +4,7 @@ import {normalizeConfig} from '../src/config.mjs';
 import {createAccountCenter} from '../src/account-center.mjs';
 
 function rig({models,providerId='own_workbuddy-cn',onGenerate,onListModels}={}){
- const id='wbp_'+'a'.repeat(24);
+ const id=(providerId==='codearts'?'sp_':'wbp_')+'a'.repeat(24);
  let cfg=normalizeConfig({providers:[{id:providerId,protocol:'native-channel',
   name:'Owned member channel',enabled:true}],accounts:[{
   id,providerId,credentialRef:'driver:'+providerId+':'+id,enabled:true,
@@ -15,6 +15,7 @@ function rig({models,providerId='own_workbuddy-cn',onGenerate,onListModels}={}){
  },generate:async args=>{generates++;return onGenerate?.(args)??{
    text:'OK',finishReason:'stop',toolCalls:[],usage:{prompt_tokens:3,completion_tokens:2},
   }}};
+ if(providerId==='codearts')driver.isPrivateSourceBound=a=>a.id===id&&a.providerId===providerId&&a.credentialRef==='driver:'+providerId+':'+id;
  const configStore={get:()=>structuredClone(cfg),replace:x=>(cfg=normalizeConfig(x))};
  const center=createAccountCenter({configStore,
   drivers:new Map([[providerId,driver]]),now:()=>Date.now()});
@@ -229,6 +230,15 @@ test('background acceptance refuses manual free overrides and conflicting offici
  assert.equal(result.modelId,'safe');
  assert.equal(h.generates,1);
  h.center.stop();
+});
+test('official catalog preserves exact validated rates and prices without arbitrary metadata',async()=>{
+ const h=rig({providerId:'codearts',models:[{id:'low',costMultiplier:0.003,priceSource:'codearts-official-credit-ratio',catalogSource:'codearts-signed-official-model-catalog',private:'PRIVATE_FIXTURE'},{id:'priced',pricing:{input:'0.25',output:2,private:'PRIVATE_FIXTURE'}},{id:'unknown',pricing:{input:'PRIVATE_FIXTURE',output:0}},{id:'conflict',costMultiplier:0,priceSource:'codearts-official-credit-ratio'},{id:'conflict',costMultiplier:1,priceSource:'codearts-official-credit-ratio'}]});
+ try{const {models}=await h.center.listTestModels(h.id,{officialOnly:true});
+ assert.equal(models[0].costMultiplier,0.003);assert.equal(models[0].priceSource,'codearts-official-credit-ratio');assert.equal(models[0].free,false);
+ assert.deepEqual(models[1].pricing,{input:0.25,output:2});assert.equal(models[2].pricing,undefined);
+ assert.equal(models[3].costMultiplier,undefined);assert.equal(models[3].free,false);
+ assert.doesNotMatch(JSON.stringify(models),/PRIVATE_FIXTURE/);assert.equal(h.generates,0);
+ }finally{h.center.stop()}
 });
 test('background acceptance honors explicit paid exclusion of otherwise free model',async()=>{
  const h=rig({models:[{id:'zero',isFree:true}]});

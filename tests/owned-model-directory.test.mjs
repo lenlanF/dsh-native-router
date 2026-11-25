@@ -58,6 +58,19 @@ test('directory does not publish old account catalog after authorization changes
   list:()=>({accounts:[live]}),listTestModels:async()=>{live.connectionState='expired';return {state:'ready',models:[{id:'late-model'}]}}}});
  assert.deepEqual(await directory.listModels('own_meoo_web'),{state:'unavailable',providerId:'own_meoo_web',models:[]});
 });
+test('owned directory preserves exact price and does not present conflicting account rates as free',async()=>{
+ const id='codearts',config={providers:[{id,protocol:'native-channel',enabled:true}],accounts:['one','two'].map(id2=>({id:id2,providerId:id,enabled:true}))};
+ const local=config.accounts.map(a=>({...a,runtimeMode:'owned',connectionState:'online'}));
+ let unavailable=false;
+ const directory=createOwnedModelDirectory({configStore:{get:()=>config},accountCenter:{list:()=>({accounts:local}),listTestModels:async account=>{
+ if(unavailable&&account==='two')throw Error('offline');
+ return {state:'ready',models:[{id:'same',name:'same',free:account==='one',costMultiplier:account==='one'?0:0.003},{id:'priced',free:false,costMultiplier:0.001},{id:'both',free:true,pricing:{input:0,output:0}}]};
+ }}});
+ const first=await directory.listModels(id),by=id2=>first.models.find(m=>m.id===id2);
+ assert.equal(by('same').isFree,false);assert.equal(by('same').costMultiplier,undefined);assert.equal(by('same').pricingConflict,true);
+ assert.equal(by('priced').costMultiplier,0.001);assert.equal(by('both').isFree,true);
+ unavailable=true;const partial=await directory.listModels(id);assert.equal(partial.models.find(m=>m.id==='both').isFree,false);
+});
 test('native owner model selection also filters explicit chain tiers',()=>{
  const cfg={providers:[{id:'own_qwenwork',protocol:'native-channel'}],hostModelSelection:{own_qwenwork:['free']},
   routes:[{id:'chain',tiers:[{providerId:'own_qwenwork',model:'paid'},{providerId:'own_qwenwork',model:'free'}]}]};

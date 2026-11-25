@@ -373,6 +373,13 @@ test('host channel click shows the original full model list on the right, not at
  assert.equal(rig.cfg.accounts.some(x=>x.providerId==='workbuddy-global'),false);
  assert.equal(rig.cfg.routes.some(x=>x.id.startsWith('host_')),false);
 });
+test('owned model panel distinguishes exact small nonzero rates, conflicts and unknown costs',async()=>{
+ const host=[{providerId:'codearts',name:'CodeArts',family:'native-router-owned',loginVerified:true}];
+ const rig=createUiRig(new Map(),null,{state:'disabled'},{},host,{state:'ready',providerId:'codearts',loginVerified:true,models:[{id:'low',name:'Low rate',costMultiplier:0.003,isFree:false},{id:'conflict',pricingConflict:true,isFree:false},{id:'unknown'},{id:'free',isFree:true}]});
+ await rig.init();rig.find(rig.render(),'button','已有模型路由管理')[0].props.onClick();
+ const selected=uiNodes(rig.render(),n=>n.type==='button'&&rig.flatten(n).join('').startsWith('CodeArts'))[0];assert.ok(selected);await selected.props.onClick();
+ const view=rig.flatten(rig.render()).join(' ');assert.match(view,/x0\.003/);assert.match(view,/账号费率不一致/);assert.match(view,/费用待确认/);assert.match(view,/来源标记免费/);
+});
 test('unavailable original provider model catalog cannot invent a model, but original route remains registered',async()=>{
  const host=[{providerId:'deepseek-official',family:'dsh-provider-route',loginVerified:false}];
  const rig=createUiRig(new Map(),null,{state:'disabled'},{},host,

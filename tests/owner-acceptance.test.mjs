@@ -37,6 +37,12 @@ test('inventory retains separate official identity, quota and catalog outcomes',
  assert.equal(r.accounts[0].catalogState,'unavailable');assert.equal(r.accounts[0].state,'observed');
  assert.equal(r.accounts[0].code,'CATALOG_UNAVAILABLE');assert.doesNotMatch(JSON.stringify(r),/private-response|private-name/);
 });
+test('inventory distinguishes nonzero rates from unknown costs without making model calls',async()=>{
+ const f=fixture({accountCenter:{listTestModels:async()=>({state:'ready',models:[{id:'private-model',costMultiplier:0.003},{id:'unknown'}],freeCount:0})}});
+ f.service.start({requestId:id,mode:'inventory',consent:true});const r=await done(f.service),a=r.accounts[0];
+ assert.equal(a.knownRateCount,1);assert.equal(a.zeroRateCount,0);assert.equal(a.lowestMultiplier,0.003);
+ assert.doesNotMatch(JSON.stringify(r),/private-model/);assert.deepEqual(f.calls,[['verify','one']]);
+});
 test('model testing requires explicit consent and uses official-only evidence',async()=>{
  const f=fixture();assert.throws(()=>f.service.start({requestId:id,mode:'free-models'}));
  f.service.start({requestId:id,mode:'free-models',consent:true});const r=await done(f.service);

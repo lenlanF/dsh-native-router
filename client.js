@@ -665,7 +665,8 @@ window.__ModuleLoader__.load({
                     h('div',{style:{...css.small,fontSize:11,overflowWrap:'anywhere'}},m.id)),
                   h('div',{style:{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:3}},
                     h('span',{style:{...css.mutedTag,fontSize:10,padding:'2px 5px',whiteSpace:'nowrap'}},
-                      m.isFree||m.freeHint?'来源标记免费':
+                       m.pricingConflict?'账号费率不一致':m.pricingIncomplete?'账号费率未完整核验':m.isFree||m.freeHint?'来源标记免费':
+                       Number.isFinite(m.costMultiplier)?'x'+String(m.costMultiplier):
                       ['workbuddy','workbuddy-global'].includes(selectedHost)&&
                         /(?:^|[\s·(])x\s*0(?:\.0+)?(?:$|[\s·)])/i.test(m.name||'')?'x0.00':'费用待确认'),
                     m.pricing?h('span',{style:{...css.small,fontSize:10,textAlign:'right'}},

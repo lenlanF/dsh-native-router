@@ -21,7 +21,8 @@ function safeReport(raw){
   const item={slot:count(x.slot),providerId:x.providerId,state:state(x.state)};
   for(const k of ['connection','modelState','balanceState','membershipState','usageState','catalogState'])if(x[k]!==undefined)item[k]=state(x[k]);
   for(const k of ['hasProfile','hasBalance','hasBalanceUnit','hasRollingQuota','hasMembershipQuota','quotaObserved'])if(typeof x[k]==='boolean')item[k]=x[k];
-  for(const k of ['quotaWindowCount','freeCandidates','advertisedCount'])if(Number.isSafeInteger(x[k]))item[k]=count(x[k]);
+  for(const k of ['quotaWindowCount','freeCandidates','advertisedCount','knownRateCount','zeroRateCount'])if(Number.isSafeInteger(x[k]))item[k]=count(x[k]);
+  if(typeof x.lowestMultiplier==='number'&&Number.isFinite(x.lowestMultiplier)&&x.lowestMultiplier>=0&&x.lowestMultiplier<=100)item.lowestMultiplier=x.lowestMultiplier;
   if(typeof x.code==='string'&&/^[A-Z][A-Z0-9_]{0,47}$/.test(x.code))item.code=x.code;
   return item;
  });
