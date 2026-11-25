@@ -2,6 +2,13 @@
 
 此处记录工程证据和可复用方法，生产状态每轮重新读取。
 
+## rc.134 工作线
+
+- 生产仍为 rc.132；本轮只读本地公开事实与签到历史，12条启用记录近期在线、11余额、10身份、4近期推理证明。今日历史有成功6、失败4、待确认2、无任务10（历史次数非账号数）；自有 Lingxi/CodeArts/CN WorkBuddy 有成功记录、Loomy 待确认，未重新领取、未再发生成，未升级或重启。仍须真实官方身份及活动回读，不能将历史当实时证据。
+- 对照官方 https://www.codebuddy.cn/docs/workbuddy/Credits 、https://support.huaweicloud.com/price-codeartsagent/codeartsagent_billing_0028.html 、https://www.lingxi.cn/docs ，赠送优先规则不同：WorkBuddy/CodeArts 优先临期，WorkBuddy 同期基础优先。Lingxi 按任务用量、用户主动中止仍扣已用量，旧验收已证明 max_tokens 并非硬扣点上限。未获得正式的赠送专用扣费上限，不新增非零倍率严格免费路由。Loomy 既有赠送池门槛不是官方单次硬费用保证，新增精确钱包一致性检查，不扩大使用范围。
+- 赠送余额公共校验及 UI 统一覆盖 Lingxi、Loomy、CodeArts、WorkBuddy CN/Global，明确未知分类和有效期；Loomy 两个钱包唯一且对账，CodeArts 总额不重复累计，WorkBuddy 仅明确赠送批次。所有这些钱包在生成开始/结束后失效，并以 revision 防止旧并行读取重新写入。未确认的缓存不用于赠送路由证据。
+- rc133/134 代码合并后统一生产复验，先不要求用户升级。后续重点：官方安全非零倍率调度边界、其他自有渠道真实免费活动/身份、ZCode 独立推理；不能将已有赠送钱包标记为可无限免费使用。
+
 ## rc.133 工作线
 
 - 生产已安装 rc.132。真实 `owned-autofree-route` 成功，实际失败 1 次/1 个渠道，crossChannelSwitch=true，最终 own_workbuddy-cn 完成，整次约127秒；临时授权撤销。Lingxi 在线、目录14模型/7明确倍率/最低 x0.04，无零倍率。原钱包只返回总额，未保留赠送批次。

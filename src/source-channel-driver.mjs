@@ -188,7 +188,8 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
   if(matched.length!==1)throw unable('Upstream account reference is stale or ambiguous','CREDENTIAL');
   return matched[0];
   }
-  const liveFacts=new Map(),inferenceProof=new Map(),activeStreams=new Set(),rateUntil=new Map();
+  const liveFacts=new Map(),inferenceProof=new Map(),activeStreams=new Set(),rateUntil=new Map(),walletRevision=new Map();
+  const invalidateWallet=account=>{const id=account.id;walletRevision.set(id,(walletRevision.get(id)??0)+1);const row=liveFacts.get(id);if(row)liveFacts.set(id,{...row,balanceState:Number.isFinite(row.balance)?'cached':'unavailable',giftCreditState:'unconfirmed',loomyDailyGift:undefined,quotaWindows:[]})};
   const idleMs=Number.isFinite(streamIdleTimeoutMs)?Math.max(10,Math.min(120000,streamIdleTimeoutMs)):120000;
   async function readLiveFacts(account,{includeActivities=true,signal}={}){
     if(signal?.aborted)return {state:'unavailable',authVerified:false};
@@ -198,6 +199,7 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
       return {state:'unavailable',authVerified:false};
     // Every request is served by THIS plugin's isolated account pool and
     // official-channel APIs. Original plugin metadata is never consulted.
+    const revision=walletRevision.get(account.id)??0;
     const remote=await embeddedPack.readSourceStatuses(providerId,selected.id,{includeActivities});
     if(signal?.aborted)return {state:'unavailable',authVerified:false};
     const matched=(remote?.state==='ready'&&Array.isArray(remote.accounts)
@@ -213,6 +215,7 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
     const result={...facts,
       ...(verifiedName?{nickname:verifiedName}:{}),state:'ready',
       checkedAt:remote.checkedAt??Date.now()};
+    if(revision!==(walletRevision.get(account.id)??0))return {...result,balanceState:'cached',giftCreditState:'unconfirmed',loomyDailyGift:undefined,quotaWindows:[]};
     if(includeActivities)liveFacts.set(account.id,result);
     return result;
   }
@@ -232,8 +235,9 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
        modelInferenceVerifiedAt:inferenceProof.get(account?.id)?.at??null};
    },
    async refreshAccountStatus({account,signal}={}){
-     try{return await readLiveFacts(account,{signal})}
-     catch{return {state:'unavailable',authVerified:false}}
+     let result;try{result=await readLiveFacts(account,{signal})}catch{result={state:'unavailable',authVerified:false}}
+     if(result?.authVerified!==true){const old=liveFacts.get(account?.id);if(old)liveFacts.set(account.id,{...old,authVerified:false,balanceState:Number.isFinite(old.balance)?'cached':'unavailable',giftCreditState:'unconfirmed',loomyDailyGift:undefined,quotaWindows:[]})}
+     return result;
    },
    async discover(){
      const rows=await snapshot();
@@ -385,7 +389,7 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
        const cancelled=new Promise((_,reject)=>{onAbort=()=>reject(unable('Source stream stopped','CANCELLED'));controller.signal.addEventListener('abort',onAbort,{once:true});if(controller.signal.aborted)onAbort()});
        const opening=Promise.resolve().then(async()=>{
          if(controller.signal.aborted)throw unable('Source request cancelled','CANCELLED');
-         openingStarted=true;
+         openingStarted=true;invalidateWallet(account);
          const value=await embeddedPack.streamNative(request);
          if(controller.signal.aborted)try{Promise.resolve(value?.[Symbol.asyncIterator]?.()?.return?.()).catch(()=>{})}catch{}
          return value;
@@ -412,6 +416,6 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
      if(['UPSTREAM_FINISH_ERROR','MISSING_NATIVE_FINISH','UNCLOSED_NATIVE_BLOCK']
        .includes(error?.safeStreamPhase))failure.safeStreamPhase=error.safeStreamPhase;
       throw failure;
-    }finally{clearTimeout(timer);signal?.removeEventListener('abort',stop);if(onAbort)controller.signal.removeEventListener('abort',onAbort);activeStreams.delete(streamKey)}  },
+    }finally{if(openingStarted)invalidateWallet(account);clearTimeout(timer);signal?.removeEventListener('abort',stop);if(onAbort)controller.signal.removeEventListener('abort',onAbort);activeStreams.delete(streamKey)}  },
  };
 }

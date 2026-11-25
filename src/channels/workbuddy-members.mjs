@@ -2,6 +2,7 @@
 // Protocol derived from MIT dingminhua/dsh-connect-workbuddy src/upstream.ts and oauth.ts.
 // A cached model catalog says nothing about remaining spendable credits.
 import {publicAccountName} from '../account-facts.mjs';
+import {giftWalletFacts} from '../gift-wallet.mjs';
 const CN='https://www.codebuddy.cn',GLOBAL='https://www.workbuddy.ai';
 const MAX=128*1024,MAX_ROWS=80;
 const num=v=>{
@@ -35,10 +36,13 @@ export function parseWorkBuddyCredits(payload,{enterprise=false,now=Date.now()}=
  if(!Array.isArray(answer.Accounts)||answer.Accounts.length>MAX_ROWS)return null;
  if(!answer.Accounts.length)return {balance:0,balanceUnit:'积分',quotaWindows:[],
    quotaState:'no_active_package',balanceCheckedAt:now,balanceState:'available'};
- let total=0;const packages=[];
+ let total=0;const packages=[],giftBuckets=[];let classified=true;
  for(const row of answer.Accounts.slice(0,MAX_ROWS)){
   if(!record(row))return null;
   const kind=Number(row.CapacityType)===4?'monthly':'grant';
+  const label=clampName(row.PackageName);
+  const explicitGift=kind!=='monthly'&&['活动赠送积分','每日赠送积分','签到赠送积分','赠送积分','活动赠送'].includes(label);
+  const explicitOrdinary=kind==='monthly'||['充值积分','购买积分','永久积分','基础积分包'].includes(label);
   const hasCycle=row.CycleCapacityRemainPrecise!==undefined||
    row.CycleCapacityRemain!==undefined;
   const remaining=num(hasCycle?row.CycleCapacityRemainPrecise??row.CycleCapacityRemain:
@@ -52,7 +56,9 @@ export function parseWorkBuddyCredits(payload,{enterprise=false,now=Date.now()}=
   if(kind==='monthly'&&reset!==null&&reset+1000<=now)return null;
   if(kind==='grant'&&remaining===0)continue;
   total+=remaining;
-  packages.push({kind,label:clampName(row.PackageName)|| (kind==='monthly'?'月度积分':'活动赠送'),
+  if(explicitGift&&expires!==null)giftBuckets.push({remaining,expires});
+  else if(remaining>0&&!explicitOrdinary)classified=false;
+  packages.push({kind,label:label|| (kind==='monthly'?'月度积分':'其他积分包'),
    total:size??remaining,used:size===null?0:Math.max(size-remaining,0),left:remaining,
    ...(kind==='monthly'&&reset?{endAt:reset+1000}:{}),
    ...(kind==='grant'&&expires?{endAt:expires}:{})});
@@ -64,7 +70,9 @@ export function parseWorkBuddyCredits(payload,{enterprise=false,now=Date.now()}=
  const soon=packages.filter(p=>Number.isFinite(p.endAt)&&p.endAt>now
    &&p.endAt<=now+7*86400000);
  const expiring=Math.round(soon.reduce((sum,p)=>sum+p.left,0)*1e4)/1e4;
+ const gifted=Math.round(giftBuckets.reduce((sum,p)=>sum+p.remaining,0)*1e4)/1e4;
  return {balance:Math.round(total*1e4)/1e4,balanceUnit:'积分',quotaWindows:packages,
+  ...(classified?giftWalletFacts({balance:Math.round(total*1e4)/1e4,gift:gifted,ordinary:Math.round((total-gifted)*1e4)/1e4,now,expiryKnown:true,expiresAt:gifted>0?Math.min(...giftBuckets.map(p=>p.expires)):null}):{giftCreditState:'unconfirmed'}),
   ...(expiring>0?{expiringPoints:expiring,
     expiringAt:Math.min(...soon.map(p=>p.endAt))}:{}),
   balanceCheckedAt:now,balanceState:'available'};

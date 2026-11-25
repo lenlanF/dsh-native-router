@@ -428,7 +428,8 @@ export function createWorkBuddyDriver({
   }
   const memberReader=createWorkBuddyMemberReader({fetchImpl,now,baseOverride:allowTestEndpoint});
   const growthReader=createWorkBuddyGrowthReader({fetchImpl,baseOverride:allowTestEndpoint});
-  const memberSnapshots=new Map(),benefitInflight=new Set(),verifiedSubjects=new Map();
+  const memberSnapshots=new Map(),benefitInflight=new Set(),verifiedSubjects=new Map(),walletRevision=new Map();
+  function invalidateWallet(account){const id=account.id;walletRevision.set(id,(walletRevision.get(id)??0)+1);const row=memberSnapshots.get(id);if(row)memberSnapshots.set(id,{...row,balanceState:Number.isFinite(row.balance)?'cached':'unavailable',giftCreditState:'unconfirmed',quotaWindows:[]})}
   const identitySalt=randomUUID();
   function verifiedIdentityGroup(account){
     const row=verifiedSubjects.get(account?.id);
@@ -438,6 +439,7 @@ export function createWorkBuddyDriver({
     verifiedSubjects.delete(account.id);
     const auth=await validSession(account,signal);
     const region=ownedRegion??(auth.endpoint===DOMAIN_INTL?'global':'cn');
+    const revision=walletRevision.get(account.id)??0;
     const [profile,credits,benefits,growth,daily]=await Promise.allSettled([
       memberReader.profile(auth,region,signal),
       memberReader.credits(auth,region,signal),
@@ -449,7 +451,7 @@ export function createWorkBuddyDriver({
     ]);
     const latest=memberSnapshots.get(account.id)??{};
     const profileRow=profile.status==='fulfilled'?profile.value:{};
-    const creditRow=credits.status==='fulfilled'?credits.value:null;
+    const creditRow=credits.status==='fulfilled'&&revision===(walletRevision.get(account.id)??0)?credits.value:null;
     if(signal?.aborted)throw new UpstreamError('Member read cancelled',{code:'CANCELLED'});
     if(ownedRegion&&auth.uid&&profileRow?.authVerified===true)verifiedSubjects.set(account.id,{binding:account.credentialRef,at:now(),group:sha(identitySalt+'\0'+region+'\0'+auth.uid)});
     const benefitsRow=benefits.status==='fulfilled'?benefits.value:null;
@@ -475,9 +477,9 @@ export function createWorkBuddyDriver({
         activityCheckedAt:now(),
       }:{activityState:'unavailable',activityActive:false,
         activityClaimable:false,activityCheckedAt:now()}),
-      ...(creditRow?{...creditRow,creditFetchState:'available',expiringPoints:creditRow.expiringPoints??0,expiringAt:creditRow.expiringAt??null}: {
+      ...(creditRow?{giftCreditState:'unconfirmed',...creditRow,creditFetchState:'available',expiringPoints:creditRow.expiringPoints??0,expiringAt:creditRow.expiringAt??null}: {
         balanceState:Number.isFinite(latest.balance)?'cached':'not_returned',
-        quotaWindows:[],creditFetchState:'unavailable',
+        quotaWindows:[],creditFetchState:'unavailable',giftCreditState:'unconfirmed',
       }),
       ...(publicBenefits?{benefits:publicBenefits,
         availableBenefits:publicBenefits.filter(x=>x.active&&!x.claimed).length,
@@ -719,7 +721,7 @@ export function createWorkBuddyDriver({
          ...(facts.authVerified===true?{checkedAt:now()}:{})};
        }catch(error){
         const old=memberSnapshots.get(account?.id);
-        if(old)memberSnapshots.set(account.id,{...old,profileState:old.accountName?'cached':'not_returned',balanceState:Number.isFinite(old.balance)?'cached':'not_returned',quotaWindows:[]});
+        if(old)memberSnapshots.set(account.id,{...old,profileState:old.accountName?'cached':'not_returned',balanceState:Number.isFinite(old.balance)?'cached':'not_returned',quotaWindows:[],giftCreditState:'unconfirmed'});
         return {state:error?.status===401||error?.code==='CREDENTIAL'?'expired':'unavailable',authVerified:false};
        }
      },
@@ -729,7 +731,7 @@ export function createWorkBuddyDriver({
          const found=OWNED_REF.exec(String(account?.credentialRef??''));
          if(!found||found[1]!==owner||found[2]!==account?.id)throw Error('Invalid owned WorkBuddy identity');
          await ownedVault?.unset?.(await ownedCredentialRef(account.id));
-         tokenCache.delete(account.id);memberSnapshots.delete(account.id);verifiedSubjects.delete(account.id);
+         tokenCache.delete(account.id);memberSnapshots.delete(account.id);verifiedSubjects.delete(account.id);walletRevision.delete(account.id);
          return {revokedUpstream:false,message:'已解除聚合路由独立授权，原插件账号未改变'};
        }
       const id=TOKEN_REF.exec(account?.credentialRef??'')?.[1];
@@ -751,7 +753,8 @@ export function createWorkBuddyDriver({
         ...(tools.length?{tools:openAiTools(tools),tool_choice:options.toolChoice??'auto'}:{})};
       const maxTokens=options.maxTokens??options.max_tokens;
       if(Number.isInteger(maxTokens)&&maxTokens>0)payload.max_tokens=maxTokens;
-      const reply=await request(account,'/v2/chat/completions',{method:'POST',body:payload,model,signal});
+      invalidateWallet(account);
+      let reply;try{reply=await request(account,'/v2/chat/completions',{method:'POST',body:payload,model,signal})}finally{invalidateWallet(account)}
        try{return validateModelCalls(decodeOpenAIResponse(reply.text,reply.contentType),options.tools)}
        catch(error){
          if(error?.code==='TRUNCATED')error.safeStreamPhase=safeStreamPhase(reply.text,reply.contentType);
