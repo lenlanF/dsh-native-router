@@ -33,3 +33,10 @@ test('retryable DSH errors use explicit machine evidence and avoid accidental pa
  assert.equal(safeHostFailure({code:'RATE_LIMIT',retryAfterMs:1e12}).retryAfterMs,86400000);
  assert.equal(classifyFailure(new UpstreamError('gateway timeout',{status:504})).code,'TIMEOUT');
 });
+
+test('native quota, queue, missing credential and source busy retain machine semantics',()=>{
+ assert.equal(safeDshFailureFacts({code:'QUOTA_EXCEEDED'}).code,'QUOTA');
+ assert.equal(safeDshFailureFacts({code:'MISSING_CREDENTIAL'}).code,'CREDENTIAL');
+ assert.equal(classifyFailure(safeHostFailure({code:'QUEUE',providerRetryAfterMs:180000})).cooldownMs,180000);
+ assert.equal(classifyFailure(safeHostFailure({code:'SOURCE_BUSY'})).code,'SOURCE_BUSY');
+});

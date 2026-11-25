@@ -101,10 +101,11 @@ export function appendSwitchLog(log, record, limit = 20) {
 /** Whether a normalized LlmFailure qualifies for a model switch. */
 export function qualifies(failure, rules = normalizeRules()) {
   if (!rules.enabled || failure === null || typeof failure !== 'object') return false;
-  const code = typeof failure.code === 'string' ? failure.code : '';
+  const rawCode = typeof failure.code === 'string' ? failure.code : '';
+  const code=rawCode==='QUOTA_EXCEEDED'?'QUOTA':rawCode==='QUEUE'?'RATE_LIMIT':rawCode==='TRUNCATED'?'STREAM_CLOSED':rawCode;
   const status = Number.isInteger(failure.status) ? failure.status : undefined;
   if (DENY_CODES.has(code)) return false;
-  if (rules.triggers.includes(code)) return true;
+  if (rules.triggers.includes(code)||rules.triggers.includes(rawCode)) return true;
   // HTTP_5xx and a numeric 5xx status describe an upstream failure only when
   // the machine code is generic; a terminal code above wins over the status.
   const generic = code === '' || code === 'UNKNOWN' || CUSTOM_CODE.test(code);

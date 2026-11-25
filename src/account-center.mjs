@@ -476,6 +476,7 @@ export function createAccountCenter({
     if(!stillAuthorizedTestAccount({account,provider}))
       return {id,state:'failed',at,code:'ACCOUNT_CHANGED',
         message:'实际生成请求已发出但账号授权已变更；旧结果不写入模型验证记录'};
+    if(['DRIVER_PRECHECK','ENTITLEMENT_READ'].includes(phase)&&['RATE_LIMIT','SOURCE_BUSY'].includes(error?.code))return {id,state:'skipped',at,phase,code:error.code,message:'账号当前处于冷却或已有请求；未发送新的生成，保留此前证明'};
     if(error?.code==='COST_NOT_CONFIRMED_FREE'||signal?.aborted)return {id,state:'skipped',at,phase,code:signal?.aborted?'CANCELLED':'COST_NOT_CONFIRMED_FREE',message:'费用条件未确认或验收已取消；未新增成功记录，保留此前证明'};
     inferenceProof.delete(id);
    inferenceFailures.set(id,{at,credentialRef:account.credentialRef});

@@ -45,7 +45,7 @@ function capText(value){
 // Complete the upstream DSH stream into ONE atomic response. The native router
 // does not expose partial output before routing/failover has committed to a tier.
 // Never execute tools: only return DSH-host-authorized tool calls after validation.
-export async function collectSourceDshStream(stream,{tools=[],signal,onProgress}={}){
+export async function collectSourceDshStream(stream,{tools=[],signal,onProgress,onActivity}={}){
  if(!stream||typeof stream[Symbol.asyncIterator]!=='function')
   throw unable('DSH source adapter did not return an async stream','TOOL_PROTOCOL');
  let text='',reasoning='',usage=null,finish=null,total=0;
@@ -76,6 +76,7 @@ export async function collectSourceDshStream(stream,{tools=[],signal,onProgress}
    const next=await readNext();
    if(signal?.aborted)throw unable('Native model request was cancelled','CANCELLED');
    if(next.done){ended=true;break}
+   onActivity?.();
    const item=next.value;
   if(!item||typeof item!=='object')throw unable('Invalid DSH model event','TOOL_PROTOCOL');
   if(finish!==null)throw unable('Native model events continued after finish','TOOL_PROTOCOL');
@@ -171,7 +172,7 @@ export async function collectSourceDshStream(stream,{tools=[],signal,onProgress}
  return validateModelCalls(output,tools);
 }
 // The legacy ZCode source adapter targets the official-client-only Start Plan endpoint.
-export function createSourceChannelDriver({providerId,embeddedPack,accountProviderId=providerId}={}){
+export function createSourceChannelDriver({providerId,embeddedPack,accountProviderId=providerId,streamIdleTimeoutMs=120000}={}){
  if(!validSource(providerId)||!embeddedPack
    ||![providerId,'own_'+providerId].includes(accountProviderId))
    throw Error('Unknown embedded source provider');
@@ -187,7 +188,8 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
   if(matched.length!==1)throw unable('Upstream account reference is stale or ambiguous','CREDENTIAL');
   return matched[0];
   }
-  const liveFacts=new Map(),inferenceProof=new Map();
+  const liveFacts=new Map(),inferenceProof=new Map(),activeStreams=new Set(),rateUntil=new Map();
+  const idleMs=Number.isFinite(streamIdleTimeoutMs)?Math.max(10,Math.min(120000,streamIdleTimeoutMs)):120000;
   async function readLiveFacts(account,{includeActivities=true,signal}={}){
     if(signal?.aborted)return {state:'unavailable',authVerified:false};
     const selected=await resolve(account);
@@ -363,12 +365,35 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
        ...(smoke&&providerId==='loomy'&&model==='spark-x2.6'?{reasoningEffort:'none'}:{}),
         ...(providerId==='codearts'&&options.singleLowCostProof===true
           ?{reasoningEffort:'off',singleShotPriceProof:true}:{})};
+     // One exact account must not amplify concurrent upstream calls. Respect
+     // upstream rate windows in both normal routing and direct model tests.
+     const streamKey=account.id,limitKey=streamKey+'\u0000'+model;
+     for(const [key,until] of rateUntil)if(until<=Date.now())rateUntil.delete(key);
+     const remaining=(rateUntil.get(limitKey)??0)-Date.now();
+     if(remaining>0)throw new UpstreamError('Source model is cooling down',{code:'RATE_LIMIT',status:429,retryAfterMs:remaining});
+     if(providerId==='loomy'&&activeStreams.has(streamKey))throw unable('Source account already has an active stream','SOURCE_BUSY');
+     if(providerId==='loomy')activeStreams.add(streamKey);
+     const controller=new AbortController();
+     let timer,timedOut=false,onAbort,openingStarted=false;
+     const stop=()=>controller.abort();
+     const arm=()=>{clearTimeout(timer);timer=setTimeout(()=>{timedOut=true;stop()},idleMs)};
+     if(signal?.aborted)stop();else signal?.addEventListener('abort',stop,{once:true});
+     request.signal=controller.signal;
      try{
-       if(signal?.aborted)throw unable('Source request cancelled','CANCELLED');
-       phase('STREAM_OPEN');
-       const native=await embeddedPack.streamNative(request);
-       phase('STREAM_READ');
-        const output=await collectSourceDshStream(native,{tools:options.tools,signal,onProgress:phase});
+       if(controller.signal.aborted)throw unable('Source request cancelled','CANCELLED');
+       arm();phase('STREAM_OPEN');
+       const cancelled=new Promise((_,reject)=>{onAbort=()=>reject(unable('Source stream stopped','CANCELLED'));controller.signal.addEventListener('abort',onAbort,{once:true});if(controller.signal.aborted)onAbort()});
+       const opening=Promise.resolve().then(async()=>{
+         if(controller.signal.aborted)throw unable('Source request cancelled','CANCELLED');
+         openingStarted=true;
+         const value=await embeddedPack.streamNative(request);
+         if(controller.signal.aborted)try{Promise.resolve(value?.[Symbol.asyncIterator]?.()?.return?.()).catch(()=>{})}catch{}
+         return value;
+       });
+       const native=await Promise.race([opening,cancelled]);
+       controller.signal.removeEventListener('abort',onAbort);
+       phase('STREAM_READ');arm();
+       const output=await collectSourceDshStream(native,{tools:options.tools,signal:controller.signal,onProgress:phase,onActivity:arm});
        if(embeddedPack.status?.().state!=='mounted')
          throw unable('Isolated DSH source was disposed before completion');
        if(output.finishReason==='stop'&&typeof output.text==='string'&&output.text.trim())
@@ -377,12 +402,16 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
     // The pack can fail before emitting the first event. Keep only vetted
     // machine failure facts for failover. Never expose arbitrary upstream
     // Error.message, even when the upstream happens to use UpstreamError.
-    if(signal?.aborted)throw unable('Isolated source request cancelled','CANCELLED');
+    if(signal?.aborted){if(openingStarted)rateUntil.set(limitKey,Math.max(rateUntil.get(limitKey)??0,Date.now()+60000));throw unable('Isolated source request cancelled','CANCELLED')}
      const failure=new UpstreamError('Isolated DSH native source request failed',
-       safeDshFailureFacts(error));
+       timedOut?{code:'TIMEOUT',status:408}:safeDshFailureFacts(error));
+     if(failure.code==='RATE_LIMIT'||failure.code==='TIMEOUT'||failure.status===429){
+       const wait=failure.retryAfterMs||60000;
+       rateUntil.set(limitKey,Math.max(rateUntil.get(limitKey)??0,Date.now()+wait));
+     }
      if(['UPSTREAM_FINISH_ERROR','MISSING_NATIVE_FINISH','UNCLOSED_NATIVE_BLOCK']
        .includes(error?.safeStreamPhase))failure.safeStreamPhase=error.safeStreamPhase;
       throw failure;
-    }  },
+    }finally{clearTimeout(timer);signal?.removeEventListener('abort',stop);if(onAbort)controller.signal.removeEventListener('abort',onAbort);activeStreams.delete(streamKey)}  },
  };
 }
