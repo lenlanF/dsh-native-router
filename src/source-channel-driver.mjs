@@ -160,14 +160,16 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
   return matched[0];
   }
   const liveFacts=new Map(),inferenceProof=new Map();
-  async function readLiveFacts(account){
+  async function readLiveFacts(account,{includeActivities=true,signal}={}){
+    if(signal?.aborted)return {state:'unavailable',authVerified:false};
     const selected=await resolve(account);
     if(!selected.enabled)return {state:'disabled',authVerified:false};
     if(typeof embeddedPack.readSourceStatuses!=='function')
       return {state:'unavailable',authVerified:false};
     // Every request is served by THIS plugin's isolated account pool and
     // official-channel APIs. Original plugin metadata is never consulted.
-    const remote=await embeddedPack.readSourceStatuses(providerId,selected.id);
+    const remote=await embeddedPack.readSourceStatuses(providerId,selected.id,{includeActivities});
+    if(signal?.aborted)return {state:'unavailable',authVerified:false};
     const matched=(remote?.state==='ready'&&Array.isArray(remote.accounts)
       ?remote.accounts:[]).filter(row=>row?.accountId===selected.id);
     if(matched.length!==1)return {state:'unavailable',authVerified:false};
@@ -181,7 +183,7 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
     const result={...facts,
       ...(verifiedName?{nickname:verifiedName}:{}),state:'ready',
       checkedAt:remote.checkedAt??Date.now()};
-    liveFacts.set(account.id,result);
+    if(includeActivities)liveFacts.set(account.id,result);
     return result;
   }
   return {
@@ -216,7 +218,7 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
      if(matched.length!==1)throw unable('Source account no longer exists','CREDENTIAL');
      return {id:candidateId,credentialRef:'driver:'+accountProviderId+':'+candidateId};
    },
-   async listModels({account}={}){
+   async listModels({account,signal}={}){
      await resolve(account);
      const result=await embeddedPack.listModels(providerId);
       if(result.state!=='ready')throw unable('Source provider model list is unavailable');
@@ -227,7 +229,7 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
       let giftedStartPlan=false;
        if(providerId==='zcode'&&accountProviderId==='own_zcode'
          &&result.models?.some(row=>zcodeGiftFlash(row?.id))){
-         const facts=await readLiveFacts(account).catch(()=>null);        giftedStartPlan=facts?.authVerified===true
+         const facts=await readLiveFacts(account,{includeActivities:false,signal}).catch(()=>null);        giftedStartPlan=facts?.authVerified===true
           &&facts.balanceState==='available'
           &&Number.isFinite(facts.giftedBalance)&&facts.giftedBalance>=1024;
       }
@@ -237,7 +239,7 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
       let giftedLoomy=false;
       if(providerId==='loomy'&&accountProviderId==='own_loomy'
         &&result.models?.some(row=>row?.id==='spark-x2.6')){
-        const facts=await readLiveFacts(account).catch(()=>null);
+        const facts=await readLiveFacts(account,{includeActivities:false,signal}).catch(()=>null);
         giftedLoomy=facts?.authVerified===true&&facts.balanceState==='available'
           &&Number.isFinite(facts.loomyDailyGift)&&facts.loomyDailyGift>=2000;
       }
@@ -247,8 +249,9 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
        .map(row=>({id:row.id,
           ...(typeof row.name==='string'?{name:row.name}:{}),
           ...(providerId==='codearts'&&row.catalogSource==='codearts-signed-official-model-catalog'
-            ?{catalogSource:row.catalogSource}:{}),          ...(row.upstreamFreeLabel===true||row.isFree===true||row.free===true
-            ?{upstreamFreeLabel:true}:{}),
+             ?{catalogSource:row.catalogSource}:{}),
+           ...(row.isFree===false||row.free===false?{isFree:false}:row.upstreamFreeLabel===true||row.isFree===true||row.free===true?{upstreamFreeLabel:true}:{}),
+           ...(row.pricingConflict===true?{pricingConflict:true}:{}),
           ...(providerId==='codearts'&&row.priceSource==='codearts-official-credit-ratio'
             &&typeof row.costMultiplier==='number'&&Number.isFinite(row.costMultiplier)
             &&row.costMultiplier>=0&&row.costMultiplier<=100
@@ -302,7 +305,7 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
         ||options.sessionId==='native-router-bounded-cost');
       if(smoke&&accountProviderId==='own_loomy'&&providerId==='loomy'       &&model==='spark-x2.6'){
        phase('ENTITLEMENT_READ');
-       const facts=await readLiveFacts(account).catch(()=>null);
+       const facts=await readLiveFacts(account,{includeActivities:false,signal}).catch(()=>null);
        if(facts?.authVerified!==true||facts.balanceState!=='available'
          ||!Number.isFinite(facts.loomyDailyGift)||facts.loomyDailyGift<2000)
          throw unable('Insufficient official Loomy free daily gift at generation time','COST_NOT_CONFIRMED_FREE');
@@ -310,7 +313,7 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
      if(smoke&&accountProviderId==='own_zcode'&&providerId==='zcode'
        &&zcodeGiftFlash(model)){
        phase('ENTITLEMENT_READ');
-       const facts=await readLiveFacts(account).catch(()=>null);
+       const facts=await readLiveFacts(account,{includeActivities:false,signal}).catch(()=>null);
        if(facts?.authVerified!==true||facts.balanceState!=='available'
          ||!Number.isFinite(facts.giftedBalance)||facts.giftedBalance<1024)
          throw unable('Insufficient official ZCode gift at generation time','COST_NOT_CONFIRMED_FREE');
@@ -346,6 +349,7 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
         ...(providerId==='codearts'&&options.singleLowCostProof===true
           ?{reasoningEffort:'off',singleShotPriceProof:true}:{})};
      try{
+       if(signal?.aborted)throw unable('Source request cancelled','CANCELLED');
        phase('STREAM_OPEN');
        const native=await embeddedPack.streamNative(request);
        phase('STREAM_READ');

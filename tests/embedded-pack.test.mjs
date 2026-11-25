@@ -639,7 +639,7 @@ test('upstream model catalogue uses the selected provider only and never publish
  const queried=[],scope={llm:{async listModels(provider){
   queried.push(provider);
   return [{id:'model-alpha',name:'Alpha',provider,token:'SECRET_TOKEN',isFree:true},
-   {id:'model-alpha',name:'duplicate',provider},
+    {id:'model-alpha',name:'duplicate',provider,isFree:false,pricing:{input:1,output:2}},
    {id:'wrong',name:'Cross-channel',provider:'different'},
    {id:'with\nnewline',provider},
    {id:'model-beta',name:'Beta',provider,isFree:false},
@@ -653,8 +653,8 @@ test('upstream model catalogue uses the selected provider only and never publish
  const reply=await bridge.listModels('loomy');
  assert.deepEqual(queried,['loomy']);
  assert.equal(reply.state,'ready');
- assert.deepEqual(reply.models,[{id:'model-alpha',name:'Alpha',upstreamFreeLabel:true},
-   {id:'model-beta',name:'Beta'}]);
+ assert.deepEqual(reply.models,[{id:'model-alpha',name:'Alpha',pricingConflict:true,isFree:false},
+   {id:'model-beta',name:'Beta',isFree:false}]);
  assert.doesNotMatch(JSON.stringify(reply),/SECRET_TOKEN|wrong|Cross-channel/);
  assert.equal((await bridge.listModels('untrusted')).state,'invalid');
  assert.deepEqual(queried,['loomy']);
@@ -1019,7 +1019,7 @@ test('source pack status never infers login RPC or model readiness from package 
 test('authenticated source identity recovers only explicit public login fields from the exact owned account',async()=>{
  const row={id:'loomy-a',provider:'loomy',enabled:true,
   credentialRef:'NATIVE_ROUTER_PRIVATE_PACK_TEST',nickname:'账号1'};
- let pool,online=true,reads=0;
+ let pool,online=true,reads=0,activityReads=0;
  const ops={
   identity:async()=>({ok:true,value:{accounts:[{id:row.id,nickname:'账号1'}]}}),
   status:async()=>({ok:true,value:{accounts:[{accountId:row.id,
@@ -1033,13 +1033,15 @@ test('authenticated source identity recovers only explicit public login fields f
  const bridge=createEmbeddedChannelPack({ctx:{inject(_names,cb){cb(scope)}},
   getConfig:()=>({embeddedPack:{enabled:true}}),
   env:isolatedEnv,
-  loomyFetchImpl:async()=>new Response('{}',{status:401}),
+   loomyFetchImpl:async()=>{activityReads++;return new Response('{}',{status:401})},
   loadPack:async()=>({apply(){pool={listAllAccounts:async()=>[row]}}})});
  bridge.attach();
  await new Promise(resolve=>setImmediate(resolve));
  await new Promise(resolve=>setImmediate(resolve));
  try{
-  const data=await bridge.readSourceStatuses('loomy');
+   const minimal=await bridge.readSourceStatuses('loomy',row.id,{includeActivities:false});
+   assert.equal(minimal.accounts[0].authVerified,true);assert.equal(activityReads,0);
+   const data=await bridge.readSourceStatuses('loomy');
   assert.equal(data.accounts[0].nickname,'真实登录昵称');
   assert.equal(data.accounts[0].maskedPhone,'138****5678');
   assert.doesNotMatch(JSON.stringify(data),/SYNTHETIC_FIXTURE_ONLY|13812345678|NATIVE_ROUTER_PRIVATE_PACK/);
