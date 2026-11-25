@@ -171,6 +171,8 @@ test('Loomy quota initialization cannot confirm from a missing or inconsistent w
  const f=await fixture({providerId:'loomy',statusOverride:{available:undefined,claimable:true},afterChecked:false,afterOverride,
  outcomeKind:'already-claimed',outcomeFields:{dailyInitialization:{...quota,alreadyProcessed:true}}});
  try{const result=await f.bridge.checkinAccount({providerId:'loomy',sourceAccountId:'acct-b'});
- assert.equal(result.state,'pending_confirmation');assert.equal(f.calls.length,3);
+  assert.equal(result.state,'pending_confirmation');assert.equal(f.calls.length,3);
+  assert.deepEqual(result.dailyInitialization,{...quota,alreadyProcessed:true});
+  assert.match(result.dailyInitializationDay,/^\d{4}-\d{2}-\d{2}$/);
  }finally{f.bridge.dispose()}}
 });

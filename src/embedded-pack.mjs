@@ -6,7 +6,7 @@ import {installSourceAccountSelection} from './source-account-selection.mjs';
 import {ownCredentialRef} from './credential-ref.mjs';
 import {startRaccoonAuthorizeFlow} from './channels/raccoon-authorize.mjs';
 import {readRaccoonLoginTask,triggerRaccoonFreeDaily} from './channels/raccoon-rewards.mjs';
-import {readLoomyFreeTasks,claimLoomyFreeTasks} from './channels/loomy-rewards.mjs';// The bundled MIT derivative runs INSIDE the DSH Cordis host. No external
+import {readLoomyFreeTasks,claimLoomyFreeTasks,loomyDailyQuota,loomyDailyReceipt,loomyDailyConfirmation} from './channels/loomy-rewards.mjs';// The bundled MIT derivative runs INSIDE the DSH Cordis host. No external
 // OpenAI gateway, agent-resume daemon or independent check-in scheduler.
 export const SOURCE_PACK_PROVIDERS=Object.freeze([
   'codearts','buddy','workbuddy','lobsterai','qoder','qodercn','trae',
@@ -747,17 +747,12 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
     // permanent points grant. Its authoritative current request plus fresh
     // wallet readback can prove initialization even if the wallet omits date.
      if(providerId==='loomy'){
-       const receipt=outcomes.length===1?outcomes[0]?.outcome?.dailyInitialization:null;
-       const wallet=after?.dailyQuotaEvidence;
-       const valid=x=>x&&['quota','balance','consumed'].every(k=>Number.isFinite(x[k])&&x[k]>=0&&x[k]<=1e12)
-         &&x.quota>0&&Math.abs(x.balance+x.consumed-x.quota)<1e-6;
+       const receipt=loomyDailyReceipt(outcomes.length===1?outcomes[0]?.outcome?.dailyInitialization:null);
        const dayNow=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-       const diagnosticCode=!valid(receipt)||typeof receipt.alreadyProcessed!=='boolean'?'LOOMY_RECEIPT_MISSING':
-         after?.active!==true||!valid(wallet)?'LOOMY_WALLET_UNCONFIRMED':
-         dayNow!==today||after.dailyCycleDate&&String(after.dailyCycleDate).slice(0,10)!==today?'LOOMY_DAY_MISMATCH':
-         Math.abs(receipt.quota-wallet.quota)>=1e-6||wallet.consumed+1e-6<receipt.consumed?'LOOMY_QUOTA_MISMATCH':null;
+       const diagnosticCode=loomyDailyConfirmation(receipt,after,today,dayNow);
        if(!diagnosticCode)return {confirmed:true,dailyQuotaInitialized:true,message:'官方每日额度初始化回执与钱包回查一致；非永久积分新增'};
-       return {state:'pending_confirmation',accepted:true,diagnosticCode,message:'每日额度回查尚未确认'};
+       return {state:'pending_confirmation',accepted:true,diagnosticCode,message:'每日额度回查尚未确认',
+         ...(receipt&&dayNow===today?{dailyInitialization:receipt,dailyInitializationDay:today}:{})};
      }
     return {state:'pending_confirmation',accepted:true,
       message:'签到操作已执行，但上游今日签到状态仍未确认'};
@@ -890,6 +885,9 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
           &&exact.todayCredit>0;
         accounts.push({accountId,...facts,nickname:facts.nickname??'',          ...(phone?{maskedPhone:phone}:{}),
            todayCheckedIn:upstreamCheckedInToday(exact,today),
+           ...(providerId==='loomy'&&facts.authVerified===true&&exact?.active===true&&loomyDailyQuota(exact.dailyQuotaEvidence)
+             ?{dailyQuotaEvidence:loomyDailyQuota(exact.dailyQuotaEvidence),
+               dailyCycleDate:typeof exact.dailyCycleDate==='string'?exact.dailyCycleDate.slice(0,10):''}:{}),
            ...(typeof exact?.claimable==='boolean'?{claimable:exact.claimable}:{}),
            ...(exact?.noClaimablePlans===true?{noClaimablePlans:true}:{}),
            ...freeReward,
