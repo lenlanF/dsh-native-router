@@ -170,9 +170,10 @@ test('independent Loomy verifier uses only own account pool and authenticated cr
    enabled:true}]);
  let remoteCalls=0,originalStopped=true;
  rig.embeddedPack.status=()=>({state:'mounted',modelAdapterReady:['loomy']});
- rig.embeddedPack.readSourceStatuses=async providerId=>{
+ rig.embeddedPack.readSourceStatuses=async (providerId,sourceAccountId)=>{
    assert.equal(originalStopped,true);
    assert.equal(providerId,'loomy');
+   assert.equal(sourceAccountId,'loomy-own-01','only the exact owned account is queried');
    remoteCalls++;
    return {state:'ready',accounts:[{accountId:'loomy-own-01',authVerified:true}]};
  };

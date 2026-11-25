@@ -174,6 +174,7 @@ export function createMimoDesktopDriver({
  });
  return {
   independentProvider:MIMO_DESKTOP_ID,
+  accountReadTimeoutMs:20000,
    providerName:'小米 MiMo Desktop · 聚合路由自有',
   candidateModels:supportedModels,
   authMethod:'本插件独立浏览器登录 / 可选原 MiMo Desktop 会话接管；无需客户端进程',

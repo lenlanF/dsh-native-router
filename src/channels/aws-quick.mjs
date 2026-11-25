@@ -420,6 +420,7 @@ export function createAwsQuickDriver({
  }
  return {
   independentProvider:AWS_QUICK_ID,providerName:'Amazon Quick · DSH 自有会员',
+  accountReadTimeoutMs:25000,
   authMethod:'Amazon Quick 网页 OAuth PKCE / 本地凭据一次性独立接管',
   get runtimeReady(){return vaultReady()},
   accountSnapshot:account=>snapshots.get(account?.id)??{},

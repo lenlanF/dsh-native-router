@@ -8,12 +8,13 @@ import {classifyFailure} from './failure.mjs';
 import {publicAccountMessage,publicAccountFailureMessage} from './public-diagnostics.mjs';
 
 const MAX_PROBE_MS=15000, AUTO_VERIFY_MS=15*60*1000, FRESH_MS=30*60*1000;
+const readBudget=(value,fallback)=>Number.isFinite(value)?Math.min(30000,Math.max(10,value)):fallback;
 function accountNotFound(id){const e=new Error('Account not configured: '+String(id).slice(0,80));e.status=404;return e}
 export function createAccountCenter({
  configStore,adapter,drivers=new Map(),fetchImpl=fetch,env=process.env,vault,now=()=>Date.now(),
    getSourceStatus=()=>({state:'unavailable'}),verificationStore,publicFactsStore,
    autoVerifyMs=AUTO_VERIFY_MS,
-   readOnlyTimeoutMs=8000,readOnlyConcurrency=4,}={}){
+   readOnlyTimeoutMs,readOnlyConcurrency=4,}={}){
   if(!configStore?.get||!configStore?.replace)throw Error('ConfigStore must support get and replace');
    const checks=new Map(),pending=new Set(),discoverCache=new Map(),profileWarmup=new Map(),
     inferenceProof=new Map(),inferenceFailures=new Map(),readOnlyPending=new Map();
@@ -356,7 +357,7 @@ export function createAccountCenter({
    const {account,provider,driver}=assertTestAccount(id);
    const controller=new AbortController();
    const stop=()=>controller.abort();
-   const timer=setTimeout(stop,10000);
+   const timer=setTimeout(stop,readBudget(driver.catalogReadTimeoutMs,10000));
    signal?.addEventListener('abort',stop,{once:true});
    if(signal?.aborted)stop();
    const cancelled=new Promise((_,reject)=>{
@@ -746,7 +747,7 @@ export function createAccountCenter({
                   .refreshAccountStatus({account,force,signal:controller.signal})),
                 new Promise(resolve=>{timeout=setTimeout(()=>{
                   controller.abort();resolve({state:'unavailable'});
-                },Math.min(30000,Math.max(10,readOnlyTimeoutMs)));}),
+                },readBudget(readOnlyTimeoutMs,readBudget(driver.accountReadTimeoutMs,8000)));}),
               ]);
               // Only an explicit per-account official authentication decision
               // updates the durable status: positive auth, or a definitive
