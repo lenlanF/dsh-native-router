@@ -4,7 +4,7 @@ import {createPrivateOwnedDriver} from '../src/channels/private-owned.mjs';
 
 const id='pr_'+'c'.repeat(28);
 const account={providerId:'own_lingxi',id,credentialRef:'driver:own_lingxi:'+id,enabled:true};
-function rig({kdocs401=false,profileFailure=false,creditFailure=false,taskFailure=false,badProfileCode=false}={}){
+function rig({kdocs401=false,profileFailure=false,creditFailure=false,taskFailure=false,badProfileCode=false,creditData={total_balance:230,bonus_credits:[],purchased_credits:[]}}={}){
  const seen=[],mutations=[];
  const fetchImpl=async(url,opt={})=>{
   const u=new URL(String(url)),path=u.pathname;
@@ -23,7 +23,7 @@ function rig({kdocs401=false,profileFailure=false,creditFailure=false,taskFailur
    return ok({models:[{key:'official-free-flash',name:'Official Flash',multiplier:'x0.00'}]});
   if(path==='/api/public/v1/credits/balance')
    return creditFailure?new Response('{}',{status:503})
-    :ok({total_balance:230,bonus_credits:[],purchased_credits:[]});
+    :ok(creditData);
   if(path==='/api/public/v1/tasks')
    return taskFailure?new Response('{}',{status:503})
     :ok({tasks:[{task_key:'daily_check_in',status:'claimable'}]});
@@ -91,4 +91,8 @@ test('Lingxi profile alone confirms identity but does not fabricate credit or co
  assert.equal(facts.balance,undefined);
  assert.equal(facts.checkinOutcome,'unknown');
  assert.equal(mutations.length,0);
+});
+test('Lingxi official wallet refresh exposes separate bonus and non-gift balance, not a zero multiplier',async()=>{
+ const {driver,mutations}=rig({creditData:{total_balance:230,bonus_credits:[{balance:100,expire_time:new Date(Date.now()+86400000).toISOString()}],purchased_credits:[{balance:130}]}});
+ const row=await driver.refreshAccountStatus({account,force:true});assert.equal(row.giftedBalance,100);assert.equal(row.ordinaryBalance,130);assert.equal(row.giftRouteState,'cost_bound_unverified');assert.equal(mutations.length,0);
 });
