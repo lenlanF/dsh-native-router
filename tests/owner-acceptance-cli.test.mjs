@@ -28,6 +28,11 @@ test('headless AutoFree audit sanitizes counts and refuses a channel before netw
  assert.deepEqual(result.autoFree,{state:'ready',catalogCount:9,routeCount:2,manualCount:0,errors:0,providers:[{providerId:'own_demo',routeCount:2,accountCount:1}]});
  assert.doesNotMatch(JSON.stringify(result),/SECRET/);
 });
+test('headless report preserves only allowlisted scan issues and native stream stages',async()=>{
+ let calls=0;
+ const result=await requestOwnerAcceptance({loginLink:'http://127.0.0.1:4444/?token=fixture-login',fetchImpl:async()=>++calls===1?new Response(null,{status:303,headers:{'set-cookie':'dsh-auth-fixture=synthetic-session'}}):Response.json({ok:true,result:{state:'complete',accounts:[{slot:1,providerId:'own_demo',state:'failed',phase:'STREAM_TEXT'},{slot:2,providerId:'own_demo',state:'failed',phase:'PRIVATE_FIXTURE'}],autoFree:{state:'ready',errors:1,issues:[{providerId:'own_demo',code:'SOURCE_CATALOG_UNAVAILABLE',count:1,raw:'PRIVATE_FIXTURE'},{providerId:'own_demo',code:'PRIVATE_FIXTURE',count:1}]}}})});
+ assert.deepEqual(result.autoFree.issues,[{providerId:'own_demo',code:'SOURCE_CATALOG_UNAVAILABLE',count:1}]);assert.equal(result.accounts[0].phase,'STREAM_TEXT');assert.equal(result.accounts[1].phase,undefined);assert.doesNotMatch(JSON.stringify(result),/PRIVATE_FIXTURE/);
+});
 test('headless inventory preserves safe quota and catalog state but redacts arbitrary strings',async()=>{
  let calls=0;const r=await requestOwnerAcceptance({loginLink:'http://127.0.0.1:4444/?token=fixture-login',fetchImpl:async()=>++calls===1?new Response(null,{status:303,headers:{'set-cookie':'dsh-auth-fixture=synthetic-session'}}):Response.json({ok:true,result:{state:'complete',accounts:[{slot:1,providerId:'own_demo',state:'observed',membershipState:'not_subscribed',usageState:'no_cycle',catalogState:'empty',balanceState:'PRIVATE_FIXTURE'}]}})});
  assert.equal(r.accounts[0].membershipState,'not_subscribed');assert.equal(r.accounts[0].usageState,'no_cycle');assert.equal(r.accounts[0].catalogState,'empty');assert.equal(r.accounts[0].balanceState,'unknown');

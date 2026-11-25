@@ -785,15 +785,16 @@ test('narrow settings layout uses responsive channel pills instead of the 136px 
   nodes.push(node);visit(node.children);
  };
  visit(tree);
- const layout=nodes.find(n=>typeof n.props?.style?.gridTemplateColumns==='string'
-   &&n.props.style.gridTemplateColumns.includes('repeat(auto-fit'));
- assert.ok(layout,'Responsive 1/2-column layout required, never force a 136px column');
- assert.doesNotMatch(layout.props.style.gridTemplateColumns,/136px/);
+ const layout=nodes.find(n=>n.props?.className==='dnr-model-workspace');
+ assert.ok(layout,'Responsive model workspace required');
+ const css=nodes.find(n=>n.type==='style').props.dangerouslySetInnerHTML.__html;
+ assert.match(css,/@container dnr-workspace \(max-width:780px\)\s*\{\s*\.dnr-shell \.dnr-model-workspace\{grid-template-columns:minmax\(0,1fr\)/);
+ assert.doesNotMatch(css,/grid-template-columns:136px/);
  const channel=uiNodes(tree,n=>n.type==='button'&&rig.flatten(n).join('').startsWith('WorkBuddy 国际'))[0];
  assert.ok(channel);
- assert.notEqual(channel.props.style.width,'100%');
- assert.equal(channel.props.style.display,'inline-flex');
- assert.ok(channel.props.style.minHeight>=34);
+ assert.equal(channel.props.className,'dnr-model-channel-choice');
+ assert.equal(channel.props['aria-pressed'],false);
+ assert.match(css,/\.dnr-model-channel-choice\{[^}]*min-height:44px/);
 });
 test('channel card Manage Account Pool opens a real provider-filtered account management view',async()=>{
  const rig=createUiRig();await rig.init();
@@ -843,6 +844,18 @@ test('Agent-level failover offers the complete DSH provider/model selectors and 
  await rig.find(page,'button','保存配置')[0].props.onClick();
  assert.ok(rig.cfg.hostFailover.priority.some(row=>
   row.provider==='lingxi'&&row.model==='lingxi-flash'));
+});
+test('failover candidate addition exhausts distinct ready routes without adding duplicates',async()=>{
+ const rig=createUiRig();await rig.init();
+ rig.find(rig.render(),'button','宿主故障切换')[0].props.onClick();
+ await rig.flushTabEffect();
+ for(let i=0;i<3;i++){
+  const add=rig.find(rig.render(),'button','+ 从已发现模型添加候选')[0];assert.equal(add.props.disabled,false);add.props.onClick();
+ }
+ const page=rig.render();assert.equal(rig.find(page,'button','+ 从已发现模型添加候选')[0].props.disabled,true);
+ await rig.find(page,'button','保存配置')[0].props.onClick();
+ assert.equal(rig.cfg.hostFailover.priority.length,3);
+ assert.equal(new Set(rig.cfg.hostFailover.priority.map(x=>x.provider+'/'+x.model)).size,3);
 });
 test('AutoFree manual model marking is owner-gated, never auto-generates chains and preserves price provenance',async()=>{
  const hosts=[{providerId:'workbuddy'},{providerId:'lingxi'}];
@@ -1366,6 +1379,14 @@ test('owned model allowlist saves exact IDs; external routes remain read-only',a
  assert.ok(open);await open.props.onClick();
  page=rig.render();
  assert.match(rig.flatten(page).join(' '),/未指定，默认全部 1 个模型/);
+ const search=uiNodes(page,n=>n.type==='input'&&n.props?.['aria-label']==='搜索当前渠道模型')[0];
+ assert.ok(search);
+ search.props.onChange({target:{value:'no-matching-model'}});
+ page=rig.render();
+ assert.match(rig.flatten(page).join(' '),/没有符合搜索条件的模型/);
+ assert.equal(uiNodes(page,n=>n.props?.['aria-label']==='允许自有模型 wb-native-flash').length,0);
+ rig.find(page,'button','清除模型搜索')[0].props.onClick();
+ page=rig.render();
  const flash=uiNodes(page,n=>n.type==='input'&&n.props?.['aria-label']==='允许自有模型 wb-native-flash')[0];
  assert.ok(flash);flash.props.onChange({target:{checked:true}});
  page=rig.render();

@@ -302,6 +302,21 @@ test('stalled native stream responds to cancellation even when next and return n
   assert.equal(returned,1);
  }finally{clearTimeout(timer)}
 });
+test('native stream exposes only validated progress stages while preserving complete text',async()=>{
+ const progress=[];
+ async function* stream(){
+  yield {type:'block-start',index:0,blockType:'reasoning'};
+  yield {type:'reasoning-delta',index:0,text:'fixture reasoning'};
+  yield {type:'block-end',index:0};
+  yield {type:'block-start',index:1,blockType:'text'};
+  yield {type:'text-delta',index:1,text:'OK'};
+  yield {type:'block-end',index:1};
+  yield {type:'finish',reason:{kind:'stop'}};
+ }
+ const reply=await collectSourceDshStream(stream(),{onProgress:p=>progress.push(p)});
+ assert.equal(reply.text,'OK');assert.equal(reply.finishReason,'stop');
+ assert.deepEqual(progress,['STREAM_FIRST_EVENT','STREAM_REASONING','STREAM_TEXT','STREAM_FINISH']);
+});
 test('incomplete, failed, invalid and oversized upstream DSH streams never release a partial answer',async()=>{
  async function* partial(){yield {type:'block-start',index:0,blockType:'text'};
   yield {type:'text-delta',index:0,text:'partial'};yield {type:'block-end',index:0};}

@@ -29,6 +29,14 @@ test('autofree audit invokes the real routing candidate audit without inference 
  assert.deepEqual(r.autoFree,{state:'ready',catalogCount:8,routeCount:2,manualCount:1,errors:0,providers:[{providerId:'own_demo',routeCount:2,accountCount:1}]});
  assert.throws(()=>f.service.start({requestId:'b'.repeat(32),mode:'autofree-audit',channel:'own_demo',consent:true}));
 });
+test('owner audit preserves bounded channel issues and native progress without upstream text',async()=>{
+ const f=fixture({adapter:{auditAutoFree:async()=>({state:'ready',catalogCount:2,routeCount:0,errors:1,providers:[],issues:[{providerId:'own_demo',code:'ACCOUNT_CATALOG_UNAVAILABLE',count:1,private:'PRIVATE_FIXTURE'},{providerId:'own_demo',code:'PRIVATE_FIXTURE',count:1}]})}});
+ f.service.start({requestId:id,mode:'autofree-audit',consent:true});
+ const r=await done(f.service);assert.deepEqual(r.autoFree.issues,[{providerId:'own_demo',code:'ACCOUNT_CATALOG_UNAVAILABLE',count:1}]);assert.doesNotMatch(JSON.stringify(r),/PRIVATE_FIXTURE/);
+ const model=fixture({accountCenter:{verifyModel:async()=>({state:'failed',code:'TIMEOUT',phase:'STREAM_FINISH',responsePreview:'PRIVATE_FIXTURE'})}});
+ model.service.start({requestId:id,mode:'free-models',consent:true});
+ const result=await done(model.service);assert.equal(result.accounts[0].phase,'STREAM_FINISH');assert.doesNotMatch(JSON.stringify(result),/PRIVATE_FIXTURE/);
+});
 test('inventory reports live gift diagnostics without serializing balances or private profile',async()=>{
  const f=fixture({accountCenter:{
    driverFor:()=>({refreshAccountStatus:async()=>{}}),

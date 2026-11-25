@@ -34,7 +34,8 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
       report.autoFree={state:'ready',catalogCount:count(result.catalogCount),routeCount:count(result.routeCount),
        manualCount:count(result.manualCount),errors:count(result.errors),
        providers:(Array.isArray(result.providers)?result.providers:[]).filter(x=>channelPattern.test(x?.providerId??'')).slice(0,128)
-        .map(x=>({providerId:x.providerId,routeCount:count(x.routeCount),accountCount:count(x.accountCount)}))};
+         .map(x=>({providerId:x.providerId,routeCount:count(x.routeCount),accountCount:count(x.accountCount)})),
+        ...(Array.isArray(result.issues)&&result.issues.length?{issues:result.issues.filter(x=>channelPattern.test(x?.providerId??'')&&['HOST_CATALOG_UNAVAILABLE','ACCOUNT_CATALOG_UNAVAILABLE','SOURCE_ACCOUNT_SCOPE_UNVERIFIED','SOURCE_CATALOG_UNAVAILABLE','SOURCE_ROSTER_UNAVAILABLE','SCAN_UNAVAILABLE'].includes(x.code)).slice(0,128).map(x=>({providerId:x.providerId,code:x.code,count:count(x.count)}))}: {})};
      }else if(report.mode==='catalog'){
      report.catalog=[];
      for(const providerId of job.channels){
@@ -126,7 +127,7 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
       // Stop between accounts, not halfway through a provider's response.
        const result=await accountCenter.verifyModel(account.id,{officialOnly:true});
       row.modelState=stateOf(result?.state);row.code=safeCode(result?.code);
-      if(['CATALOG','DRIVER_PRECHECK','ENTITLEMENT_READ','STREAM_OPEN','STREAM_READ'].includes(result?.phase))row.phase=result.phase;
+      if(['CATALOG','DRIVER_PRECHECK','ENTITLEMENT_READ','STREAM_OPEN','STREAM_READ','STREAM_FIRST_EVENT','STREAM_REASONING','STREAM_TEXT','STREAM_FINISH'].includes(result?.phase))row.phase=result.phase;
       // Never copy model response or arbitrary upstream strings.
       row.state=row.modelState;
      }

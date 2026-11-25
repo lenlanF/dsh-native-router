@@ -23,6 +23,21 @@ test('configured catalog requires every checked account to agree on free entitle
  result.models[0].accountIds.length=0;
  assert.deepEqual(pool.tiers()[0].accountIds,ids);
 });
+test('AutoFree skips redundant source catalog reads for exact-account providers and identifies real errors',async()=>{
+ const providerId='own_loomy',id=sourceAccountOpaqueId('loomy','fixture');
+ const cfg=normalizeConfig({providers:[{id:providerId,protocol:'native-channel',enabled:true}],accounts:[{id,providerId,credentialRef:'driver:'+providerId+':'+id,enabled:true}]});
+ let genericReads=0;
+ const pool=createAutoFreePool({getConfig:()=>cfg,ownedAccountEligible:()=>true,
+  ownedAccountCatalog:async()=>({state:'ready',models:[{id:'safe',free:true}]}),
+  ownedPack:{status:()=>({state:'mounted'}),listAccounts:async()=>({state:'ready',accounts:[{id:'fixture',providerId:'loomy',enabled:true}]}),listModels:async()=>{genericReads++;throw Error('private fixture')}},
+  hostProviderInventory:{status:()=>({hostProviders:[{providerId:'broken-host'}]}),listHostModels:async()=>{throw Error('private fixture')}}});
+ const result=await pool.refresh();
+ assert.equal(genericReads,0);
+ assert.equal(result.errors,1);
+ assert.deepEqual(result.issues,[{providerId:'broken-host',code:'HOST_CATALOG_UNAVAILABLE',count:1}]);
+ assert.deepEqual(result.models.map(x=>x.model),['safe']);
+ assert.doesNotMatch(JSON.stringify(result.issues),/private fixture/);
+});
 function originalHost({models=[{id:'host-free',isFree:true},{id:'host-paid',isFree:false}]}={}){
  let calls=0,registered=true;
  return {setRegistered(v){registered=v},calls:()=>calls,

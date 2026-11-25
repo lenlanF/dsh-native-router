@@ -64,7 +64,12 @@ try{
           <div class="dnr-account-metrics"><div class="dnr-account-metric"><span>总可用积分</span><strong class="dnr-account-metric-value">2,880 积分</strong><span>官方核实时间</span></div>
           <div class="dnr-account-metric"><span>会员自然恢复额度</span><strong>85% 剩余</strong></div></div>
            <div class="dnr-account-actions"><div class="dnr-action-group"><button class="dnr-button dnr-button-primary" id="accountAction">刷新账户资料</button></div><div class="dnr-action-group"><button class="dnr-button">停用</button><button class="dnr-button dnr-button-danger">解绑</button></div></div>
-          </div></div></details>
+          </div></div></details>          <div class="dnr-model-workspace" id="modelWorkspace">
+           <div class="dnr-model-channel-list"><button class="dnr-model-channel-choice" id="channelChoice" aria-pressed="true"><strong>独立 WorkBuddy 国内版</strong><span>16 模型</span></button><button class="dnr-model-channel-choice"><strong>Amazon Quick</strong><span>目录不可用</span></button></div>
+           <div class="dnr-model-directory" id="directory"><div class="dnr-model-search"><label><span>搜索当前渠道模型</span><input style="width:100%;min-width:0;height:42px" type="search"></label><button class="dnr-button">清除模型搜索</button></div><div class="dnr-model-selection-list"><label class="dnr-model-select-row"><input type="checkbox" checked><span>very-long-official-model-identifier-without-spaces</span></label></div></div>
+          </div>
+          <div class="dnr-failover-tier"><strong>优先级 1</strong><div class="dnr-tier-fields" id="tierFields"><label>DSH Provider<select style="width:100%;min-width:0"><option>WorkBuddy 国际</option></select></label><label>模型<select style="width:100%;min-width:0"><option>very-long-model-id</option></select></label></div><div class="dnr-tier-actions"><span>仅免费策略允许</span><button class="dnr-button">↑</button><button class="dnr-button">↓</button><button class="dnr-button dnr-button-danger">删除</button></div></div>
+
           <div class="dnr-model-row" id="modelRow"><div><strong>WorkBuddy / very-long-official-model-identifier-without-spaces</strong><div>独立渠道 · 适用 2 个账号</div></div><span class="dnr-model-evidence dnr-state-tag" data-tone="good">来源明确标记免费</span></div>
         <div class="dnr-activity-scroll"><table class="dnr-activity-table" id="activity"><thead><tr><th>活动名称</th><th>免费奖励</th><th>是否有效</th><th>到期时间</th><th>执行状态</th></tr></thead><tbody><tr>
          <td data-label="活动名称">免费活动名称与账号</td><td data-label="免费奖励">200 积分</td><td data-label="是否有效">已完成</td><td data-label="到期时间">2026-11-23</td><td data-label="执行状态">官方到账</td></tr></tbody></table></div>
@@ -93,7 +98,12 @@ try{
       actionHeight:rect('accountAction').height,
       modelColumns:getComputedStyle(e('modelRow')).gridTemplateColumns.split(' ').length,
       modelOverflow:e('modelRow').scrollWidth>e('modelRow').clientWidth+1,
-      filtersOverflow:e('filters').scrollWidth>e('filters').clientWidth+1
+       filtersOverflow:e('filters').scrollWidth>e('filters').clientWidth+1,
+       modelWorkspaceColumns:getComputedStyle(e('modelWorkspace')).gridTemplateColumns.split(' ').length,
+       tierColumns:getComputedStyle(e('tierFields')).gridTemplateColumns.split(' ').length,
+       channelHeight:rect('channelChoice').height,
+       directoryOverflow:e('directory').scrollWidth>e('directory').clientWidth+1,
+       workspaceOverflow:e('modelWorkspace').scrollWidth>e('modelWorkspace').clientWidth+1
     };
     e('layout-report').textContent='DSH_LAYOUT_REPORT:'+JSON.stringify(summary);
    });<\/script></body></html>`;
@@ -118,7 +128,10 @@ try{
     &&summary.filterColumns===(width<=560?1:2)
     &&summary.statColumns>=(width<=560?2:3)
     &&summary.modelColumns===(width<=560?1:2)
-    &&summary.actionHeight>=(width<=560?44:36);
+    &&summary.actionHeight>=(width<=560?44:36)
+    &&summary.modelWorkspaceColumns===(width<=780?1:2)
+    &&summary.tierColumns===(width<=560?1:2)
+    &&summary.channelHeight>=44&&!summary.directoryOverflow&&!summary.workspaceOverflow;
   console.log((okay?'PASS ':'FAIL ')+width+'px embedded pane '+JSON.stringify(summary));
   if(!okay)failures++;
  }

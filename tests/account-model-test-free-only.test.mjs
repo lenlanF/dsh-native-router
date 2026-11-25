@@ -28,14 +28,14 @@ test('verification preserves previous proof if free entitlement disappears and d
   attempt++;
   if(attempt===1)return {text:'OK',finishReason:'stop',toolCalls:[]};
   if(attempt===2){options.onVerificationPhase('ENTITLEMENT_READ');throw Object.assign(Error('not free'),{code:'COST_NOT_CONFIRMED_FREE'})}
-  options.onVerificationPhase('STREAM_READ');throw Object.assign(Error('timeout'),{code:'TIMEOUT'});
+  options.onVerificationPhase('STREAM_READ');options.onVerificationPhase('STREAM_FIRST_EVENT');options.onVerificationPhase('STREAM_TEXT');throw Object.assign(Error('timeout'),{code:'TIMEOUT'});
  }});
  try{
   assert.equal((await h.center.verifyModel(h.id,{officialOnly:true})).state,'verified');
   const skip=await h.center.verifyModel(h.id,{officialOnly:true});
   assert.equal(skip.state,'skipped');assert.equal(skip.code,'COST_NOT_CONFIRMED_FREE');assert.equal(skip.phase,'ENTITLEMENT_READ');
   const timeout=await h.center.verifyModel(h.id,{officialOnly:true});
-  assert.equal(timeout.state,'failed');assert.equal(timeout.code,'TIMEOUT');assert.equal(timeout.phase,'STREAM_READ');
+  assert.equal(timeout.state,'failed');assert.equal(timeout.code,'TIMEOUT');assert.equal(timeout.phase,'STREAM_TEXT');
  }finally{h.center.stop()}
 });
 test('model-test defaults to a truly zero-rate model and never sends the earlier paid model',async()=>{
