@@ -8,6 +8,7 @@ import {toChatMessages} from '../protocol.mjs';
 import {visibleTools,openAiTools} from '../host-tools.mjs';
 import {validateModelCalls} from '../provider/openai.mjs';
 import {publicAccountName} from '../account-facts.mjs';
+import {parseLingxiWallet} from './lingxi-wallet.mjs';
 
 // Loomy and ZCode are handled by the existing pinned MIT channel-pack.
 // Lingxi is absent from that upstream source and needs its own adapter.
@@ -246,18 +247,6 @@ export function createPrivateOwnedDriver({providerId,vault,makeCredentialRef,
     const part=k=>parts.find(x=>x.type===k)?.value;
     return part('year')+'-'+part('month')+'-'+part('day');
   };
-  function balanceFrom(payload){
-    const value=payload?.data;
-    if(!value||typeof value!=='object'||Array.isArray(value))return null;
-    const numeric=v=>typeof v==='number'&&Number.isFinite(v)?v:
-      typeof v==='string'&&v.trim()&&Number.isFinite(Number(v))?Number(v):null;
-    const grants=['bonus_credits','purchased_credits']
-      .flatMap(k=>Array.isArray(value[k])?value[k]:[])
-      .map(x=>numeric(x?.balance)).filter(x=>x!==null);
-    const total=numeric(value.total_balance)??numeric(value.balance)??
-      (grants.length?grants.reduce((a,b)=>a+b,0):null);
-    return total!==null&&total>=0?Math.round(total):null;
-  }
   function taskFrom(payload,requestedDate){
     const daily=Array.isArray(payload?.data?.tasks)
       ?payload.data.tasks.find(x=>x?.task_key==='daily_check_in'):null;
@@ -301,14 +290,15 @@ export function createPrivateOwnedDriver({providerId,vault,makeCredentialRef,
         typeof rawId==='string'&&rawId.trim()&&rawId.length<=128
           ||Number.isSafeInteger(rawId)&&rawId>0);
       const nickname=officialIdentity?publicAccountName(identity):'';
-      const date=beijingDate(),balance=balanceFrom(credits);
+      const date=beijingDate(),wallet=parseLingxiWallet(credits,now());
+      const balance=wallet.balance??null;
       const daily=task?taskFrom(task,date):
         {checkinOutcome:'unknown',checkinDate:null,taskStatus:'unknown'};
       const authVerified=officialIdentity||balance!==null
         ||['claimed','claimable'].includes(daily.taskStatus);
       return {state:'ready',authVerified,checkedAt:now(),
         ...(nickname?{nickname,profileCheckedAt:now()}:{}),
-        ...(balance!==null?{balance,balanceUnit:'积分',balanceCheckedAt:now()}:{}),
+        ...wallet,
         ...daily};
     }finally{
       clearTimeout(clock);
@@ -328,7 +318,7 @@ export function createPrivateOwnedDriver({providerId,vault,makeCredentialRef,
       else statusCache.set(id,{at:Date.now(),data:{
         ...(cached?.data??{}),state:'unavailable',
         // Do not repeat a previous healthy proof as current authentication.
-        authVerified:false,creditFetchState:'unavailable'}});
+        authVerified:false,creditFetchState:'unavailable',giftCreditState:'unconfirmed',quotaWindows:[]}});
       return result;
     }).finally(()=>statusPending.delete(id));
     statusPending.set(id,job);

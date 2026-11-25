@@ -1038,6 +1038,13 @@ window.__ModuleLoader__.load({
                       'data-stale':account.balanceStale===true?'true':'false'},
                       (account.balanceStale?'上次记录 · ':'官方核实 · ')+
                       new Date(account.balanceCheckedAt).toLocaleString()):null),
+                 account.giftCreditState?h('div',{className:'dnr-account-metric'},
+                   h('span',{className:'dnr-account-metric-label'},'官方赠送免费积分'),
+                   h('strong',{className:'dnr-account-metric-value'},account.giftCreditState==='verified'?account.giftedBalance.toLocaleString()+' 积分':'待核实'),
+                   h('span',{className:'dnr-account-metric-note'},account.giftRouteState==='cost_bound_unverified'?'已识别赠送权益 · 自动调用成本上限待核实':'与普通余额独立统计')):null,
+                 account.giftCreditState==='verified'?h('div',{className:'dnr-account-metric'},
+                   h('span',{className:'dnr-account-metric-label'},'普通余额积分'),
+                   h('strong',{className:'dnr-account-metric-value'},account.ordinaryBalance.toLocaleString()+' 积分')):null,
                  Number.isFinite(account.expiringPoints)&&account.expiringPoints>0
                    &&account.balanceUnit==='积分'&&Number.isFinite(account.expiringAt)
                    &&account.expiringAt>Date.now()?

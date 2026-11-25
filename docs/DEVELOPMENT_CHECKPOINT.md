@@ -2,6 +2,12 @@
 
 此处记录工程证据和可复用方法，生产状态每轮重新读取。
 
+## rc.133 工作线
+
+- 生产已安装 rc.132。真实 `owned-autofree-route` 成功，实际失败 1 次/1 个渠道，crossChannelSwitch=true，最终 own_workbuddy-cn 完成，整次约127秒；临时授权撤销。Lingxi 在线、目录14模型/7明确倍率/最低 x0.04，无零倍率。原钱包只返回总额，未保留赠送批次。
+- 用户明确：官方每日赠送、活动赠送、限时额度也是免费权益，不能只识别零倍率；普通余额不得混入。WPS 官方 https://www.lingxi.cn/docs 说明赠送智点优先扣减；参考 https://github.com/RobbsLuo/Coding2API 的公开钱包字段与 UTC+8 过期格式。现拆分 Lingxi 官方赠送批次、非赠送剩余、到期时间与未知状态。赠送金额读取和免费路由准入是两回事。现有官方资料尚未证明独立推理接口的单次最大扣点或赠送额度专用硬限制，不把非零倍率模型仅因有赠送积分就标零倍率。待验证官方消耗上限或免费池专用硬保护后开放自动路由。
+- 下轮生产复验 `inventory lingxi` 的 giftWalletVerified/giftCreditAvailable/ordinaryCreditObserved/giftRoutingReady；核查其他自有渠道官方免费赠送钱包，不将正常付费余额或推断金额当免费。CodeArts/ZCode 身份等此前未完项继续保留。
+
 ## rc.132 工作线
 
 - 实际生产已安装 rc.131。真实官方 inventory：12/12 在线且模型目录均 ready；WorkBuddy 国内/国际分别 2 条授权、2 个不同的官方确认身份、均有有效钱包与积分单位。国内每账号 17 模型/16 个明确倍率/1 个零倍率，国际每账号 35 模型/33 个明确倍率/3 个零倍率。Lingxi 本轮 12 模型/5 个明确倍率/最低 x0.10（目录可能随上游变化）；CodeArts 11 模型、最低 x0.07，真实名称缺；ZCode 2 模型、无确认免费计划，名称缺；MiMo 未订阅。不得将缓存余额或模型数当作永久事实。

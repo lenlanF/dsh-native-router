@@ -130,6 +130,12 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
        row.balanceState=['available','cached','unavailable','not_returned','not_supported','not_checked'].includes(data?.balanceState)?data.balanceState:'unknown';
        row.membershipState=['active','not_subscribed','unavailable','not_supported','not_checked'].includes(data?.membershipState)?data.membershipState:'unknown';
        row.usageState=['available','no_cycle','unavailable','not_supported','not_checked'].includes(data?.usageState)?data.usageState:'unknown';
+       if(account.providerId==='own_lingxi'){
+         row.giftWalletVerified=probe?.authVerified===true&&data?.giftCreditState==='verified';
+         row.giftCreditAvailable=row.giftWalletVerified&&data.giftedBalance>0;
+         row.ordinaryCreditObserved=row.giftWalletVerified&&Number.isFinite(data.ordinaryBalance);
+         row.giftRoutingReady=false;
+       }
        row.quotaWindowCount=count(data?.quotaWindows?.length);
        row.hasRollingQuota=data?.usageState==='available'&&Number.isFinite(data.usagePercentRemaining);
        row.hasMembershipQuota=data?.membershipState==='active'&&Number.isFinite(data.membershipPercentRemaining);

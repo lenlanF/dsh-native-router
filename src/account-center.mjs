@@ -164,6 +164,14 @@ export function createAccountCenter({
              ...(maskedPhone?{maskedPhone}:{}),
              profileState:name||maskedPhone?profileFromCache||live.profileState==='cached'?'cached':'verified':'not_returned',
              ...balance,quotaWindows,
+             ...(account.providerId==='own_lingxi'?(()=>{
+               const at=live.giftCreditCheckedAt,valid=live.giftCreditState==='verified'&&!fromCache&&!balance.balanceStale
+                 &&Number.isFinite(at)&&at<=now()&&now()-at<=3*60000
+                 &&Number.isFinite(live.giftedBalance)&&live.giftedBalance>=0&&Number.isFinite(live.ordinaryBalance)&&live.ordinaryBalance>=0
+                 &&Math.abs(live.giftedBalance+live.ordinaryBalance-balance.balance)<0.0001
+                 &&(live.giftedBalance===0||Number.isFinite(live.giftExpiresAt)&&live.giftExpiresAt>now());
+               return valid?{giftCreditState:'verified',giftedBalance:live.giftedBalance,ordinaryBalance:live.ordinaryBalance,giftCreditCheckedAt:at,giftRouteState:live.giftedBalance>0?'cost_bound_unverified':'no_gift'}:{giftCreditState:'unconfirmed'};
+             })():{}),
              ...(balance.balanceUnit==='积分'
                &&Number.isFinite(fromCache?cached?.expiringPoints:live.expiringPoints)
                &&(fromCache?cached.expiringPoints:live.expiringPoints)>0
