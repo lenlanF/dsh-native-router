@@ -539,3 +539,31 @@ test('experimental two-account source chain switches on 429 without publishing p
  assert.equal(result.metrics.failedAttempts,1);
  assert.equal(result.metrics.successfulTurns,1);
 });
+
+test('Loomy stalled opening is bounded and cooldown prevents a second POST',async()=>{
+ const rig=mockSource([{id:'l1',providerId:'loomy',enabled:true}]);let opens=0,requestSignal;
+ rig.embeddedPack.streamNative=async req=>{opens++;requestSignal=req.signal;return new Promise(()=>{})};
+ const driver=createSourceChannelDriver({providerId:'loomy',embeddedPack:rig.embeddedPack,streamIdleTimeoutMs:30});
+ const id=sourceAccountOpaqueId('loomy','l1'),account={id,providerId:'loomy',credentialRef:'driver:loomy:'+id};
+ const input={account,model:'test',options:{messages:[{role:'user',content:'OK'}]}};
+ await assert.rejects(driver.generate(input),{code:'TIMEOUT'});assert.equal(requestSignal.aborted,true);
+ await assert.rejects(driver.generate(input),error=>error.code==='RATE_LIMIT'&&error.retryAfterMs>0);assert.equal(opens,1);
+});
+test('Loomy active stream excludes parallel calls and preserves the official rate window',async()=>{
+ const rig=mockSource([{id:'l2',providerId:'loomy',enabled:true}]);let opens=0,release,started;
+ const entered=new Promise(r=>{started=r});
+ rig.embeddedPack.streamNative=async()=>{opens++;started();await new Promise(r=>{release=r});throw Object.assign(Error('rate limit'),{code:'RATE_LIMIT',retryAfterMs:180000})};
+ const driver=createSourceChannelDriver({providerId:'loomy',embeddedPack:rig.embeddedPack});
+ const id=sourceAccountOpaqueId('loomy','l2'),account={id,providerId:'loomy',credentialRef:'driver:loomy:'+id};
+ const input={account,model:'test',options:{messages:[{role:'user',content:'OK'}]}};
+ const first=driver.generate(input);await entered;
+ await assert.rejects(driver.generate(input),{code:'SOURCE_BUSY'});release();await assert.rejects(first,{code:'RATE_LIMIT'});
+ await assert.rejects(driver.generate(input),error=>error.code==='RATE_LIMIT'&&error.retryAfterMs>170000);assert.equal(opens,1);
+});
+test('native stream progress resets idle watchdog; a hung read is cancelled',async()=>{
+ const rig=mockSource([{id:'l3',providerId:'loomy',enabled:true}]);let cancelled=false;
+ rig.embeddedPack.streamNative=async req=>{req.signal.addEventListener('abort',()=>{cancelled=true});return (async function*(){yield {type:'block-start',index:0,blockType:'text'};yield {type:'text-delta',index:0,text:'partial'};await new Promise(()=>{});})()};
+ const driver=createSourceChannelDriver({providerId:'loomy',embeddedPack:rig.embeddedPack,streamIdleTimeoutMs:30});
+ const id=sourceAccountOpaqueId('loomy','l3');
+ await assert.rejects(driver.generate({account:{id,providerId:'loomy',credentialRef:'driver:loomy:'+id},model:'test',options:{messages:[{role:'user',content:'OK'}]}}),{code:'TIMEOUT'});assert.equal(cancelled,true);
+});

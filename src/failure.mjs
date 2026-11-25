@@ -12,7 +12,9 @@ export function safeDshFailureFacts(error){
    typeof error?.code==='string'?error.code:error?.cause?.code;
  const code=String(rawCode??'').toUpperCase();
  const codes={
-  QUOTA:['QUOTA',402],ACCOUNT_QUOTA:['QUOTA',402],
+  QUOTA:['QUOTA',402],ACCOUNT_QUOTA:['QUOTA',402],QUOTA_EXCEEDED:['QUOTA',402],
+  QUEUE:['RATE_LIMIT',429],MISSING_CREDENTIAL:['CREDENTIAL',401],
+  OFFICIAL_CLIENT_ONLY:['OFFICIAL_CLIENT_ONLY',0],SOURCE_BUSY:['SOURCE_BUSY',0],
   RATE_LIMIT:['RATE_LIMIT',429],AUTH:['AUTH',401],CREDENTIAL:['CREDENTIAL',401],
   PROVIDER_NOT_READY:['PROVIDER_NOT_READY',0],
   STREAM_CLOSED:['TRUNCATED',0],TRUNCATED:['TRUNCATED',0],
@@ -26,7 +28,7 @@ export function safeDshFailureFacts(error){
  const rawStatus=Number(nested?.status??nested?.statusCode??error?.status??error?.statusCode);
  const status=mapped[0]==='INVALID_REQUEST'||mapped[0]==='CANCELLED'?0:
    Number.isInteger(rawStatus)&&rawStatus>=400&&rawStatus<=599?rawStatus:mapped[1];
- const wait=Number(nested?.retryAfterMs??error?.retryAfterMs);
+ const wait=Number(nested?.retryAfterMs??nested?.providerRetryAfterMs??error?.retryAfterMs??error?.providerRetryAfterMs);
  return {code:mapped[0],status,
   retryAfterMs:Number.isFinite(wait)&&wait>0?Math.min(wait,86400000):0};
 }
@@ -43,6 +45,7 @@ export function classifyFailure(error, signal) {
       ?{code:'QUOTA',retryable:true,scope:'account',cooldownMs:21600000}
       :{code:'RATE_LIMIT',retryable:true,scope:'account',cooldownMs:error.retryAfterMs||60000};
   }
+  if(error?.code==='SOURCE_BUSY')return {code:'SOURCE_BUSY',retryable:true,scope:'account',cooldownMs:1000};
   if(error?.code==='COST_NOT_CONFIRMED_FREE')return {code:'COST_NOT_CONFIRMED_FREE',retryable:true,scope:'account',cooldownMs:30000};
   if(error?.code === 'TRANSPORT')return {code:'TRANSPORT',retryable:true,scope:'account',cooldownMs:10000};
   if(error?.code === 'TIMEOUT')return {code:'TIMEOUT',retryable:true,scope:'account',cooldownMs:30000};

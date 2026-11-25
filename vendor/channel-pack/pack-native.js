@@ -29326,6 +29326,19 @@ function buildLoginUrl(port, ticketId) {
   const loginUrl = `${HUAWEI_AUTH_BASE}?service=${encodeURIComponent(redirectUrl)}`;
   return { redirectUrl, loginUrl };
 }
+function nativeRouterLoginPublicName(...sources) {
+  for (const root of sources) {
+    for (const obj of [root, root?.user, root?.profile, root?.account, root?.userInfo, root?.user_info]) {
+      for (const key of ["displayName", "display_name", "nickname", "nickName", "user_name", "userName", "username", "account_name", "accountName", "name", "email"]) {
+        const v = obj?.[key];
+        if (typeof v !== "string") continue;
+        const name = v.trim();
+        if (name && name.length <= 120 && name !== obj?.id && name !== obj?.user_id && name !== obj?.userId && !/^(?:hid_|device[_-]|账号\s*\d+|[0-9a-f]{24,})/i.test(name) && !/[\x00-\x1f]/.test(name)) return name;
+      }
+    }
+  }
+  return "";
+}
 function parseCredentialResponse(data) {
   if (data.credential) {
     const access = data.credential.access ?? "";
@@ -29338,7 +29351,7 @@ function parseCredentialResponse(data) {
         expires_at: data.credential.expires_at ?? data.credential.expiresAt ?? "",
         domain_id: data.domain_id ?? "",
         user_id: data.user_id ?? "",
-        user_name: data.user_name ?? ""
+        user_name: nativeRouterLoginPublicName(data, data.credential)
       };
     }
   }
@@ -29350,7 +29363,10 @@ function parseCredentialResponse(data) {
         access_key_id: ak,
         secret_access_key: data.result.secretAccessKey ?? "",
         security_token: st,
-        expires_at: data.result.expiration ?? data.result.expiresAt ?? ""
+        expires_at: data.result.expiration ?? data.result.expiresAt ?? "",
+        user_id: data.result.user_id ?? data.result.userId ?? data.user_id ?? data.userId ?? "",
+        domain_id: data.result.domain_id ?? data.result.domainId ?? data.domain_id ?? data.domainId ?? "",
+        user_name: nativeRouterLoginPublicName(data.result, data)
       };
     }
   }
@@ -44275,7 +44291,7 @@ var LoomyAdapter = class extends LlmAdapter7 {
       let emitted = false;
       try {
         let response = await send(credential.access_token);
-        if (response.status === 401 || response.status === 403) {
+        if (response.status === 401) {
           await response.body?.cancel();
           credential = await this.options.refresh(accountId || void 0) ?? await this.options.resolveCredential(options.model);
           if (credential === void 0 || credential.access_token.length === 0) {
@@ -44290,11 +44306,12 @@ var LoomyAdapter = class extends LlmAdapter7 {
             quota ||= isLoomyQuotaError(JSON.parse(errorText));
           } catch {
           }
-          throw new LlmError10(
+          const retryAfterMs = response.status === 429 ? retryAfterMsFromResponse(response.headers) : void 0;
+          throw Object.assign(new LlmError10(
             `loomy: ${errorDetail4(errorText)}`,
             quota ? "QUOTA_EXCEEDED" : httpErrorCode4(response.status),
             { status: response.status }
-          );
+          ), Number.isFinite(retryAfterMs) && retryAfterMs > 0 ? { retryAfterMs: Math.min(retryAfterMs, 86400000), providerRetryAfterMs: Math.min(retryAfterMs, 86400000) } : {});
         }
         for await (const chunk of consumeOpenAiSse(response, { signal: options.signal }, {
           label: "loomy",
@@ -44317,7 +44334,7 @@ var LoomyAdapter = class extends LlmAdapter7 {
         if (accountId) {
           // 积分耗尽按天记账；429 是短时窗口限流，只压 60 秒（按天封禁要白等次日零点）。
           // updateModelRateLimit 取「更长者」，短冷却不会覆盖真实日额度标记。
-          const resetAt = error.code === "QUOTA_EXCEEDED" ? nextUtc8DayStartMs() : Date.now() + 6e4;
+          const resetAt = error.code === "QUOTA_EXCEEDED" ? nextUtc8DayStartMs() : Date.now() + Math.max(6e4, Number.isFinite(error.retryAfterMs) ? Math.min(error.retryAfterMs, 86400000) : 0);
           await this.options.accountPool?.updateModelRateLimit(accountId, options.model, resetAt);
         }
         if (emitted || attempt === 2 || this.options.nextAccount === void 0) throw error;
@@ -53889,7 +53906,7 @@ async function pollZcodeLogin(flow, fetchImpl = sanitizingFetch, appVersion = "3
     };
   }
   const refreshRaw = data.bigmodel?.refresh_token ?? data.bigmodel?.refreshToken ?? data.zai?.refresh_token ?? data.zai?.refreshToken;
-  const displayName = typeof data.user?.name === "string" && data.user.name.length > 0 ? data.user.name : typeof data.user?.email === "string" && data.user.email.length > 0 ? data.user.email : userId;
+  const displayName = nativeRouterLoginPublicName(data.user, data.profile, data.userInfo, data.user_info);
   return {
     kind: "ready",
     result: {
@@ -59948,6 +59965,21 @@ function parseCreditBalance(metrics) {
     totalRemain ?? packages.reduce((sum, pkg) => sum + pkg.remaining, 0)
   );
   return { total, packages, expiredTotal: 0 };
+}
+async function nativeRouterCodeartsProfile(credential, fetcher = directFetch) {
+  const id = credential?.user_id;
+  if (typeof id !== "string" || !/^[a-zA-Z0-9_-]{8,128}$/.test(id) || !credential.access_key_id || !credential.secret_access_key || !credential.security_token) return null;
+  const url = "https://iam.myhuaweicloud.com/v3/users/" + encodeURIComponent(id);
+  try {
+    const headers = await signRequestHuawei(credential.access_key_id, credential.secret_access_key, credential.security_token, "GET", url, new Uint8Array());
+    headers.delete("host");
+    const res = await fetcher(url, { method: "GET", headers: new Headers(Object.fromEntries(headers)), signal: AbortSignal.timeout(4000), redirect: "error" });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data?.user?.id !== id) return null;
+    const name = nativeRouterLoginPublicName(data.user);
+    return name ? {accountName:name} : null;
+  } catch { return null; }
 }
 async function fetchCodeArtsAccountInfoDetailed(credential, fetcher = directFetch, renew) {
   const url = `${CODEARTS_SNAP_ENGINE_URL}${CODEARTS_PACKAGE_INFO_PATH}`;
@@ -70797,7 +70829,8 @@ function apply(ctx, config = {}) {
   });
   config.nativeRouterSourceCatalogReady?.({
     codearts: () => codearts.listModels("codearts"),
-    codeartsOneShot: request => codearts.stream({...request, nativeRouterOneShot: true})
+    codeartsOneShot: request => codearts.stream({...request, nativeRouterOneShot: true}),
+    codeartsProfile: credential => nativeRouterCodeartsProfile(credential)
   });
   const resolveBuddyCredentialByRef = async (refName) => {
     const resolved = await ctx.credentials.resolve(credentialRef16(refName));

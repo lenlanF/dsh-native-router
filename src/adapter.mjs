@@ -59,7 +59,7 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
       if(typeof driver?.generate!=='function')throw new UpstreamError('Native provider driver unavailable',{code:'PROVIDER_NOT_READY'});
        // Recheck the selected exact account before automatic free inference.
        const hostProof=arg.options.sessionId==='native-router-smoke-host';
-       if(hostProof&&!ownedAccountCatalog)throw new UpstreamError('Official account catalog unavailable',{code:'COST_NOT_CONFIRMED_FREE'});
+       if(hostProof&&(!ownedAccountCatalog||!configStore.get().accounts.some(a=>a.id===arg.account.id&&a.providerId===arg.provider.id&&a.credentialRef===arg.account.credentialRef&&a.enabled)))throw new UpstreamError('Official account catalog unavailable',{code:'COST_NOT_CONFIRMED_FREE'});
        if((hostProof||arg.options.autoFreeSelection===true)&&ownedAccountCatalog&&configStore.get().accounts.some(a=>a.id===arg.account.id&&a.providerId===arg.provider.id)){
         const before=configStore.get(),policy=JSON.stringify(before.freePool??{});
         const rule=before.freePool?.models?.find(x=>x.providerId===arg.provider.id&&x.model===arg.model);

@@ -131,7 +131,7 @@ export function attachHostFailover(ctx,{configStore,now=()=>Date.now(),createUse
     refreshRules();
    if(!config().enabled||downstream?.kind==='retry'||payload.signal?.aborted)return downstream;
    if(!qualifies(payload.failure,rules))return downstream;
-   if(['QUOTA','ACCOUNT_QUOTA'].includes(payload.failure?.code)){
+   if(['QUOTA','ACCOUNT_QUOTA','QUOTA_EXCEEDED'].includes(payload.failure?.code)){
      const failed=payload.provider?{provider:payload.provider,model:payload.model??selected(payload.agent)?.model}:selected(payload.agent);
      if(failed?.provider&&failed.model){spent=markExhausted(spent,failed,now());persistExhausted()}
    }

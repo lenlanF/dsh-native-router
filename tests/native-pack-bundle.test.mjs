@@ -28,7 +28,7 @@ test('the DSH-native bundle is deterministically derived from unchanged pinned M
   const crlf=Buffer.from(original.toString('utf8').replace(/\n/g,'\r\n'),'utf8');
   assert.equal(sha(canonicalText(crlf)),sha(original));
  assert.equal(sha(bundled),native.generatedSha256);
-    assert.equal(native.patches.length,78);assert.ok(native.patches.includes('lobster-official-action-eligibility'));assert.ok(native.patches.includes('loomy-strict-daily-quota-evidence'));assert.ok(native.patches.includes('trae-explicit-official-daily-booleans'));assert.ok(native.patches.includes('loomy-sms-sender-requires-existing-owned-account'));
+    assert.equal(native.patches.length,86);assert.ok(native.patches.includes('lobster-official-action-eligibility'));assert.ok(native.patches.includes('loomy-strict-daily-quota-evidence'));assert.ok(native.patches.includes('trae-explicit-official-daily-booleans'));assert.ok(native.patches.includes('loomy-sms-sender-requires-existing-owned-account'));
     for(const patch of ['lobster-official-status-renewal','lobster-renewal-cooldown','lobster-wire-official-read-renewal'])assert.ok(native.patches.includes(patch));
     assert.ok(native.patches.includes('loomy-sms-submit-refuses-cross-provider-credential-overwrite'));
    assert.ok(native.patches.includes('codearts-exact-official-credit-ratio'));
@@ -112,7 +112,7 @@ test('release package ships only native in-process bundle with host-provided pee
   assert.equal(pkg.private,false);
   assert.equal(pkg.license,'MIT');
   assert.equal(pkg.engines.node,'>=22.10.0');
-    assert.equal(pkg.version,'1.0.0-rc.128');
+    assert.equal(pkg.version,'1.0.0-rc.129');
    assert.ok(pkg.files.includes('tools/local-owner-jobs-cli.mjs'));
   assert.ok(pkg.files.includes('vendor/channel-pack/SOURCE_RECEIPT.json'));
    assert.ok(!pkg.files.includes('vendor/channel-pack'));

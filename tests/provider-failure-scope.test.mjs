@@ -186,3 +186,10 @@ test('full AutoFree adapter skips a down multi-account Provider and continues th
 
 
 
+
+test('an overlapping shorter cooldown cannot shorten a prior official wait window',()=>{
+ let now=1000;const pool=createAccountPool({now:()=>now});const a={id:'account-a',providerId:'own_loomy'};
+ pool.mark(a,'model',{scope:'account',code:'RATE_LIMIT',cooldownMs:180000});now+=1000;
+ pool.mark(a,'model',{scope:'account',code:'RATE_LIMIT',cooldownMs:60000});now+=61000;
+ assert.equal(pool.isReady(a,'model'),false);now=181001;assert.equal(pool.isReady(a,'model'),true);
+});

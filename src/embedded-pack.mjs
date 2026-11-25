@@ -1,7 +1,9 @@
 import {channelPackIsolationReason,channelPackNodeRuntimeReason} from './channel-pack-isolation.mjs';
+import {UpstreamError} from './failure.mjs';
 import {sourceAccountOpaqueId} from './source-account-ref.mjs';
 import {publicAccountName,upstreamCheckedInToday,credentialPublicIdentity,publicMaskedPhone} from './account-facts.mjs';
 import {sourceAccountFacts} from './source-account-facts.mjs';
+import {readZcodePublicProfile} from './channels/zcode-profile.mjs';
 import {installSourceAccountSelection} from './source-account-selection.mjs';
 import {ownCredentialRef} from './credential-ref.mjs';
 import {startRaccoonAuthorizeFlow} from './channels/raccoon-authorize.mjs';
@@ -189,7 +191,8 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
           if(!catalog||typeof catalog.codearts!=='function')
             throw Error('Private CodeArts catalog accessor unavailable');
           privateSourceCatalog={codearts:catalog.codearts,
-            codeartsOneShot:typeof catalog.codeartsOneShot==='function'?catalog.codeartsOneShot:null};
+            codeartsOneShot:typeof catalog.codeartsOneShot==='function'?catalog.codeartsOneShot:null,
+            codeartsProfile:typeof catalog.codeartsProfile==='function'?catalog.codeartsProfile:null};
         };
         if(nativeOwned){         options.nativeRouterPoolReady=pool=>{
            if(typeof pool?.listAllAccounts!=='function'||typeof pool?.getAvailableAccount!=='function')
@@ -477,6 +480,9 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
     const exclude=multi?new Set(allIds.filter(id=>id!==sourceAccountId)):undefined;
     // Account availability is always resolved by the original upstream pool.
     // The guard only narrows the source candidate set and blocks any fallback.
+    const reset=selected[0]?.modelRateLimits?.[model];
+    if(typeof reset==='number'&&Number.isFinite(reset)&&reset>Date.now())
+      throw new UpstreamError('Exact source account model is cooling down',{code:'RATE_LIMIT',status:429,retryAfterMs:Math.min(86400000,reset-Date.now())});
     const available=await pool.getAvailableAccount(providerId,model,exclude);
     if(available?.entry?.id!==sourceAccountId||scope!==mountedScope()||signal?.aborted)
       throw Error('Upstream source account is not currently available for this model');
@@ -861,7 +867,14 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
         const ownedIdentity=facts.authVerified===true&&!facts.nickname
           &&['codearts','loomy','zcode'].includes(providerId)
           ?await withOwnedSourceCredential(scope,providerId,accountId,null,
-             credential=>credentialPublicIdentity(credential)):null;
+             async credential=>{
+               const identity=credentialPublicIdentity(credential);
+               if(identity.accountName)return identity;
+               const result=providerId==='codearts'&&privateSourceCatalog?.codeartsProfile?await privateSourceCatalog.codeartsProfile(credential):
+                 providerId==='zcode'?await readZcodePublicProfile({credential}):null;
+               const accountName=publicAccountName(result);
+               return accountName?{...identity,accountName}:identity;
+             }):null;
         if(scope!==mountedScope())return {state:'unavailable',accounts:[]};
         if(!facts.nickname&&ownedIdentity?.accountName)facts.nickname=ownedIdentity.accountName;
         const loginProof=providerId==='raccoon'?

@@ -99,6 +99,14 @@ const removeFixture=router.registerNativeChannelDriver(fixtureProvider,{
    return {confirmed:true,date};
  },
 });
+const downProvider='own_workbuddy-global',downId='wbp_'+'2'.repeat(24);
+let downCalls=0;
+const removeDown=router.registerNativeChannelDriver(downProvider,{
+ accountSnapshot:()=>({nickname:'Synthetic rate-limited account'}),
+ refresh:async()=>({state:'online'}),
+ listModels:async()=>[{id:'fixture-down',name:'Fixture down'}],
+ generate:async()=>{downCalls++;throw Object.assign(Error('Synthetic upstream 429'),{code:'RATE_LIMIT',status:429,retryAfterMs:180000})}
+});
 let loaded=false;
 try{
  const fiber=ctx.plugin(router);
@@ -200,6 +208,23 @@ try{
  assert.equal(repeated.activity.confirmedSignins,1);assert.equal(fixtureSignins,1);
  const postConfig=(await (await fetch(configUrl,{headers:{cookie}})).json()).config;
  assert.deepEqual(postConfig.checkin,originalConfig.checkin);
+ const failoverConfig={...fixtureConfig,
+  providers:[...fixtureConfig.providers,{id:downProvider,name:'Synthetic failing channel',protocol:'native-channel',enabled:true}],
+  accounts:[...fixtureConfig.accounts,{id:downId,providerId:downProvider,credentialRef:'driver:'+downProvider+':'+downId,enabled:true}],
+  routes:[{id:'fixture-failover',name:'Fixture failover',mode:'priority',enabled:true,maxSwitches:1,tiers:[
+    {providerId:downProvider,model:'fixture-down',free:true},{providerId:fixtureProvider,model:'fixture-free',free:true}]}]};
+ assert.equal((await saveConfig(failoverConfig)).status,200);
+ const failoverInventory=await runAcceptance('inventory','9'.repeat(32));
+ assert.equal(failoverInventory.state,'complete');assert.equal(failoverInventory.accountCount,2);
+ assert.ok(failoverInventory.accounts.every(account=>account.connection==='online'),JSON.stringify(failoverInventory.accounts));
+ for(const sessionId of ['fixture-failover-1','fixture-failover-2']){
+  const stream=await llm.stream({provider:'native-router',model:'chain:fixture-failover',messages:[{role:'user',content:[{type:'text',text:'OK'}]}],maxTokens:32,sessionId});
+  const events=[];for await(const event of stream)events.push(event);
+  assert.ok(events.some(event=>event.type==='text-delta'&&event.text==='OK'),'Backup must produce a real DSH text event');
+  assert.ok(events.some(event=>event.type==='finish'&&event.reason?.kind==='stop'),'Backup must complete');
+ }
+ assert.equal(downCalls,1,'Second turn must respect upstream cooldown');
+ assert.equal(fixtureGenerations,4,'Both turns must finish through the backup');
  assert.equal((await saveConfig(originalConfig)).status,200);
  // The source pack must also activate from the EXACT published tarball when
  // host WorkBuddy/Loomy already own their public provider names. No real auth,
@@ -289,7 +314,7 @@ try{
  loaded=true;
 }finally{
  ctx.registry.delete(router);
- removeFixture();
+ removeFixture();removeDown();
  await new Promise(resolve=>setTimeout(resolve,90));
  assert.ok(!llm.listProviders().some(x=>x.id==='native-router'),'native adapter must unload');
  assert.equal((await fetch(base+'/api/plugins/dsh-native-router/status',{headers:{cookie}})).status,404);

@@ -24,10 +24,10 @@ export function createAccountPool({now=()=>Date.now()}={}) {
     // A Provider outage belongs to the channel, not to whichever account
     // happened to be selected first. All sibling accounts and models share
     // the same temporary circuit breaker, including later AutoFree turns.
-    if(reason.scope==='provider')
-      providerExhausted.set(account.providerId,{until:now()+cooldown,code:reason.code});
-    else exhausted.set(key(account.id,reason.code==='AUTH'||reason.code==='CREDENTIAL'
-      ?'*':model),{until:now()+cooldown,code:reason.code});
+    const table=reason.scope==='provider'?providerExhausted:exhausted;
+    const id=reason.scope==='provider'?account.providerId:key(account.id,reason.code==='AUTH'||reason.code==='CREDENTIAL'?'*':model);
+    const until=now()+cooldown;
+    if((table.get(id)?.until??0)<until)table.set(id,{until,code:reason.code});
     // Session stickiness is revoked after a failed account attempt.
     for(const [sid,id] of stickiness)if(id===account.id)stickiness.delete(sid);
   }
