@@ -174,3 +174,12 @@ test('slow account read-only probes do not block independent channels or leak er
  assert.equal(completed,true);
  assert.doesNotMatch(JSON.stringify(result),/private connection failure/);
 });
+test('account read deadline follows bounded driver budget unless an explicit override is supplied',async()=>{
+ const cfg=normalizeConfig({providers:[{id:'own_lingxi',protocol:'native-channel'}],accounts:[{id:'one',providerId:'own_lingxi',credentialRef:'driver:own_lingxi:one',enabled:true}]});
+ const drivers=new Map([['own_lingxi',{accountReadTimeoutMs:40,refreshAccountStatus:async()=>{await new Promise(resolve=>setTimeout(resolve,70));return {state:'ready'}}}]]);
+ const store={get:()=>structuredClone(cfg),replace(){}};
+ const bounded=createAccountCenter({configStore:store,drivers});
+ try{assert.equal((await bounded.refreshReadOnly({force:true}))[0].state,'unavailable')}finally{bounded.stop()}
+ const override=createAccountCenter({configStore:store,drivers,readOnlyTimeoutMs:250});
+ try{assert.equal((await override.refreshReadOnly({force:true}))[0].state,'ready')}finally{override.stop()}
+});

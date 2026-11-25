@@ -167,7 +167,7 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
       return {state:'unavailable',authVerified:false};
     // Every request is served by THIS plugin's isolated account pool and
     // official-channel APIs. Original plugin metadata is never consulted.
-    const remote=await embeddedPack.readSourceStatuses(providerId);
+    const remote=await embeddedPack.readSourceStatuses(providerId,selected.id);
     const matched=(remote?.state==='ready'&&Array.isArray(remote.accounts)
       ?remote.accounts:[]).filter(row=>row?.accountId===selected.id);
     if(matched.length!==1)return {state:'unavailable',authVerified:false};
@@ -185,6 +185,10 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
     return result;
   }
   return {
+   // The embedded official reads have their own deadlines; the outer caller
+   // must allow them to settle (including the bounded follow-up gift read).
+   accountReadTimeoutMs:providerId==='zcode'?23000:providerId==='loomy'?25000:providerId==='raccoon'?15000:12000,
+   catalogReadTimeoutMs:providerId==='zcode'||providerId==='loomy'?28000:15000,
    isSourceBridge:true,
    get runtimeReady(){const status=embeddedPack.status?.();return status?.state==='mounted'
      &&(!Array.isArray(status.channels)||status.channels.includes(providerId))},
