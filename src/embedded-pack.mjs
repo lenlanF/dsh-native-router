@@ -192,7 +192,8 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
             throw Error('Private CodeArts catalog accessor unavailable');
           privateSourceCatalog={codearts:catalog.codearts,
             codeartsOneShot:typeof catalog.codeartsOneShot==='function'?catalog.codeartsOneShot:null,
-            codeartsProfile:typeof catalog.codeartsProfile==='function'?catalog.codeartsProfile:null};
+            codeartsProfile:typeof catalog.codeartsProfile==='function'?catalog.codeartsProfile:null,
+            loomy:typeof catalog.loomy==='function'?catalog.loomy:null};
         };
         if(nativeOwned){         options.nativeRouterPoolReady=pool=>{
            if(typeof pool?.listAllAccounts!=='function'||typeof pool?.getAvailableAccount!=='function')
@@ -374,14 +375,16 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
     finally{modifying.delete(accountId)}
   }
    const modelRequests=new Map();
-  async function listModels(providerId){
+  async function listModels(providerId,{sourceAccountId,signal}={}){
     if(!sourceAllowed(providerId))       return {state:'invalid',providerId:'',models:[]};
     const scope=mountedScope();
     if(!scope)return {state:'unavailable',providerId,models:[]};
     const llm=scope.llm??scope.get?.('llm');
     if(typeof llm?.listModels!=='function'&&!(providerId==='codearts'&&privateSourceCatalog))
        return {state:'unavailable',providerId,models:[]};
-     const existing=modelRequests.get(providerId);
+     const exactLoomy=providerId==='loomy'&&typeof sourceAccountId==='string'&&(nativeOwned||typeof privateSourceCatalog?.loomy==='function');
+    const requestKey=exactLoomy?providerId+'\0'+sourceAccountId:providerId;
+    const existing=modelRequests.get(requestKey);
      if(existing?.scope===scope)return structuredClone(await existing.promise);
      const entry={scope,promise:(async()=>{
     let timer;
@@ -391,6 +394,11 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
       const timeoutMarker=Symbol('timeout');
       const rows=await Promise.race([
         Promise.resolve().then(async()=>{
+           if(exactLoomy){
+             if(typeof privateSourceCatalog?.loomy!=='function')return null;
+             const raw=await withOwnedSourceCredential(scope,'loomy',sourceAccountId,null,credential=>privateSourceCatalog.loomy(credential,signal));
+             return Array.isArray(raw)&&raw.length?raw:null;
+           }
            if(providerId==='codearts'&&typeof privateSourceCatalog?.codearts==='function'){
              try{const raw=await privateSourceCatalog.codearts();
                if(Array.isArray(raw))return raw;
@@ -400,7 +408,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
          }),        new Promise(resolve=>{timer=setTimeout(()=>resolve(timeoutMarker),modelTimeoutMs)}),
       ]);
       if(rows===timeoutMarker)return {state:'timeout',providerId,models:[]};
-      if(scope!==mountedScope())return {state:'unavailable',providerId,models:[]};
+      if(scope!==mountedScope()||signal?.aborted)return {state:'unavailable',providerId,models:[]};
       if(!Array.isArray(rows))return {state:'error',providerId,models:[]};
        const models=[],seen=new Map();
        const positive=value=>(typeof value==='number'||typeof value==='string'&&value.trim()!=='')&&Number.isFinite(Number(value))&&Number(value)>0;
@@ -411,10 +419,11 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
          if(typeof id!=='string'||!id.trim()||id.length>160||/[\u0000-\u001f]/.test(id))continue;
          const negative=row?.isFree===false||row?.free===false||row?.pricingConflict===true;
          const positivePrice=positive(row?.costMultiplier)||[row?.pricing,row?.price,row?.cost].some(p=>p&&typeof p==='object'&&['input','output','prompt','completion','inputCost','outputCost'].some(k=>positive(p[k])));
-         const free=row?.isFree===true||row?.free===true||row?.upstreamFreeLabel===true;
+         const exactRate=exactLoomy&&row?.catalogSource==='loomy-official-remote-model-catalog'&&row?.priceSource==='loomy-official-model-name-ratio'&&Number.isSafeInteger(row.catalogObservedAt)&&row.catalogObservedAt<=Date.now()&&Date.now()-row.catalogObservedAt<60000&&Number.isFinite(row.costMultiplier)&&row.costMultiplier>=0&&row.costMultiplier<=100;
+         const free=exactLoomy?exactRate&&row.costMultiplier===0:row?.isFree===true||row?.free===true||row?.upstreamFreeLabel===true;
          const previous=seen.get(id);
          if(previous){
-           if(negative||positivePrice||previous.isFree===false&&free){
+           if(exactLoomy?previous.costMultiplier!==(exactRate?row.costMultiplier:undefined)||previous.upstreamFreeLabel===true&&negative||previous.isFree===false&&free:negative||positivePrice||previous.isFree===false&&free){
              delete previous.upstreamFreeLabel;previous.pricingConflict=true;previous.isFree=false;
              delete previous.costMultiplier;delete previous.priceSource;delete previous.pricing;
            }
@@ -427,7 +436,7 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
            ...(providerId==='codearts'&&row?.catalogSource==='codearts-signed-official-model-catalog'?{catalogSource:row.catalogSource}:{}),
            ...(negative||positivePrice?{isFree:false}:free?{upstreamFreeLabel:true}:{}),
            ...(row?.pricingConflict===true||free&&(negative||positivePrice)?{pricingConflict:true}:{}),
-           ...(row?.priceSource==='codearts-official-credit-ratio'
+           ...((providerId==='codearts'&&row?.priceSource==='codearts-official-credit-ratio'||exactRate)
              &&Number.isSafeInteger(row.catalogObservedAt)
              &&row.catalogObservedAt<=Date.now()+30000
              &&row.catalogObservedAt>Date.now()-15*60*1000
@@ -444,9 +453,9 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
     }catch{return {state:'error',providerId,models:[]}}
      finally{clearTimeout(timer)}
      })()};
-     modelRequests.set(providerId,entry);
+     modelRequests.set(requestKey,entry);
      try{return structuredClone(await entry.promise)}
-     finally{if(modelRequests.get(providerId)===entry)modelRequests.delete(providerId)}
+     finally{if(modelRequests.get(requestKey)===entry)modelRequests.delete(requestKey)}
    }
   // The pinned source adapter has no public forceAccountId parameter.
   // Single-account requests preserve the Alpha.8 behavior. Experimental

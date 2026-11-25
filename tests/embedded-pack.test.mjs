@@ -1052,3 +1052,19 @@ test('authenticated source identity recovers only explicit public login fields f
   assert.equal(unverified.accounts[0].maskedPhone,undefined);
  }finally{bridge.dispose()}
 });
+
+test('exact Loomy account directory does not use the host fallback or stale free flags',async()=>{
+ let pool,hostReads=0,privateReads=0;const observed=Date.now();
+ const rows=[{id:'owned-a',provider:'loomy',enabled:true,credentialRef:'FAKE_A'},{id:'owned-b',provider:'loomy',enabled:true,credentialRef:'FAKE_B'}];
+ const scope={get:key=>key==='accountPool'?pool:undefined,credentials:{async resolve(ref){const label=typeof ref==='string'?ref:JSON.stringify(ref);return {value:JSON.stringify({access_token:label.includes('FAKE_A')?'FAKE_TOKEN_A':'FAKE_TOKEN_B'})}}},llm:{async listModels(){hostReads++;return [{id:'fallback',isFree:true}]}}};
+ const price=(id,cost,extra={})=>({id,name:id,priceSource:'loomy-official-model-name-ratio',catalogSource:'loomy-official-remote-model-catalog',catalogObservedAt:observed,costMultiplier:cost,isFree:cost===0,...extra});
+ let fail=false;
+ const bridge=createEmbeddedChannelPack({ctx:{inject(_deps,cb){cb(scope)}},getConfig:enabled,env:isolatedEnv,loadPack:async()=>({apply(_scope,opts){pool={listAllAccounts:async()=>rows};opts.nativeRouterSourceCatalogReady({codearts:async()=>[],loomy:async credential=>{privateReads++;if(fail)throw Error('read failure');return credential.access_token==='FAKE_TOKEN_A'?[price('zero',0),price('paid',.25),price('conflict',0),price('conflict',.1),price('stale',0,{catalogObservedAt:observed-61000}),price('paid',.25)]:[price('second',.5)]}})}})});
+ bridge.attach();await tick();await tick();try{
+ const a=await bridge.listModels('loomy',{sourceAccountId:'owned-a'}),b=await bridge.listModels('loomy',{sourceAccountId:'owned-b'});
+ assert.equal(a.state,'ready');assert.equal(a.models.find(m=>m.id==='zero').costMultiplier,0);assert.equal(a.models.find(m=>m.id==='paid').costMultiplier,.25);assert.equal(a.models.find(m=>m.id==='conflict').pricingConflict,true);assert.equal(a.models.find(m=>m.id==='stale').upstreamFreeLabel,undefined);
+ assert.deepEqual(b.models.map(m=>m.id),['second']);assert.equal(hostReads,0);assert.equal(privateReads,2);
+ const missing=await bridge.listModels('loomy',{sourceAccountId:'missing'});assert.notEqual(missing.state,'ready');assert.equal(privateReads,2);
+ fail=true;const unavailable=await bridge.listModels('loomy',{sourceAccountId:'owned-a'});assert.notEqual(unavailable.state,'ready');assert.equal(hostReads,0);
+ }finally{bridge.dispose()}
+});

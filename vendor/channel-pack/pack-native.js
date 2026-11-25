@@ -44066,6 +44066,19 @@ function parseLoomyRemoteModels(payload) {
   }
   return models;
 }
+async function nativeRouterLoomyCatalog(credential, signal) {
+  if (typeof credential?.access_token !== "string" || !credential.access_token || signal?.aborted) return [];
+  const timeout = AbortSignal.timeout(10000);
+  const response = await fetch(`${LOOMY.apiBase}/models`, { headers: { Accept: "application/json", token: credential.access_token }, redirect: "error", signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+  if (!response.ok) return [];
+  const rows = parseLoomyRemoteModels(await response.json());
+  return rows.map(row => {
+    const {rate} = splitLoomyRate(row.name);
+    const value = /^x[0-9]+(?:[.][0-9]+)?$/i.test(rate) ? Number(rate.slice(1)) : NaN;
+    return {id:row.id,name:row.name,catalogSource:"loomy-official-remote-model-catalog",catalogObservedAt:Date.now(),
+      ...(Number.isFinite(value)&&value>=0&&value<=100?{costMultiplier:value,priceSource:"loomy-official-model-name-ratio",isFree:value===0}:{})};
+  });
+}
 function fallbackToRemote(model) {
   return {
     id: model.id,
@@ -70830,7 +70843,8 @@ function apply(ctx, config = {}) {
   config.nativeRouterSourceCatalogReady?.({
     codearts: () => codearts.listModels("codearts"),
     codeartsOneShot: request => codearts.stream({...request, nativeRouterOneShot: true}),
-    codeartsProfile: credential => nativeRouterCodeartsProfile(credential)
+    codeartsProfile: credential => nativeRouterCodeartsProfile(credential),
+    loomy: (credential, signal) => nativeRouterLoomyCatalog(credential, signal)
   });
   const resolveBuddyCredentialByRef = async (refName) => {
     const resolved = await ctx.credentials.resolve(credentialRef16(refName));

@@ -271,6 +271,24 @@ def build(*, check=False):
         '        if (false /* Native Router forbids implicit Start-to-paid rail fallback */ && shouldFallbackToOtherChannel(response.status, text) && !switchedAccount && captchaParam === void 0 && attempt < this.product.concurrencyRetryMax) {',
         'zcode-never-silently-fallback-to-paid-coding-plan',
     ))
+    patches.append((
+        'function fallbackToRemote(model) {',
+        """async function nativeRouterLoomyCatalog(credential, signal) {
+  if (typeof credential?.access_token !== "string" || !credential.access_token || signal?.aborted) return [];
+  const timeout = AbortSignal.timeout(10000);
+  const response = await fetch(`${LOOMY.apiBase}/models`, { headers: { Accept: "application/json", token: credential.access_token }, redirect: "error", signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+  if (!response.ok) return [];
+  const rows = parseLoomyRemoteModels(await response.json());
+  return rows.map(row => {
+    const {rate} = splitLoomyRate(row.name);
+    const value = /^x[0-9]+(?:[.][0-9]+)?$/i.test(rate) ? Number(rate.slice(1)) : NaN;
+    return {id:row.id,name:row.name,catalogSource:"loomy-official-remote-model-catalog",catalogObservedAt:Date.now(),
+      ...(Number.isFinite(value)&&value>=0&&value<=100?{costMultiplier:value,priceSource:"loomy-official-model-name-ratio",isFree:value===0}:{})};
+  });
+}
+function fallbackToRemote(model) {""",
+        'loomy-exact-account-remote-catalog',
+    ))
     # The Host normalizes model lists and can remove exact CodeArts
     # credit rates. Scoped direct adapter catalog preserves official metadata.
     patches.append((
@@ -278,7 +296,8 @@ def build(*, check=False):
         '  });\n  config.nativeRouterSourceCatalogReady?.({\n'
         '    codearts: () => codearts.listModels("codearts"),\n'
         '    codeartsOneShot: request => codearts.stream({...request, nativeRouterOneShot: true}),\n'
-        '    codeartsProfile: credential => nativeRouterCodeartsProfile(credential)\n'
+        '    codeartsProfile: credential => nativeRouterCodeartsProfile(credential),\n'
+        '    loomy: (credential, signal) => nativeRouterLoomyCatalog(credential, signal)\n'
         '  });\n  const resolveBuddyCredentialByRef = async (refName) => {',
         'codearts-private-direct-catalog-metadata',
     ))

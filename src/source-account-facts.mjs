@@ -80,7 +80,7 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
   const exactBuckets=(names,expectedUnit)=>!balanceRow?.error&&balanceValue!==null&&packages.length===names.length&&names.every(name=>packages.filter(p=>p?.name===name).length===1)&&packages.every(p=>p.unit===expectedUnit&&numeric(p.remaining)!==null&&p.active!==false);
   if(providerId==='loomy'&&exactBuckets(['每日赠送','永久积分'],'积分')){
     const gift=packages.find(p=>p.name==='每日赠送').remaining,ordinary=packages.find(p=>p.name==='永久积分').remaining;
-    giftWallet=giftWalletFacts({balance:balanceValue,gift,ordinary,now:observedAt,routeState:'existing_daily_policy'});
+    giftWallet=giftWalletFacts({balance:balanceValue,gift,ordinary,now:observedAt});
   }
   if(providerId==='codearts'&&exactBuckets(['总积分包','基础积分包','赠送积分包'],'credit')&&packages.find(p=>p.name==='总积分包').remaining===balanceValue){
     giftWallet=giftWalletFacts({balance:balanceValue,gift:packages.find(p=>p.name==='赠送积分包').remaining,ordinary:packages.find(p=>p.name==='基础积分包').remaining,now:observedAt});

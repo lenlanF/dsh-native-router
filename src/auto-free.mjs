@@ -27,9 +27,8 @@ export function freeEvidence(model,providerId='',peers=[model]){
  if(!model||typeof model!=='object'||peers.some(row=>contradictsFree(row,providerId)))return null;
  if(providerId==='codearts'&&model.priceSource==='codearts-official-credit-ratio'&&model.costMultiplier===0)return 'CodeArts 官方零积分倍率';
  if(providerId==='own_zcode'||model.accessRestriction==='OFFICIAL_CLIENT_ONLY'||model.freeAllowance==='zcode-start-plan-gift')return null;
-   if(providerId==='own_loomy'&&model.freeAllowance==='loomy-daily-gift'
-      &&model.id==='spark-x2.6')
-     return 'Loomy 官方每日赠送积分专用 Spark X2.6（永久积分不可用）';
+   if(['own_loomy','loomy'].includes(providerId)&&model.priceSource==='loomy-official-model-name-ratio'&&model.costMultiplier===0)return 'Loomy 官方远端目录零倍率';
+   if(model.freeAllowance==='loomy-daily-gift')return null;
    if(model.isFree===true||model.upstreamFreeLabel===true||model.free===true)
    return '来源明确标记免费';
  if(zeroPair(model.pricing??model.price??model.cost))

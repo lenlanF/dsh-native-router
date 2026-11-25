@@ -4,8 +4,8 @@
   "originalFile": "pack.js",
   "originalSha256": "5b933808951453cab76227e68cea480c6321e746e152f9e78963d5562faceb27",
   "generatedFile": "pack-native.js",
-  "generatedBytes": 3049646,
-  "generatedSha256": "64ffcc40941d90ad52833999751dc98540379d5d022cacb9fe7f52701c676a09",
+  "generatedBytes": 3050688,
+  "generatedSha256": "02df7fbbd53a01a5ba4cefd60eb898e62cd6ecb4563973de498c170ab361644e",
   "patches": [
     "private-settings-namespace",
     "private-profile-subdirectory",
@@ -33,6 +33,7 @@
     "codearts-preserve-credit-in-list-models",
     "codearts-preserve-credit-in-resolved-model",
     "zcode-never-silently-fallback-to-paid-coding-plan",
+    "loomy-exact-account-remote-catalog",
     "codearts-private-direct-catalog-metadata",
     "codearts-display-exact-ratio-without-rounded-false-zero",
     "codearts-nonzero-one-network-post-limit",

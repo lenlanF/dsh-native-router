@@ -1,6 +1,6 @@
 // One-time in-Host official account/model inventory. Read-only: no generation,
 // claim, checkin, changes to credentials or external gateway.
-const eligibleRate=row=>row?.priceSource==='codearts-official-credit-ratio'
+const eligibleRate=(row,providerId)=>(providerId==='codearts'||providerId==='own_codearts'?row?.priceSource==='codearts-official-credit-ratio':['own_loomy','loomy'].includes(providerId)?row?.priceSource==='loomy-official-model-name-ratio':false)
   &&typeof row.costMultiplier==='number'&&Number.isFinite(row.costMultiplier)
   &&row.costMultiplier>=0&&row.costMultiplier<=100;
 const workbuddy=new Set(['own_workbuddy-cn','own_workbuddy-global']);
@@ -48,9 +48,9 @@ export async function ownerReadOnlyInventory({account,driver,signal}={}){
   for(const row of models){
     if(typeof row?.id!=='string'||!row.id.trim()||row.id.length>120)continue;
     const id=row.id.trim();
-    const official=eligibleRate(row);
+    const official=eligibleRate(row,account.providerId);
     const zero=official&&row.costMultiplier===0;
-    const free=account.providerId!=='own_zcode'&&row.accessRestriction!=='OFFICIAL_CLIENT_ONLY'&&(zero||row.freeAllowance==='loomy-daily-gift'||row.upstreamFreeLabel===true||row.isFree===true||row.free===true);
+    const free=account.providerId!=='own_zcode'&&row.accessRestriction!=='OFFICIAL_CLIENT_ONLY'&&row.freeAllowance!=='loomy-daily-gift'&&(zero||row.priceSource==='loomy-official-model-name-ratio'&&row.costMultiplier===0||row.upstreamFreeLabel===true||row.isFree===true||row.free===true);
     const entry=unique.get(id)??{official:false,zero:false,free:false,positive:false};
     entry.official||=official;
     entry.zero||=zero;
