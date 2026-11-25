@@ -1,6 +1,6 @@
 {
   "kind": "single-file-in-process-channel-runtime",
-  "nativeSourceSha256": "422beafba0cba392fda5707c541718facc391b408d2be085ee277825b4e2076c",
+  "nativeSourceSha256": "216008ed92d42daa9ab2f7fe26c9f306ec8340d1bdf3f845f91432c055f9aeab",
   "bundlerVersion": "0.25.12",
   "dshLlmVersion": "0.2.2-rc.3",
   "dependencies": {
@@ -11,8 +11,8 @@
     "@deepseek-ai/schemastery": "3.19.0"
   },
   "runtimeFile": "pack-runtime.mjs",
-  "bytes": 3092123,
-  "runtimeSha256": "483ace705f54f33b068d9670f4f6fcd9136f4ad281529664f640e2d36b55ee2f",
+  "bytes": 3094428,
+  "runtimeSha256": "087fa186fe1188b98cafa2789c089bcfd3895f147af504f7639727d95ca463b4",
   "extraProcesses": 0,
   "independentCredentialStore": true,
   "noBareRuntimeImports": true

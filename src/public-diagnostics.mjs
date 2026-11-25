@@ -51,6 +51,8 @@ export function publicAccountFailureMessage(error){
 const checkinDiagnostics=Object.freeze({
   LOBSTER_SLOT_READ:'活动槽位读取失败',
   LOBSTER_SLOT_AUTH:'官方活动接口拒绝当前授权',
+  LOBSTER_SLOT_FORBIDDEN:'官方活动接口拒绝当前账号的活动访问权限',
+  LOBSTER_SLOT_REFRESH_FAILED:'官方活动授权续期失败，未执行领取',
   LOBSTER_SLOT_LIMIT:'官方活动接口限流',
   LOBSTER_SLOT_ENDPOINT:'官方活动入口不存在或已撤下',
   LOBSTER_SLOT_HTTP:'官方活动接口 HTTP 异常',

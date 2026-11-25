@@ -205,7 +205,7 @@ export function createMimoDesktopSessionTransport({
  }
  return {
   invalidate,
-   async probe({session,signal}={}){
+   async probe({session,signal,includeQuota=true}={}){
      try{
       const response=await authorized(session,'/api/user/xiaomi/me',{
        headers:{Accept:'application/json'}},signal);
@@ -220,6 +220,7 @@ export function createMimoDesktopSessionTransport({
       const accountName=publicAccountName({
        displayName:user?.displayName,nickname:user?.nickName,
        name:user?.name,userName:user?.userName,username:user?.username},user);
+      if(includeQuota===false)return {state:'online',authVerified:true,...(accountName?{accountName}:{})};
       // Desktop membership and API/Token Plan credit are different products.
       // This read-only endpoint uses the same mimopc session, not a paid API key.
       // A failed quota read never invalidates the proven member identity.

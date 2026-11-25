@@ -59315,6 +59315,26 @@ async function fetchQoderCheckinStatus(credential, product, fetcher = sanitizing
     campaignStatus: benefits.map((c) => c.claimStatus).join(",")
   };
 }
+async function nativeRouterReadLobsterActivityStatus(credential, entry, deps) {
+  const first = await deps.read(credential);
+  if (first?.diagnosticCode !== "LOBSTER_SLOT_AUTH" || !entry) return first;
+  try {
+    if (!await deps.stillBound(entry)) return first;
+    let current = await deps.resolve(entry);
+    if (!current || typeof current.access_token !== "string" || !current.access_token) return first;
+    if (current.access_token === credential.access_token) {
+      if (!isLobsteraiRefreshable(current) || !await deps.stillBound(entry)) return first;
+      if (!await deps.refresh(entry)) return first;
+      if (!await deps.stillBound(entry)) return first;
+      current = await deps.resolve(entry);
+    }
+    if (!current || typeof current.access_token !== "string" || !current.access_token || !await deps.stillBound(entry)) return first;
+    const result = await deps.read(current);
+    return await deps.stillBound(entry) ? result : first;
+  } catch {
+    return { diagnosticCode: "LOBSTER_SLOT_REFRESH_FAILED" };
+  }
+}
 async function fetchLobsteraiCheckinStatus(credential, product, clientVersion, fetcher = sanitizingFetch) {
   const slot = await fetchLobsteraiActivitySlot(credential, product, clientVersion, fetcher);
   if (slot === null) return { diagnosticCode: "LOBSTER_SLOT_READ" };
@@ -59571,7 +59591,7 @@ async function requestJson2(url, credential, product, fetcher, init = { method: 
       ...init.body === void 0 ? {} : { body: init.body },
       signal: AbortSignal.timeout(LOBSTERAI_REQUEST_TIMEOUT_MS)
     });
-    if (!response.ok) return { ok:false, diagnosticCode: response.status === 401 || response.status === 403 ? "LOBSTER_SLOT_AUTH" : response.status === 429 ? "LOBSTER_SLOT_LIMIT" : response.status === 404 || response.status === 410 ? "LOBSTER_SLOT_ENDPOINT" : "LOBSTER_SLOT_HTTP", message:"Official activity HTTP failure" };
+    if (!response.ok) return { ok:false, diagnosticCode: response.status === 401 ? "LOBSTER_SLOT_AUTH" : response.status === 403 ? "LOBSTER_SLOT_FORBIDDEN" : response.status === 429 ? "LOBSTER_SLOT_LIMIT" : response.status === 404 || response.status === 410 ? "LOBSTER_SLOT_ENDPOINT" : "LOBSTER_SLOT_HTTP", message:"Official activity HTTP failure" };
     const text = await response.text();
     let parsed;
     try {
@@ -62776,6 +62796,7 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
     identity: (provider, accountId) => handleMethod("account.list", { provider, accountId }),
     claim: (provider, accountId) => handleMethod("credits.claimAll", { provider, accountId })
   });
+  const nativeRouterLobsterRefreshAt = new Map();
   const qoderFamily = [
     { product: QODER, auth: qoder },
     { product: QODER_CN, auth: qoderCn }
@@ -64061,7 +64082,23 @@ async function handleMethod(method, payload, signal) {
           const lobsterStatusAccounts = await nativeRouterCreditAccounts(req);
           const lobsterValue = await collectCreditsStatus(lobsterStatusAccounts, void 0, {
             resolve: (ref) => ctx.credentials.resolve(ref),
-            fetchStatus: (credential) => fetchLobsteraiCheckinStatus(credential, LOBSTERAI, lobsterClientVersion),
+            fetchStatus: (credential, _product, entry) => nativeRouterReadLobsterActivityStatus(credential, entry, {
+              read: (current) => fetchLobsteraiCheckinStatus(current, LOBSTERAI, lobsterClientVersion),
+              stillBound: async (member) => (await pool.listAccounts(LOBSTERAI.id)).filter(row => row.id === member.id && row.enabled === true && row.credentialRef === member.credentialRef).length === 1,
+              resolve: async (member) => {
+                const resolved = await ctx.credentials.resolve(credentialRef13(member.credentialRef));
+                return resolved ? JSON.parse(resolved.value) : null;
+              },
+              refresh: async (member) => {
+                const now = Date.now();
+                const key = JSON.stringify([member.id, member.credentialRef]);
+                for (const [binding, at] of nativeRouterLobsterRefreshAt) if (now - at >= 300000) nativeRouterLobsterRefreshAt.delete(binding);
+                if (nativeRouterLobsterRefreshAt.has(key) || nativeRouterLobsterRefreshAt.size >= 256) return false;
+                nativeRouterLobsterRefreshAt.set(key, now);
+                await lobsterai.refreshAccountCredential(member.credentialRef, pool, member.id);
+                return true;
+              }
+            }),
             warn: (msg) => ctx.logger?.warn?.(msg)
           });
           return { ok: true, value: { accounts: lobsterValue } };

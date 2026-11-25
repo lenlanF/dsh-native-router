@@ -244,7 +244,7 @@ export function createMimoDesktopDriver({
    },
    async listModels({account,signal}={}){
    const session=await ownedSession(account);
-   const state=await transport.probe({session,signal});
+   const state=await transport.probe({session,signal,includeQuota:false});
    return state.authVerified===true?supportedModels.map(id=>({id})):[];
   },
   async generate({account,model,options={},signal}={}){
