@@ -119,6 +119,19 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
       credentialService:credentialsBridge?.status?.()??{state:'unknown',available:false},
       sessionReuse:publicSessionReuse()});
   });
+  // Opening settings reads snapshots only. Official read-only refresh is explicit
+  // and shares a single flight; the runtime's existing scheduler hydrates facts.
+  let runtimeRefresh=null;
+  mount('/runtime/refresh',async(req,res)=>{
+   if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
+   if(req.method!=='POST')return json(res,405,{ok:false,error:'Method not allowed'});
+   if(!runtimeRefresh)runtimeRefresh=Promise.allSettled([
+    Promise.resolve().then(()=>accountCenter?.refreshReadOnly?.({force:true})),
+    Promise.resolve().then(()=>checkinCenter?.refreshSources?.({force:true}))
+   ]).finally(()=>{runtimeRefresh=null});
+   const results=await runtimeRefresh;
+   return json(res,200,{ok:true,state:results.every(r=>r.status==='fulfilled')?'ready':'partial'});
+  });
   // AutoFree is an ephemeral model pool, never a persisted model chain.
   mount('/models/autofree',async(req,res)=>{
     if(!isLoopback(req))return json(res,403,{ok:false,error:'Loopback only'});
@@ -139,23 +152,23 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
     return !selection.length?rows:rows.filter(row=>selection.includes(
       typeof row==='string'?row:row?.id));
   };
-  mount('/host/catalog',async(req,res)=>{
-    if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
-    if(req.method!=='GET')return json(res,405,{ok:false,error:'Method not allowed'});
-     const ids=[...new Set(ownedDirectory.providers()
-      .map(row=>row.providerId)
-      .filter(id=>typeof id==='string'&&/^[a-zA-Z][a-zA-Z0-9_-]{0,99}$/.test(id)
-        &&id!=='native-router'&&!id.startsWith('native-router-source-')))].slice(0,160);
-    ids.unshift('native-router');
-    const result=new Array(ids.length);
+  const hostCatalogPending=new Map();
+  async function buildHostCatalog(scope){
+     const inventory=ownedDirectory.providers();
+     const directory=new Map(inventory.map(row=>[row.providerId,row]));
+     const ids=[...new Set(inventory.filter(row=>scope==='all'||(scope==='owned')===(row.family==='native-router-owned'))
+       .map(row=>row.providerId)
+       .filter(id=>typeof id==='string'&&/^[a-zA-Z][a-zA-Z0-9_-]{0,99}$/.test(id)
+         &&id!=='native-router'&&!id.startsWith('native-router-source-')))].slice(0,160);
+     if(scope==='all')ids.unshift('native-router');
+     const result=new Array(ids.length);
     let index=0;
     const normalizeRow=(id,row)=>{
       const model=typeof row==='string'?row:row?.id;
       if(typeof model!=='string'||!model.trim()||model.length>160
         ||/[\u0000-\u001f]/.test(model))return null;
       const name=typeof row?.name==='string'?row.name.slice(0,120):model;
-      const free=freeEvidence({id:model,name,isFree:row?.isFree,free:row?.free,
-        upstreamFreeLabel:row?.upstreamFreeLabel,pricing:row?.pricing},id);
+       const free=freeEvidence({...row,id:model,name},id);
        const input=row?.pricing?.input,output=row?.pricing?.output;
        const safePrice=v=>Number.isFinite(v)&&v>=0||typeof v==='string'
          &&v.length<=32&&/^[\w\s.$/+-]+$/.test(v);
@@ -179,15 +192,22 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
              seen.add(model.id);availableModels.push(model);
            }
            const models=allowHostModels(id,availableModels);
-           result[i]={id,name:id==='native-router'?'聚合路由':id,
-             state:source?.state==='ready'?'ready':'unavailable',
-             discoveredCount:availableModels.length,allowedCount:models.length,models};
-         }catch{result[i]={id,name:id,state:'unavailable',discoveredCount:0,allowedCount:0,models:[]}}
+            const directoryScope=id==='native-router'?'internal':directory.get(id)?.family==='native-router-owned'?'owned':'external';
+            result[i]={id,name:id==='native-router'?'聚合路由':directory.get(id)?.name||id,directoryScope,
+              directoryVisible:directoryScope!=='internal'&&(directoryScope==='owned'||availableModels.length>0),
+              state:source?.state==='ready'?(availableModels.length?'ready':'empty'):'unavailable',
+              discoveredCount:availableModels.length,allowedCount:models.length,models};
+          }catch{result[i]={id,name:id,directoryScope:id==='native-router'?'internal':directory.get(id)?.family==='native-router-owned'?'owned':'external',directoryVisible:false,state:'unavailable',discoveredCount:0,allowedCount:0,models:[]}}
       }
     });
     await Promise.all(workers);
-    return json(res,200,{ok:true,providers:result,checkedAt:Date.now(),
-       truncated:ownedDirectory.providers().length>160});
+     return {ok:true,scope,providers:result,checkedAt:Date.now(),truncated:ids.length>=160};
+  }
+  for(const scope of ['all','owned','external'])mount('/host/catalog'+(scope==='all'?'':'/'+scope),async(req,res)=>{
+     if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
+     if(req.method!=='GET')return json(res,405,{ok:false,error:'Method not allowed'});
+     if(!hostCatalogPending.has(scope))hostCatalogPending.set(scope,buildHostCatalog(scope).finally(()=>hostCatalogPending.delete(scope)));
+     return json(res,200,await hostCatalogPending.get(scope));
   });
   mount('/host/models',async(req,res)=>{
    if(!isLoopback(req)||!sameOrigin(req))return json(res,403,{ok:false,error:'Access rejected'});
@@ -209,8 +229,7 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
     mount('/channels/accounts',async(req,res)=>{
       if(!isLoopback(req))return json(res,403,{error:'Loopback only'});
       if(req.method!=='GET')return json(res,405,{error:'Method not allowed'});
-       await accountCenter?.refreshReadOnly?.().catch(()=>{});
-       await checkinCenter?.refreshSources?.().catch(()=>{});
+       // This GET serves local facts only; no upstream authentication or activity refresh.
       const rawEmbedded=embeddedPack?.listAccounts?await embeddedPack.listAccounts().catch(()=>
         ({state:'unavailable',accounts:[]})):{state:'unavailable',accounts:[]};
        const sourceRows=(checkinCenter?.snapshot?.().accounts??[]).filter(a=>a.sourceAccount);
@@ -585,8 +604,7 @@ export function registerRouterRoutes(ctx,{configStore,adapter,accountCenter,chec
     mount('/checkins',async(req,res)=>{
       if(!isLoopback(req))return json(res,403,{error:'Loopback only'});
       if(req.method!=='GET')return json(res,405,{error:'Method not allowed'});
-       await accountCenter?.refreshReadOnly?.().catch(()=>{});
-       await checkinCenter.refreshSources?.();
+       // The plugin scheduler and explicit refresh own network I/O; GET is a snapshot.
        return json(res,200,{ok:true,...checkinCenter.snapshot()});
     });
     mount('/checkins/action',async(req,res)=>{

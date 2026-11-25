@@ -2,7 +2,6 @@ import {isRetiredProvider} from './config.mjs';
 import {SOURCE_PACK_PROVIDERS} from './embedded-pack.mjs';
 import {sourceModelEligible} from './source-model-eligibility.mjs';
 const packIds=new Set(SOURCE_PACK_PROVIDERS);
-const canonical=id=>String(id??'').replace(/^own_/,'');
 const online=row=>row?.enabled===true&&row.connectionState==='online';
 // Management directory: only expose account-bound private routes after
 // official authentication. External host providers remain independent.
@@ -35,9 +34,9 @@ export function createOwnedModelDirectory({configStore,accountCenter,checkinCent
   return out;
  }
  function knownOwned(id){
-  if(isRetiredProvider(id))return true;
-  return config().providers?.some(p=>p.id===id&&p.protocol==='native-channel')||
-    (id.startsWith('own_')&&packIds.has(canonical(id)))||id.startsWith('native-router-source-');
+  if(typeof id!=='string'||isRetiredProvider(id)||id==='native-router'||id.startsWith('native-router-source-')||id.startsWith('own_'))return true;
+  return Boolean(config().providers?.some(p=>p.id===id&&p.protocol==='native-channel')||
+    embeddedPack?.status?.().ownedProviderIds?.includes(id));
  }
  function providers(){
   const eligible=targets();

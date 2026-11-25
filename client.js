@@ -654,8 +654,11 @@ window.__ModuleLoader__.load({
     function ExistingModelRoutes({data,cfg,busy,onRefresh,scope,onScope,hostModels,hostModelBusy,onHostModels,hostCatalog,catalogBusy,onRefreshHostCatalog,onHostModelSelection}){
        const owned=scope==='owned';
        const [modelQuery,setModelQuery]=useState('');
-       const hosts=(data?.sessionReuse?.hostProviders??[]).filter(p=>owned?p.family==='native-router-owned'&&p.loginVerified===true:p.family!=='native-router-owned'&&p.providerId!=='native-router');
        const catalogRow=id=>(hostCatalog?.providers??[]).find(p=>p.id===id);
+       const group=(data?.sessionReuse?.hostProviders??[]).filter(p=>owned?p.family==='native-router-owned'&&p.loginVerified===true:
+         p.family!=='native-router-owned'&&p.providerId!=='native-router'&&!p.providerId.startsWith('native-router-source-')&&!p.providerId.startsWith('own_')&&!cfg?.providers?.some(x=>x.id===p.providerId&&x.protocol==='native-channel'));
+       const hosts=group.filter(p=>owned||catalogRow(p.providerId)?.directoryVisible!==false);
+       const hidden=group.length-hosts.length;
        const selectedCandidate=hostModelBusy||hostModels?.providerId||'';
        const selectedHost=hosts.some(p=>p.providerId===selectedCandidate)?selectedCandidate:'';
        const selectedIds=owned?(cfg?.hostModelSelection?.[selectedHost]??[]):[];
@@ -673,12 +676,12 @@ window.__ModuleLoader__.load({
         h(Panel,{title:owned?'已鉴权自有渠道 · 模型管理':'DSH 其他已注册路由 · 只读目录',
           actions:h('div',{style:css.line},
             h(Button,{onClick:onRefresh,disabled:!!busy},'刷新渠道'),
-             h(Button,{onClick:()=>onRefreshHostCatalog(false),disabled:!!busy||catalogBusy},
-               catalogBusy?'核查中…':'刷新全部模型与资费'))},
-          h('p',{style:css.small},owned?'仅显示当前有效鉴权的自有账号渠道；模型范围保存后只对本插件生效。目录获取不等于推理成功。':'仅查看原 DSH Provider 的公开目录；原插件保有账号、授权、费率与路由管理权。本页不修改其配置。'),
-           h('p',{role:'status',style:css.small},'本组目录：'+hosts.filter(p=>catalogRow(p.providerId)?.state==='ready'&&(catalogRow(p.providerId)?.discoveredCount??catalogRow(p.providerId)?.models?.length??0)>0).length+' / '+hosts.length+' 有模型 · '+hosts.filter(p=>catalogRow(p.providerId)?.state==='unavailable').length+' 不可用 · '+hosts.filter(p=>!catalogRow(p.providerId)).length+' 未核查'),
+              h(Button,{onClick:()=>onRefreshHostCatalog(false,scope),disabled:!!busy||catalogBusy},
+                catalogBusy?'核查中…':'刷新本组模型与资费'))},
+           h('p',{style:css.small},owned?'仅显示当前有效鉴权的自有账号渠道；模型范围保存后只对本插件生效。目录获取不等于推理成功。':'仅查看其他 DSH Provider 的公开目录；本插件内部路由不在此组，无有效模型的目录暂不展示，不修改原插件配置。'),
+           h('p',{role:'status',style:css.small},'本组目录：'+hosts.filter(p=>catalogRow(p.providerId)?.state==='ready'&&(catalogRow(p.providerId)?.discoveredCount??catalogRow(p.providerId)?.models?.length??0)>0).length+' / '+group.length+' 有模型 · '+hidden+' 暂无可用模型 · '+group.filter(p=>!catalogRow(p.providerId)).length+' 未核查'),
           hostCatalog?.checkedAt?h('p',{style:css.small},
-            '全部渠道最近同步：'+new Date(hostCatalog.checkedAt).toLocaleString()):null,
+            '本组目录最近同步：'+new Date(hostCatalog.checkedAt).toLocaleString()):null,
            h('div',{className:'dnr-model-workspace'},
              h('div',{className:'dnr-model-channel-list'},
                h('div',{style:{...css.line,justifyContent:'space-between',width:'100%',marginBottom:2}},
@@ -1485,38 +1488,51 @@ window.__ModuleLoader__.load({
            [awsQuickLogin,setAwsQuickLogin]=useState(null),
            [awsQuickCallback,setAwsQuickCallback]=useState(''),
            [providerQuery,setProviderQuery]=useState('');
-       const refreshSequence=useRef(0);
+       const refreshSequence=useRef(0),snapshotRevisions=useRef({}),liveRefresh=useRef(null),catalogRequest=useRef({sequence:0,pending:new Map()});
        const sourcePollActive=useRef(false),sourceLoginGeneration=useRef(0),sourceModelGeneration=useRef(0),hostModelGeneration=useRef(0),hostManualPending=useRef(false);
        const [syncState,setSyncState]=useState('loading');
        const [lastSyncAt,setLastSyncAt]=useState(null);
        const refreshRuntime=useCallback(async({light=false}={})=>{
-         // A slow request from an earlier tab or timer must NEVER overwrite
-         // a newer account snapshot. Each batch is applied only if latest.
+         // Apply each local snapshot as it arrives; a slow endpoint cannot
+         // block other panels, and a light poll cannot discard a full read.
          const revision=++refreshSequence.current;
          const urls=light?['/channels/accounts','/checkins','/activities']:
            ['/status','/channels/accounts','/checkins','/activities','/models/autofree'];
+         for(const path of urls)snapshotRevisions.current[path]=revision;
          const values=await Promise.all(urls.map(async path=>{
            try{
              const response=await fetch(URL+path,{cache:'no-store'});
              if(!response.ok)return null;
              const body=await response.json();
-             return body&&body.ok!==false?body:null;
+             if(!body||body.ok===false||snapshotRevisions.current[path]!==revision)return null;
+             if(path==='/status')setStatus(body);
+             if(path==='/channels/accounts'&&Array.isArray(body.accounts)){setChannelsView(body);setLastSyncAt(Date.now())}
+             if(path==='/checkins')setCheckinsView(body);
+             if(path==='/activities')setActivitiesView(body);
+             if(path==='/models/autofree'&&body.result)setAutoFreeView(body.result);
+             return body;
            }catch{return null}
          }));
          if(revision!==refreshSequence.current)return {state:'superseded'};
-         const items=Object.fromEntries(urls.map((path,i)=>[path,values[i]]));
-         if(items['/status'])setStatus(items['/status']);
-         if(items['/channels/accounts']&&Array.isArray(items['/channels/accounts'].accounts))
-           setChannelsView(items['/channels/accounts']);
-         if(items['/checkins'])setCheckinsView(items['/checkins']);
-         if(items['/activities'])setActivitiesView(items['/activities']);
-         if(items['/models/autofree']?.result)
-           setAutoFreeView(items['/models/autofree'].result);
-         const good=values.filter(Boolean).length;
-         setSyncState(good===values.length?'ready':good?'partial':'offline');
-         if(items['/channels/accounts'])setLastSyncAt(Date.now());
-         return {state:good===values.length?'ready':good?'partial':'offline'};
+         const good=values.filter(Boolean).length,state=good===values.length?'ready':good?'partial':'offline';
+         if(!liveRefresh.current)setSyncState(state);
+         return {state};
        },[]);
+       const refreshLiveRuntime=useCallback(async()=>{
+         if(liveRefresh.current)return liveRefresh.current;
+         setSyncState('refreshing');setError('');
+         const task=(async()=>{
+           try{
+             const res=await fetch(URL+'/runtime/refresh',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+             const body=await res.json();
+             if(!res.ok||body.ok!==true)throw Error('官方状态刷新暂不可用');
+             const snapshot=await refreshRuntime();
+             setSyncState(body.state==='partial'||snapshot.state==='partial'?'partial':snapshot.state==='offline'?'offline':'ready');
+           }catch{setSyncState('partial');setError('官方状态刷新未完成，保留上次有效数据')}
+         })();
+         liveRefresh.current=task;
+         try{return await task}finally{if(liveRefresh.current===task)liveRefresh.current=null}
+       },[refreshRuntime]);
        const refreshActivities=useCallback(async()=>{
          if(activitiesBusy)return;
          setActivitiesBusy(true);setError('');
@@ -1537,8 +1553,9 @@ window.__ModuleLoader__.load({
            if(!a.ok)throw Error('配置读取失败 ('+a.status+')');
            const data=await a.json();if(!data.ok||!data.config)throw Error('插件未返回配置');
            setCfg(data.config);setRaw(JSON.stringify(data.config,null,2));setSavedConfig(data.config);
-           await refreshRuntime();
-         }catch(e){setError(String(e.message??e))}finally{setBusy(false)}
+         }catch(e){setError(String(e.message??e));return}finally{setBusy(false)}
+         // Runtime data is progressively applied after the config is editable.
+         return refreshRuntime();
        },[refreshRuntime]);
        useEffect(()=>{
          refresh();
@@ -1645,12 +1662,11 @@ window.__ModuleLoader__.load({
          },[awsQuickLogin?.status,refresh]);
          useEffect(()=>{
            if(tab!=='existing-models')return;
-           const hosts=(channelsView?.sessionReuse?.hostProviders??[]).filter(p=>routeDirectoryScope==='owned'?p.family==='native-router-owned'&&p.loginVerified===true:p.family!=='native-router-owned'&&p.providerId!=='native-router');
-           const first=hosts.some(p=>p.providerId===hostModels?.providerId)?hostModels.providerId:hosts[0]?.providerId;
-           if(first&&first!==hostModels?.providerId)void loadHostModels(first,true);
-           void loadHostCatalog(true);
+           // Only scan the active directory. Full failover catalog is loaded
+           // exclusively on its own tab; no recursive AutoFree scan here.
+           void loadHostCatalog(true,routeDirectoryScope);
            if(typeof setInterval!=='function')return;
-           const timer=setInterval(()=>{void loadHostCatalog(true);if(first)void loadHostModels(first,true)},5*60*1000);
+           const timer=setInterval(()=>{void loadHostCatalog(true,routeDirectoryScope)},5*60*1000);
            return ()=>clearInterval(timer);
          },[tab,routeDirectoryScope,(channelsView?.sessionReuse?.hostProviders??[]).map(p=>p.providerId).join('|')]);
        useEffect(()=>{
@@ -1706,17 +1722,26 @@ window.__ModuleLoader__.load({
         if(tab==='pool')void refreshAutoFree();
         if(tab==='host')void loadHostCatalog();
       },[tab,reuseSubtab]);
-       async function loadHostCatalog(silent=false){
-         if(!silent){if(hostCatalogBusy)return;setHostCatalogBusy(true);setError('')}
+       async function loadHostCatalog(silent=false,scope='all'){
+         if(!['all','owned','external'].includes(scope))scope='all';
+         const seq=++catalogRequest.current.sequence;
+         setHostCatalogBusy(true);if(!silent)setError('');
+         let task=catalogRequest.current.pending.get(scope);
+         if(!task){
+           task=(async()=>{
+             const res=await fetch(URL+'/host/catalog'+(scope==='all'?'':'/'+scope),{cache:'no-store'});
+             const data=await res.json();
+             if(!res.ok||!data.ok||!Array.isArray(data.providers))throw Error('DSH Provider 模型目录读取失败');
+             return {...data,scope};
+           })().finally(()=>catalogRequest.current.pending.delete(scope));
+           catalogRequest.current.pending.set(scope,task);
+         }
          try{
-           const res=await fetch(URL+'/host/catalog',{cache:'no-store'});
-           const data=await res.json();
-           if(!res.ok||!data.ok||!Array.isArray(data.providers))
-             throw Error(data.error||'DSH Provider 模型目录读取失败');
-           setHostCatalog(old=>({...data,
-             changes:diffProviderCatalog(old?.providers,data.providers)}));
-         }catch(error){if(!silent)setError(String(error?.message??error))}
-         finally{if(!silent)setHostCatalogBusy(false)}
+           const data=await task;
+           if(seq!==catalogRequest.current.sequence)return;
+           setHostCatalog(old=>({...data,changes:diffProviderCatalog(old?.providers,data.providers)}));
+         }catch(error){if(!silent&&seq===catalogRequest.current.sequence)setError(String(error?.message??error))}
+         finally{if(seq===catalogRequest.current.sequence)setHostCatalogBusy(false)}
        }      async function refreshAutoFree(){
         if(autoFreeBusy)return;
         setAutoFreeBusy(true);setError('');
@@ -2283,14 +2308,14 @@ window.__ModuleLoader__.load({
        };
        const activeNav=tab==='account-debug'?'channels':tab;
        const pageTitle=tab==='account-debug'?'账号池维护':tabs.find(x=>x[0]===tab)?.[1]||'运行总览';
-       const syncDescription=syncState==='ready'?'数据已同步':
+       const syncDescription=syncState==='refreshing'?'官方状态刷新中 · 可继续操作':syncState==='ready'?'本地状态已读取':
          syncState==='partial'?'部分渠道暂不可用 · 保留上次有效值':
          syncState==='offline'?'实时连接暂不可用 · 保留已有显示':'读取运行状态中';
        const unsaved=Boolean(cfg&&savedConfig&&(tab==='advanced'
          ?raw!==JSON.stringify(savedConfig,null,2)
          :JSON.stringify(cfg)!==JSON.stringify(savedConfig)));
        let content=null;
-       if(tab==='overview')content=h(OverviewConsole,{cfg,status,channelsView,checkinsView,onNavigate:setTab,onRefresh:refreshRuntime});
+       if(tab==='overview')content=h(OverviewConsole,{cfg,status,channelsView,checkinsView,onNavigate:setTab,onRefresh:refreshLiveRuntime});
        const changeReuseSettings=change=>setCfg(old=>({...old,
          embeddedPack:{...old.embeddedPack,...('embeddedEnabled' in change?{enabled:change.embeddedEnabled}:{})},
          sessionReuse:{...old.sessionReuse,
@@ -2379,11 +2404,11 @@ window.__ModuleLoader__.load({
            selectedChannel:selectedAccountChannel,onSelectChannel:setSelectedAccountChannel,
            onManageAccounts:channel=>{setManagedAccountProvider(channel.id);setTab('account-debug')},
            onOpenOwnedSource:()=>{setReuseSubtab('source');setTab('reuse')},
-           onRefresh:refreshRuntime,loginWidgets,
+           onRefresh:refreshLiveRuntime,loginWidgets,
            hasDraft:Boolean(cfg&&savedConfig&&JSON.stringify(cfg)!==JSON.stringify(savedConfig))});
        }
        if(tab==='reuse')content=h(ReuseConsole,{data:channelsView,cfg,         onReuseSettings:changeReuseSettings,run:runAction,busy:actionBusy,
-           onRefresh:refreshRuntime,subtab:reuseSubtab,onSubtab:setReuseSubtab,loginWidgets,
+           onRefresh:refreshLiveRuntime,subtab:reuseSubtab,onSubtab:setReuseSubtab,loginWidgets,
          embeddedPack:status?.embeddedPack,credentialService:status?.credentialService,modelProvider,
          setModelProvider:value=>{setModelProvider(value);setEmbeddedModels(null)},
          onModels:loadUpstreamModels,modelBusy,models:embeddedModels,
@@ -2396,7 +2421,7 @@ window.__ModuleLoader__.load({
           adoptionPreview,adoptionBusy,adoptionResults,
           verifyResults,verifyBusy,onVerifyAdopted:verifyAdopted,
           onPreviewAdoption:loadAdoptionPreview,onAdoptAccount:adoptOriginalAccount});
-               if(tab==='existing-models')content=h(ExistingModelRoutes,{data:channelsView,cfg,busy:actionBusy,onRefresh:refreshRuntime,
+               if(tab==='existing-models')content=h(ExistingModelRoutes,{data:channelsView,cfg,busy:actionBusy,onRefresh:refreshLiveRuntime,
            scope:routeDirectoryScope,onScope:setRouteDirectoryScope,hostModels,hostModelBusy,onHostModels:loadHostModels,
            hostCatalog,catalogBusy:hostCatalogBusy,onRefreshHostCatalog:loadHostCatalog,onHostModelSelection:setHostModelSelection});
 if(tab==='checkins')content=h(CheckinConsole,{data:checkinsView,cfg,onSettings:setCheckinSettings,
@@ -2526,7 +2551,7 @@ if(tab==='checkins')content=h(CheckinConsole,{data:checkinsView,cfg,onSettings:s
             onChange:v=>changeHost({maxSwitchesPerSession:Number(v)})})),
         h('p',{style:css.small},'不要与旧 dsh-model-failover 同时启用宿主级自动降级；否则两个监听器可能重复安排自动续跑。')),
         h(Panel,{title:'宿主级跨 Provider 模型优先级',
-          actions:h(Button,{disabled:hostCatalogBusy,onClick:loadHostCatalog},
+          actions:h(Button,{disabled:hostCatalogBusy,onClick:()=>loadHostCatalog(false,'all')},
             hostCatalogBusy?'读取中…':'刷新全部模型')},
           h('p',{style:css.small},'从 DSH 宿主全部已注册 Provider 自动读取模型目录，不要求先接入聚合路由。选择候选后才保存优先级，不复制任何原插件账号。'),
           h('div',{style:css.line},
@@ -2637,7 +2662,7 @@ if(tab==='checkins')content=h(CheckinConsole,{data:checkinsView,cfg,onSettings:s
                     'aria-hidden':'true'}),
                   syncDescription,
                   lastSyncAt?h('span',null,' · '+new Date(lastSyncAt).toLocaleTimeString()):null,
-                  h(Button,{onClick:()=>refreshRuntime(),
+                  h(Button,{onClick:()=>refreshLiveRuntime(),
                     ariaLabel:'只读刷新账号与运行数据'},'刷新显示')),
                 h('div',{className:'dnr-savebar','aria-label':'配置操作'},
                   h(Button,{kind:'primary',disabled:busy,onClick:save},

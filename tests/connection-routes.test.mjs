@@ -124,7 +124,9 @@ test('source login is visible in channel inventory without original plugin or co
  assert.equal(item.connectionState,'online');
  assert.equal(item.managed,false);
   assert.equal(data.channels.some(c=>c.id==='loomy'),true); assert.equal(f.store.get().accounts.length,0);
- assert.ok(scans>0);
+ assert.equal(scans,0,'Opening a snapshot must not wait on official refresh');
+ await f.request('/runtime/refresh',{method:'POST',body:{}});
+ assert.equal(scans,1);
  assert.doesNotMatch(JSON.stringify(data),/access_token|zcode_jwt|password/i);
  await f.dispose();
 });
@@ -197,6 +199,18 @@ test('AutoFree model-pool GET is read-only and owner refresh rejects cross-origi
  assert.deepEqual(f.verifiedIds,['owned_qoder_test']);
  assert.equal(f.store.get().routes.length,0);
  await f.dispose();
+});
+test('scoped external directory excludes internal routes and distinguishes empty external catalogs',async()=>{
+ const calls=[];
+ const f=fixture({hostProviderInventory:{status:()=>({hostProviders:['native-router','native-router-source-qoder','own_mimo_desktop','qoder','loomy','external'].map(providerId=>({providerId}))}),
+  listHostModels:async id=>{calls.push(id);return {state:'ready',models:id==='qoder'?[]:[{id:'model'}]}}}});
+ try{
+  const result=await (await f.request('/host/catalog/external')).json();
+  assert.deepEqual(result.providers.map(p=>p.id),['qoder','loomy','external']);
+  assert.equal(result.providers[0].state,'empty');assert.equal(result.providers[0].directoryVisible,false);
+  assert.equal(result.providers[1].directoryVisible,true);assert.equal(result.providers[1].directoryScope,'external');
+  assert.deepEqual(calls.sort(),['external','loomy','qoder']);
+ }finally{await f.dispose()}
 });
 test('directory counts full official models independently from aggregation allowlist',async()=>{
  const f=fixture({hostProviderInventory:{
