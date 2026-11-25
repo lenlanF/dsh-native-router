@@ -149,3 +149,8 @@ test('refresh is a read-only status request, not an automatic claim or proof gen
  assert.equal(nAccount,2);assert.equal(nSource,2);
  assert.ok(nSnapshots>=3);
 });
+
+test('Loomy current incomplete tasks requiring actual action are visible but never automatic or credited',()=>{
+ const x=catalog([account('loomy','own_loomy',{sourceAccount:true,connectionState:'online',benefits:[{kind:'loomy_first_message',name:'First message',active:true,claimed:false,requiresAction:true,credit:500}]})]);
+ const rows=channel(x,'loomy').activities;assert.equal(rows.length,1);assert.equal(rows[0].execution,'manual');assert.equal(rows[0].validity,'valid');assert.equal(x.summary.completedCount,0);
+});

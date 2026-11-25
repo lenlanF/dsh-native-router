@@ -324,7 +324,7 @@ export function createPrivateOwnedDriver({providerId,vault,makeCredentialRef,
       if(revision!==(walletRevision.get(id)??0))return staleGiftWallet(result);
       if(result.state==='ready')statusCache.set(id,{at:Date.now(),data:result});
       else statusCache.set(id,{at:Date.now(),data:{
-        ...(cached?.data??{}),state:'unavailable',
+        ...(staleGiftWallet(cached?.data)??{}),state:'unavailable',
         // Do not repeat a previous healthy proof as current authentication.
         authVerified:false,creditFetchState:'unavailable',giftCreditState:'unconfirmed',quotaWindows:[]}});
       return result;

@@ -84,7 +84,7 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
     .slice(0,8).map(x=>({kind:x.kind,
       name:LOOMY_FREE_TASKS[x.kind.slice(6)].name,
       credit:LOOMY_FREE_TASKS[x.kind.slice(6)].points,
-      active:true,claimed:x.claimed})):[];
+      active:true,claimed:x.claimed,requiresAction:true})):[];
   function currentStatus(row){
     let cached=statusCache.get(row.id);
     const account=boundAccount(row),bindingRef=account?.credentialRef??null;
