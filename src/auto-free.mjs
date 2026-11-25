@@ -47,7 +47,7 @@ const empty=()=>({state:'not_scanned',models:[],catalog:[],sourceAccounts:[],
  scannedAt:null,hostCount:0,sourceCount:0,unknownPricing:0,errors:0,issues:[]});
 import {allowsHostModel} from './host-model-selection.mjs';
 export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
- now=()=>Date.now(),ttlMs=90000,timeoutMs=2600,ownedAccountCatalog,ownedAccountEligible,ownedCatalogEnabled=()=>typeof ownedAccountCatalog==='function'}={}){
+ now=()=>Date.now(),ttlMs=90000,timeoutMs=2600,ownedTimeoutMs=30000,ownedAccountCatalog,ownedAccountEligible,ownedCatalogEnabled=()=>typeof ownedAccountCatalog==='function'}={}){
  let cache=empty(),signatureSaved='',pending=null,ownedPending=null,revision=0;
  const hostIds=()=>{
   try{return (hostProviderInventory?.status?.().hostProviders??[])
@@ -69,9 +69,9 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
     accounts,ignored,origins,cfg.hostModelSelection??{}]);
  };
  const bounded=async (job,budget=timeoutMs)=>{
-  let timer;
-  try{return await Promise.race([Promise.resolve().then(job),
-   new Promise(resolve=>{timer=setTimeout(()=>resolve(null),budget);timer.unref?.()})])}
+  let timer;const controller=new AbortController();
+  try{return await Promise.race([Promise.resolve().then(()=>job(controller.signal)),
+   new Promise(resolve=>{timer=setTimeout(()=>{resolve(null);controller.abort()},budget);timer.unref?.()})])}
   finally{if(timer)clearTimeout(timer)}
  };
  function snapshot(){return structuredClone(cache)}
@@ -135,7 +135,7 @@ export function createAutoFreePool({hostProviderInventory,ownedPack,getConfig,
    const observed=[];
    jobs.push(async()=>{
     for(const a of members){
-     const result=await bounded(()=>ownedAccountCatalog(a),30000).catch(()=>null);
+     const result=await bounded(signal=>ownedAccountCatalog(a,{signal}),ownedTimeoutMs).catch(()=>null);
      if(result?.state==='ready'&&Array.isArray(result.models))observed.push({id:a.id,models:result.models});
       else recordIssue(providerId,'ACCOUNT_CATALOG_UNAVAILABLE');
     }

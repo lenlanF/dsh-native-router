@@ -7,6 +7,18 @@ import {sourceAccountOpaqueId} from '../src/source-account-ref.mjs';
 import {createRoutingEngine} from '../src/router.mjs';
 import {createAccountCenter} from '../src/account-center.mjs';
 
+test('owned account catalog deadline aborts upstream and excludes late evidence',async()=>{
+ const providerId='own_loomy',cfg=normalizeConfig({providers:[{id:providerId,protocol:'native-channel',enabled:true}],accounts:[{id:'a',providerId,credentialRef:'driver:'+providerId+':a',enabled:true}]});
+ let aborted=false,receivedSignal=false;
+ const pool=createAutoFreePool({getConfig:()=>cfg,ownedAccountEligible:()=>true,ownedTimeoutMs:20,ownedAccountCatalog:async(_a,options)=>{
+  receivedSignal=options?.signal instanceof AbortSignal;
+  if(!receivedSignal)return {state:'unavailable'};
+  return new Promise(resolve=>options.signal.addEventListener('abort',()=>{aborted=true;resolve({state:'ready',models:[{id:'late',free:true}]})},{once:true}));
+ }});
+ const keepAlive=setTimeout(()=>{},1000);
+ try{const result=await pool.scanOwned();assert.equal(receivedSignal,true);assert.equal(aborted,true);assert.equal(result.models.length,0);assert.equal(result.errors,1)}finally{clearTimeout(keepAlive)}
+});
+
 test('positive rate and duplicate contradictory host rows cannot qualify automatically',async()=>{
  assert.equal(freeEvidence({id:'contradictory',isFree:true,costMultiplier:0.04}),null);
  const host={status:()=>({hostProviders:[{providerId:'workbuddy'}]}),listHostModels:async()=>({state:'ready',models:[{id:'conflict',isFree:true},{id:'conflict',pricing:{input:1,output:0}},{id:'safe',isFree:true}]})};
