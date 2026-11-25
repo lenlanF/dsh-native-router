@@ -1122,6 +1122,25 @@ test('account names and verified source credits lead; technical ID is folded int
   assert.ok(disclosures.some(node=>rig.flatten(node).join(' ').includes('内部账号：a1')),
     'technical ID should be folded into native details');
 });
+test('account workspace combines channel and search filters, exposes reset and truthful inference status',async()=>{
+ const inventory={ok:true,channels:[{id:'alpha',name:'Alpha',adapterReady:true},{id:'beta',name:'Beta',adapterReady:true}],
+ accounts:[{id:'a1',providerId:'alpha',nickname:'Account Alpha',enabled:true,configuredEnabled:true,connectionState:'online',modelInferenceVerifiedAt:Date.now(),runtimeMode:'owned',balance:20,balanceUnit:'积分'},
+ {id:'b1',providerId:'beta',nickname:'Account Beta',enabled:true,configuredEnabled:true,connectionState:'expired',runtimeMode:'owned'}],pools:[]};
+ const rig=createUiRig(new Map(),null,{state:'disabled'},{},[],undefined,()=>true,inventory);
+ await rig.init();rig.find(rig.render(),'button','渠道账号')[0].props.onClick();
+ let page=rig.render();
+ const cards=uiNodes(page,x=>x.props?.className==='dnr-account-card');
+ const verified=cards.find(c=>rig.flatten(c).join(' ').includes('Account Alpha'));
+ assert.doesNotMatch(rig.flatten(verified).join(' '),/推理尚待实测/);
+ const select=uiNodes(page,x=>x.type==='select'&&x.props?.['aria-label']==='筛选渠道')[0];
+ assert.ok(select);select.props.onChange({target:{value:'alpha'}});
+ page=rig.render();const search=uiNodes(page,x=>x.type==='input'&&x.props?.['aria-label']==='搜索渠道名称或登录方式')[0];
+ search.props.onChange({target:{value:'Beta'}});
+ page=rig.render();assert.equal(uiNodes(page,x=>x.props?.className==='dnr-account-card').length,0);
+ assert.match(rig.flatten(page).join(' '),/没有符合当前筛选条件/);
+ rig.find(page,'button','清除筛选')[0].props.onClick();
+ page=rig.render();assert.equal(uiNodes(page,x=>x.props?.className==='dnr-account-card').length,2);
+});
 test('native account cards show real Xiaomi membership and other account quota without inventing wallet balances',async()=>{
  const inventory={ok:true,channels:[
   {id:'mimo_desktop',name:'小米 MiMo Desktop',adapterReady:true,authMethod:'会员自有登录'},

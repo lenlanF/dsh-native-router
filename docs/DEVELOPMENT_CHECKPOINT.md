@@ -2,6 +2,12 @@
 
 此处记录工程证据和可复用方法，生产状态每轮重新读取。
 
+## rc.125 工作线
+
+- 生产 rc.124：正式 autofree-audit 得到 293 条目录、8 候选（own_loomy 1/1 账号、own_workbuddy-cn 1/2、own_workbuddy-global 3/2、宿主 workbuddy-global 3）、1 读取错误、0 人工标记；全量 inventory 12/12 账号在线。ZCode 官方状态/余额均取得，赠送计划/Flash 桶/预览均 0；CodeArts 11 费率最低 x0.07；二者名称未返回。Loomy 赠送额度已确认但每日初始化钱包证据未确认，本轮真实测试进入 STREAM_READ 后 TIMEOUT。未重复活动领取，无收费验证，委托撤销。
+- 视觉与交互：统一 DSH scoped UI 卡片、状态、动作与字体；渠道账号筛选组合与清空、空结果反馈、鉴权/推理口径、AutoFree 扫描异常/适用账号展示、总览真实推理计数。专项交互与源码测试通过，Chrome 嵌入宽度 320/560/720/1024px 零横向溢出（合成布局，不是生产页面截图）。
+- 流收集器修复迭代器等待阻塞取消，失败用例先复现后通过；未声称已经根治 Loomy 上游流超时。下一步继续查明实际 SSE 首字节/结束行为、确保真实路由和故障续跑、验证 UI 生产加载及账号资料/权益缺口。
+
 ## rc.124 工作线
 
 - 生产仍 rc.122，rc.123 main 已合并。补充 Lingxi、MiMo、Meoo、QwenWork、AWS Quick、Loomy 六渠道实时只读 inventory：全在线；Lingxi 7/14 费率已知、最低 x0.04；MiMo not_subscribed/no_cycle；Quick 有 1 额度周期；Loomy 1 免费目录候选，其余 0。未重复领取或收费调用，临时委托撤销。旧版生产无法执行新审计，未将只读结果当推理证明。

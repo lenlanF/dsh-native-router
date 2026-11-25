@@ -54,8 +54,29 @@ export async function collectSourceDshStream(stream,{tools=[],signal}={}){
   total+=Buffer.byteLength(value,'utf8');
   if(total>MAX_OUTPUT_BYTES)throw unable('Native model output exceeded size limit','RESPONSE_SIZE');
  }
- for await(const item of stream){
-  if(signal?.aborted)throw unable('Native model request was cancelled','CANCELLED');
+  const iterator=stream[Symbol.asyncIterator]();
+  let ended=false;
+  const readNext=async()=>{
+   if(!signal)return iterator.next();
+   if(signal.aborted)throw unable('Native model request was cancelled','CANCELLED');
+   let onAbort;
+   try{
+    const cancelled=new Promise((_,reject)=>{
+     onAbort=()=>reject(unable('Native model request was cancelled','CANCELLED'));
+     signal.addEventListener('abort',onAbort,{once:true});
+     if(signal.aborted)onAbort();
+    });
+    return await Promise.race([Promise.resolve().then(()=>{
+     if(signal.aborted)throw unable('Native model request was cancelled','CANCELLED');
+     return iterator.next();
+    }),cancelled]);
+   }finally{if(onAbort)signal.removeEventListener('abort',onAbort)}
+  };
+  try{for(;;){
+   const next=await readNext();
+   if(signal?.aborted)throw unable('Native model request was cancelled','CANCELLED');
+   if(next.done){ended=true;break}
+   const item=next.value;
   if(!item||typeof item!=='object')throw unable('Invalid DSH model event','TOOL_PROTOCOL');
   if(finish!==null)throw unable('Native model events continued after finish','TOOL_PROTOCOL');
   switch(item.type){
@@ -126,7 +147,11 @@ export async function collectSourceDshStream(stream,{tools=[],signal}={}){
      finish=item.reason.kind;    break;
    default:throw unable('Unsupported native model event type','TOOL_PROTOCOL');
   }
- }
+  }}finally{
+   // Cancellation must not wait on an upstream iterator whose next/return
+   // is stuck. Request cleanup once; ignore late errors, never emit partial text.
+   if(!ended)try{Promise.resolve(iterator.return?.()).catch(()=>{})}catch{}
+  }
   if(finish===null||closed.size!==blocks.size){
    const error=unable('Native model stream ended before complete finish','TRUNCATED');
    error.safeStreamPhase=finish===null?'MISSING_NATIVE_FINISH':'UNCLOSED_NATIVE_BLOCK';
