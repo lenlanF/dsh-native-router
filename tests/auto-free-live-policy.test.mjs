@@ -151,3 +151,17 @@ test('owned direct route avoids other providers and pins only exact model-bearin
  assert.equal(externalReads,0);assert.deepEqual(reads.sort(),ids);assert.deepEqual(calls,['b']);assert.ok(events.some(e=>e.type==='finish'&&e.reason.kind==='stop'));
  await assert.rejects(async()=>{for await(const e of adapter.stream({model:'direct:'+providerId+':not-present',messages:[]})){}},{code:'ERR_ROUTE_NOT_FOUND'});assert.deepEqual(calls,['b']);
 });
+
+test('owned AutoFree actual stream switches channels on rate limits without touching external or manual-only routes',async()=>{
+ const ids=['own_loomy','own_workbuddy-cn','own_workbuddy-global'];let external=0;const calls=[];
+ const cfg=normalizeConfig({providers:ids.map(id=>({id,protocol:'native-channel',enabled:true})),accounts:ids.map((providerId,i)=>({id:'a'+i,providerId,credentialRef:'driver:'+providerId+':a'+i,enabled:true})),freePool:{models:[{providerId:'own_workbuddy-global',model:'manual',free:true}]}});
+ const adapter=createNativeRouterAdapter({configStore:{get:()=>cfg},hostProviderInventory:{status:()=>({hostProviders:[{providerId:'external'}]}),listHostModels:async()=>{external++;throw Error('not allowed')}},channelDrivers:new Map(ids.map(id=>[id,{generate:async({model})=>{calls.push([id,model]);if(id==='own_loomy')throw new UpstreamError('limited',{status:429,code:'RATE_LIMIT',retryAfterMs:180000});return {text:'OK',finishReason:'stop',toolCalls:[]}}}]))});
+ adapter.setAccountVerificationResolver(()=>true);
+ adapter.setOwnedAccountCatalogResolver(async a=>({state:'ready',models:a.providerId==='own_loomy'?[{id:'first',free:true},{id:'second',free:true}]:a.providerId==='own_workbuddy-cn'?[{id:'backup',free:true}]:[{id:'manual',free:false}]}));
+ await adapter.prepareCall('native-router','autofree-owned');assert.equal(external,0);
+ const proofId='native-router-proof-owned-'+'1'.repeat(32),close=adapter.beginOwnedFreeProof(proofId);
+ for(let i=0;i<2;i++){const events=[];for await(const e of adapter.stream({model:'autofree-owned',sessionId:i===0?proofId:'turn-'+i,messages:[{role:'user',content:'OK'}]}))events.push(e);assert.ok(events.some(e=>e.type==='finish'&&e.reason.kind==='stop'))}
+ assert.ok(adapter.getStatus().recentRoutes.every(r=>r.routeId==='autofree-owned'));assert.doesNotMatch(JSON.stringify(adapter.getStatus().recentRoutes),/accountBindings|credentialRef|driver:|freePolicySignature/);
+ assert.deepEqual(close(),{failedAttempts:1,failedProviderCount:1,completedProvider:'own_workbuddy-cn',crossChannelSwitch:true});
+ assert.equal(external,0);assert.deepEqual(calls.slice(0,2),[['own_loomy','first'],['own_workbuddy-cn','backup']]);assert.ok(calls.every(([id])=>id!=='own_workbuddy-global'));assert.equal(calls.filter(([id,model])=>id==='own_loomy'&&model==='first').length,1);
+});

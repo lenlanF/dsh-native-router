@@ -91,7 +91,7 @@ const removeFixture=router.registerNativeChannelDriver(fixtureProvider,{
  listModels:async()=>[{id:'fixture-free',name:'Fixture · x0.00'}],
  generate:async({account,model,options})=>{
    assert.equal(account.id,fixtureId);assert.equal(model,'fixture-free');
-   assert.equal(options.maxTokens,fixtureGenerations===0?128:32);fixtureGenerations++;
+   assert.equal(options.maxTokens,fixtureGenerations===0||options.sessionId?.startsWith('native-router-proof-owned-')?128:32);fixtureGenerations++;
    return {text:'OK',finishReason:'stop',toolCalls:[]};
  },
  checkIn:async({account,date})=>{
@@ -225,6 +225,11 @@ try{
  }
  assert.equal(downCalls,1,'Second turn must respect upstream cooldown');
  assert.equal(fixtureGenerations,4,'Both turns must finish through the backup');
+ const ownedProof=await runAcceptance('owned-autofree-route','8'.repeat(32));
+ assert.equal(ownedProof.ownedRoute?.state,'verified',JSON.stringify(ownedProof));
+ assert.equal(ownedProof.ownedRoute.completedProvider,fixtureProvider);
+ assert.equal(ownedProof.ownedRoute.crossChannelSwitch,false);
+ assert.equal(fixtureGenerations,5);
  assert.equal((await saveConfig(originalConfig)).status,200);
  // The source pack must also activate from the EXACT published tarball when
  // host WorkBuddy/Loomy already own their public provider names. No real auth,

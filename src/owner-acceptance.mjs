@@ -1,7 +1,7 @@
 // Owner-authenticated, in-process acceptance jobs. No external service,
 // foreground window, persisted config edits, or raw account data in reports.
-import {hostRouteProof} from './owner-live-smoke.mjs';
-const modes=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity','autofree-audit','owned-autofree-audit','host-route']);
+import {hostRouteProof,ownedFreeRouteProof} from './owner-live-smoke.mjs';
+const modes=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity','autofree-audit','owned-autofree-audit','owned-autofree-route','host-route']);
 const channelKey=id=>String(id||'').replace(/^own_/,'');
 const channelPattern=/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
 const requestPattern=/^[a-f0-9]{32}$/;
@@ -37,6 +37,10 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
        providers:(Array.isArray(result.providers)?result.providers:[]).filter(x=>channelPattern.test(x?.providerId??'')).slice(0,128)
          .map(x=>({providerId:x.providerId,routeCount:count(x.routeCount),accountCount:count(x.accountCount)})),
         ...(Array.isArray(result.issues)&&result.issues.length?{issues:result.issues.filter(x=>channelPattern.test(x?.providerId??'')&&['HOST_CATALOG_UNAVAILABLE','ACCOUNT_CATALOG_UNAVAILABLE','SOURCE_ACCOUNT_SCOPE_UNVERIFIED','SOURCE_CATALOG_UNAVAILABLE','SOURCE_ROSTER_UNAVAILABLE','SCAN_UNAVAILABLE'].includes(x.code)).slice(0,128).map(x=>({providerId:x.providerId,code:x.code,count:count(x.count)}))}: {})};
+     }else if(report.mode==='owned-autofree-route'){
+      const result=await ownedFreeRouteProof({llm,adapter,requestId:report.requestId,signal:job.controller.signal,now});
+      report.ownedRoute={state:stateOf(result.state),code:safeCode(result.code),failedAttempts:count(result.failedAttempts),failedProviderCount:count(result.failedProviderCount),crossChannelSwitch:result.crossChannelSwitch===true,
+       ...(channelPattern.test(result.completedProvider??'')?{completedProvider:result.completedProvider}:{})};
      }else if(report.mode==='host-route'){
       // One explicit provider at a time; never run every account or choose paid.
       const account=targets[0],row={slot:1,providerId:account.providerId,scope:'provider'};
@@ -170,7 +174,7 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
   if(disposed)reject('Acceptance service stopped',503);
   if(typeof requestId!=='string'||!requestPattern.test(requestId)||!modes.has(mode)||consent!==true
     ||channel!==undefined&&(typeof channel!=='string'||!channelPattern.test(channel))
-    ||['channel-activity','host-route'].includes(mode)&&channel===undefined||['all-channel-activity','autofree-audit','owned-autofree-audit'].includes(mode)&&channel!==undefined)reject('Invalid explicit acceptance request');
+    ||['channel-activity','host-route'].includes(mode)&&channel===undefined||['all-channel-activity','autofree-audit','owned-autofree-audit','owned-autofree-route'].includes(mode)&&channel!==undefined)reject('Invalid explicit acceptance request');
   const selected=channel===undefined?undefined:channelKey(channel);
   const signature=JSON.stringify([mode,selected]);
   const old=jobs.get(requestId);
@@ -186,7 +190,7 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
   const targets=cfg.accounts.filter(a=>(!selected||channelKey(a.providerId)===selected)&&eligible(a));
   if(mode==='host-route'&&(!targets.length||new Set(targets.map(a=>a.providerId)).size!==1))reject('Select exactly one enabled owned provider',409);
   const activityMode=mode==='channel-activity'||mode==='all-channel-activity';
-   if(!activityMode&&!['catalog','autofree-audit','owned-autofree-audit'].includes(mode)&&targets.length>16)reject('Select a narrower channel (maximum 16 accounts)',400);
+   if(!activityMode&&!['catalog','autofree-audit','owned-autofree-audit','owned-autofree-route'].includes(mode)&&targets.length>16)reject('Select a narrower channel (maximum 16 accounts)',400);
   const activityRows=activityMode?(checkinCenter.snapshot?.().accounts??[]).filter(a=>
     a.enabled===true&&(a.checkinSupported===true||a.activitiesSupported===true)
     &&channelPattern.test(channelKey(a.providerId))&&(!selected||channelKey(a.providerId)===selected)):[];

@@ -52,19 +52,19 @@ export function createRoutingEngine({getConfig,request,pool=createAccountPool(),
         tried++;
         try{
            const output=await request({provider,account,model:tier.model,signal,
-             options:{...options,sessionId,freeOnly:route.mode==='free',autoFreeSelection:route.id==='autofree'&&route.mode==='free'}});
+             options:{...options,sessionId,freeOnly:route.mode==='free',autoFreeSelection:['autofree','autofree-owned'].includes(route.id)&&route.mode==='free',officialFreeOnly:route.id==='autofree-owned'&&route.mode==='free'}});
            if(!permitted(provider,account,tier))            throw new RoutingError('ERR_ACCOUNT_CHANGED',
               'Owner revoked Provider or credential during model execution');
           pool.success(sessionId,account);
           try{onAttemptOutcome({provider,account,model:tier.model,output,signal})}catch{}
-          onEvent({kind:'success',routeId:route.id,providerId:provider.id,model:tier.model,accountId:account.id,attempts:tried,usage:output?.usage??null});
+          onEvent({kind:'success',routeId:route.id,providerId:provider.id,model:tier.model,accountId:account.id,attempts:tried,usage:output?.usage??null},sessionId);
           return output;
         }catch(error){
           lastError=error;
           const reason=classifyFailure(error,signal);
           try{onAttemptOutcome({provider,account,model:tier.model,failure:reason,signal})}catch{}
           if(reason.code==='QUOTA')reason.cooldownMs=route.exhaustionCooldownMs;
-          onEvent({kind:'failure',routeId,providerId:provider.id,model:tier.model,accountId:account.id,code:reason.code});
+          onEvent({kind:'failure',routeId:route.id,providerId:provider.id,model:tier.model,accountId:account.id,code:reason.code},sessionId);
           if(!reason.retryable)throw error;
           pool.mark(account,tier.model,reason);
           // All accounts of a non-ready Provider share the same failed

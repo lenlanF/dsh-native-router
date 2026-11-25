@@ -6,7 +6,7 @@ import {pathToFileURL} from 'node:url';
 const requestIdPattern=/^[a-f0-9]{32}$/;
 const providerPattern=/^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const states=new Set(['idle','running','complete','cancelled','failed','observed','online','expired','limited','error','pending','client_required','verified','skipped','unavailable','ready','unknown','available','cached','not_returned','not_supported','not_checked','active','not_subscribed','no_cycle','empty']);
-const modeSet=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity','autofree-audit','owned-autofree-audit','host-route']);
+const modeSet=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity','autofree-audit','owned-autofree-audit','owned-autofree-route','host-route']);
 const count=n=>Number.isSafeInteger(n)&&n>=0&&n<=10000?n:0;
 const state=x=>states.has(x)?x:'unknown';
 function safeReport(raw){
@@ -42,6 +42,10 @@ function safeReport(raw){
      ...(typeof x.code==='string'&&/^[A-Z][A-Z0-9_]{0,47}$/.test(x.code)?{code:x.code}:{})}));
  if(raw.autoFree&&typeof raw.autoFree==='object')out.autoFree={state:state(raw.autoFree.state),catalogCount:count(raw.autoFree.catalogCount),routeCount:count(raw.autoFree.routeCount),manualCount:count(raw.autoFree.manualCount),errors:count(raw.autoFree.errors),providers:(Array.isArray(raw.autoFree.providers)?raw.autoFree.providers:[]).slice(0,128).filter(x=>providerPattern.test(x?.providerId??'')).map(x=>({providerId:x.providerId,routeCount:count(x.routeCount),accountCount:count(x.accountCount)}))};
  if(out.autoFree&&Array.isArray(raw.autoFree.issues)&&raw.autoFree.issues.length)out.autoFree.issues=raw.autoFree.issues.filter(x=>providerPattern.test(x?.providerId??'')&&['HOST_CATALOG_UNAVAILABLE','ACCOUNT_CATALOG_UNAVAILABLE','SOURCE_ACCOUNT_SCOPE_UNVERIFIED','SOURCE_CATALOG_UNAVAILABLE','SOURCE_ROSTER_UNAVAILABLE','SCAN_UNAVAILABLE'].includes(x.code)).slice(0,128).map(x=>({providerId:x.providerId,code:x.code,count:count(x.count)}));
+ if(raw.ownedRoute&&typeof raw.ownedRoute==='object'){
+  const r=raw.ownedRoute;out.ownedRoute={state:state(r.state),failedAttempts:count(r.failedAttempts),failedProviderCount:count(r.failedProviderCount),crossChannelSwitch:r.crossChannelSwitch===true,
+   ...(providerPattern.test(r.completedProvider??'')?{completedProvider:r.completedProvider}:{}),...(typeof r.code==='string'&&/^[A-Z][A-Z0-9_]{0,47}$/.test(r.code)?{code:r.code}:{})};
+ }
  return out;
 }
 function checkedLoginLink(value){
@@ -59,7 +63,7 @@ export async function requestOwnerAcceptance({loginLink,action='status',mode,cha
  if(!['status','start','cancel'].includes(action))throw Error('Unsupported acceptance action');
  if(action==='start'&&(!modeSet.has(mode)||consent!==true||
    channel!==undefined&&!providerPattern.test(channel)||
-     ['channel-activity','host-route'].includes(mode)&&!channel||['all-channel-activity','autofree-audit','owned-autofree-audit'].includes(mode)&&channel!==undefined))throw Error('Explicit mode, consent and required channel are necessary');
+     ['channel-activity','host-route'].includes(mode)&&!channel||['all-channel-activity','autofree-audit','owned-autofree-audit','owned-autofree-route'].includes(mode)&&channel!==undefined))throw Error('Explicit mode, consent and required channel are necessary');
  if(action!=='status'&&!requestIdPattern.test(requestId??''))throw Error('Valid request ID required');
  const url=checkedLoginLink(loginLink);
  let login;

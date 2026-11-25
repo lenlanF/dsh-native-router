@@ -778,7 +778,7 @@ window.__ModuleLoader__.load({
         h(Panel,{title:'AutoFree · 动态免费模型池',
           actions:h(Button,{kind:'primary',disabled:!!busy,onClick:onRefresh},
             busy?'扫描中…':'刷新模型目录')},
-          h('p',{style:css.small},'DSH 中选择「聚合路由 / autofree」即可自动选用免费模型并在额度受限时切换。来源明确免费、WorkBuddy x0.00 积分倍率，以及用户人工标记分别记录；不创建模型链。'),
+          h('p',{style:css.small},'DSH 中选择「自有免费自动切换 / autofree-owned」仅使用本插件已确认官方免费的独立账号，优先跨渠道切换；「AutoFree / autofree」仍包含其他 DSH 路由及用户人工标记。不创建模型链。'),
            h('div',{className:'dnr-workspace-stats'},
              ...[['免费候选',models.length],['已发现',catalog.length],['未确认免费',pool?.unknownPricing??0],['读取异常',pool?.errors??0]].map(([label,value])=>
                h('div',{className:'dnr-workspace-stat',key:label},h('span',null,label),h('strong',null,value)))),
