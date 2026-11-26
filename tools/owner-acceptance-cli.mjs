@@ -6,7 +6,7 @@ import {pathToFileURL} from 'node:url';
 const requestIdPattern=/^[a-f0-9]{32}$/;
 const providerPattern=/^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const states=new Set(['idle','running','complete','cancelled','failed','observed','online','expired','limited','error','pending','client_required','verified','skipped','unavailable','ready','unknown','available','cached','not_returned','not_supported','not_checked','active','not_subscribed','no_cycle','empty']);
-const modeSet=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity','autofree-audit','owned-autofree-audit','owned-autofree-route','host-route']);
+const modeSet=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity','autofree-audit','owned-autofree-audit','owned-autofree-route','host-route','activity-reconcile']);
 const count=n=>Number.isSafeInteger(n)&&n>=0&&n<=10000?n:0;
 const state=x=>states.has(x)?x:'unknown';
 function safeReport(raw){
@@ -33,6 +33,7 @@ function safeReport(raw){
  if(Array.isArray(raw.workbuddyIdentity))out.workbuddyIdentity=raw.workbuddyIdentity.filter(x=>['own_workbuddy-cn','own_workbuddy-global'].includes(x?.providerId)).slice(0,2).map(x=>({providerId:x.providerId,...Object.fromEntries(['configuredRecords','enabledRecords','confirmedRecords','distinctConfirmedSubjects','unconfirmedRecords'].map(k=>[k,count(x[k])]))}));
  if(raw.activity&&typeof raw.activity==='object')out.activity=Object.fromEntries(
    ['attempted','confirmedSignins','newlyCreditedRewards','pendingAccounts','failedAccounts','noTaskAccounts','clientRequiredAccounts'].map(k=>[k,count(raw.activity[k])]));
+ if(raw.reconciliation&&typeof raw.reconciliation==='object')out.reconciliation=Object.fromEntries(['pendingBefore','confirmed','pending','unresolved'].map(k=>[k,count(raw.reconciliation[k])]));
  if(Array.isArray(raw.catalog))out.catalog=raw.catalog.slice(0,32).filter(x=>x&&providerPattern.test(x.providerId??'')).map(x=>({providerId:x.providerId,state:state(x.state),modelCount:count(x.modelCount),freeCount:count(x.freeCount)}));
  if(Number.isSafeInteger(raw.channelCount))out.channelCount=count(raw.channelCount);
  if(Array.isArray(raw.activityChannels))out.activityChannels=raw.activityChannels.slice(0,32)
@@ -63,7 +64,7 @@ export async function requestOwnerAcceptance({loginLink,action='status',mode,cha
  if(!['status','start','cancel'].includes(action))throw Error('Unsupported acceptance action');
  if(action==='start'&&(!modeSet.has(mode)||consent!==true||
    channel!==undefined&&!providerPattern.test(channel)||
-     ['channel-activity','host-route'].includes(mode)&&!channel||['all-channel-activity','autofree-audit','owned-autofree-audit','owned-autofree-route'].includes(mode)&&channel!==undefined))throw Error('Explicit mode, consent and required channel are necessary');
+      ['channel-activity','host-route','activity-reconcile'].includes(mode)&&!channel||mode==='activity-reconcile'&&!['loomy','own_loomy'].includes(channel)||['all-channel-activity','autofree-audit','owned-autofree-audit','owned-autofree-route'].includes(mode)&&channel!==undefined))throw Error('Explicit mode, consent and required channel are necessary');
  if(action!=='status'&&!requestIdPattern.test(requestId??''))throw Error('Valid request ID required');
  const url=checkedLoginLink(loginLink);
  let login;

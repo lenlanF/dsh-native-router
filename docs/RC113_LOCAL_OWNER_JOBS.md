@@ -15,6 +15,8 @@ node tools/local-owner-jobs-cli.mjs submit catalog --consent
 # node tools/local-owner-jobs-cli.mjs submit owned-autofree-audit --consent
 # rc.128+: 仅对明确指定的自有渠道执行真实宿主路由验收；所有候选账号须有官方免费证据
 # node tools/local-owner-jobs-cli.mjs submit host-route workbuddy-cn --consent
+# rc.143+: 仅复核 Loomy 当日已有待确认回执，不领取、不推理
+# node tools/local-owner-jobs-cli.mjs submit activity-reconcile loomy --consent
 node tools/local-owner-jobs-cli.mjs status <requestId>
 node tools/local-owner-jobs-cli.mjs revoke
 ```

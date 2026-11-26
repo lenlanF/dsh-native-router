@@ -1,7 +1,7 @@
 // Owner-authenticated, in-process acceptance jobs. No external service,
 // foreground window, persisted config edits, or raw account data in reports.
 import {hostRouteProof,ownedFreeRouteProof} from './owner-live-smoke.mjs';
-const modes=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity','autofree-audit','owned-autofree-audit','owned-autofree-route','host-route']);
+const modes=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity','autofree-audit','owned-autofree-audit','owned-autofree-route','host-route','activity-reconcile']);
 const channelKey=id=>String(id||'').replace(/^own_/,'');
 const channelPattern=/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
 const requestPattern=/^[a-f0-9]{32}$/;
@@ -68,6 +68,22 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
         freeCount:count(models.filter(x=>x.isFree===true||x.free===true).length)});
       }catch{report.catalog.push({providerId,state:'unavailable',modelCount:0,freeCount:0})}
      }
+    }else if(report.mode==='activity-reconcile'){
+     // Only the source daily receipt reconciliation path: no claim, model
+     // generation, config writes, or fabricated wallet proof.
+     if(typeof checkinCenter?.refreshSources!=='function'||typeof checkinCenter?.store?.all!=='function')throw Error('Receipt reader unavailable');
+     const day=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(now()));
+     // The source roster may not have hydrated after restart. Preserve the
+     // pending history before refreshing; the reader itself checks enablement.
+     const latest=()=>new Map(checkinCenter.store.all().filter(r=>r.date===day&&channelKey(r.providerId)===report.channel&&typeof r.accountId==='string').map(r=>[r.accountId,r]));
+     const before=[...latest()].filter(([,r])=>r.state==='pending_confirmation');
+     if(before.length>32)throw Error('Receipt scope exceeds bound');
+     if(before.length&&!stopped())await checkinCenter.refreshSources({force:true,onlyProviderId:report.channel});
+     const ids=new Set((checkinCenter.snapshot?.().accounts??[]).filter(a=>a.enabled===true&&a.sourceAccount===true&&channelKey(a.providerId)===report.channel).map(a=>a.id));
+     const after=latest();
+     const confirmed=before.filter(([id])=>ids.has(id)&&after.get(id)?.state==='success').length;
+     const pending=before.filter(([id])=>ids.has(id)&&after.get(id)?.state==='pending_confirmation').length;
+     report.reconciliation={pendingBefore:before.length,confirmed,pending,unresolved:before.length-confirmed-pending};
     }else if(report.mode==='channel-activity'||report.mode==='all-channel-activity'){
      const keys=['attempted','confirmedSignins','newlyCreditedRewards','pendingAccounts','failedAccounts','noTaskAccounts','clientRequiredAccounts'];
      const selected=report.mode==='channel-activity'?[report.channel]:job.channels;
@@ -182,7 +198,7 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
   if(disposed)reject('Acceptance service stopped',503);
   if(typeof requestId!=='string'||!requestPattern.test(requestId)||!modes.has(mode)||consent!==true
     ||channel!==undefined&&(typeof channel!=='string'||!channelPattern.test(channel))
-    ||['channel-activity','host-route'].includes(mode)&&channel===undefined||['all-channel-activity','autofree-audit','owned-autofree-audit','owned-autofree-route'].includes(mode)&&channel!==undefined)reject('Invalid explicit acceptance request');
+    ||['channel-activity','host-route','activity-reconcile'].includes(mode)&&channel===undefined||mode==='activity-reconcile'&&channelKey(channel)!=='loomy'||['all-channel-activity','autofree-audit','owned-autofree-audit','owned-autofree-route'].includes(mode)&&channel!==undefined)reject('Invalid explicit acceptance request');
   const selected=channel===undefined?undefined:channelKey(channel);
   const signature=JSON.stringify([mode,selected]);
   const old=jobs.get(requestId);
