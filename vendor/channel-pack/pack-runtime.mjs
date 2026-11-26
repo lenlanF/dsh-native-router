@@ -33936,6 +33936,10 @@ function buildLoginUrl(port, ticketId) {
   const loginUrl = `${HUAWEI_AUTH_BASE}?service=${encodeURIComponent(redirectUrl)}`;
   return { redirectUrl, loginUrl };
 }
+function nativeRouterLoginId(...values) {
+  const ids = [...new Set(values.filter((v) => typeof v === "string" && /^[a-zA-Z0-9_-]{8,128}$/.test(v)))];
+  return ids.length > 1 ? null : ids[0];
+}
 function nativeRouterLoginPublicName(...sources) {
   for (const root of sources) {
     for (const obj2 of [root, root?.user, root?.profile, root?.account, root?.userInfo, root?.user_info]) {
@@ -33959,9 +33963,9 @@ function parseCredentialResponse(data) {
         secret_access_key: data.credential.secret ?? "",
         security_token: st,
         expires_at: data.credential.expires_at ?? data.credential.expiresAt ?? "",
-        domain_id: data.domain_id ?? "",
-        user_id: data.user_id ?? "",
-        user_name: nativeRouterLoginPublicName(data, data.credential)
+        domain_id: nativeRouterLoginId(data.domain_id, data.domainId, data.credential.domain_id, data.credential.domainId) ?? "",
+        user_id: nativeRouterLoginId(data.user_id, data.userId, data.credential.user_id, data.credential.userId) ?? "",
+        user_name: nativeRouterLoginId(data.user_id, data.userId, data.credential.user_id, data.credential.userId) === null ? "" : nativeRouterLoginPublicName(data, data.credential)
       };
     }
   }
@@ -33974,9 +33978,9 @@ function parseCredentialResponse(data) {
         secret_access_key: data.result.secretAccessKey ?? "",
         security_token: st,
         expires_at: data.result.expiration ?? data.result.expiresAt ?? "",
-        user_id: data.result.user_id ?? data.result.userId ?? data.user_id ?? data.userId ?? "",
-        domain_id: data.result.domain_id ?? data.result.domainId ?? data.domain_id ?? data.domainId ?? "",
-        user_name: nativeRouterLoginPublicName(data.result, data)
+        user_id: nativeRouterLoginId(data.result.user_id, data.result.userId, data.user_id, data.userId) ?? "",
+        domain_id: nativeRouterLoginId(data.result.domain_id, data.result.domainId, data.domain_id, data.domainId) ?? "",
+        user_name: nativeRouterLoginId(data.result.user_id, data.result.userId, data.user_id, data.userId) === null ? "" : nativeRouterLoginPublicName(data.result, data)
       };
     }
   }

@@ -9,6 +9,19 @@ const sha=value=>createHash('sha256').update(value).digest('hex');
 // Canonicalize source text only. Never transform WASM or other binary blobs.
 const canonicalText=value=>Buffer.from(value.toString('utf8').replace(/\r\n/g,'\n'),'utf8');
 
+test('CodeArts login retains explicit IAM subject across both response envelopes without accepting conflicts',()=>{
+ const source=file('vendor/channel-pack/pack-native.js').toString('utf8');
+ const start=source.indexOf('function nativeRouterLoginId('),end=source.indexOf('function expiresFromCredential(',start);
+ assert.ok(start>=0&&end>start);
+ const parse=new Function(source.slice(start,end)+'\nreturn parseCredentialResponse;')();
+ const a=parse({credential:{access:'FAKE_ACCESS',securityToken:'FAKE_TOKEN',secret:'FAKE_SECRET',userId:'member-123',domainId:'domain-123'},user:{name:'Example Member'}});
+ assert.equal(a.user_id,'member-123');assert.equal(a.domain_id,'domain-123');assert.equal(a.user_name,'Example Member');
+ const b=parse({credential:{access:'FAKE_ACCESS',securityToken:'FAKE_TOKEN',secret:'FAKE_SECRET'},user_id:'',userId:'member-123',domainId:'domain-123'});
+ assert.equal(b.user_id,'member-123');assert.equal(b.domain_id,'domain-123');
+ const c=parse({result:{accessKeyId:'FAKE_ACCESS',securityToken:'FAKE_TOKEN',secretAccessKey:'FAKE_SECRET',user_id:'member-123'},userId:'other-456',user:{name:'Example Member'}});
+ assert.equal(c.user_id,'');assert.equal(c.user_name,'');
+});
+
 test('the DSH-native bundle is deterministically derived from unchanged pinned MIT source',()=>{
  const source=json('vendor/channel-pack/SOURCE_RECEIPT.json');
  const native=json('vendor/channel-pack/NATIVE_BUILD_RECEIPT.json');
