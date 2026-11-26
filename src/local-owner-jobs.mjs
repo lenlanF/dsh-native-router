@@ -5,7 +5,7 @@ import {join,resolve} from 'node:path';
 import {randomBytes} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 const ID=/^[a-f0-9]{32}$/;
-const modes=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity','autofree-audit','owned-autofree-audit','owned-autofree-route','host-route']);
+const modes=new Set(['inventory','catalog','free-models','channel-activity','all-channel-activity','autofree-audit','owned-autofree-audit','owned-autofree-route','host-route','activity-reconcile']);
 const CHANNEL=/^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const TTL=5*60*1000;
 const windows=process.platform==='win32';
@@ -74,15 +74,32 @@ export function enableLocalOwnerJobs(dir,{consent=false}={}){
  dir=resolve(dir);
  if(!existsSync(dir)){mkdirSync(dir,{mode:0o700});if(windows)localAcl(dir,true)}
  privatePath(dir,true);
- if(existsSync(join(dir,marker))){enabled(dir);return}
- atomic(join(dir,marker),{version:1,consent:'local-os-owner-acceptance',grantId:randomBytes(16).toString('hex')});
- enabled(dir);
+ const consentFile=join(dir,marker),queuedFile=join(dir,request);
+ if(existsSync(consentFile)){enabled(dir);return}
+ // Reserve initialization exclusively. No host or other submitter may use
+ // this marker until the new consent is published. Old queued requests
+ // belong to a revoked grant, not to the new grant; never dispatch them.
+ const grantId=randomBytes(16).toString('hex');
+ writeFileSync(consentFile,JSON.stringify({version:1,consent:'initializing',grantId}),{flag:'wx',mode:0o600});
+ try{
+   if(existsSync(queuedFile)){
+     privatePath(queuedFile,false);
+     try{unlinkSync(queuedFile)}catch(error){if(error?.code!=='ENOENT')throw error}
+   }
+   atomic(consentFile,{version:1,consent:'local-os-owner-acceptance',grantId});
+   enabled(dir);
+ }catch(error){
+   // A failed initialization must not leave a usable consent or an
+   // initialization marker that blocks the next explicit attempt.
+   try{if(load(consentFile)?.grantId===grantId)unlinkSync(consentFile)}catch{}
+   throw error;
+ }
 }
 export function revokeLocalOwnerJobs(dir){dir=resolve(dir);enabled(dir);unlinkSync(join(dir,marker))}
 function validate(body,now,grantId){
  if(!body||body.grantId!==grantId||body.consent!==true||typeof body.requestId!=='string'||!ID.test(body.requestId)||!modes.has(body.mode)||
  (body.channel!==undefined&&!CHANNEL.test(body.channel))||
- (['channel-activity','host-route'].includes(body.mode)&&!body.channel)||(['all-channel-activity','autofree-audit','owned-autofree-audit','owned-autofree-route'].includes(body.mode)&&body.channel!==undefined)||
+ (['channel-activity','host-route','activity-reconcile'].includes(body.mode)&&!body.channel)||(body.mode==='activity-reconcile'&&!['loomy','own_loomy'].includes(body.channel))||(['all-channel-activity','autofree-audit','owned-autofree-audit','owned-autofree-route'].includes(body.mode)&&body.channel!==undefined)||
  !Number.isSafeInteger(body.issuedAt)||!Number.isSafeInteger(body.expiresAt)||
  body.issuedAt>now+10000||body.expiresAt<=now||body.expiresAt-body.issuedAt>TTL||
  body.expiresAt<=body.issuedAt)throw Error('Invalid local owner request');

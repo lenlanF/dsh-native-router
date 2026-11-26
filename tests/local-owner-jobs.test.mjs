@@ -48,6 +48,18 @@ test('malformed, expired and nonconsenting requests never dispatch',async()=>{
   assert.equal(calls,0);assert.equal(existsSync(join(dir,'request.json')),false);
  }finally{stop();rmSync(root,{recursive:true,force:true})}
 });
+test('revoked unobserved queue cannot block a new grant even with host offline',()=>{
+ const root=mkdtempSync(join(tmpdir(),'dnr-local-owner-offline-')),dir=join(root,'jobs');
+ try{
+  enableLocalOwnerJobs(dir,{consent:true});
+  submitLocalOwnerJob(dir,{mode:'inventory',channel:'mimo_desktop',consent:true});
+  revokeLocalOwnerJobs(dir);
+  enableLocalOwnerJobs(dir,{consent:true});
+  assert.doesNotThrow(()=>submitLocalOwnerJob(dir,{mode:'inventory',channel:'loomy',consent:true}));
+  assert.throws(()=>submitLocalOwnerJob(dir,{mode:'inventory',channel:'codearts',consent:true}),'must not overwrite current grant work');
+ }finally{rmSync(root,{recursive:true,force:true})}
+});
+
 test('revocation and regrant do not replay queued work from old consent',async()=>{
  const root=mkdtempSync(join(tmpdir(),'dnr-local-owner-regrant-')),dir=join(root,'jobs');
  let calls=0,stop=()=>{};

@@ -90,6 +90,24 @@ test('activity mode requires an exact selected channel and preserves existing au
  const r=await done(f.service);assert.deepEqual(f.calls,[['claim','demo']]);
  assert.equal(r.activity.newlyCreditedRewards,0);assert.equal(r.activity.confirmedSignins,1);
 });
+test('Loomy receipt reconciliation forces only selected read and reports anonymous history changes without claims',async()=>{
+ const rows=[{id:'private-receipt',providerId:'loomy',enabled:true,sourceAccount:true},{id:'other-receipt',providerId:'codearts',enabled:true,sourceAccount:true}];
+ const day='2026-11-26',history=rows.map(a=>({date:day,accountId:a.id,providerId:a.providerId,state:'pending_confirmation'}));
+ let reads=0;
+ const service=createOwnerAcceptance({configStore:{get:()=>({providers:[],accounts:[]})},accountCenter:{list:()=>({accounts:[]})},checkinCenter:{
+   snapshot:()=>({accounts:rows}),store:{all:()=>history},
+   refreshSources:async opts=>{reads++;assert.deepEqual(opts,{force:true,onlyProviderId:'loomy'});history.push({...history[0],state:'success'})},
+   runActivityChannel:async()=>{throw Error('must not claim')}
+ },now:()=>Date.parse(day+'T04:00:00Z')});
+ assert.throws(()=>service.start({requestId:id,mode:'activity-reconcile',consent:true}));
+ assert.throws(()=>service.start({requestId:id,mode:'activity-reconcile',channel:'codearts',consent:true}));
+ service.start({requestId:id,mode:'activity-reconcile',channel:'loomy',consent:true});
+ const report=await done(service);
+ assert.equal(report.state,'complete');assert.deepEqual(report.reconciliation,{pendingBefore:1,confirmed:1,pending:0,unresolved:0});assert.equal(reads,1);
+ assert.doesNotMatch(JSON.stringify(report),/private-receipt|other-receipt/);
+ assert.equal(service.start({requestId:id,mode:'activity-reconcile',channel:'loomy',consent:true}).state,'complete');assert.equal(reads,1);
+});
+
 test('all-channel free activity runs eligible channels serially, isolates failures, and deduplicates the job',async()=>{
  const rows=[
   {providerId:'own_alpha',enabled:true,checkinSupported:true},
