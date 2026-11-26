@@ -97,6 +97,24 @@ test('MiMo new quota response cannot inherit a previous percentage or reset',asy
  assert.equal(snapshot.balanceState,'not_supported');
  h.center.stop();
 });
+test('MiMo lost authentication clears previously verified live allowance and model proof',async()=>{
+ const h=harness(),scan=await h.center.discover(MIMO_DESKTOP_ID);
+ await h.center.importCandidate(MIMO_DESKTOP_ID,scan.candidates[0].id);
+ const account=h.cfg.accounts[0];
+ h.setQuota({membershipState:'active',membershipPercentRemaining:80,usageState:'available',usagePercentRemaining:75,usageResetAt:Date.now()+60000});
+ await h.driver.refreshAccountStatus({account});
+ await h.driver.generate({account,model:'mimo-v2.6-pro'});
+ assert.equal(h.driver.accountSnapshot(account).usagePercentRemaining,75);
+ h.setQuota({authVerified:false,state:'expired'});
+ assert.equal((await h.driver.refreshAccountStatus({account})).state,'expired');
+ const row=h.driver.accountSnapshot(account);
+ assert.equal(row.accountName,'Xiaomi owner');assert.equal(row.authVerified,false);
+ assert.equal(row.usageState,'unavailable');assert.equal(row.usagePercentRemaining,undefined);
+ assert.equal(row.membershipState,'unavailable');assert.equal(row.membershipPercentRemaining,undefined);
+ assert.equal(row.modelInferenceVerifiedAt,null);
+ h.center.stop();
+});
+
 test('MiMo late browser cancellation cannot erase an already committed independent session',async()=>{
  const h=harness();
  const discovered=await h.center.discover(MIMO_DESKTOP_ID);
