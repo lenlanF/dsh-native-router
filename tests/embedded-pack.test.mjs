@@ -719,6 +719,32 @@ test('catalog lookup timeout releases the UI and duplicate requests cannot flood
  assert.equal((await bridge.listModels('loomy')).state,'unavailable');
 });
 
+test('exact Loomy catalog cancellation isolates waiters and aborts unused upstream work',async()=>{
+ let pool,reads=0,requests=[];
+ const rows=[{id:'owned-a',provider:'loomy',enabled:true,credentialRef:'FAKE_A'}];
+ const scope={get:key=>key==='accountPool'?pool:undefined,credentials:{async resolve(){return {value:JSON.stringify({access_token:'FAKE_TOKEN_A'})}}},llm:{async listModels(){throw Error('unexpected fallback')}}};
+ const bridge=createEmbeddedChannelPack({ctx:{inject(_deps,cb){cb(scope)}},getConfig:enabled,env:isolatedEnv,modelTimeoutMs:1000,loadPack:async()=>({apply(_scope,opts){pool={listAllAccounts:async()=>rows};opts.nativeRouterSourceCatalogReady({codearts:async()=>[],loomy:async(_credential,signal)=>{reads++;return new Promise(resolve=>requests.push({signal,resolve}))}})}})});
+ bridge.attach();await tick();await tick();
+ const model={id:'safe',costMultiplier:0,catalogSource:'loomy-official-remote-model-catalog',priceSource:'loomy-official-model-name-ratio',catalogObservedAt:Date.now()};
+ try{
+ const a=new AbortController(),b=new AbortController();
+ const first=bridge.listModels('loomy',{sourceAccountId:'owned-a',signal:a.signal});
+ const second=bridge.listModels('loomy',{sourceAccountId:'owned-a',signal:b.signal});
+ await tick();assert.equal(reads,1);a.abort();
+ assert.equal(requests[0].signal.aborted,false);
+ requests[0].resolve([model]);
+ assert.equal((await first).state,'unavailable');assert.equal((await second).state,'ready');
+ const c=new AbortController();const third=bridge.listModels('loomy',{sourceAccountId:'owned-a',signal:c.signal});
+ await tick();c.abort();assert.equal((await third).state,'unavailable');assert.equal(requests[1].signal.aborted,true);
+ const d=new AbortController();d.abort();assert.equal((await bridge.listModels('loomy',{sourceAccountId:'owned-a',signal:d.signal})).state,'unavailable');
+ assert.equal(reads,2);
+ const fourth=bridge.listModels('loomy',{sourceAccountId:'owned-a'});
+ await tick();requests[2].resolve([model]);assert.equal((await fourth).state,'ready');assert.equal(reads,3);
+ const deadline=await bridge.listModels('loomy',{sourceAccountId:'owned-a'});
+ assert.equal(deadline.state,'timeout');assert.equal(requests[3].signal.aborted,true);
+ }finally{bridge.dispose()}
+});
+
 test('CodeArts signed pricing must remain exact and expire; unknown/cached zeros never become free',async()=>{
   const fresh=Date.now();
   const scope={get:()=>undefined,llm:{async listModels(){return [

@@ -586,6 +586,18 @@ test('native stream progress resets idle watchdog; a hung read is cancelled',asy
  await assert.rejects(driver.generate({account:{id,providerId:'loomy',credentialRef:'driver:loomy:'+id},model:'test',options:{messages:[{role:'user',content:'OK'}]}}),{code:'TIMEOUT'});assert.equal(cancelled,true);
 });
 
+test('cancelled source status read does not erase valid prior account evidence',async()=>{
+ const rig=mockSource([{id:'cancel-status',providerId:'loomy',enabled:true}]);
+ rig.embeddedPack.readSourceStatuses=async()=>({state:'ready',accounts:[{accountId:'cancel-status',authVerified:true,balance:100,balanceState:'available'}]});
+ const driver=createSourceChannelDriver({providerId:'loomy',embeddedPack:rig.embeddedPack});
+ const id=sourceAccountOpaqueId('loomy','cancel-status'),account={id,providerId:'loomy',credentialRef:'driver:loomy:'+id};
+ assert.equal((await driver.refresh({account})).state,'online');
+ await driver.generate({account,model:'demo',options:{messages:[{role:'user',content:'OK'}]}});
+ const before=driver.accountSnapshot(account);const controller=new AbortController();controller.abort();
+ assert.equal((await driver.refreshAccountStatus({account,signal:controller.signal})).state,'unavailable');
+ assert.deepEqual(driver.accountSnapshot(account),before);
+});
+
 test('historical successful inference never overrides current failed source authentication',async()=>{
  const rig=mockSource([{id:'reauth',providerId:'loomy',enabled:true}]);
  let online=true;rig.embeddedPack.readSourceStatuses=async()=>({state:'ready',accounts:[{accountId:'reauth',authVerified:online,balance:100,balanceState:'available'}]});
