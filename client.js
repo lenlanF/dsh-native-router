@@ -1206,6 +1206,7 @@ window.__ModuleLoader__.load({
               action:'run-channel',providerId:channel.id},
               '已调用本渠道安全免费活动执行器；到账须等待官方账单复核')},
             '手动核验并领取免费活动'):null},
+          channel.checkinSummary?h('p',{style:css.small},'签到状态：已确认 '+channel.checkinSummary.confirmed+' · 待确认/执行中 '+channel.checkinSummary.pending+' · 失败 '+channel.checkinSummary.failed+' · 无任务 '+channel.checkinSummary.noTask+' · 不支持/需客户端 '+channel.checkinSummary.unsupported+' · 未核实 '+channel.checkinSummary.unchecked+'（不等于奖励到账）'):null,
           h('div',{className:'dnr-activity-scroll'},
             h('table',{className:'dnr-activity-table'},
               h('thead',null,h('tr',null,

@@ -54,7 +54,7 @@ export function buildChannelActivityCatalog({config,accountRows=[],sourceRows=[]
     const key=channelKey(providerId);
     if(!key||isRetiredProvider(providerId))return null;
     if(!channels.has(key))channels.set(key,{id:key,name:safeText(name)||key,
-      accountCount:0,activityExecutorCount:0,activities:[],
+      accountCount:0,activityExecutorCount:0,activities:[],checkinSummary:{confirmed:0,pending:0,failed:0,noTask:0,unsupported:0,unchecked:0},
       emptyReason:EMPTY_EXPLANATIONS[key]??null});
     else if(name&&channels.get(key).name===key)channels.get(key).name=safeText(name)||key;
     return channels.get(key);
@@ -82,19 +82,27 @@ export function buildChannelActivityCatalog({config,accountRows=[],sourceRows=[]
     if(activeProvider?.enabled===false)continue;
     if(account.activitiesSupported===true||account.checkinSupported===true)
       channel.activityExecutorCount++;
+    // Check-in outcomes are not reward receipts. Report them separately so
+    // an empty activity table never hides a pending or failed check-in.
+    const state=account.checkinState;
+    const bucket=state==='success'?'confirmed': ['running','pending_confirmation'].includes(state)?'pending':state==='failed'?'failed':state==='no_task'?'noTask':['unsupported','client_required'].includes(state)?'unsupported':'unchecked';
+    channel.checkinSummary[bucket]++;
     const signer=account.checkinSupported===true
       &&account.activityActive!==false&&!excluded.has(account.checkinState)
       &&(account.sourceAccount===true&&SOURCE_SIGNIN.has(channelKey(account.providerId))
         ||DIRECT_FREE_SIGNIN.has(account.providerId));
     const source=account.sourceAccount===true;
     const eligible=signer&&(!source||SOURCE_SIGNIN.has(channelKey(account.providerId)));
-    const officiallyClaimable=eligible&&account.connectionState==='online'&&account.activityClaimable===true;
+    const officiallyClaimable=eligible&&account.connectionState==='online'&&account.activityClaimable===true
+      &&!['success','running','pending_confirmation'].includes(account.checkinState);
     if(officiallyClaimable){
       const deadline=endOf(account.activityExpiresAt);
+      const unit=['积分','Token','token','元','余额'].includes(account.activityRewardUnit)?account.activityRewardUnit:null;
+      const amount=unit?asAmount(account.activityRewardAmount):null;
       if(deadline===null||deadline>now)channel.activities.push({
         id:account.id+':daily-claimable',accountId:account.id,accountName:name,
-        name:'今日免费签到／额度活动',kind:'daily',rewardAmount:null,
-        rewardUnit:null,validity:'valid',endAt:deadline,
+        name:'今日免费签到／额度活动',kind:'daily',rewardAmount:amount,
+        rewardUnit:amount!==null?unit:null,validity:'valid',endAt:deadline,
         execution:'automatic',progress:'官方已确认可领取 · 尚无到账证据',
       });
     }

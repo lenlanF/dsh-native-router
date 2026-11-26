@@ -22,6 +22,25 @@ const channel=(data,id)=>data.channels.find(x=>x.id===id);
 const catalog=(rows,nowAt=now)=>buildChannelActivityCatalog({
  config:cfg,accountRows:rows,now:nowAt});
 
+test('official daily offer exposes known reward, rejects expired and conflicting claimed states',()=>{
+ const row=account('ca','own_codearts',{sourceAccount:true,connectionState:'online',activityClaimable:true,activityActive:true,activityRewardAmount:1000,activityRewardUnit:'积分',activityExpiresAt:now+60000});
+ const read=r=>channel(catalog([r]),'codearts').activities;
+ assert.equal(read(row).length,1);assert.equal(read(row)[0].rewardAmount,1000);
+ assert.equal(read(row)[0].rewardUnit,'积分');assert.equal(read(row)[0].validity,'valid');
+ assert.equal(read({...row,checkinState:'success'}).length,0);
+ assert.equal(read({...row,checkinState:'pending_confirmation'}).length,0);
+ assert.equal(read({...row,activityExpiresAt:now-1}).length,0);
+ assert.equal(read({...row,activityRewardUnit:'USD'})[0].rewardAmount,null);
+ assert.equal(read({...row,activityRewardAmount:-1})[0].rewardUnit,null);
+});
+
+test('channel checkin summary preserves unresolved states without inventing reward rows',()=>{
+ const rows=['success','pending_confirmation','failed','no_task','unsupported','not_run'].map((checkinState,i)=>account('ca'+i,'own_codearts',{sourceAccount:true,checkinState}));
+ const c=channel(catalog([...rows,rows[0],{...rows[1],id:'disabled',enabled:false}]),'codearts');
+ assert.deepEqual(c.checkinSummary,{confirmed:1,pending:1,failed:1,noTask:1,unsupported:1,unchecked:1});
+ assert.equal(c.activities.length,0);
+});
+
 test('catalog hides ALL advertised, callable, uncredited, failed or paid rewards',()=>{
  const x=catalog([
   account('wb','own_workbuddy-cn',{checkinState:'success',
