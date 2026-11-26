@@ -17,7 +17,7 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
   if(!configStore?.get)throw new Error('ConfigStore required');
    let verifiedAccount=()=>true,observeInference=()=>{},ownedAccountCatalog=null;
    const autoFreePool=createAutoFreePool({hostProviderInventory,ownedPack,
-     getConfig:()=>configStore.get(),ownedAccountCatalog:a=>ownedAccountCatalog?.(a),
+     getConfig:()=>configStore.get(),ownedAccountCatalog:(a,options)=>ownedAccountCatalog?.(a,options),
      ownedCatalogEnabled:()=>ownedAccountCatalog!==null,
      ownedAccountEligible:a=>ownedAccountCatalog!==null&&verifiedAccount(a)===true});
    const getConfig=(snapshot,includeHost=true)=>{

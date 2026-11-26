@@ -4,6 +4,15 @@ import {createNativeRouterAdapter} from '../src/adapter.mjs';
 import {normalizeConfig} from '../src/config.mjs';
 import {UpstreamError} from '../src/failure.mjs';
 
+test('owned AutoFree audit passes cancellation signal to exact account catalog resolver',async()=>{
+ const providerId='own_loomy',cfg=normalizeConfig({providers:[{id:providerId,protocol:'native-channel',enabled:true}],accounts:[{id:'a',providerId,credentialRef:'driver:'+providerId+':a',enabled:true}]});
+ const adapter=createNativeRouterAdapter({configStore:{get:()=>cfg},channelDrivers:new Map([[providerId,{generate:async()=>{throw Error('unexpected inference')}}]])});
+ adapter.setAccountVerificationResolver(()=>true);
+ let received=false;
+ adapter.setOwnedAccountCatalogResolver(async(_a,options)=>{received=options?.signal instanceof AbortSignal;return {state:'ready',models:[{id:'safe',free:true}]}});
+ await adapter.auditAutoFree({ownedOnly:true});assert.equal(received,true);
+});
+
 test('configured independent accounts enter AutoFree and a changed live fee falls back without paid inference',async()=>{
  const providers=['own_workbuddy-cn','own_lingxi'].map(id=>({id,protocol:'native-channel',enabled:true}));
  const accounts=providers.map((p,i)=>({id:'account-'+i,providerId:p.id,credentialRef:'driver:'+p.id+':account-'+i,enabled:true}));
