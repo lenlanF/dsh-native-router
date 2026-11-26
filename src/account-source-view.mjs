@@ -133,7 +133,7 @@ export function mergeAccountSources({roster,embeddedAccounts,sourceRows=[],
       ...(chosenName?{nickname:chosenName,
         ...(publicAccountName(primary)?{}:{profileState:'cached'})}:{}),
       ...publicAmount,
-      ...(primary.giftCreditState?{giftedBalance:undefined,ordinaryBalance:undefined,giftRouteState:undefined,...publicGiftWallet(primary,publicAmount,{fromCache:borrowed||best?.balanceStale===true})}:{}),
+      ...(primary.giftCreditState?{giftedBalance:undefined,ordinaryBalance:undefined,unclassifiedBalance:undefined,giftRouteState:undefined,...publicGiftWallet(primary,publicAmount,{fromCache:borrowed||best?.balanceStale===true})}:{}),
       ...(borrowed||best?.balanceStale===true?{
         balanceState:'cached',balanceStale:true,
         ...(knownTime?{balanceCheckedAt:knownTime}:{})}:{}),
