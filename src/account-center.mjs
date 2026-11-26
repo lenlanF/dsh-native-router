@@ -503,7 +503,8 @@ export function createAccountCenter({
       OUTPUT_LIMIT:'模型触及本次小额验收的输出预算，并非流连接中断',     TIMEOUT:'模型调用超时',TRANSPORT:'渠道网络连接失败',
      SERVER:'渠道服务暂时异常',CANCELLED:'请求被取消',
      INVALID_REQUEST:'模型请求格式不受支持',
-     UNKNOWN:'模型没有返回完整的成功回复'};
+      EMPTY:'模型未返回可用的完整正文或工具调用',
+      UNKNOWN:'模型没有返回完整的成功回复'};
     return {id,state:'failed',at,code,phase,
        ...(['STREAM_CLOSED','OUTPUT_LIMIT'].includes(code)&&['NON_SSE_INCOMPLETE','NO_SSE_FRAMES',         'FINISH_FRAME_MISSING_DONE','MISSING_DONE_AND_FINISH',
          'DONE_MISSING_FINISH','UNCLASSIFIED_SSE','UPSTREAM_FINISH_ERROR',

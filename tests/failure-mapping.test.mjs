@@ -34,6 +34,17 @@ test('retryable DSH errors use explicit machine evidence and avoid accidental pa
  assert.equal(classifyFailure(new UpstreamError('gateway timeout',{status:504})).code,'TIMEOUT');
 });
 
+test('typed empty output survives error redaction, permits bounded failover but not on HTTP rejection or cancellation',()=>{
+ for(const code of ['EMPTY','EMPTY_RESPONSE']){
+  const safe=safeHostFailure({code,message:'PRIVATE_CONTENT'});
+  assert.equal(safe.code,'EMPTY');
+  assert.deepEqual(classifyFailure(safe),{code:'EMPTY',retryable:true,scope:'account',cooldownMs:10000});
+  assert.equal(classifyFailure(safeHostFailure({code,status:400})).retryable,false);
+  assert.equal(classifyFailure(safeHostFailure({code,status:401})).code,'AUTH');
+  assert.equal(classifyFailure(safe,AbortSignal.abort()).retryable,false);
+ }
+});
+
 test('native quota, queue, missing credential and source busy retain machine semantics',()=>{
  assert.equal(safeDshFailureFacts({code:'QUOTA_EXCEEDED'}).code,'QUOTA');
  assert.equal(safeDshFailureFacts({code:'MISSING_CREDENTIAL'}).code,'CREDENTIAL');

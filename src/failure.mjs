@@ -18,6 +18,7 @@ export function safeDshFailureFacts(error){
   RATE_LIMIT:['RATE_LIMIT',429],AUTH:['AUTH',401],CREDENTIAL:['CREDENTIAL',401],
   PROVIDER_NOT_READY:['PROVIDER_NOT_READY',0],
   STREAM_CLOSED:['TRUNCATED',0],TRUNCATED:['TRUNCATED',0],
+  EMPTY:['EMPTY',0],EMPTY_RESPONSE:['EMPTY',0],
   SERVER:['SERVER',503],TIMEOUT:['TIMEOUT',408],
   TRANSPORT:['TRANSPORT',0],ECONNRESET:['TRANSPORT',0],
   ETIMEDOUT:['TIMEOUT',408],EPIPE:['TRANSPORT',0],UND_ERR_SOCKET:['TRANSPORT',0],
@@ -63,6 +64,9 @@ export function classifyFailure(error, signal) {
   if (status === 401 || status === 403) return {code:'AUTH',retryable:true,scope:'account',cooldownMs:3600000};
   if (status === 408 || status === 504) return {code:'TIMEOUT',retryable:true,scope:'account',cooldownMs:30000};
   if (status >= 500 && status < 600) return {code:'SERVER',retryable:true,scope:'account',cooldownMs:30000};
+  // A proven empty completion is account-scoped, unlike an unknown error.
+  // HTTP rejection and caller cancellation retain their prior semantics.
+  if(error?.code==='EMPTY'&&!status)return {code:'EMPTY',retryable:true,scope:'account',cooldownMs:10000};
   const causeCode=String(error?.cause?.code ?? error?.code ?? '');
   if (['UND_ERR_SOCKET','ECONNRESET','ETIMEDOUT','EPIPE'].includes(causeCode) ||
       (error instanceof TypeError && ['fetch failed','terminated'].includes(error.message))) {
