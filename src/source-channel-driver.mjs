@@ -239,7 +239,9 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
    },
    async refreshAccountStatus({account,signal}={}){
      let result;try{result=await readLiveFacts(account,{signal})}catch{result={state:'unavailable',authVerified:false}}
-     if(account&&result?.authVerified!==true)forgetAuth(account);
+     // A cancelled observation is not a failed authentication. Keep existing
+     // evidence unchanged while returning unavailable to this caller.
+     if(account&&!signal?.aborted&&result?.authVerified!==true)forgetAuth(account);
      return result;
    },
    async discover(){

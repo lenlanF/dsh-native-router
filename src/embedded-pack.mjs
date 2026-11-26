@@ -384,19 +384,40 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
        return {state:'unavailable',providerId,models:[]};
      const exactLoomy=providerId==='loomy'&&typeof sourceAccountId==='string'&&(nativeOwned||typeof privateSourceCatalog?.loomy==='function');
     const requestKey=exactLoomy?providerId+'\0'+sourceAccountId:providerId;
+    const unavailable=()=>({state:'unavailable',providerId,models:[]});
+    if(signal?.aborted)return unavailable();
+    // Shared catalog reads own their deadline; each subscriber owns only
+    // its own cancellation. Never let one cancelled scan poison another.
+    const waitForEntry=async entry=>{
+      entry.waiters++;
+      let onAbort;
+      try{
+        const result=signal?await Promise.race([entry.promise,new Promise(resolve=>{
+          onAbort=()=>resolve(unavailable());
+          signal.addEventListener('abort',onAbort,{once:true});
+          if(signal.aborted)onAbort();
+        })]):await entry.promise;
+        return signal?.aborted?unavailable():structuredClone(result);
+      }finally{
+        if(onAbort)signal.removeEventListener('abort',onAbort);
+        if(--entry.waiters===0&&!entry.settled&&exactLoomy){
+          if(modelRequests.get(requestKey)===entry)modelRequests.delete(requestKey);
+          entry.controller.abort();
+        }
+      }
+    };
     const existing=modelRequests.get(requestKey);
-     if(existing?.scope===scope)return structuredClone(await existing.promise);
-     const entry={scope,promise:(async()=>{
-    let timer;
+    if(existing?.scope===scope)return waitForEntry(existing);
+    const entry={scope,controller:new AbortController(),waiters:0,settled:false,promise:null};
+    entry.promise=(async()=>{
+    let timer,onCancel;
     try{
-      // Never automatically fetch; bound the settings request even if the
-      // upstream llm service fails to settle. The underlying service owns cancellation.
-      const timeoutMarker=Symbol('timeout');
+      const timeoutMarker=Symbol('timeout'),cancelMarker=Symbol('cancel');
       const rows=await Promise.race([
         Promise.resolve().then(async()=>{
            if(exactLoomy){
              if(typeof privateSourceCatalog?.loomy!=='function')return null;
-             const raw=await withOwnedSourceCredential(scope,'loomy',sourceAccountId,null,credential=>privateSourceCatalog.loomy(credential,signal));
+             const raw=await withOwnedSourceCredential(scope,'loomy',sourceAccountId,null,credential=>privateSourceCatalog.loomy(credential,entry.controller.signal));
              return Array.isArray(raw)&&raw.length?raw:null;
            }
            if(providerId==='codearts'&&typeof privateSourceCatalog?.codearts==='function'){
@@ -405,10 +426,12 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
              }catch{} // Fall back to DSH model list without trusted rates.
            }
            return llm.listModels(sourceAdapter(providerId));
-         }),        new Promise(resolve=>{timer=setTimeout(()=>resolve(timeoutMarker),modelTimeoutMs)}),
+         }),
+         new Promise(resolve=>{timer=setTimeout(()=>{resolve(timeoutMarker);entry.controller.abort()},modelTimeoutMs)}),
+         new Promise(resolve=>{onCancel=()=>resolve(cancelMarker);entry.controller.signal.addEventListener('abort',onCancel,{once:true});if(entry.controller.signal.aborted)onCancel()}),
       ]);
       if(rows===timeoutMarker)return {state:'timeout',providerId,models:[]};
-      if(scope!==mountedScope()||signal?.aborted)return {state:'unavailable',providerId,models:[]};
+      if(rows===cancelMarker||scope!==mountedScope()||entry.controller.signal.aborted)return unavailable();
       if(!Array.isArray(rows))return {state:'error',providerId,models:[]};
        const models=[],seen=new Map();
        const positive=value=>(typeof value==='number'||typeof value==='string'&&value.trim()!=='')&&Number.isFinite(Number(value))&&Number(value)>0;
@@ -451,11 +474,10 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
        }
       return {state:'ready',providerId,models};
     }catch{return {state:'error',providerId,models:[]}}
-     finally{clearTimeout(timer)}
-     })()};
+     finally{clearTimeout(timer);if(onCancel)entry.controller.signal.removeEventListener('abort',onCancel)}
+     })().finally(()=>{entry.settled=true;if(modelRequests.get(requestKey)===entry)modelRequests.delete(requestKey)});
      modelRequests.set(requestKey,entry);
-     try{return structuredClone(await entry.promise)}
-     finally{if(modelRequests.get(requestKey)===entry)modelRequests.delete(requestKey)}
+     return waitForEntry(entry);
    }
   // The pinned source adapter has no public forceAccountId parameter.
   // Single-account requests preserve the Alpha.8 behavior. Experimental
