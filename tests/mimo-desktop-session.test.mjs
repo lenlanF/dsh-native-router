@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createMimoDesktopSessionTransport} from '../src/channels/mimo-desktop-session.mjs';
+import {createMimoDesktopSessionTransport,parseMimoRollingUsage} from '../src/channels/mimo-desktop-session.mjs';
 const own={region:'cn',passToken:'owner-desktop-private-pass-123',userId:'account-101'};
 function fixture({invalidRedirect=false,auth=0,expectedModel='mimo-v2.6-pro',
    membership={planCode:'plus',planTier:2,percent:77.5,nextResetTime:'2026-11-30T00:00:00Z'},
@@ -135,6 +135,14 @@ test('MiMo free weekly allowance is fetched concurrently despite slow subscripti
  assert.equal(usageStartedBeforeSubscription,true,
   'a slow subscription must not delay or starve seven-day free quota');
 });
+test('MiMo elapsed rolling reset is not evidence of current remaining quota',()=>{
+ const now=Date.parse('2026-11-26T12:00:00Z');
+ for(const resetAt of [now-1,now]){
+  assert.deepEqual(parseMimoRollingUsage({code:0,data:{percent:70,resetAt}},now),{usageState:'unavailable'});
+ }
+ assert.equal(parseMimoRollingUsage({code:0,data:{percent:0,resetAt:now+60000}},now).usagePercentRemaining,0);
+});
+
 test('MiMo epoch reset is preserved when formatted reset date is absent',async()=>{
  const resetAt=Date.parse('2026-12-05T00:00:00+08:00');
  const data=await fixture({allowance:{percent:70,resetDate:null,resetAt}}).transport.probe({session:own});

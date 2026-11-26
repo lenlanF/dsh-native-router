@@ -136,7 +136,7 @@ export function parseMimoRollingUsage(doc,now=Date.now()){
   const reset=epoch??(typeof u.resetDate==='string'
     ?(/^\d{4}-\d{2}-\d{2}$/.test(u.resetDate)
       ?Date.parse(u.resetDate+'T00:00:00+08:00'):Date.parse(u.resetDate)):NaN);
-  if(!Number.isFinite(reset)||reset<=0)return {usageState:'unavailable'};
+  if(!Number.isFinite(reset)||reset<=now)return {usageState:'unavailable'};
   return {usageState:'available',usagePercentRemaining:raw,
     usageResetAt:reset,usageCheckedAt:now};
 }

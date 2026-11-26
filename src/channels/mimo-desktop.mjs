@@ -226,11 +226,15 @@ export function createMimoDesktopDriver({
       return {state:'online',message:'MiMo Desktop 账号信息已核验；会员额度与 API Token Plan 分开显示'};
      }
      // A temporary remote outage must not discard a previously verified name.
-     snapshots.set(account.id,{...snapshots.get(account.id),authVerified:false});
+      snapshots.set(account.id,{...snapshots.get(account.id),authVerified:false,...quotaFacts({})});
+      if(remote.state==='expired')inferenceProof.delete(account.id);
      return {state:remote.state==='expired'?'expired':remote.state==='error'?'error':'pending',
       message:'MiMo Desktop 当前未通过实时身份检查；已获取的账号名称只作历史参考'};
      }catch(error){
-      snapshots.set(account?.id,{...snapshots.get(account?.id),authVerified:false});
+       if(!signal?.aborted){
+        snapshots.set(account?.id,{...snapshots.get(account?.id),authVerified:false,...quotaFacts({})});
+        if(error?.code==='AUTH')inferenceProof.delete(account?.id);
+       }
       // A private DSH Credentials read failure is NOT an upstream HTTP 401.
       // The locally stored session may still be valid after Host recovery.
       // Only the official probe's explicit 'expired'/AUTH can revoke it.

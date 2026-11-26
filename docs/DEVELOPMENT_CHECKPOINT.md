@@ -2,6 +2,12 @@
 
 此处记录工程证据和可复用方法，生产状态每轮重新读取。按 [自有渠道业务验收台账](CHANNEL_ACCEPTANCE_LEDGER.md) 的任务 ID 续跑，不再逐版重复已通过验收。
 
+## rc.142 MIMO-01 / ID-02 工作线
+
+- rc.141 PR #73 CI #279 成功并合并 8c2b3d6，生产仍 rc.137。MiMo 两个红测复现失去鉴权仍保留旧额度及已过期重置周期仍标 available，修复后专项42/42。未发送生成或领取。
+- 官方文档核对：MiMo Claw 单次免费体验3小时 https://mimo.mi.com/docs/zh-CN/updates/feature/claw ，Desktop 与 Token Plan 是独立权益 https://mimo.mi.com/docs/zh-CN/quick-start/faq/token-plan/desktop-guide ；ZCode Start Plan 仅官方客户端 https://zcode.z.ai/cn/docs/qa 。未发现官方允许将上述体验额度转接为独立第三方模型路由的依据。不新增付费API或绕过客户端限制的路径。
+- MiMo 正式 Owner inventory 在观察窗口内返回 queued-or-not-observed；临时委托已撤销，无新增生产权益证据。MIMO-01/ID-02 免费推理仍未结案；后续以授权渠道的实际权益和正式支持的接入能力为准，不重复提交未观察任务。
+
 ## rc.141 ACT-01 工作线
 
 - rc.140 PR #72 CI #275 成功并合并 e8deecb，生产仍 rc.137。只读历史11条（成功7、无任务3、待确认1），3个已确认奖励回执，不重复领取、不发送生成。
