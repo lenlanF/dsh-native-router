@@ -132,8 +132,10 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
        row.usageState=['available','no_cycle','unavailable','not_supported','not_checked'].includes(data?.usageState)?data.usageState:'unknown';
        if(['own_lingxi','own_loomy','own_workbuddy-cn','own_workbuddy-global','codearts','own_codearts'].includes(account.providerId)){
          row.giftWalletVerified=probe?.authVerified===true&&data?.giftCreditState==='verified';
-         row.giftCreditAvailable=row.giftWalletVerified&&data.giftedBalance>0;
-         row.ordinaryCreditObserved=row.giftWalletVerified&&Number.isFinite(data.ordinaryBalance);
+         row.giftWalletPartial=probe?.authVerified===true&&data?.giftCreditState==='partial';
+         row.giftCreditAvailable=(row.giftWalletVerified||row.giftWalletPartial)&&data.giftedBalance>0;
+         row.ordinaryCreditObserved=(row.giftWalletVerified||row.giftWalletPartial)&&Number.isFinite(data.ordinaryBalance);
+         row.unclassifiedCreditObserved=row.giftWalletPartial&&data.unclassifiedBalance>0;
          row.giftRoutingReady=false;
        }
        row.quotaWindowCount=count(data?.quotaWindows?.length);

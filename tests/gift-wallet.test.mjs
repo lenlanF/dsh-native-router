@@ -31,6 +31,23 @@ test('WorkBuddy a nonmonthly bucket is not automatically a gift; explicit active
  assert.equal(read('未知积分包').giftCreditState,'unconfirmed');assert.equal(read('购买积分').giftedBalance,0);
 });
 
+test('WorkBuddy preserves confirmed gift buckets alongside unclassified balances without granting free routing',()=>{
+ const end='2026-12-01T00:00:00Z';
+ const r=parseWorkBuddyCredits({data:{Accounts:[
+  {CapacityType:4,CycleCapacityRemainPrecise:50,CycleEndTime:end},
+  {CapacityType:1,PackageName:'活动赠送积分',CapacityRemainPrecise:20,ExpiredTime:end},
+  {CapacityType:1,PackageName:'未知积分包',CapacityRemainPrecise:30,ExpiredTime:end}
+ ]}},{now});
+ assert.equal(r.giftCreditState,'partial');assert.equal(r.giftedBalance,20);
+ assert.equal(r.ordinaryBalance,50);assert.equal(r.unclassifiedBalance,30);
+ assert.equal(r.balance,100);assert.equal(r.giftRouteState,'cost_bound_unverified');
+ const view=publicGiftWallet(r,r,{now});
+ assert.equal(view.giftCreditState,'partial');assert.equal(view.giftedBalance,20);assert.equal(view.unclassifiedBalance,30);
+ assert.equal(publicGiftWallet(r,r,{now:now+180001}).giftCreditState,'unconfirmed');
+ assert.equal(staleGiftWallet(r).unclassifiedBalance,undefined);
+ assert.equal(freeEvidence({id:'paid',costMultiplier:.1,...view},'own_workbuddy-cn'),null);
+});
+
 test('wallet invalidation retains last balance as cached but removes spendable grant evidence',()=>{
  const r=staleGiftWallet({balance:100,balanceUnit:'积分',loomyDailyGift:80,quotaWindows:[{left:80}],...giftWalletFacts({balance:100,gift:80,ordinary:20,now})});
  assert.equal(r.balance,100);assert.equal(r.balanceState,'cached');assert.equal(r.giftedBalance,undefined);assert.equal(r.loomyDailyGift,undefined);assert.deepEqual(r.quotaWindows,[]);assert.equal(publicGiftWallet(r,r,{now}).giftCreditState,'unconfirmed');

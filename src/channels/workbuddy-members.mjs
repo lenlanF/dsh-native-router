@@ -36,7 +36,7 @@ export function parseWorkBuddyCredits(payload,{enterprise=false,now=Date.now()}=
  if(!Array.isArray(answer.Accounts)||answer.Accounts.length>MAX_ROWS)return null;
  if(!answer.Accounts.length)return {balance:0,balanceUnit:'积分',quotaWindows:[],
    quotaState:'no_active_package',balanceCheckedAt:now,balanceState:'available'};
- let total=0;const packages=[],giftBuckets=[];let classified=true;
+ let total=0,ordinary=0,unknown=0;const packages=[],giftBuckets=[];
  for(const row of answer.Accounts.slice(0,MAX_ROWS)){
   if(!record(row))return null;
   const kind=Number(row.CapacityType)===4?'monthly':'grant';
@@ -56,8 +56,9 @@ export function parseWorkBuddyCredits(payload,{enterprise=false,now=Date.now()}=
   if(kind==='monthly'&&reset!==null&&reset+1000<=now)return null;
   if(kind==='grant'&&remaining===0)continue;
   total+=remaining;
-  if(explicitGift&&expires!==null)giftBuckets.push({remaining,expires});
-  else if(remaining>0&&!explicitOrdinary)classified=false;
+   if(explicitGift&&expires!==null)giftBuckets.push({remaining,expires});
+   else if(explicitOrdinary&&!explicitGift)ordinary+=remaining;
+   else unknown+=remaining;
   packages.push({kind,label:label|| (kind==='monthly'?'月度积分':'其他积分包'),
    total:size??remaining,used:size===null?0:Math.max(size-remaining,0),left:remaining,
    ...(kind==='monthly'&&reset?{endAt:reset+1000}:{}),
@@ -72,7 +73,7 @@ export function parseWorkBuddyCredits(payload,{enterprise=false,now=Date.now()}=
  const expiring=Math.round(soon.reduce((sum,p)=>sum+p.left,0)*1e4)/1e4;
  const gifted=Math.round(giftBuckets.reduce((sum,p)=>sum+p.remaining,0)*1e4)/1e4;
  return {balance:Math.round(total*1e4)/1e4,balanceUnit:'积分',quotaWindows:packages,
-  ...(classified?giftWalletFacts({balance:Math.round(total*1e4)/1e4,gift:gifted,ordinary:Math.round((total-gifted)*1e4)/1e4,now,expiryKnown:true,expiresAt:gifted>0?Math.min(...giftBuckets.map(p=>p.expires)):null}):{giftCreditState:'unconfirmed'}),
+  ...giftWalletFacts({balance:Math.round(total*1e4)/1e4,gift:gifted,ordinary:Math.round(ordinary*1e4)/1e4,unknown:Math.round(unknown*1e4)/1e4,now,expiryKnown:true,expiresAt:gifted>0?Math.min(...giftBuckets.map(p=>p.expires)):null}),
   ...(expiring>0?{expiringPoints:expiring,
     expiringAt:Math.min(...soon.map(p=>p.endAt))}:{}),
   balanceCheckedAt:now,balanceState:'available'};
