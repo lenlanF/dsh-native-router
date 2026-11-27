@@ -22,6 +22,17 @@ test('TRAE entitlement excludes expired credits and rejects missing usage or unl
  assert.equal((await parse([item(200,10,now-3600)])).total,0);
  for(const row of [item(100,undefined,now+86400),item(100,null,now+86400),item(-1,0,now+86400),item(100,101,now+86400),item(100,0,undefined)])assert.equal(await parse([row]),null);
 });
+test('CodeArts credit metrics require explicit authoritative total, valid remaining values and no duplicates',()=>{
+ const src=file('vendor/channel-pack/pack-native.js').toString('utf8');
+ const start=src.indexOf('function parseCreditBalance('),end=src.indexOf('async function nativeRouterCodeartsProfile(',start);
+ const labels={usageTotalPackageCredit:'总积分包',usageBasicPackageCredit:'基础积分包',usageOnDemandPackageCredit:'按需积分包',usageBonusPackageCredit:'赠送积分包'};
+ const parse=new Function('CREDIT_METRIC_LABELS','TOTAL_CREDIT_METRIC','readString6','readNumber8','roundCredits3',src.slice(start,end)+'\nreturn parseCreditBalance;')(labels,'usageTotalPackageCredit',(o,k)=>o[k]??'',(o,k)=>Number(o[k]??0),v=>Math.round(v*1000)/1000);
+ const metric=(name,remain,amount=100,used=20)=>({name,package_credit_amount:amount,package_credit_used:used,package_credit_remain:remain});
+ const total=metric('usageTotalPackageCredit',80),gift=metric('usageBonusPackageCredit',80);
+ assert.equal(parse([total,gift]).total,80);
+ assert.equal(parse([metric('usageTotalPackageCredit',0,0,0)]).total,0);
+ for(const rows of [[gift],[total,total,gift],[metric('usageTotalPackageCredit',null),gift],[total,metric('usageBonusPackageCredit',undefined)],[total,metric('usageBonusPackageCredit',-1)],[total,metric('usageBonusPackageCredit',101)]])assert.equal(parse(rows),undefined);
+});
 test('Loomy daily limit/remaining pair and legacy wallet are reconciled without fabricating zero balances',async()=>{
  const src=file('vendor/channel-pack/pack-native.js').toString('utf8');
  const a=src.indexOf('function nativeRouterLoomyWalletNumber('),b=src.indexOf('function makePackage(',a);
@@ -84,7 +95,7 @@ test('the DSH-native bundle is deterministically derived from unchanged pinned M
   const crlf=Buffer.from(original.toString('utf8').replace(/\n/g,'\r\n'),'utf8');
   assert.equal(sha(canonicalText(crlf)),sha(original));
  assert.equal(sha(bundled),native.generatedSha256);
-    assert.equal(native.patches.length,90);assert.ok(native.patches.includes('lobster-official-action-eligibility'));assert.ok(native.patches.includes('loomy-strict-daily-quota-evidence'));assert.ok(native.patches.includes('trae-explicit-official-daily-booleans'));assert.ok(native.patches.includes('loomy-sms-sender-requires-existing-owned-account'));
+    assert.equal(native.patches.length,95);assert.ok(native.patches.includes('codearts-retain-official-plan-facts'));assert.ok(native.patches.includes('lobster-official-action-eligibility'));assert.ok(native.patches.includes('loomy-strict-daily-quota-evidence'));assert.ok(native.patches.includes('trae-explicit-official-daily-booleans'));assert.ok(native.patches.includes('loomy-sms-sender-requires-existing-owned-account'));
     for(const patch of ['lobster-official-status-renewal','lobster-renewal-cooldown','lobster-wire-official-read-renewal'])assert.ok(native.patches.includes(patch));
     assert.ok(native.patches.includes('loomy-sms-submit-refuses-cross-provider-credential-overwrite'));
    assert.ok(native.patches.includes('codearts-exact-official-credit-ratio'));

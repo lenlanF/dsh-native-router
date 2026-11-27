@@ -145,6 +145,12 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
        row.hasBalanceUnit=Boolean(data?.balanceUnit);
        row.balanceState=['available','cached','unavailable','not_returned','not_supported','not_checked'].includes(data?.balanceState)?data.balanceState:'unknown';
        row.membershipState=['active','not_subscribed','unavailable','not_supported','not_checked'].includes(data?.membershipState)?data.membershipState:'unknown';
+       if(['codearts','own_codearts'].includes(account.providerId)){
+         row.codeartsPlanKind=probe?.authVerified===true&&['experience','paid'].includes(data?.codeartsPlanKind)?data.codeartsPlanKind:'unknown';
+         row.codeartsNamedPlanKind=probe?.authVerified===true&&['experience','paid'].includes(data?.codeartsNamedPlanKind)?data.codeartsNamedPlanKind:'unknown';
+         row.codeartsPlanFlagsKnown=probe?.authVerified===true&&data?.codeartsPlanFlagsKnown===true;
+         row.codeartsPlanStatusActive=probe?.authVerified===true&&data?.codeartsPlanStatusActive===true;
+       }
        row.usageState=['available','no_cycle','unavailable','not_supported','not_checked'].includes(data?.usageState)?data.usageState:'unknown';
        if(['own_lingxi','own_loomy','own_workbuddy-cn','own_workbuddy-global','codearts','own_codearts','raccoon','own_raccoon','trae','own_trae'].includes(account.providerId)){
          row.giftWalletVerified=probe?.authVerified===true&&data?.giftCreditState==='verified';
