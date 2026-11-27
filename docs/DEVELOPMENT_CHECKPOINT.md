@@ -2,6 +2,13 @@
 
 此处记录工程证据和可复用方法，生产状态每轮重新读取。按 [自有渠道业务验收台账](CHANNEL_ACCEPTANCE_LEDGER.md) 的任务 ID 续跑，不再逐版重复已通过验收。
 
+## rc.151 ROUTE-01 / SRC-01 自有目录费用一致性
+
+- rc.150 PR #82 CI #306 双平台通过，合并 92bc5ea。生产 rc.137，只读今日签到0、确认回执3；未生成、领取或修改生产配置。
+- 红测复现自有 Qoder 测试目录同模型冲突（free:true 与非零费率同时出现）仍发出请求；adapter 发送前检查全部同模型证据，拒绝冲突并切到 WorkBuddy 模拟后备。千问办公目录 qwork 空、app 有效时费率场景错位；重复模型最后一条费率覆盖，改用同一有效场景与完整同模型证据，保留明确倍率。专项35/35、全量935/935、隐私/双原生包/打包预检通过，通过模拟账号与模拟响应，非生产推理。
+- Qoder 参考源码使用非公开客户端目录协议，未移植认证签名或猜测授权。官方 https://docs.qoder.com/cli/model 明确 --list-models，https://docs.qoder.com/cli/sdk/authentication 支持用户 PAT，https://docs.qoder.com/zh/cli/sdk/references-typescript 的 getAvailableModels 实时返回 isEnabled/priceFactor/promotion；当前绑定电脑 PATH 未发现 qoder/qodercli，既有自有账号的独立目录授权尚未验证。https://docs.qoder.com/cloud-agents/api/forward/models/list 属于 Cloud Agents 模板用途，不代替个人模型目录。下一步确认正常授权的 SDK 目录调用是否能在无推理条件下取得，并验证账号绑定及不引入独立运行依赖。
+- 已积累 rc138–150 主线变更，建议集中升级一次验证，不再以相同 rc137 只读库存反复代替新版验收。
+
 ## rc.150 SRC-01 / GIFT-01 TRAE 消费积分
 
 - rc.149 PR #81 CI #303 通过，合并 1cb7183。生产 rc.137，今日只读本地签到0、确认回执3；未提交生产请求。

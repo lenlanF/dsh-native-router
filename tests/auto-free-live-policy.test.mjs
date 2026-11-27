@@ -41,6 +41,18 @@ test('configured independent accounts enter AutoFree and a changed live fee fall
  assert.ok(reads.get('account-1')>=2);
  assert.ok(events.length>0);
 });
+test('owned Qoder directory conflict appearing at dispatch never sends the selected model',async()=>{
+ const ids=['own_qoder','own_workbuddy-cn'],cfg=normalizeConfig({providers:ids.map(id=>({id,protocol:'native-channel',enabled:true})),accounts:ids.map((providerId,i)=>({id:'a'+i,providerId,credentialRef:'driver:'+providerId+':a'+i,enabled:true}))});
+ const calls=[],reads=new Map();
+ const adapter=createNativeRouterAdapter({configStore:{get:()=>cfg},channelDrivers:new Map(ids.map(id=>[id,{generate:async()=>{calls.push(id);return {text:'OK',finishReason:'stop',toolCalls:[]}}}]))});
+ adapter.setAccountVerificationResolver(()=>true);
+ adapter.setOwnedAccountCatalogResolver(async a=>{
+  const n=(reads.get(a.id)??0)+1;reads.set(a.id,n);
+  return {state:'ready',models:a.providerId==='own_qoder'&&n>1?[{id:'flash',free:true,costMultiplier:0},{id:'flash',free:false,costMultiplier:1}]:[{id:'flash',free:true}]};
+ });
+ for await(const _ of adapter.stream({model:'autofree-owned',messages:[{role:'user',content:'OK'}]})){}
+ assert.ok(reads.get('a0')>=2);assert.deepEqual(calls,['own_workbuddy-cn']);
+});
 test('AutoFree audit uses the current eligible account tiers without generating or exposing bindings',async()=>{
  const providerId='own_workbuddy-cn';
  const cfg=normalizeConfig({providers:[{id:providerId,protocol:'native-channel',enabled:true}],accounts:['live','unverified'].map(id=>({id,providerId,credentialRef:'driver:'+providerId+':'+id,enabled:true}))});

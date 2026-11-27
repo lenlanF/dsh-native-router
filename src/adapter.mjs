@@ -87,7 +87,8 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
         const manual=!hostProof&&(rule?.free===true||(!rule&&before.freePool?.providerIds?.includes(arg.provider.id)));
         if(!manual){
          const live=await Promise.resolve().then(()=>ownedAccountCatalog(arg.account,{signal:arg.signal})).catch(()=>null);
-         if(live?.state!=='ready'||!live.models?.some(m=>m.id===arg.model&&m.free===true))
+         const peers=live?.state==='ready'&&Array.isArray(live.models)?live.models.filter(m=>m?.id===arg.model):[];
+         if(!peers.some(m=>m.free===true&&freeEvidence(m,arg.provider.id,peers)))
           throw new UpstreamError('Current account free entitlement not confirmed',{code:'COST_NOT_CONFIRMED_FREE'});
         }
         if(arg.signal?.aborted)throw new UpstreamError('Model request cancelled',{code:'CANCELLED'});
