@@ -59965,19 +59965,21 @@ function parseCreditBalance(metrics) {
   if (!Array.isArray(metrics)) return void 0;
   const packages = [];
   let totalRemain;
-  let sawAnyCreditMetric = false;
+  const seenCreditMetrics = new Set();
+  const strictCredit = v => (typeof v === "number" || typeof v === "string" && /^\d+(?:\.\d+)?$/.test(v.trim())) && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 1e12 ? Number(v) : null;
   for (const item of metrics) {
     if (typeof item !== "object" || item === null) continue;
     const record = item;
     const name2 = readString6(record, "name");
     const label = CREDIT_METRIC_LABELS[name2];
     if (label === void 0) continue;
-    sawAnyCreditMetric = true;
-    const amount = readNumber8(record, "package_credit_amount");
-    const used = readNumber8(record, "package_credit_used");
-    const remain = readNumber8(record, "package_credit_remain");
+    if (seenCreditMetrics.has(name2)) return void 0;
+    seenCreditMetrics.add(name2);
+    const amount = strictCredit(record.package_credit_amount);
+    const used = strictCredit(record.package_credit_used);
+    const remain = strictCredit(record.package_credit_remain);
+    if (amount === null || used === null || remain === null || remain > amount) return void 0;
     if (name2 === TOTAL_CREDIT_METRIC) totalRemain = remain;
-    if (amount <= 0 && remain <= 0) continue;
     packages.push({
       name: label,
       unit: "credit",
@@ -59992,10 +59994,8 @@ function parseCreditBalance(metrics) {
       expiredTime: ""
     });
   }
-  if (!sawAnyCreditMetric) return void 0;
-  const total = roundCredits3(
-    totalRemain ?? packages.reduce((sum, pkg) => sum + pkg.remaining, 0)
-  );
+  if (totalRemain === void 0) return void 0;
+  const total = roundCredits3(totalRemain);
   return { total, packages, expiredTotal: 0 };
 }
 async function nativeRouterCodeartsProfile(credential, fetcher = directFetch) {
@@ -60050,6 +60050,7 @@ async function fetchCodeArtsAccountInfoDetailed(credential, fetcher = directFetc
       specCode: readString6(pkg, "spec_code"),
       packageName: packageNameCn.length > 0 ? packageNameCn : packageNameEn,
       packageStatus: readString6(pkg, "status"),
+      officialPlan: {name:packageNameCn.length > 0 ? packageNameCn : packageNameEn,status:readString6(pkg,"status"),credit:typeof pkg.is_credit_package === "boolean" ? pkg.is_credit_package : null,token:typeof pkg.is_token_package === "boolean" ? pkg.is_token_package : null},
       credit: parseCreditBalance(data.metrics)
     }
   };
@@ -64456,7 +64457,7 @@ async function handleMethod(method, payload, signal) {
                 };
               }
               if (info.credit === void 0) return { balance: null, error: "\u672A\u8FD4\u56DE\u79EF\u5206\u6570\u636E" };
-              return { balance: info.credit };
+              return { balance: {...info.credit,codeartsPlan:info.officialPlan} };
             },
             warn: (msg) => ctx.logger?.warn?.(msg)
           });

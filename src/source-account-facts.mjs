@@ -167,8 +167,21 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
       near.reduce((a,x)=>a+x.left,0)*1e4)/1e4,
       expiringAt:Math.min(...near.map(x=>x.end))}:null;
   })();
+  // The current signed package response names the actual plan. Only exact
+  // documented Chinese tier labels are classified; unknown or incomplete
+  // plan evidence does not establish an experience-tier billing boundary.
+  const plan=providerId==='codearts'&&!balanceRow?.error&&liveBalance?record(structured?.codeartsPlan):null;
+  const name=typeof plan?.name==='string'?plan.name.trim():'';
+  const paidNames=['个人轻享版','个人畅享版','个人优享版','个人尊享版','企业专业版','个人标准版','个人高级版','个人旗舰版'];
+  const namedKind=name==='个人体验版'?'experience':paidNames.includes(name)?'paid':'unknown';
+  const flagsKnown=typeof plan?.credit==='boolean'&&typeof plan?.token==='boolean';
+  const statusActive=typeof plan?.status==='string'&&plan.status.trim().toLowerCase()==='active';
+  const planKind=flagsKnown&&plan.credit===true&&plan.token===false&&statusActive?namedKind:'unknown';
+  const planFacts=providerId==='codearts'?{codeartsPlanKind:planKind,
+    ...(plan?{codeartsPlanCheckedAt:observedAt,codeartsNamedPlanKind:namedKind,codeartsPlanFlagsKnown:flagsKnown,codeartsPlanStatusActive:statusActive}:{}),
+    ...(namedKind!=='unknown'?{planName:name}:{})}:{};
   return {
-    ...(nickname?{nickname}:{}),...giftWallet,
+    ...(nickname?{nickname}:{}),...giftWallet,...planFacts,
     ...(providerId==='loomy'&&loomyDailyGift>0?{loomyDailyGift}:{}),      ...(providerId==='zcode'?{
         zcodeStatusObserved:status!==null&&!statusRow?.error,
         zcodeBalanceObserved:structured!==null&&!balanceRow?.error,

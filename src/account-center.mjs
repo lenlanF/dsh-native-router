@@ -174,6 +174,7 @@ export function createAccountCenter({
                 {expiringPoints:fromCache?cached.expiringPoints:live.expiringPoints,
                  expiringAt:fromCache?cached.expiringAt:live.expiringAt}:{}),
              ...(typeof live.planName==='string'&&live.planName?{planName:live.planName.slice(0,72)}:{}),
+             ...(['codearts','own_codearts'].includes(provider.id)?(live.authVerified===true&&!fromCache&&!balance.balanceStale&&Number.isFinite(live.codeartsPlanCheckedAt)&&live.codeartsPlanCheckedAt<=now()&&now()-live.codeartsPlanCheckedAt<=180000?{codeartsPlanKind:['experience','paid'].includes(live.codeartsPlanKind)?live.codeartsPlanKind:'unknown',codeartsNamedPlanKind:['experience','paid'].includes(live.codeartsNamedPlanKind)?live.codeartsNamedPlanKind:'unknown',codeartsPlanFlagsKnown:live.codeartsPlanFlagsKnown===true,codeartsPlanStatusActive:live.codeartsPlanStatusActive===true}:{codeartsPlanKind:'unknown'}):{}),
              ...(typeof live.membershipPlanName==='string'&&live.membershipPlanName?{membershipPlanName:live.membershipPlanName.slice(0,72)}:{}),
              ...(typeof live.membershipState==='string'?{membershipState:live.membershipState}:{}),
              ...(Number.isFinite(live.membershipPercentRemaining)?{membershipPercentRemaining:live.membershipPercentRemaining}:{}),

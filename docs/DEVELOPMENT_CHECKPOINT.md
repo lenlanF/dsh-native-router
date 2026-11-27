@@ -2,6 +2,12 @@
 
 此处记录工程证据和可复用方法，生产状态每轮重新读取。按 [自有渠道业务验收台账](CHANNEL_ACCEPTANCE_LEDGER.md) 的任务 ID 续跑，不再逐版重复已通过验收。
 
+## rc.155 GIFT-01 CodeArts 套餐和积分证据
+
+- rc.154 PR #86 CI #318 通过，合并 212f0ac；复用最近 rc.151 真实验收，不重复库存、不生成或领取。
+- CodeArts 已有签名 statistics/plugin 解析 package_name_cn/en、status、计费类型，却在余额返回时丢弃；新增显式布尔值保留，不由缺失字段推导 false，现有原生包生成器五个补丁（总95）。严格积分指标输入及必需总额，拒绝重复、缺失、负数或剩余大于总容量；明确零值保留。账户中心展示已识别官方套餐，Owner 只报匿名套餐类别、标志存在与 active 状态，过期不使用。官方中文套餐名称 allowlist 依据 https://support.huaweicloud.com/price-codeartsagent/codeartsagent_billing_0028.html；实际生产 status 是否为 active 和布尔字段形状未核实，故保守未知。红测两处后绿，新增陈旧状态验证；专项105/105、全量943/943、320/560/720/1024px 布局通过。未开放任何非零倍率调用，不把已知赠送余额当作无付费边界。
+- 下一步升级后仅对 CodeArts inventory 验证实际套餐及余额指标契约；若确证体验版无可购积分包、无付费余额，再验证同账号短请求的安全边界。Loomy 仍需单次成本上限，CodeArts/ZCode 名称仍待修复。若暂无升级，优先其他渠道真实缺口而非重复库存。
+
 ## rc.154 GIFT-01 / ID-02 部分钱包及主体
 
 - rc.153 PR #85 CI #315 通过，合并 4601d01。承接 rc.151 已有真实 inventory，未重新全量核查或发起推理、领取。WorkBuddy 三个账号钱包未分类，代码红测复现 unknown>0 且 gift=0 导致普通积分也丢失；保留已确认 ordinary 与 unknown，部分钱包 gift=0 不等于没有赠送；未确认的全部未知钱包仍拒绝分类。前端标签和 Owner Raccoon/TRAE 验收字段同步。是否命中真实账号待新版核验。

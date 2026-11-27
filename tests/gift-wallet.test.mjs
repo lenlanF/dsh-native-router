@@ -59,6 +59,28 @@ test('Raccoon verified gift wallet reaches account center and stale wallet is hi
  assert.equal(center.list().accounts[0].giftedBalance,undefined);
 });
 
+test('CodeArts current official plan is observed independently of wallet and never inferred from gifts',()=>{
+ const balance={total:100,packages:[{name:'总积分包',unit:'credit',remaining:100},{name:'赠送积分包',unit:'credit',remaining:100}]};
+ const read=(plan)=>sourceAccountFacts({providerId:'codearts',observedAt:now,balanceRow:{balance:{...balance,codeartsPlan:plan}}});
+ assert.equal(read(undefined).codeartsPlanKind,'unknown');
+ const result=read({name:'个人体验版',status:'active',credit:true,token:false});
+ assert.equal(result.planName,'个人体验版');assert.equal(result.codeartsPlanKind,'experience');assert.equal(result.codeartsPlanCheckedAt,now);
+ assert.equal(result.giftRouteState,'cost_bound_unverified');
+ assert.equal(read({name:'个人体验版',status:'active',credit:true,token:true}).codeartsPlanKind,'unknown');
+ assert.equal(read({name:'个人畅享版',status:'active',credit:true,token:false}).codeartsPlanKind,'paid');
+ assert.equal(read({name:'个人体验版',status:'active',credit:true}).codeartsPlanKind,'unknown');
+ assert.equal(read({name:'个人体验版',status:'expired',credit:true,token:false}).codeartsPlanKind,'unknown');
+ assert.equal(read({name:'个人体验版测试',status:'active',credit:true,token:false}).codeartsPlanKind,'unknown');
+});
+test('CodeArts plan kind reaches account center but expired or cached facts cannot establish current plan',()=>{
+ const providerId='codearts',id='sp_'+'a'.repeat(24),config=normalizeConfig({providers:[{id:providerId,protocol:'native-channel',enabled:true}],accounts:[{id,providerId,credentialRef:'driver:'+providerId+':'+id,enabled:true}]});
+ let clock=now;
+ const facts=sourceAccountFacts({providerId,observedAt:now,balanceRow:{balance:{total:10,packages:[{name:'总积分包',unit:'credit',remaining:10},{name:'赠送积分包',unit:'credit',remaining:10}],codeartsPlan:{name:'个人体验版',status:'active',credit:true,token:false}}}});
+ const center=createAccountCenter({configStore:{get:()=>config,replace(){}},drivers:new Map([[providerId,{accountSnapshot:()=>facts}]]),now:()=>clock});
+ assert.equal(center.list().accounts[0].codeartsPlanKind,'experience');
+ clock+=180001;
+ assert.equal(center.list().accounts[0].codeartsPlanKind,'unknown');
+});
 test('CodeArts total metric is not a second wallet; explicit gift and base components reconcile',()=>{
  const packages=[{name:'总积分包',unit:'credit',remaining:300},{name:'基础积分包',unit:'credit',remaining:250},{name:'赠送积分包',unit:'credit',remaining:50}];
  const r=sourceAccountFacts({providerId:'codearts',observedAt:now,balanceRow:{balance:{total:300,packages}}});

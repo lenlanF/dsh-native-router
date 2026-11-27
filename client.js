@@ -1058,7 +1058,11 @@ window.__ModuleLoader__.load({
                      Number.isFinite(account.expiringAt)?
                        h('span',{className:'dnr-account-metric-note'},
                          '最早到期 '+new Date(account.expiringAt).toLocaleDateString()):null):null,
-                  account.usageState?h('div',{className:'dnr-account-metric'},
+                   account.codeartsPlanKind?h('div',{className:'dnr-account-metric'},
+                     h('span',{className:'dnr-account-metric-label'},'CodeArts 当前套餐'),
+                     h('strong',{className:'dnr-account-metric-value'},['experience','paid'].includes(account.codeartsNamedPlanKind)?account.planName||'已识别套餐名称':'待核实'),
+                     h('span',{className:'dnr-account-metric-note'},account.codeartsPlanKind==='experience'?'个人体验版 · 自动消费策略待验收':account.codeartsPlanKind==='paid'?'非免费套餐 · 不自动消耗':'套餐身份或状态尚未核实')):null,
+                   account.usageState?h('div',{className:'dnr-account-metric'},
                    h('span',{className:'dnr-account-metric-label'},'MiMo 七日自然恢复额度'),
                    h('strong',{className:'dnr-account-metric-value'},
                      account.usageState==='available'&&

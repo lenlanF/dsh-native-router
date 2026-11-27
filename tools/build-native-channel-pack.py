@@ -484,6 +484,33 @@ async function fetchZcodeClaimablePlans(credential,fetchImpl=sanitizingFetch){
         'async function fetchTraeCheckinStatus(credential, _product, fetcher = sanitizingFetch) {\n  const result = await postJson3(TRAE_CHECKIN_STATUS_PATH, credential, "{}", fetcher, credential.uid);\n  if (!result.ok) return null;\n  const body = result.body;\n  const code = readClaimCode(body);\n  if (code !== 0 || typeof body.enable !== "boolean" || typeof body.checked_in !== "boolean") return null;',
         'trae-explicit-official-daily-booleans',
     ))
+    # Keep the existing signed package response's plan facts. Missing credit
+    # metrics must not become a fabricated zero or a sum of overlapping rows.
+    patches.append((
+        '  let sawAnyCreditMetric = false;\n  for (const item of metrics) {',
+        '  const seenCreditMetrics = new Set();\n  const strictCredit = v => (typeof v === "number" || typeof v === "string" && /^\\d+(?:\\.\\d+)?$/.test(v.trim())) && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 1e12 ? Number(v) : null;\n  for (const item of metrics) {',
+        'codearts-strict-credit-metric-input',
+    ))
+    patches.append((
+        '    sawAnyCreditMetric = true;\n    const amount = readNumber8(record, "package_credit_amount");\n    const used = readNumber8(record, "package_credit_used");\n    const remain = readNumber8(record, "package_credit_remain");\n    if (name2 === TOTAL_CREDIT_METRIC) totalRemain = remain;\n    if (amount <= 0 && remain <= 0) continue;',
+        '    if (seenCreditMetrics.has(name2)) return void 0;\n    seenCreditMetrics.add(name2);\n    const amount = strictCredit(record.package_credit_amount);\n    const used = strictCredit(record.package_credit_used);\n    const remain = strictCredit(record.package_credit_remain);\n    if (amount === null || used === null || remain === null || remain > amount) return void 0;\n    if (name2 === TOTAL_CREDIT_METRIC) totalRemain = remain;',
+        'codearts-strict-credit-metric-values',
+    ))
+    patches.append((
+        '  if (!sawAnyCreditMetric) return void 0;\n  const total = roundCredits3(\n    totalRemain ?? packages.reduce((sum, pkg) => sum + pkg.remaining, 0)\n  );',
+        '  if (totalRemain === void 0) return void 0;\n  const total = roundCredits3(totalRemain);',
+        'codearts-require-explicit-total-credit',
+    ))
+    patches.append((
+        '      packageStatus: readString6(pkg, "status"),\n      credit: parseCreditBalance(data.metrics)',
+        '      packageStatus: readString6(pkg, "status"),\n      officialPlan: {name:packageNameCn.length > 0 ? packageNameCn : packageNameEn,status:readString6(pkg,"status"),credit:typeof pkg.is_credit_package === "boolean" ? pkg.is_credit_package : null,token:typeof pkg.is_token_package === "boolean" ? pkg.is_token_package : null},\n      credit: parseCreditBalance(data.metrics)',
+        'codearts-explicit-plan-flags',
+    ))
+    patches.append((
+        '              return { balance: info.credit };',
+        '              return { balance: {...info.credit,codeartsPlan:info.officialPlan} };',
+        'codearts-retain-official-plan-facts',
+    ))
     # The documented IAM self-detail API is a separate, read-only source of
     # identity when CodeArts login returned an explicit user ID but no name.
     # No retries, redirects, privilege changes or token export.
