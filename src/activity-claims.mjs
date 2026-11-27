@@ -63,13 +63,25 @@ export function createActivityClaimStore({path=join(dirname(defaultConfigPath())
   return hash([account.providerId,account.id,account.credentialRef,
     offer.kind,expiry,credit].join('\0'));
  };
+ // A fixed onboarding task or official growth task/travel identifier is
+ // not a new activity just because its advertised amount or expiry changed.
+ // Preserve the old exact key for wallet reconciliation and file compatibility.
+ const stableKind=kind=>kind==='raccoon_login'||kind.startsWith('loomy_')||kind.startsWith('workbuddy_growth_');
+ const related=(account,offer)=>stableKind(offer.kind)?rows.filter(r=>r.binding===bindingOf(account)&&r.kind===offer.kind):[];
+ const relatedReceipt=(account,offer)=>{
+   const matches=related(account,offer);
+   if(!matches.length)return null;
+   const row=matches.find(r=>r.state!=='confirmed')??matches[0];
+   // Metadata drift cannot establish a new wallet delta or amount.
+   return {state:row.state==='confirmed'?'confirmed':'pending_confirmation',at:row.at};
+ };
  return {
   get blocked(){return blocked},
   get error(){return blocked?'历史活动回执损坏或不可写，已禁止重复领取':null},
   begin(account,offer,{baselineBalance}={}){
    const key=keyOf(account,offer);
    if(!key||blocked)return false;
-   if(rows.some(r=>r.key===key)||rows.length>=MAX)return false;
+   if(rows.some(r=>r.key===key)||related(account,offer).length||rows.length>=MAX)return false;
    const entry={key,binding:bindingOf(account),kind:offer.kind,state:'submitted',at:now(),
      ...(typeof offer.kind==='string'
         &&(offer.kind.startsWith('loomy_')||offer.kind.startsWith('workbuddy_growth_')
@@ -98,7 +110,7 @@ export function createActivityClaimStore({path=join(dirname(defaultConfigPath())
   },
   state(account,offer){
    const key=keyOf(account,offer);
-   return key?rows.find(r=>r.key===key)?.state??null:null;
+   return key?(rows.find(r=>r.key===key)?.state??relatedReceipt(account,offer)?.state??null):null;
   },
   receipt(account,offer){
    const key=keyOf(account,offer);
@@ -107,7 +119,7 @@ export function createActivityClaimStore({path=join(dirname(defaultConfigPath())
      ...(Number.isFinite(row.credit)?{credit:row.credit}:{}),
      ...(Number.isFinite(row.baselineBalance)?{baselineBalance:row.baselineBalance}:{}),
      ...(row.proof==='official_wallet_delta'&&Number.isFinite(row.verifiedAt)?
-       {proof:row.proof,verifiedAt:row.verifiedAt}:{})}:null;
+       {proof:row.proof,verifiedAt:row.verifiedAt}:{})}:key?relatedReceipt(account,offer):null;
   },
   summary(account){
    const binding=bindingOf(account);
