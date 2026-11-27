@@ -43,6 +43,30 @@ test('activity claim receipt survives restart, never stores credentials, changes
  }finally{rmSync(dir,{recursive:true,force:true})}
 });
 
+test('one-shot activity receipt blocks metadata drift across restart without reusing wallet proof',()=>{
+ const dir=root();try{
+  const path=join(dir,'rewards.json'),account=cfg.accounts[0];
+  for(const kind of ['loomy_first_message','workbuddy_growth_task_'+'a'.repeat(24),'workbuddy_growth_travel_'+'b'.repeat(24)]){
+   let store=createActivityClaimStore({path});
+   const original={kind,credit:50,endAt:1000},changed={kind,credit:60,endAt:2000};
+   assert.equal(store.begin(account,original,{baselineBalance:100}),true);
+   store=createActivityClaimStore({path});
+   assert.equal(store.begin(account,changed),false);
+   const receipt=store.receipt(account,changed);
+   assert.equal(receipt.state,'pending_confirmation');
+   assert.equal(receipt.baselineBalance,undefined);
+   assert.equal(store.finish(account,changed,'confirmed',{credit:60}),false);
+   assert.equal(store.finish(account,original,'confirmed',{credit:50}),true);
+   assert.equal(store.receipt(account,changed).state,'confirmed');
+   assert.equal(store.receipt(account,changed).credit,undefined);
+  }
+  const store=createActivityClaimStore({path});
+  assert.equal(store.begin(account,{kind:'workbuddy_growth_travel_'+'c'.repeat(24),credit:50}),true);
+  assert.equal(store.begin(account,gift(50)),true);
+  assert.equal(store.begin(account,gift(60)),true);
+ }finally{rmSync(dir,{recursive:true,force:true})}
+});
+
 test('corrupted durable activity receipts fail closed; no duplicate POST can be authorized',()=>{
  const dir=root();try{
   const path=join(dir,'rewards.json');
