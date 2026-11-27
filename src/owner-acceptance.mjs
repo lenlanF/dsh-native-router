@@ -40,6 +40,7 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
      }else if(report.mode==='owned-autofree-route'){
       const result=await ownedFreeRouteProof({llm,adapter,requestId:report.requestId,signal:job.controller.signal,now});
       report.ownedRoute={state:stateOf(result.state),code:safeCode(result.code),failedAttempts:count(result.failedAttempts),failedProviderCount:count(result.failedProviderCount),crossChannelSwitch:result.crossChannelSwitch===true,
+       ...(['MISSING_FINISH','MAX_TOKENS','TOOL_CALLS','NO_TEXT','UNEXPECTED_FINISH'].includes(result.hostPhase)?{hostPhase:result.hostPhase}:{}),
        ...(channelPattern.test(result.completedProvider??'')?{completedProvider:result.completedProvider}:{})};
      }else if(report.mode==='host-route'){
       // One explicit provider at a time; never run every account or choose paid.
@@ -170,7 +171,12 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
         row.advertisedCount=count(catalog?.models?.length);
         const rates=(Array.isArray(catalog?.models)?catalog.models:[]).map(m=>m.costMultiplier).filter(x=>typeof x==='number'&&Number.isFinite(x)&&x>=0&&x<=100);
         row.knownRateCount=count(rates.length);row.zeroRateCount=count(rates.filter(x=>x===0).length);
-        if(rates.length)row.lowestMultiplier=Math.min(...rates);
+         if(rates.length)row.lowestMultiplier=Math.min(...rates);
+         if(row.providerId==='own_qwenwork'){
+          const blocks=['OWNER_EXCLUDED','SCENE_UNCONFIRMED','AUTOMATIC_MODEL','ENABLE_UNCONFIRMED','EXPLICIT_NOT_FREE','PROMOTION_UNCONFIRMED','OTHER_UNCONFIRMED'];
+          row.zeroRateBlocked={};
+          for(const model of catalog?.models??[])if(model.costMultiplier===0&&model.free!==true){const key=blocks.includes(model.freeEligibilityBlock)?model.freeEligibilityBlock:'OTHER_UNCONFIRMED';row.zeroRateBlocked[key]=(row.zeroRateBlocked[key]??0)+1}
+         }
         row.catalogState=catalog?.state==='ready'?(row.advertisedCount?'ready':'empty'):'unavailable';
        }catch{row.catalogState='unavailable';row.code='CATALOG_UNAVAILABLE'}
        row.state='observed';

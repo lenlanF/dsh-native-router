@@ -353,8 +353,10 @@ export function createAccountCenter({
    if(typeof row?.id!=='string'||!row.id.trim()||row.id.length>120
       ||/[\u0000-\u001f]/.test(row.id))return null;
    const evidence=officialOnly?officialTestEvidence(row,providerId,rows):modelTestEvidence(row,providerId);
+   const excluded=(configStore.get().freePool?.models??[]).some(x=>x.providerId===providerId&&x.model===row.id&&x.free===false);
+   const block=excluded?'OWNER_EXCLUDED':['SCENE_UNCONFIRMED','AUTOMATIC_MODEL','ENABLE_UNCONFIRMED','EXPLICIT_NOT_FREE','PROMOTION_UNCONFIRMED'].includes(row.freeEligibilityBlock)?row.freeEligibilityBlock:null;
    return {id:row.id,name:typeof row.name==='string'&&row.name.length<=120
-     ?row.name:row.id,free:Boolean(evidence),...(evidence?{evidence}:{}),...(row.accessRestriction==='OFFICIAL_CLIENT_ONLY'?{accessRestriction:row.accessRestriction}:{}),...(row.giftRouteState==='cost_bound_unverified'?{giftRouteState:row.giftRouteState}:{}),...catalogPrice(row,providerId,rows)};
+     ?row.name:row.id,free:Boolean(evidence),...(evidence?{evidence}:block?{freeEligibilityBlock:block}:{}),...(row.accessRestriction==='OFFICIAL_CLIENT_ONLY'?{accessRestriction:row.accessRestriction}:{}),...(row.giftRouteState==='cost_bound_unverified'?{giftRouteState:row.giftRouteState}:{}),...catalogPrice(row,providerId,rows)};
  }
  function assertTestAccount(id){
    const found=find(id),{account,provider,driver}=found;

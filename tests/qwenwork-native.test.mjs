@@ -124,10 +124,13 @@ test('QwenWork exact qwork zero rate enters official candidate pool, but paid or
  for(const id of ['promo','old','unknown'])assert.notEqual(rows.find(x=>x.id===id).isFree,true);
  const catalog=await h.center.listTestModels(account.id,{officialOnly:true});
  assert.equal(catalog.models.find(x=>x.id==='flash').free,true);
+ assert.equal(catalog.models.find(x=>x.id==='promo').freeEligibilityBlock,'PROMOTION_UNCONFIRMED');
+ assert.equal(catalog.models.find(x=>x.id==='unknown').freeEligibilityBlock,'ENABLE_UNCONFIRMED');
  const options={officialFreeOnly:true,messages:[{role:'user',content:'OK'}],maxTokens:32};
  // A price change between directory discovery and transport preflight must stop before POST.
  payload.qwork[0].price_factor=0.1;
  await assert.rejects(()=>h.driver.generate({account,model:'flash',options}),{code:'COST_NOT_CONFIRMED_FREE'});
+ await assert.rejects(()=>h.driver.generate({account,model:'flash',options:{...options,officialFreeOnly:false,freeOnly:true}}),{code:'COST_NOT_CONFIRMED_FREE'});
  assert.equal(h.calls.filter(x=>x.path.includes('agent_chat_generation')).length,0);
  h.center.stop();
 });
