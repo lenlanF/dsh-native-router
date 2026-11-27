@@ -77,7 +77,9 @@ test('CodeArts gift balance reconciles with optional on-demand and absent zero b
 test('WorkBuddy a nonmonthly bucket is not automatically a gift; explicit active gift is identified',()=>{
  const read=PackageName=>parseWorkBuddyCredits({data:{Response:{Data:{Accounts:[{CapacityType:4,CycleCapacityRemainPrecise:50,CycleEndTime:'2026-12-01T00:00:00Z'},{CapacityType:1,PackageName,CapacityRemainPrecise:20,ExpiredTime:'2026-12-01T00:00:00Z'}]}}}},{now});
  assert.equal(read('活动赠送积分').giftedBalance,20);assert.equal(read('活动赠送积分').ordinaryBalance,50);
- assert.equal(read('未知积分包').giftCreditState,'unconfirmed');assert.equal(read('购买积分').giftedBalance,0);
+ const partial=read('未知积分包');assert.equal(partial.giftCreditState,'partial');assert.equal(partial.ordinaryBalance,50);assert.equal(partial.giftedBalance,0);assert.equal(partial.unclassifiedBalance,20);assert.equal(partial.giftRouteState,'cost_bound_unverified');
+ assert.equal(publicGiftWallet(partial,partial,{now}).giftCreditState,'partial');assert.equal(read('购买积分').giftedBalance,0);
+ assert.equal(giftWalletFacts({balance:20,gift:0,ordinary:0,unknown:20,now}).giftCreditState,'unconfirmed');
 });
 
 test('WorkBuddy preserves confirmed gift buckets alongside unclassified balances without granting free routing',()=>{

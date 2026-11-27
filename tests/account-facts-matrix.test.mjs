@@ -16,6 +16,8 @@ test('public account labels recover official alternate fields but reject device 
  assert.equal(credentialPublicIdentity({account_name:'',user_name:'真实账号'}).accountName,'真实账号');
  assert.equal(credentialPublicIdentity({display_name:'设备 123',displayName:'真实昵称'}).accountName,'真实昵称');
  assert.deepEqual(credentialPublicIdentity({userInfo:{displayName:'真实用户',mobile:'13812345678'}}),{accountName:'真实用户',maskedPhone:'138****5678'});
+ assert.equal(credentialPublicIdentity({user_id:'raw-id',username:'raw-id',profile:{displayName:'Actual name'}}).accountName,'Actual name');
+ assert.equal(publicAccountName({userId:'raw-id',userName:'raw-id'}),'');
  assert.equal(credentialPublicIdentity({user_id:'raw-id',access_token:'secret'}).accountName,undefined);
 });
 

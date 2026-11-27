@@ -10,9 +10,9 @@ export async function readZcodePublicProfile({credential,fetchImpl=fetch}={}){
   if(!response.ok)return null;
   const result=await response.json();
   if(!result||typeof result!=='object'||Array.isArray(result))return null;
-  const subject=result.sub??result.user_id??result.id;
-  if(typeof subject!=='string'||subject!==id)return null;
-  const accountName=publicAccountName({id:subject,name:result.name,displayName:result.displayName,nickname:result.nickname,username:result.username,email:result.email});
+   const subjects=[result.sub,result.user_id,result.id,result.userId].filter(value=>value!==undefined&&value!==null&&value!=='');
+   if(!subjects.length||subjects.some(subject=>typeof subject!=='string'||subject!==id))return null;
+   const accountName=publicAccountName({id,name:result.name,displayName:result.displayName,display_name:result.display_name,nickname:result.nickname,username:result.username??result.preferred_username,user_name:result.user_name,email:result.email});
   return accountName?{accountName}:null;
  }catch{return null}
 }

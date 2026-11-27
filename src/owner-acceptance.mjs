@@ -146,7 +146,7 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
        row.balanceState=['available','cached','unavailable','not_returned','not_supported','not_checked'].includes(data?.balanceState)?data.balanceState:'unknown';
        row.membershipState=['active','not_subscribed','unavailable','not_supported','not_checked'].includes(data?.membershipState)?data.membershipState:'unknown';
        row.usageState=['available','no_cycle','unavailable','not_supported','not_checked'].includes(data?.usageState)?data.usageState:'unknown';
-       if(['own_lingxi','own_loomy','own_workbuddy-cn','own_workbuddy-global','codearts','own_codearts'].includes(account.providerId)){
+       if(['own_lingxi','own_loomy','own_workbuddy-cn','own_workbuddy-global','codearts','own_codearts','raccoon','own_raccoon','trae','own_trae'].includes(account.providerId)){
          row.giftWalletVerified=probe?.authVerified===true&&data?.giftCreditState==='verified';
          row.giftWalletPartial=probe?.authVerified===true&&data?.giftCreditState==='partial';
          row.giftCreditAvailable=(row.giftWalletVerified||row.giftWalletPartial)&&data.giftedBalance>0;

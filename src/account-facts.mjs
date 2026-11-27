@@ -10,7 +10,7 @@ export function publicAccountName(...sources){
       const value=source[key];
       if(typeof value!=='string')continue;
       const name=value.trim();
-      if(!name||name.length>120||name===source.id||name===source.accountId||
+       if(!name||name.length>120||[source.id,source.accountId,source.account_id,source.userId,source.user_id,source.sub,source.uid].some(id=>typeof id==='string'&&name===id.trim())||
         nameSensitive.test(name)||opaqueName.test(name)||generatedName.test(name)||/^设备(?:\s|[:：]|[a-f0-9])/i.test(name)||
         /^[A-Za-z0-9_.~+-]{48,}$/.test(name))continue;
       if(/^\d{11}$/.test(name))return name.replace(/^(\d{3})\d{4}(\d{4})$/,'$1****$2');
