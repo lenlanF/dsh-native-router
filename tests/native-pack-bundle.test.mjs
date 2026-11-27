@@ -60,6 +60,8 @@ test('CodeArts signed current-user profile recovers missing identity, rejects fo
  assert.equal(await read({...cred,user_id:'other-456'},fetcher),null);
  assert.equal(await read(cred,async()=>new Response(JSON.stringify({data:{userName:'Unknown Subject'}}))),null);
  assert.equal(await read(cred,async()=>new Response(JSON.stringify({data:{user_id:'member-123',user_name:'hw123456789012345'}}))),null);
+ assert.deepEqual(await read(cred,async()=>new Response(JSON.stringify({data:{user:{id:'member-123',nick_name:'Real nickname'}}}))),{accountName:'Real nickname'});
+ assert.equal(await read({...cred,user_id:'member-123'},async()=>new Response(JSON.stringify({data:{user_id:'member-123',user:{id:'foreign-456',nick_name:'Wrong profile'}}}))),null);
  assert.equal(await read(cred,async()=>new Response(JSON.stringify({code:403,data:{user_id:'member-123',user_name:'Not Authorized'}}))),null);
 });
 
@@ -73,6 +75,10 @@ test('CodeArts login retains explicit IAM subject across both response envelopes
  const b=parse({credential:{access:'FAKE_ACCESS',securityToken:'FAKE_TOKEN',secret:'FAKE_SECRET'},user_id:'',userId:'member-123',domainId:'domain-123'});
  assert.equal(b.user_id,'member-123');assert.equal(b.domain_id,'domain-123');
  const c=parse({result:{accessKeyId:'FAKE_ACCESS',securityToken:'FAKE_TOKEN',secretAccessKey:'FAKE_SECRET',user_id:'member-123'},userId:'other-456',user:{name:'Example Member'}});
+ const d=parse({credential:{access:'FAKE_ACCESS',securityToken:'FAKE_TOKEN',secret:'FAKE_SECRET'},user:{id:'member-123',nick_name:'Real nickname'}});
+ assert.equal(d.user_id,'member-123');assert.equal(d.user_name,'Real nickname');
+ const e=parse({credential:{access:'FAKE_ACCESS',securityToken:'FAKE_TOKEN',secret:'FAKE_SECRET',userId:'member-123'},user:{id:'foreign-456',nick_name:'Wrong nickname'}});
+ assert.equal(e.user_id,'');assert.equal(e.user_name,'');
  assert.equal(c.user_id,'');assert.equal(c.user_name,'');
 });
 

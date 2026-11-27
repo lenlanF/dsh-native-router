@@ -6,7 +6,7 @@ const generatedName=/^(?:账号\s*#?\s*\d+|account\s*#?\s*\d+|id:.+|.+\s*[·•-
 export function publicAccountName(...sources){
   for(const source of sources){
      if(!source||typeof source!=='object')continue;
-     for(const key of ['displayName','display_name','nickname','nickName','screenName','accountName','account_name','username','userName','user_name','loginName','login_name','accountLogin','login','email','name','accountLabel','account_label','label']){
+     for(const key of ['displayName','display_name','nickname','nickName','nick_name','screenName','accountName','account_name','username','userName','user_name','preferred_username','loginName','login_name','accountLogin','login','email','name','accountLabel','account_label','label']){
       const value=source[key];
       if(typeof value!=='string')continue;
       const name=value.trim();
@@ -28,9 +28,13 @@ export function credentialPublicIdentity(payload){
   // Evaluate each public alias independently: empty strings and device labels
   // must never hide a later real name. Only exact-account profile objects
   // are considered, not arbitrary credential strings or opaque user IDs.
+  const subjects=[payload.user_id,payload.userId,payload.sub,payload.uid].filter(x=>typeof x==='string'&&x.trim());
+  if(new Set(subjects).size>1)return {};
+  const subject=subjects[0];
   const profiles=[payload,payload.account,payload.profile,payload.user,payload.userInfo,payload.user_info]
-    .filter(x=>x&&typeof x==='object'&&!Array.isArray(x));
-  const label=publicAccountName(...profiles);
+    .filter(x=>x&&typeof x==='object'&&!Array.isArray(x))
+    .filter(x=>!subject||x===payload||![x.id,x.user_id,x.userId,x.sub,x.uid].some(v=>typeof v==='string'&&v.trim()&&v!==subject));
+  const label=publicAccountName(...profiles.map(x=>subject?{...x,user_id:subject}:x));
   const phoneValue=profiles.flatMap(x=>[x.phone,x.mobile]).find(x=>typeof x==='string'&&/^\d{11}$/.test(x));
   const phone=phoneValue?phoneValue.replace(/^(\d{3})\d{4}(\d{4})$/,'$1****$2'):'';
   return {...(label?{accountName:label}:{}),

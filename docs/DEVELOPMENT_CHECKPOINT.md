@@ -2,6 +2,13 @@
 
 此处记录工程证据和可复用方法，生产状态每轮重新读取。按 [自有渠道业务验收台账](CHANNEL_ACCEPTANCE_LEDGER.md) 的任务 ID 续跑，不再逐版重复已通过验收。
 
+## rc.161 ID-01 / ID-02 正常授权身份资料
+
+- rc.160 PR #93 CI #338通过，合并dd37723。承接rc.159已通过实际免费路由，不重复库存或推理。
+- 官方 ZCode CLI 登录契约 https://github.com/zai-org/ZCode/blob/main/apps/zcode-cli/docs/design/v2/auth-login.md 规定保存 data.user；华为公开 https://support.huaweicloud.com/api-projectman/ShowCurUserInfo.html 明确 user_id/user_name/nick_name 与 domain_name 独立，但该另一个API要求IAM X-Auth-Token及授权，未接入或猜测权限。
+- 四处红测：CodeArts self 嵌套user和nick_name缺失、正常登录遗漏嵌套主体、公共身份资料遗漏昵称或混入外国主体、ZCode空username遮蔽preferred_username。修复原生包生成器现有95个补丁内的主体与字段解析，ZCode登录名称仅取官方data.user；原生/独立包重建，专项21/21、全量952/952通过。未读取外部客户端加密凭据，未新增网络接口或消费权限。
+- 生产两个账号是否含新字段仍未知。下一步合并新版后针对两渠道真实身份及WorkBuddy余额做一次验收；若旧授权响应未保留资料，仅对对应账号正常重新授权，不能伪造名称。未重复已成功正式路由。
+
 ## rc.160 WB-01 / GIFT-01 / ROUTE-01 真实验收与积分明细
 
 - rc.159 已实际安装；PR #92 CI #335 合并657ab0d。真实 Owner 专项：WorkBuddy CN 2/2在线、17模型1免费各；Global 2/2在线、35模型3免费各。Global 两主体确认独立、CN一主体确认另一名称缓存；钱包分类仍仅Global第二账号verified、无赠送余额，其他三个未分类。千问办公在线14模型1零率0免费，真实排除原因为PROMOTION_UNCONFIRMED。未调用受限优惠。
