@@ -41,6 +41,20 @@ test('configured independent accounts enter AutoFree and a changed live fee fall
  assert.ok(reads.get('account-1')>=2);
  assert.ok(events.length>0);
 });
+test('owned free routing rejects reasoning-only output and switches without exposing incomplete content',async()=>{
+ const ids=['own_workbuddy-cn','own_workbuddy-global'];
+ const cfg=normalizeConfig({providers:ids.map(id=>({id,protocol:'native-channel',enabled:true})),accounts:ids.map((providerId,i)=>({id:'a'+i,providerId,credentialRef:'driver:'+providerId+':a'+i,enabled:true}))});
+ const calls=[];
+ const adapter=createNativeRouterAdapter({configStore:{get:()=>cfg},channelDrivers:new Map(ids.map(id=>[id,{generate:async()=>{calls.push(id);return calls.length===1?{text:'',reasoning:'PRIVATE_INCOMPLETE',finishReason:'length',toolCalls:[]}:{text:'OK',finishReason:'stop',toolCalls:[]}}}]))});
+ adapter.setAccountVerificationResolver(()=>true);
+ adapter.setOwnedAccountCatalogResolver(async()=>({state:'ready',models:[{id:'flash',free:true}]}));
+ const sid='native-router-proof-owned-'+'a'.repeat(32),close=adapter.beginOwnedFreeProof(sid),events=[];
+ try{for await(const e of adapter.stream({model:'autofree-owned',sessionId:sid,messages:[{role:'user',content:'OK'}]}))events.push(e)}finally{
+ const proof=close();assert.equal(proof.failedAttempts,1);assert.equal(proof.crossChannelSwitch,true);assert.equal(proof.completedProvider,calls[1]);
+ }
+ assert.equal(calls.length,2);assert.doesNotMatch(JSON.stringify(events),/PRIVATE_INCOMPLETE/);
+ assert.ok(events.some(e=>e.type==='text-delta'&&e.text==='OK'));
+});
 test('owned Qoder directory conflict appearing at dispatch never sends the selected model',async()=>{
  const ids=['own_qoder','own_workbuddy-cn'],cfg=normalizeConfig({providers:ids.map(id=>({id,protocol:'native-channel',enabled:true})),accounts:ids.map((providerId,i)=>({id:'a'+i,providerId,credentialRef:'driver:'+providerId+':a'+i,enabled:true}))});
  const calls=[],reads=new Map();
