@@ -11,12 +11,21 @@ const num=v=>{
  return Number.isFinite(n)&&n>=0&&n<=1e13?n:null;
 };
 const record=x=>x&&typeof x==='object'&&!Array.isArray(x)?x:null;
+// WorkBuddy's timezone-less billing timestamps are Beijing time. See
+// magpie-community/plugins packages/workbuddy/index.mjs, endOf/cycleOf.
 const date=v=>{
  if(typeof v==='number'&&Number.isFinite(v)&&v>0)return v<1e11?v*1000:v;
  if(typeof v!=='string'||!v.trim())return null;
- const parsed=Date.parse(v.includes('T')?v:v.replace(' ','T'));
+ const s=v.trim();
+ if(/^\d{10}(?:\d{3})?$/.test(s))return date(Number(s));
+ const stamp=/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(s)?s.replace(' ','T')+'+08:00':s.replace(' ','T');
+ const parsed=Date.parse(stamp);
  return Number.isFinite(parsed)?parsed:null;
 };
+// Public commodity codes from the MIT Magpie WorkBuddy reference, not
+// entitlement to invoke models. Unknown codes/contradictory labels stay unknown.
+const benefitCodes=new Set(['TCACA_code_006_DbXS0lrypC','TCACA_code_007_nzdH5h4Nl0','TCACA_code_029_6wCGEWquYy','TCACA_code_030_BjSt89qTvr']);
+const purchaseCodes=new Set(['TCACA_code_009_0XmEQc2xOf','TCACA_code_036_lupO5WgNdG','TCACA_code_038_OhvqZtiPKr']);
 const clampName=s=>typeof s==='string'?s.trim().slice(0,75):'';
 export function parseWorkBuddyCredits(payload,{enterprise=false,now=Date.now()}={}){
  const root=record(payload?.data)??{},inner=record(root.Data)??root;
@@ -39,36 +48,51 @@ export function parseWorkBuddyCredits(payload,{enterprise=false,now=Date.now()}=
  let total=0,ordinary=0,unknown=0;const packages=[],giftBuckets=[];
  for(const row of answer.Accounts.slice(0,MAX_ROWS)){
   if(!record(row))return null;
-  const kind=Number(row.CapacityType)===4?'monthly':'grant';
-  const label=clampName(row.PackageName);
-  const explicitGift=kind!=='monthly'&&['活动赠送积分','每日赠送积分','签到赠送积分','赠送积分','活动赠送'].includes(label);
-  const explicitOrdinary=kind==='monthly'||['充值积分','购买积分','永久积分','基础积分包'].includes(label);
-  const hasCycle=row.CycleCapacityRemainPrecise!==undefined||
-   row.CycleCapacityRemain!==undefined;
-  const remaining=num(hasCycle?row.CycleCapacityRemainPrecise??row.CycleCapacityRemain:
-   row.CapacityRemainPrecise??row.CapacityRemain);
-  if(remaining===null)return null;
-  const size=num(hasCycle?row.CycleCapacitySizePrecise??row.CycleCapacitySize??
-   row.CapacitySizePrecise??row.CapacitySize:
-   row.CapacitySizePrecise??row.CapacitySize);
-  const reset=date(row.CycleEndTime),expires=date(row.ExpiredTime);
-  if(expires!==null&&expires<=now)continue;
-  if(kind==='monthly'&&reset!==null&&reset+1000<=now)return null;
-  if(kind==='grant'&&remaining===0)continue;
-  total+=remaining;
+   const monthly=Number(row.CapacityType)===4;
+   let kind=monthly?'monthly':'grant';
+   const label=clampName(row.PackageName);
+   const code=typeof row.PackageCode==='string'?row.PackageCode:'';
+   const giftLabel=['活动赠送积分','每日赠送积分','签到赠送积分','赠送积分','活动赠送'].includes(label);
+   const ordinaryLabel=['充值积分','购买积分','永久积分','基础积分包','月基础积分','套餐基础积分'].includes(label);
+   const giftHint=giftLabel||benefitCodes.has(code);
+   const ordinaryHint=ordinaryLabel||purchaseCodes.has(code)||monthly;
+   const explicitGift=giftHint&&!ordinaryHint;
+   const explicitOrdinary=ordinaryHint&&!giftHint;
+   const hasCycle=row.CycleCapacityRemainPrecise!==undefined||row.CycleCapacityRemain!==undefined;
+   let remaining=num(hasCycle?row.CycleCapacityRemainPrecise??row.CycleCapacityRemain:row.CapacityRemainPrecise??row.CapacityRemain);
+   let size=num(hasCycle?row.CycleCapacitySizePrecise??row.CycleCapacitySize??row.CapacitySizePrecise??row.CapacitySize:row.CapacitySizePrecise??row.CapacitySize);
+   const reset=date(row.CycleEndTime);
+   const expires=date(row.DeductionEndTime)??date(row.ExpiredTime);
+   if(expires!==null&&expires<=now)continue;
+   if(monthly&&reset!==null&&reset+1000<=now)return null;
+   let endAt=monthly&&reset?Math.min(reset+1000,expires??Infinity):expires;
+   if(monthly&&row.SlicePeriodUsageDetails!==undefined){
+    if(!Array.isArray(row.SlicePeriodUsageDetails)||row.SlicePeriodUsageDetails.length>MAX_ROWS)return null;
+    const slices=row.SlicePeriodUsageDetails.map(s=>({s,start:date(s?.SlicePeriodStartTime),end:date(s?.SlicePeriodEndTime)}));
+    if(slices.some(x=>x.start===null||x.end===null||x.end<x.start))return null;
+    const active=slices.filter(x=>x.start<=now&&now<x.end+1000);
+    if(active.length!==1)return null;
+    const {s,end}=active[0];
+    remaining=num(s.SlicePeriodCapacityRemainPrecise??s.SlicePeriodCapacityRemain);
+    size=num(s.SlicePeriodCapacitySizePrecise??s.SlicePeriodCapacitySize);
+    if(size===null||remaining===null||remaining>size)return null;
+    kind='daily';endAt=Math.min(end+1000,expires??Infinity,reset===null?Infinity:reset+1000);
+   }
+   if(remaining===null)return null;
+   if(kind==='grant'&&remaining===0)continue;
+   total+=remaining;
    if(explicitGift&&expires!==null)giftBuckets.push({remaining,expires});
-   else if(explicitOrdinary&&!explicitGift)ordinary+=remaining;
+   else if(explicitOrdinary)ordinary+=remaining;
    else unknown+=remaining;
-  packages.push({kind,label:label|| (kind==='monthly'?'月度积分':'其他积分包'),
-   total:size??remaining,used:size===null?0:Math.max(size-remaining,0),left:remaining,
-   ...(kind==='monthly'&&reset?{endAt:reset+1000}:{}),
-   ...(kind==='grant'&&expires?{endAt:expires}:{})});
+   packages.push({kind,label:label||(explicitGift?'活动赠送积分':purchaseCodes.has(code)&&explicitOrdinary?'购买积分':kind==='daily'?'每日套餐额度':kind==='monthly'?'月度积分':'其他积分包'),
+    total:size??remaining,used:size===null?0:Math.max(size-remaining,0),left:remaining,
+    ...(Number.isFinite(endAt)?{endAt}:{})});
  }
  if(!packages.length)return {balance:0,balanceUnit:'积分',quotaWindows:[],quotaState:'no_active_package',balanceCheckedAt:now,balanceState:'available'};
  // Official independent WorkBuddy credit packages form the summed wallet;
  // only these exact non-overlapping points buckets may be aggregated into
  // an expiring-soon total. Five-hour/week model limits must never be added.
- const soon=packages.filter(p=>Number.isFinite(p.endAt)&&p.endAt>now
+ const soon=packages.filter(p=>p.kind!=='daily'&&Number.isFinite(p.endAt)&&p.endAt>now
    &&p.endAt<=now+7*86400000);
  const expiring=Math.round(soon.reduce((sum,p)=>sum+p.left,0)*1e4)/1e4;
  const gifted=Math.round(giftBuckets.reduce((sum,p)=>sum+p.remaining,0)*1e4)/1e4;

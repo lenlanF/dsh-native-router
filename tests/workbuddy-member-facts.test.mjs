@@ -117,3 +117,25 @@ test('WorkBuddy never reports an expired monthly cycle or partial wallet as curr
  assert.equal(parseWorkBuddyCredits({data:{Response:{Data:{Accounts:[active,{CapacityType:1,CapacityRemainPrecise:'unknown'}]}}}},{now}),null);
  const allExpired=parseWorkBuddyCredits({data:{Response:{Data:{Accounts:[{...active,ExpiredTime:'2026-11-24T00:00:00Z'}]}}}},{now});assert.equal(allExpired.balance,0);assert.equal(allExpired.quotaState,'no_active_package');
 });
+test('WorkBuddy coded benefit and purchased package classify even without translated labels',()=>{
+ const now=Date.parse('2026-11-28T04:00:00Z');
+ const read=Accounts=>parseWorkBuddyCredits({data:{Accounts}},{now});
+ const row=(PackageCode,CapacityRemain,extra={})=>({PackageCode,CapacityType:1,CapacityRemain,ExpiredTime:'2026-12-01 00:00:00',...extra});
+ const gift=row('TCACA_code_007_nzdH5h4Nl0',35),paid=row('TCACA_code_009_0XmEQc2xOf',70);
+ const r=read([gift,paid]);
+ assert.equal(r.giftedBalance,35);assert.equal(r.ordinaryBalance,70);assert.equal(r.giftCreditState,'verified');
+ assert.equal(r.giftExpiresAt,Date.parse('2026-11-30T16:00:00Z'));assert.equal(r.giftRouteState,'cost_bound_unverified');
+ const conflicting=read([{...gift,PackageName:'充值积分'},paid]);
+ assert.equal(conflicting.giftedBalance,0);assert.equal(conflicting.unclassifiedBalance,35);
+ const near=read([{...gift,DeductionEndTime:String(now-1000)},paid]);
+ assert.equal(near.balance,70);assert.equal(near.giftedBalance,0);
+});
+test('WorkBuddy explicit daily slice takes its own remaining balance, not the parent cycle amount',()=>{
+ const now=Date.parse('2026-11-28T04:00:00Z');
+ const row={CapacityType:4,PackageName:'月基础积分',CycleCapacityRemainPrecise:500,CycleCapacitySizePrecise:500,CycleEndTime:'2026-11-30 23:59:59',SlicePeriodUsageDetails:[{SlicePeriodStartTime:'2026-11-28 00:00:00',SlicePeriodEndTime:'2026-11-28 23:59:59',SlicePeriodCapacitySizePrecise:100,SlicePeriodCapacityRemainPrecise:12}]};
+ const read=Accounts=>parseWorkBuddyCredits({data:{Accounts}},{now});
+ const r=read([row]);assert.equal(r.balance,12);assert.equal(r.quotaWindows[0].kind,'daily');assert.equal(r.quotaWindows[0].endAt,Date.parse('2026-11-28T16:00:00Z'));
+ assert.equal(r.expiringPoints,undefined,'daily renewal is shown separately from expiring gift credits');
+ assert.equal(read([{...row,SlicePeriodUsageDetails:[{...row.SlicePeriodUsageDetails[0],SlicePeriodCapacityRemainPrecise:null}]}]),null);
+ assert.equal(read([{...row,SlicePeriodUsageDetails:[...row.SlicePeriodUsageDetails,...row.SlicePeriodUsageDetails]}]),null);
+});
