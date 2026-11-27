@@ -26,6 +26,37 @@ function mockSource(rows){
  };
  return {embeddedPack,calls,state};
 }
+test('Loomy empty or reasoning-only stop fails over to another explicitly free tier without leaking partial content',async()=>{
+ for(const reasoningOnly of [false,true]){
+  const rig=mockSource([{id:'l-empty',providerId:'loomy',enabled:true},{id:'q-good',providerId:'qoder',enabled:true}]);
+  rig.embeddedPack.listModels=async providerId=>({state:'ready',models:providerId==='loomy'?[{id:'spark-x2.6',costMultiplier:0,priceSource:'loomy-official-model-name-ratio'}]:[{id:'qoder-chat'}]});
+  rig.embeddedPack.readSourceStatuses=async()=>({state:'ready',accounts:[{accountId:'l-empty',authVerified:true}]});
+  rig.embeddedPack.streamNative=async req=>{
+   rig.calls.push(req.providerId);
+   assert.equal(req.model,req.providerId==='loomy'?'spark-x2.6':'qoder-chat','never invoke the non-free tier');
+   if(req.providerId==='qoder')return textStream('complete fallback');
+   return (async function*(){
+    if(reasoningOnly){
+     yield {type:'block-start',index:0,blockType:'reasoning'};
+     yield {type:'reasoning-delta',index:0,text:'PRIVATE_INCOMPLETE_REASONING'};
+     yield {type:'block-end',index:0};
+    }
+    yield {type:'finish',reason:{kind:'stop'}};
+   })();
+  };
+  const drivers=new Map(['loomy','qoder'].map(providerId=>[providerId,createSourceChannelDriver({providerId,embeddedPack:rig.embeddedPack})]));
+  const accounts=rig.state.rows.map(r=>{const id=sourceAccountOpaqueId(r.providerId,r.id);return {id,providerId:r.providerId,credentialRef:'driver:'+r.providerId+':'+id,enabled:true}});
+  const config=normalizeConfig({providers:[{id:'loomy',protocol:'native-channel',models:['spark-x2.6']},{id:'qoder',protocol:'native-channel',models:['qoder-chat']}],accounts,routes:[{id:'empty-test',name:'Free test',mode:'free',maxSwitches:3,tiers:[{providerId:'loomy',model:'spark-x2.6',free:true},{providerId:'qoder',model:'paid-model',free:false},{providerId:'qoder',model:'qoder-chat',free:true}]}]});
+  const adapter=createNativeRouterAdapter({configStore:{get:()=>config},channelDrivers:drivers});
+  const events=[];
+  for await(const event of adapter.stream({model:'chain:empty-test',sessionId:'empty-test',messages:[{role:'user',content:'hello'}]}))events.push(event);
+  assert.deepEqual(rig.calls,['loomy','qoder']);
+  assert.equal(events.find(e=>e.type==='text-delta')?.text,'complete fallback');
+  assert.doesNotMatch(JSON.stringify(events),/PRIVATE_INCOMPLETE_REASONING/);
+  assert.equal(adapter.getStatus().metrics.failedAttempts,1);
+ }
+});
+
 test('opt-in source discovery returns stable opaque references; import copies NO credentials',async()=>{
  const rig=mockSource([{id:'user-with-token-path',providerId:'qoder',nickname:'Source Qoder',
   enabled:true,credentialRef:'NO_LEAK'}]);

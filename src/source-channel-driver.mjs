@@ -165,8 +165,8 @@ export async function collectSourceDshStream(stream,{tools=[],signal,onProgress,
    }
   const toolCalls=[...calls].sort((a,b)=>a[0]-b[0]).map(([,x])=>x); if(finish==='tool-calls'&&!toolCalls.length)
   throw unable('Native model declared tool calls but emitted none','TOOL_PROTOCOL');
- if(!text.trim()&&!reasoning.trim()&&!toolCalls.length)
-  throw unable('Native model yielded an empty response','EMPTY');
+  if(!text.trim()&&!toolCalls.length&&(finish==='stop'||!reasoning.trim()))
+   throw unable('Native model yielded no usable completion','EMPTY');
  const output={text,reasoning,toolCalls,finishReason:toolCalls.length?'tool_calls':
   finish==='max-tokens'?'length':'stop'};
  if(usage)output.usage={prompt_tokens:usage.inputTokens,completion_tokens:usage.outputTokens,
