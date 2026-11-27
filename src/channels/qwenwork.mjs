@@ -247,17 +247,25 @@ export function createQwenWorkDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
   const path=new URL(signed.url).pathname+new URL(signed.url).search;
   const response=await request(path,{method:'GET',headers:signed.headers,signal});
   const raw=await parseBody(response);
-  const rows=parseCatalog(raw);
+  // Use the exact same scene for model identity and rate evidence. An
+  // empty preferred scene is not evidence that all fallback rates are unknown.
+  let source=[],rows=[];
+  for(const scene of ['qwork','app','chat']){
+   if(!Array.isArray(raw?.[scene]))continue;
+   const parsed=parseCatalog({[scene]:raw[scene]});
+   if(parsed.length){source=raw[scene];rows=parsed;break}
+  }
   if(!rows.length)throw err('MODEL');
-  const source=raw.qwork??raw.app??raw.chat??[];
-  const liveRates=new Map((Array.isArray(source)?source:[]).filter(x=>x?.enable!==false)
-    .map(x=>[x.key,x.price_factor]));
-  const models=rows.filter(x=>typeof x.id==='string'&&x.id.length<=120)
-   .map(row=>({id:row.id,name:row.shortName+
-     (typeof liveRates.get(row.id)==='number'&&Number.isFinite(liveRates.get(row.id))&&
-        liveRates.get(row.id)>=0?' · x'+liveRates.get(row.id).toFixed(2):' · 费率待确认'),
-    ...(typeof liveRates.get(row.id)==='number'&&liveRates.get(row.id)>=0?
-      {billingRate:liveRates.get(row.id)}:{})}));
+  const models=rows.filter(x=>typeof x.id==='string'&&x.id.length<=120).map(row=>{
+   const peers=source.filter(x=>typeof x?.key==='string'&&x.key.trim()===row.id);
+   const rates=peers.map(x=>typeof x.price_factor==='number'&&Number.isFinite(x.price_factor)&&x.price_factor>=0?x.price_factor:null);
+   const conflict=peers.some(x=>x.enable===false)||new Set(rates.filter(x=>x!==null)).size>1;
+   const incomplete=!rates.length||rates.some(x=>x===null);
+   const rate=!conflict&&!incomplete?rates[0]:null;
+   return {id:row.id,name:row.shortName+(rate!==null?' · x'+rate.toFixed(2):' · 费率待确认'),
+    ...(conflict?{pricingConflict:true,isFree:false}:incomplete?{pricingIncomplete:true}:{}),
+    ...(rate!==null?{billingRate:rate,costMultiplier:rate,...(rate>0?{isFree:false}:{})}:{})};
+  });
   modelsCache.set(account.id,models);
   return models;
  }

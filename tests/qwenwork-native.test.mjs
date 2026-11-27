@@ -15,7 +15,7 @@ const JWT=(organization='',subject='qwen-member-101')=>[
 ].join('.');
 function rig({unauthorized=false,broken=false,failSave=false,missingVault=false,
  organization='org-1',tokenOrganization='',omitRemoteOrganization=false,
- transientPollErrors=0,tailWithoutNewline=false,rotatedOtherMember=false}={}){
+ transientPollErrors=0,tailWithoutNewline=false,rotatedOtherMember=false,catalogPayload}={}){
  const records=new Map(),calls=[];
  let cfg=normalizeConfig({}),grantCount=0,refreshCount=0,currentOrg=organization,
    currentTime=Date.now();
@@ -48,7 +48,7 @@ function rig({unauthorized=false,broken=false,failSave=false,missingVault=false,
   if(path==='/api/v2/model/list'||path==='/algo/api/v2/model/list'){
    assert.match(opts.headers?.Authorization??'',/^Bearer COSY\./);
    assert.equal(opts.headers?.['Cosy-MachineId']?.length>10,true);
-   return new Response(JSON.stringify({qwork:[
+   return new Response(JSON.stringify(catalogPayload??{qwork:[
     {key:'flash',display_name:'Qwen 3.8 Flash',price_factor:0.1,enable:true},
     {key:'pro',display_name:'Qwen 高级',price_factor:1,enable:true},
     {key:'disabled',price_factor:0,enable:false},
@@ -103,6 +103,15 @@ test('QwenWork native device PKCE issues a user-approved URL without leaking ver
  assert.doesNotMatch(started.loginUrl,/refresh_token|device_token|verifier|private/i);
  assert.equal(h.records.size,0);
  assert.equal(h.cfg.accounts.length,0);
+ h.center.stop();
+});
+test('QwenWork directory uses the same populated scene for models and rates, never last duplicate price',async()=>{
+ const h=rig({catalogPayload:{qwork:[],app:[{key:'flash',display_name:'Flash',enable:true,price_factor:0.1},{key:'flash',enable:true,price_factor:0},{key:'pro',enable:true,price_factor:1}]}});
+ h.center.startQwenLogin();await h.center.pollQwenLogin();await h.center.pollQwenLogin();
+ const rows=await h.driver.listModels({account:h.cfg.accounts[0]});
+ assert.equal(rows.find(x=>x.id==='flash').pricingConflict,true);
+ assert.equal(rows.find(x=>x.id==='flash').billingRate,undefined);
+ assert.equal(rows.find(x=>x.id==='pro').costMultiplier,1);
  h.center.stop();
 });
 test('QwenWork device grant stays pending on 404 then commits only remotely verified member identity',async()=>{
