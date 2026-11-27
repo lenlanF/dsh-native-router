@@ -11,6 +11,7 @@ import {decodeOpenAIResponse,validateModelCalls} from '../provider/openai.mjs';
 import {UpstreamError,safeRetryAfter} from '../failure.mjs';
 import {defaultConfigPath} from '../config.mjs';
 import {publicAccountName} from '../account-facts.mjs';
+import {staleGiftWallet} from '../gift-wallet.mjs';
 import {createWorkBuddyMemberReader} from './workbuddy-members.mjs';
 import {createWorkBuddyGrowthReader} from './workbuddy-growth.mjs';
 import {ownCredentialRef} from '../credential-ref.mjs';
@@ -453,7 +454,7 @@ export function createWorkBuddyDriver({
   const memberReader=createWorkBuddyMemberReader({fetchImpl,now,baseOverride:allowTestEndpoint});
   const growthReader=createWorkBuddyGrowthReader({fetchImpl,baseOverride:allowTestEndpoint});
   const memberSnapshots=new Map(),benefitInflight=new Set(),verifiedSubjects=new Map(),walletRevision=new Map();
-  function invalidateWallet(account){const id=account.id;walletRevision.set(id,(walletRevision.get(id)??0)+1);const row=memberSnapshots.get(id);if(row)memberSnapshots.set(id,{...row,balanceState:Number.isFinite(row.balance)?'cached':'unavailable',giftCreditState:'unconfirmed',quotaWindows:[]})}
+  function invalidateWallet(account){const id=account.id;walletRevision.set(id,(walletRevision.get(id)??0)+1);const row=memberSnapshots.get(id);if(row)memberSnapshots.set(id,{...staleGiftWallet(row),giftExpiryKnown:undefined,expiringPoints:undefined,expiringAt:undefined,quotaState:undefined})}
   const identitySalt=randomUUID();
   function verifiedIdentityGroup(account){
     const row=verifiedSubjects.get(account?.id);
@@ -487,7 +488,7 @@ export function createWorkBuddyDriver({
     const publicBenefits=benefitsRow?[...benefitsRow,...growthRows]:
       growthRows.length?growthRows:null;
     const name=publicAccountName(profileRow,{displayName:auth.nickname},account);
-    const next={...latest,
+    const next={...staleGiftWallet(latest),giftExpiryKnown:undefined,expiringPoints:undefined,expiringAt:undefined,quotaState:undefined,
       ...(name?{accountName:name}:{}),
       // Preserve a precise official daily observation, not merely the activity badge.
       checkinDate:dailyRow?.checkedInToday===true||dailyAvailable?checkinDate:null,
@@ -745,7 +746,7 @@ export function createWorkBuddyDriver({
          ...(facts.authVerified===true?{checkedAt:now()}:{})};
        }catch(error){
         const old=memberSnapshots.get(account?.id);
-        if(old)memberSnapshots.set(account.id,{...old,profileState:old.accountName?'cached':'not_returned',balanceState:Number.isFinite(old.balance)?'cached':'not_returned',quotaWindows:[],giftCreditState:'unconfirmed'});
+        if(old&&!signal?.aborted)memberSnapshots.set(account.id,{...staleGiftWallet(old),giftExpiryKnown:undefined,expiringPoints:undefined,expiringAt:undefined,quotaState:undefined,profileState:old.accountName?'cached':'not_returned',balanceState:Number.isFinite(old.balance)?'cached':'not_returned'});
         return {state:error?.status===401||error?.code==='CREDENTIAL'?'expired':'unavailable',authVerified:false};
        }
      },

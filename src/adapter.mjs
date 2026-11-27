@@ -86,7 +86,20 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
         const rule=before.freePool?.models?.find(x=>x.providerId===arg.provider.id&&x.model===arg.model);
         const manual=!hostProof&&(rule?.free===true||(!rule&&before.freePool?.providerIds?.includes(arg.provider.id)));
         if(!manual){
-         const live=await Promise.resolve().then(()=>ownedAccountCatalog(arg.account,{signal:arg.signal})).catch(()=>null);
+         const controller=new AbortController();
+         const cancel=()=>controller.abort();
+         const budget=Number.isFinite(driver.catalogReadTimeoutMs)?Math.max(10,Math.min(30000,driver.catalogReadTimeoutMs)):30000;
+         const timer=setTimeout(cancel,budget);
+         let onAbort;
+         arg.signal?.addEventListener('abort',cancel,{once:true});
+         if(arg.signal?.aborted)cancel();
+         let live=null;
+         try{
+          const stopped=new Promise(resolve=>{onAbort=()=>resolve(null);controller.signal.addEventListener('abort',onAbort,{once:true});if(controller.signal.aborted)onAbort()});
+          live=await Promise.race([stopped,Promise.resolve().then(()=>controller.signal.aborted?null:ownedAccountCatalog(arg.account,{signal:controller.signal})).catch(()=>null)]);
+          if(controller.signal.aborted)live=null;
+         }finally{clearTimeout(timer);arg.signal?.removeEventListener('abort',cancel);if(onAbort)controller.signal.removeEventListener('abort',onAbort)}
+         if(arg.signal?.aborted)throw new UpstreamError('Model request cancelled',{code:'CANCELLED'});
          const peers=live?.state==='ready'&&Array.isArray(live.models)?live.models.filter(m=>m?.id===arg.model):[];
          if(!peers.some(m=>m.free===true&&freeEvidence(m,arg.provider.id,peers)))
           throw new UpstreamError('Current account free entitlement not confirmed',{code:'COST_NOT_CONFIRMED_FREE'});

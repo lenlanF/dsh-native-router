@@ -44,7 +44,7 @@ function testRig(region,{benefitCampaign=false,dailyActive=true,dailyClaimError=
   async set(key,value){store.set(key,value)},
   async unset(key){store.delete(key)},
  };
-  const hits=[];let checked=false,compensationClaimed=false,walletBalance=100;
+   const hits=[];let checked=false,compensationClaimed=false,walletBalance=100,walletRows;
  const fetchImpl=async(url,init={})=>{
   hits.push(String(url));
   assert.ok(String(url).startsWith('https://'+domain+'/')
@@ -63,10 +63,10 @@ function testRig(region,{benefitCampaign=false,dailyActive=true,dailyClaimError=
      checked=true;return new Response(JSON.stringify({code:0,data:{credit:10}}),
       {status:200,headers:{'content-type':'application/json'}});
   }
-   if(String(url).includes('/v2/billing/meter/get-user-resource'))
-    return new Response(JSON.stringify({code:0,data:{Response:{Data:{Accounts:[{
-      PackageName:'测试免费积分',CapacityType:3,CapacityRemain:walletBalance,
-      CapacitySize:walletBalance,ExpiredTime:'2027-11-23T00:00:00Z'}]}}}}));
+    if(String(url).includes('/v2/billing/meter/get-user-resource'))
+     return new Response(JSON.stringify({code:0,data:{Response:{Data:{Accounts:walletRows??[{
+       PackageName:'测试免费积分',CapacityType:3,CapacityRemain:walletBalance,
+       CapacitySize:walletBalance,ExpiredTime:'2027-11-23T00:00:00Z'}]}}}}));
    if(String(url).includes('/billing/meter/compensation-status'))
     return new Response(JSON.stringify({code:0,data:{active:benefitCampaign,claimed:compensationClaimed,credit_num:160}}));
    if(String(url).includes('/billing/meter/check-gift-claimed'))
@@ -98,11 +98,35 @@ function testRig(region,{benefitCampaign=false,dailyActive=true,dailyClaimError=
  const adoption=createWorkbuddyVaultAdoption({inventory,configStore,vault,
    makeCredentialRef:x=>x,drivers:new Map([[own,driver]])});
  return {root,region,source,own,inventory,store,configStore,driver,adoption,hits,
+   setWalletRows(rows){walletRows=rows},
    get cfg(){return cfg},
    destroyOriginal(){rmSync(folder,{recursive:true,force:true});
      rmSync(plugins,{recursive:true,force:true})},
    cleanup(){rmSync(root,{recursive:true,force:true})}};
 }
+test('WorkBuddy fresh verified wallet replaces previous unknown bucket instead of retaining stale classification',async()=>{
+ const r=testRig('cn');
+ try{
+  const from=(await r.inventory.scan()).accounts.find(x=>x.providerId===r.source);
+  await r.adoption.adopt({providerId:r.source,accountId:from.accountId,consent:true});
+  const a=r.cfg.accounts[0],end='2027-11-23T00:00:00Z';
+  const row=(PackageName,CapacityRemain)=>({PackageName,CapacityType:1,CapacityRemain,ExpiredTime:end});
+  r.setWalletRows([row('活动赠送积分',20),row('未知积分包',30)]);
+  await r.driver.refreshAccountStatus({account:a});
+  assert.equal(r.driver.accountSnapshot(a).giftCreditState,'partial');
+  assert.equal(r.driver.accountSnapshot(a).unclassifiedBalance,30);
+  r.setWalletRows([row('活动赠送积分',20),row('购买积分',30)]);
+  await r.driver.refreshAccountStatus({account:a});
+  const fresh=r.driver.accountSnapshot(a);
+  assert.equal(fresh.giftCreditState,'verified');assert.equal(fresh.unclassifiedBalance,undefined);
+  assert.equal(fresh.giftedBalance,20);assert.equal(fresh.ordinaryBalance,30);
+  r.setWalletRows([row('未知积分包',50)]);
+  await r.driver.refreshAccountStatus({account:a});
+  const unknown=r.driver.accountSnapshot(a);
+  assert.equal(unknown.giftCreditState,'unconfirmed');assert.equal(unknown.giftedBalance,undefined);
+  assert.equal(unknown.ordinaryBalance,undefined);assert.equal(unknown.giftExpiresAt,undefined);
+ }finally{r.cleanup()}
+});
 test('historical WorkBuddy imported accounts recover exact public names into owner vault once and survive source deletion',async()=>{
  const rig=testRig('cn');
  try{
