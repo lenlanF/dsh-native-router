@@ -583,6 +583,39 @@ test('Loomy stalled opening is bounded and cooldown prevents a second POST',asyn
  await assert.rejects(driver.generate(input),{code:'TIMEOUT'});assert.equal(requestSignal.aborted,true);
  await assert.rejects(driver.generate(input),error=>error.code==='RATE_LIMIT'&&error.retryAfterMs>0);assert.equal(opens,1);
 });
+test('Loomy uncertain opening timeout cools down the whole exact account, including other models',async()=>{
+ const rig=mockSource([{id:'l-account-timeout',providerId:'loomy',enabled:true}]);let opens=0;
+ rig.embeddedPack.streamNative=async()=>{opens++;return new Promise(()=>{})};
+ const driver=createSourceChannelDriver({providerId:'loomy',embeddedPack:rig.embeddedPack,streamIdleTimeoutMs:20});
+ const id=sourceAccountOpaqueId('loomy','l-account-timeout'),account={id,providerId:'loomy',credentialRef:'driver:loomy:'+id};
+ const input={account,model:'first',options:{messages:[{role:'user',content:'OK'}]}};
+ await assert.rejects(driver.generate(input),{code:'TIMEOUT'});
+ await assert.rejects(driver.generate({...input,model:'second'}),e=>e.code==='RATE_LIMIT'&&e.retryAfterMs>0);
+ assert.equal(opens,1);
+});
+test('Loomy continuous events cannot extend a single stream beyond its total deadline',async()=>{
+ const rig=mockSource([{id:'l-total-deadline',providerId:'loomy',enabled:true}]);let aborted=false;
+ rig.embeddedPack.streamNative=async req=>{req.signal.addEventListener('abort',()=>{aborted=true});return (async function*(){
+  yield {type:'block-start',index:0,blockType:'text'};
+  for(let i=0;i<12;i++){await new Promise(r=>setTimeout(r,10));if(req.signal.aborted)return;yield {type:'text-delta',index:0,text:'x'}}
+  yield {type:'block-end',index:0};yield {type:'finish',reason:{kind:'stop'}};
+ })()};
+ const driver=createSourceChannelDriver({providerId:'loomy',embeddedPack:rig.embeddedPack,streamIdleTimeoutMs:1000,streamTotalTimeoutMs:55});
+ const id=sourceAccountOpaqueId('loomy','l-total-deadline'),account={id,providerId:'loomy',credentialRef:'driver:loomy:'+id};
+ await assert.rejects(driver.generate({account,model:'first',options:{messages:[{role:'user',content:'OK'}]}}),{code:'TIMEOUT'});
+ assert.equal(aborted,true);assert.equal(driver.accountSnapshot(account).modelInferenceVerifiedAt,null);
+});
+test('Loomy caller cancellation after opening prevents a different-model immediate retry',async()=>{
+ const rig=mockSource([{id:'l-account-cancel',providerId:'loomy',enabled:true}]);let opens=0,entered;
+ const started=new Promise(r=>{entered=r});
+ rig.embeddedPack.streamNative=async()=>{opens++;entered();return new Promise(()=>{})};
+ const driver=createSourceChannelDriver({providerId:'loomy',embeddedPack:rig.embeddedPack,streamIdleTimeoutMs:30});
+ const id=sourceAccountOpaqueId('loomy','l-account-cancel'),account={id,providerId:'loomy',credentialRef:'driver:loomy:'+id};
+ const input={account,model:'first',options:{messages:[{role:'user',content:'OK'}]}},ctrl=new AbortController();
+ const pending=driver.generate({...input,signal:ctrl.signal});await started;ctrl.abort();
+ await assert.rejects(pending,{code:'CANCELLED'});
+ await assert.rejects(driver.generate({...input,model:'second'}),{code:'RATE_LIMIT'});assert.equal(opens,1);
+});
 test('Loomy active stream excludes parallel calls and preserves the official rate window',async()=>{
  const rig=mockSource([{id:'l2',providerId:'loomy',enabled:true}]);let opens=0,release,started;
  const entered=new Promise(r=>{started=r});
@@ -592,7 +625,8 @@ test('Loomy active stream excludes parallel calls and preserves the official rat
  const input={account,model:'test',options:{messages:[{role:'user',content:'OK'}]}};
  const first=driver.generate(input);await entered;
  await assert.rejects(driver.generate(input),{code:'SOURCE_BUSY'});release();await assert.rejects(first,{code:'RATE_LIMIT'});
- await assert.rejects(driver.generate(input),error=>error.code==='RATE_LIMIT'&&error.retryAfterMs>170000);assert.equal(opens,1);
+ await assert.rejects(driver.generate(input),error=>error.code==='RATE_LIMIT'&&error.retryAfterMs>170000);
+ await assert.rejects(driver.generate({...input,model:'other'}),error=>error.code==='RATE_LIMIT'&&error.retryAfterMs>170000);assert.equal(opens,1);
 });
 test('Loomy cooling or busy account rejects before redundant catalog and account preflight',async()=>{
  const rig=mockSource([{id:'l-free',providerId:'loomy',enabled:true}]);let catalogs=0,statuses=0,opens=0,release,started;
