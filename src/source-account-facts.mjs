@@ -82,8 +82,16 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
     const gift=packages.find(p=>p.name==='每日赠送').remaining,ordinary=packages.find(p=>p.name==='永久积分').remaining;
     giftWallet=giftWalletFacts({balance:balanceValue,gift,ordinary,now:observedAt});
   }
-  if(providerId==='codearts'&&exactBuckets(['总积分包','基础积分包','赠送积分包'],'credit')&&packages.find(p=>p.name==='总积分包').remaining===balanceValue){
-    giftWallet=giftWalletFacts({balance:balanceValue,gift:packages.find(p=>p.name==='赠送积分包').remaining,ordinary:packages.find(p=>p.name==='基础积分包').remaining,now:observedAt});
+  if(providerId==='codearts'&&!balanceRow?.error&&balanceValue!==null
+     &&packages.some(p=>p?.name==='总积分包'&&p.remaining===balanceValue)
+     &&packages.some(p=>p?.name==='赠送积分包')
+     &&new Set(packages.map(p=>p?.name)).size===packages.length
+     &&packages.every(p=>['总积分包','基础积分包','按需积分包','赠送积分包'].includes(p?.name)&&p.unit==='credit'&&numeric(p.remaining)!==null&&p.active!==false)){
+    // The pinned pack omits zero-capacity components. Reconcile the actual
+    // reported components to the independent total; do not invent missing credit.
+    const gift=packages.find(p=>p.name==='赠送积分包').remaining;
+    const ordinary=packages.filter(p=>['基础积分包','按需积分包'].includes(p.name)).reduce((sum,p)=>sum+p.remaining,0);
+    giftWallet=giftWalletFacts({balance:balanceValue,gift,ordinary,now:observedAt});
   }
   // Magpie Raccoon reference: daily_points is the authoritative daily-grant
   // remainder, not the total wallet. Reward points have ambiguous provenance.

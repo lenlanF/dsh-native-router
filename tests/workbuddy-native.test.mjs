@@ -4,7 +4,7 @@ import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,existsSync,rmSync} from
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createHash} from 'node:crypto';
-import {createWorkBuddyDriver} from '../src/channels/workbuddy.mjs';
+import {createWorkBuddyDriver,workBuddyResetDelay} from '../src/channels/workbuddy.mjs';
 import {createAccountCenter} from '../src/account-center.mjs';
 import {createNativeRouterAdapter} from '../src/adapter.mjs';
 import {normalizeConfig} from '../src/config.mjs';
@@ -66,6 +66,20 @@ async function imported(f){
  const added=await f.center.importCandidate('workbuddy',candidate.id);
  return {candidate,added};
 }
+test('WorkBuddy reset parser supports both regional messages and rejects ambiguous deadlines',()=>{
+ const now=Date.parse('2026-11-17T02:00:00Z');
+ assert.equal(workBuddyResetDelay('使用频率超限，将在 2026-11-17 18:00:00 UTC+8 重置',now),28800000);
+ assert.equal(workBuddyResetDelay('reset at 2026-11-17 18:00:00 UTC+08:00',now),28800000);
+ for(const raw of ['reset at 2026-11-17 18:00:00','reset at 2026-11-17 18:00:00 UTC+80','reset at 2026-11-16 18:00:00 UTC+8','reset at 2026-11-19 18:00:00 UTC+8','reset at 2026-11-31 18:00:00 UTC+8'])assert.equal(workBuddyResetDelay(raw,now),0);
+});
+test('WorkBuddy HTTP 429 preserves official model reset deadline without exposing error text',async t=>{
+ const f=fixture(t,{fetchImpl:async url=>{
+  if(url.endsWith('/v2/chat/completions'))return new Response(JSON.stringify({error:{message:'usage exceeds frequency limit, but your usage will reset at 2026-11-17 18:00:00 UTC+8, alternatively, you can switch to the other models. private-marker'}}),{status:429,headers:{'retry-after':'30'}});
+  return new Response(JSON.stringify({code:0,data:{models:[{id:'glm-test',name:'GLM Test',supportsToolCall:true}]}}));
+ }});
+ await imported(f);
+ await assert.rejects(()=>f.driver.generate({account:f.cfg.accounts[0],model:'glm-test',options:{messages:[{role:'user',content:'hello'}]}}),e=>e.status===429&&e.retryAfterMs===8*3600000&&!e.message.includes('private-marker'));
+});
 test('WorkBuddy discovery reads only authorized fixture auth files; does not leak or write token',async t=>{
  const f=fixture(t,{alias:true});
  const original=readFileSync(f.file,'utf8'),oldHash=hash(original);

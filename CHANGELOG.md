@@ -1,5 +1,11 @@
 # Change Log
 
+## 1.0.0-rc.148 — CodeArts 钱包和 WorkBuddy 限流恢复
+
+- CodeArts 按需、基础、赠送积分与独立总额对账，支持零容量分项被省略；拒绝重复、不明或不一致分项。
+- WorkBuddy 双区 HTTP 429 解析官方明确 UTC+8 恢复时刻，与 Retry-After 取较长等待，限于对应账号/模型，不泄露原始错误内容或估算额度。
+- OfficeAce 已核对官方个人赠送活动与计费边界，尚无已验证的独立授权调用能力，不冒充已接入。
+
 ## 1.0.0-rc.147 — Magpie 渠道参考与账号权益补全
 
 - CodeArts 在已有授权下补充签名 current/user 资料查询，核对显式主体、拒绝内部 ID 名称和冲突，不要求已有 IAM 用户 ID。原 IAM 自查保留。

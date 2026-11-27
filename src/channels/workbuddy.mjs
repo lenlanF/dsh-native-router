@@ -15,6 +15,19 @@ import {createWorkBuddyMemberReader} from './workbuddy-members.mjs';
 import {createWorkBuddyGrowthReader} from './workbuddy-growth.mjs';
 import {ownCredentialRef} from '../credential-ref.mjs';
 
+// Explicit vendor UTC+8 reset, not an estimated token allowance.
+export function workBuddyResetDelay(raw,now=Date.now()){
+ if(typeof raw!=='string'||raw.length>16384)return 0;
+ let message=raw;
+ try{const doc=JSON.parse(raw);message=typeof doc?.error?.message==='string'?doc.error.message:typeof doc?.message==='string'?doc.message:typeof doc?.msg==='string'?doc.msg:''}catch{}
+ const hit=/(?:reset at |将在\s*|重置时间[：:]?\s*|恢复时间[：:]?\s*)(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})\s*(?:UTC\+8|UTC\+08:00|北京时间)(?![\d:])/i.exec(message);
+ if(!hit)return 0;
+ const stamp=Date.parse(hit[1]+'T'+hit[2]+'+08:00');
+ if(!Number.isFinite(stamp)||stamp<=now||stamp-now>86400000)return 0;
+ const local=new Date(stamp+8*3600000).toISOString().slice(0,19);
+ return local===hit[1]+'T'+hit[2]?stamp-now:0;
+}
+
 const AUTH_FILES=['workbuddy-desktop.info','workbuddy-desktop-ai.info'];
 const AUTH_TAIL=['CodeBuddyExtension','Data','Public','auth'];
 const MAX_AUTH_BYTES=512*1024,MAX_RESPONSE_BYTES=16*1024*1024;
@@ -282,12 +295,12 @@ export function createWorkBuddyDriver({
     return {signal:controller.signal,cleanup:()=>{clearTimeout(t);signal?.removeEventListener('abort',propagate)},
       controller};
   }
-  async function readResponse(res,signal){
+  async function readResponse(res,signal,maxBytes=MAX_RESPONSE_BYTES){
     let body='',size=0;const decoder=new TextDecoder();
     for await(const chunk of res.body??[]){
       if(signal?.aborted)throw signal.reason??new DOMException('Aborted','AbortError');
       size+=chunk.byteLength;
-      if(size>MAX_RESPONSE_BYTES)throw new UpstreamError('WorkBuddy response too large',{code:'RESPONSE_SIZE'});
+      if(size>maxBytes)throw new UpstreamError('WorkBuddy response too large',{code:'RESPONSE_SIZE'});
       body+=decoder.decode(chunk,{stream:true});
     }
     return body+decoder.decode();
@@ -340,8 +353,19 @@ export function createWorkBuddyDriver({
         const next=await refreshVolatile(auth,account.id,signal);
         if(next){auth=next;res=await send(auth)}
       }
-      if(!res.ok)throw new UpstreamError('WorkBuddy upstream HTTP '+res.status,{
-        status:res.status,retryAfterMs:safeRetryAfter(res.headers?.get?.('retry-after'))});
+      if(!res.ok){
+        let retryAfterMs=safeRetryAfter(res.headers?.get?.('retry-after'),now());
+        if(res.status===429){
+          // Magpie WorkBuddy reference: the vendor supplies a model-window
+          // reset in the error message even when Retry-After is absent/short.
+          // Only a bounded, exact timestamp is retained; never expose the body.
+          try{
+            const raw=await readResponse(res,req.signal,16384);
+            retryAfterMs=Math.max(retryAfterMs,workBuddyResetDelay(raw,now()));
+          }catch{if(req.signal.aborted)throw req.signal.reason}
+        }
+        throw new UpstreamError('WorkBuddy upstream HTTP '+res.status,{status:res.status,retryAfterMs});
+      }
       return {text:await readResponse(res,signal),contentType:res.headers?.get?.('content-type')??'text/event-stream'};
     }catch(error){
       if(req.controller.signal.aborted&&!signal?.aborted)throw new UpstreamError('WorkBuddy request timeout',{code:'TIMEOUT',status:408});
