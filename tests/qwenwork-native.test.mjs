@@ -114,6 +114,23 @@ test('QwenWork directory uses the same populated scene for models and rates, nev
  assert.equal(rows.find(x=>x.id==='pro').costMultiplier,1);
  h.center.stop();
 });
+test('QwenWork exact qwork zero rate enters official candidate pool, but paid or promotional rows never dispatch in free-only mode',async()=>{
+ const payload={qwork:[{key:'flash',enable:true,price_factor:0},{key:'promo',enable:true,price_factor:0,promotion:{active:true}},{key:'old',enable:true,price_factor:0,original_price_factor:1},{key:'unknown',price_factor:0}]};
+ const h=rig({catalogPayload:payload});
+ h.center.startQwenLogin();await h.center.pollQwenLogin();await h.center.pollQwenLogin();
+ const account=h.cfg.accounts[0],rows=await h.driver.listModels({account});
+ assert.equal(rows.find(x=>x.id==='flash').isFree,true);
+ assert.equal(rows.find(x=>x.id==='flash').priceSource,'qwenwork-official-qwork-credit-ratio');
+ for(const id of ['promo','old','unknown'])assert.notEqual(rows.find(x=>x.id===id).isFree,true);
+ const catalog=await h.center.listTestModels(account.id,{officialOnly:true});
+ assert.equal(catalog.models.find(x=>x.id==='flash').free,true);
+ const options={officialFreeOnly:true,messages:[{role:'user',content:'OK'}],maxTokens:32};
+ // A price change between directory discovery and transport preflight must stop before POST.
+ payload.qwork[0].price_factor=0.1;
+ await assert.rejects(()=>h.driver.generate({account,model:'flash',options}),{code:'COST_NOT_CONFIRMED_FREE'});
+ assert.equal(h.calls.filter(x=>x.path.includes('agent_chat_generation')).length,0);
+ h.center.stop();
+});
 test('QwenWork device grant stays pending on 404 then commits only remotely verified member identity',async()=>{
  const h=rig();
  h.center.startQwenLogin();
