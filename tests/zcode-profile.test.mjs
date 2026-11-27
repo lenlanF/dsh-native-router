@@ -12,4 +12,7 @@ test('ZCode profile fails closed for wrong subject, missing scoped OAuth token o
  assert.equal(await readZcodePublicProfile({credential,fetchImpl:async()=>new Response(JSON.stringify({sub:'other',name:'Other'}))}),null);
  assert.equal(await readZcodePublicProfile({credential:{user_id:'test-subject'},fetchImpl:async()=>{throw Error('must not call')}}),null);
  assert.equal(await readZcodePublicProfile({credential,fetchImpl:async()=>new Response('',{status:403})}),null);
+ assert.equal(await readZcodePublicProfile({credential,fetchImpl:async()=>new Response(JSON.stringify({sub:'test-subject',user_id:'foreign-subject',name:'Wrong user'}))}),null);
+ assert.deepEqual(await readZcodePublicProfile({credential,fetchImpl:async()=>new Response(JSON.stringify({sub:'test-subject',user_id:'test-subject',preferred_username:'Real member'}))}),{accountName:'Real member'});
+ assert.equal(await readZcodePublicProfile({credential,fetchImpl:async()=>new Response(JSON.stringify({sub:'test-subject',name:'test-subject'}))}),null);
 });

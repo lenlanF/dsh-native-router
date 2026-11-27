@@ -2,6 +2,13 @@
 
 此处记录工程证据和可复用方法，生产状态每轮重新读取。按 [自有渠道业务验收台账](CHANNEL_ACCEPTANCE_LEDGER.md) 的任务 ID 续跑，不再逐版重复已通过验收。
 
+## rc.154 GIFT-01 / ID-02 部分钱包及主体
+
+- rc.153 PR #85 CI #315 通过，合并 4601d01。承接 rc.151 已有真实 inventory，未重新全量核查或发起推理、领取。WorkBuddy 三个账号钱包未分类，代码红测复现 unknown>0 且 gift=0 导致普通积分也丢失；保留已确认 ordinary 与 unknown，部分钱包 gift=0 不等于没有赠送；未确认的全部未知钱包仍拒绝分类。前端标签和 Owner Raccoon/TRAE 验收字段同步。是否命中真实账号待新版核验。
+- ZCode OAuth self 响应原只使用优先 ID，冲突 subject 被忽略；改为检查全部明确 subject，增加标准 preferred_username/display_name/user_name 公开别名，通用公开名称过滤原始 user_id/userId/sub 等 ID。红测三处失败后专项96/96、全量940/940、320/560/720/1024px 布局通过，未证明生产名称已恢复。
+- 官方扣费依据：CodeArts 2026-11-27 更新 https://support.huaweicloud.com/price-codeartsagent/codeartsagent_billing_0028.html ，个人体验版积分耗尽停止请求、不可购买积分包；其他套餐按到期时间优先、同到期福利先扣。2026-11-28 起分批变更套餐 https://www.huaweicloud.com/notice/20261120184415441.html ，需实时明确套餐身份，不能凭赠送余额或非零倍率推断体验版。Loomy 官方协议 https://loomy.xunfei.cn/docs/Safe/Loomy-credit ，先赠送后充值，仍需单次硬上限；没有无溢出保证则不开放自动非零倍率。华为官方 IAM 推荐 ShowUser https://support.huaweicloud.com/api-iam/iam_08_0003.html 要求同主体 X-Auth-Token，现有 STS 凭据不等同此 token，未新加接口或猜测权限；CodeArts 真实名字仍待解决。
+- 下一步优先确认 CodeArts 体验版实时套餐标识及停止扣费条件、Loomy 硬成本上限；等新版集中验证 QwenWork 零倍率和 WorkBuddy 部分钱包，不重复 rc.151 已验收库存。
+
 ## rc.153 SRC-01 / ROUTE-01 新版真实验收与千问办公零费率
 
 - rc.152 PR #84 CI #312 通过，main 8495689；用户升级后实际安装 rc.151。通过已安装 Owner 服务一次全量 inventory（12账号、10渠道）完成，所有账号 online、目录 ready，临时授权已撤销。真实 DSH owned-autofree-route 一次完成，completedProvider=own_workbuddy-cn，failedAttempts=0，未证明跨渠道切换。无新领取或非零费率调用。
