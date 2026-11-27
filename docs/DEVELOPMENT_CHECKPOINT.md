@@ -2,6 +2,14 @@
 
 此处记录工程证据和可复用方法，生产状态每轮重新读取。按 [自有渠道业务验收台账](CHANNEL_ACCEPTANCE_LEDGER.md) 的任务 ID 续跑，不再逐版重复已通过验收。
 
+## rc.147 ID-01 / GIFT-01 Magpie 渠道参考
+
+- rc.146 PR #78 CI #294 双平台通过，main f220ac8。生产 rc.137，今日只读本地签到记录0、确认奖励回执3，未生成/领取。
+- 实际克隆 MIT `magpie-community/plugins` commit 3feae3425239c2ed01bd8b2f745bd7dec911bf51，枚举116个插件目录，阅读重点渠道 README、CodeArts current/user、Raccoon daily_points 及相关实现；详见 MAGPIE_REFERENCE_PLAN.md。
+- CodeArts 新增授权签名 current/user 资料读取；红测复现原先无 user_id 无法查询，重建两个原生派生包并拒绝不一致主体、内部 ID、缺主体、错误响应。未执行生产调用，需新版正常账号状态刷新确认真实名称。
+- Raccoon 官方每日积分余额进入赠送钱包及账号中心；严格同单位总量对账、去除重复/无效项，来源不明奖励计入未分类；红测复现两处缺失。专项78/78、全量926/926、隐私/双原生包/打包预检通过；无额外免费调用授权。
+- 下一步以参考清单的具体差异和授权边界推进独立可用渠道，不把 README 的可用声明当作生产证据。
+
 ## rc.146 ACT-01 活动身份防重
 
 - rc.145 PR #77 CI #291 初次 Windows 权限检查进程启动 ETIMEDOUT，Linux 通过；仅重跑失败任务成功，未降低 ACL 检查。已合并 90f23e5。生产 rc.137，今日本地历史0条，奖励回执3条，无新增生产提交。

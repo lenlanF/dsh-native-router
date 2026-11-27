@@ -63788,21 +63788,40 @@ function parseCreditBalance(metrics) {
   return { total, packages, expiredTotal: 0 };
 }
 async function nativeRouterCodeartsProfile(credential, fetcher = directFetch) {
-  const id = credential?.user_id;
-  if (typeof id !== "string" || !/^[a-zA-Z0-9_-]{8,128}$/.test(id) || !credential.access_key_id || !credential.secret_access_key || !credential.security_token) return null;
-  const url = "https://iam.myhuaweicloud.com/v3/users/" + encodeURIComponent(id);
-  try {
-    const headers = await signRequestHuawei(credential.access_key_id, credential.secret_access_key, credential.security_token, "GET", url, new Uint8Array());
-    headers.delete("host");
-    const res = await fetcher(url, { method: "GET", headers: new Headers(Object.fromEntries(headers)), signal: AbortSignal.timeout(4e3), redirect: "error" });
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data?.user?.id !== id) return null;
-    const name2 = nativeRouterLoginPublicName(data.user);
-    return name2 ? { accountName: name2 } : null;
-  } catch {
-    return null;
+  const id = nativeRouterLoginId(credential?.user_id);
+  if (!credential?.access_key_id || !credential.secret_access_key || !credential.security_token) return null;
+  const nameOf = (user) => {
+    const name2 = nativeRouterLoginPublicName(user);
+    return name2 && !/::|^urn:|^hw[0-9a-f]{6,}$|^[0-9a-f]{8}-[0-9a-f]{4}-|^[0-9a-f]{16,}$/i.test(name2) ? { accountName: name2 } : null;
+  };
+  const read = async (url, extra2 = {}) => {
+    try {
+      const signed = await signRequestHuawei(credential.access_key_id, credential.secret_access_key, credential.security_token, "GET", url, new Uint8Array());
+      signed.delete("host");
+      const headers = new Headers(Object.fromEntries(signed));
+      for (const [key, value] of Object.entries(extra2)) headers.set(key, value);
+      const res = await fetcher(url, { method: "GET", headers, signal: AbortSignal.timeout(4e3), redirect: "error" });
+      if (!res.ok) return null;
+      const doc = await res.json();
+      if (!doc || typeof doc !== "object" || doc.code !== void 0 && ![0, 200, "0", "200"].includes(doc.code) || doc.error_code) return null;
+      return doc;
+    } catch {
+      return null;
+    }
+  };
+  const profile = await read(CODEARTS_SNAP_ENGINE_URL + "/snap-manager/v1/current/user", SNAP_EXTRA_HEADERS);
+  if (profile) {
+    const user = profile.data ?? profile;
+    const subject = nativeRouterLoginId(user?.user_id, user?.userId);
+    if (subject === null || id && subject && subject !== id) return null;
+    if (subject) {
+      const name2 = nameOf(user);
+      if (name2) return name2;
+    }
   }
+  if (!id) return null;
+  const data = await read("https://iam.myhuaweicloud.com/v3/users/" + encodeURIComponent(id));
+  return data?.user?.id === id ? nameOf(data.user) : null;
 }
 async function fetchCodeArtsAccountInfoDetailed(credential, fetcher = directFetch, renew) {
   const url = `${CODEARTS_SNAP_ENGINE_URL}${CODEARTS_PACKAGE_INFO_PATH}`;
