@@ -565,14 +565,38 @@ function parseCredentialResponse(data) {""",
     # numeric fields that the vendor's generic Number() coerces to zero.
     patches.append((
         'async function fetchLoomyCreditDetail(credential, product, fetcher = sanitizingFetch) {',
-        '''function nativeRouterLoomyDailyEvidence(data) {
-  const n = value => (typeof value === "number" || typeof value === "string" && /^[0-9]+(?:\\.[0-9]+)?$/.test(value)) && Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 1e12 ? Number(value) : void 0;
+        '''function nativeRouterLoomyWalletNumber(value) {
+  return (typeof value === "number" || typeof value === "string" && /^[0-9]+(?:\\.[0-9]+)?$/.test(value)) && Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 1e12 ? Number(value) : void 0;
+}
+function nativeRouterLoomyDailyEvidence(data) {
+  const n = nativeRouterLoomyWalletNumber;
   const quota = n(data?.dailyQuota), balance = n(data?.dailyBalance), consumed = n(data?.dailyConsumed);
+  const limit = n(data?.dailyLimitPoints), remaining = n(data?.dailyRemainingPoints);
+  const hasPair = data?.dailyLimitPoints !== void 0 || data?.dailyRemainingPoints !== void 0;
+  if (hasPair) {
+    if (!(limit > 0) || remaining === void 0 || remaining > limit) return void 0;
+    if (data?.dailyQuota !== void 0 && (quota === void 0 || Math.abs(quota-limit)>=1e-6) || data?.dailyBalance !== void 0 && (balance === void 0 || Math.abs(balance-remaining)>=1e-6) || data?.dailyConsumed !== void 0 && (consumed === void 0 || Math.abs(consumed-(limit-remaining))>=1e-6)) return void 0;
+    return { quota:limit,balance:remaining,consumed:limit-remaining };
+  }
   if (!(quota > 0) || balance === void 0 || consumed === void 0 || Math.abs(balance + consumed - quota) >= 1e-6) return void 0;
   return { quota, balance, consumed };
 }
 async function fetchLoomyCreditDetail(credential, product, fetcher = sanitizingFetch) {''',
         'loomy-strict-daily-quota-evidence',
+    ))
+    patches.append((
+        'const permanent = readNumber(result.data?.balance);\n  const daily = readNumber(result.data?.dailyBalance);\n  const available2 = readNumber(result.data?.availableBalance);\n  if (permanent === void 0) return null;\n  const total = available2 ?? permanent + (daily ?? 0);',
+        '''const data = result.data;
+  const n = nativeRouterLoomyWalletNumber;
+  const permanent = n(data?.balance);
+  const evidence = nativeRouterLoomyDailyEvidence(data);
+  const hasPair = data?.dailyLimitPoints !== void 0 || data?.dailyRemainingPoints !== void 0;
+  const daily = hasPair ? evidence?.balance : n(data?.dailyBalance);
+  const available2 = n(data?.availableBalance);
+  if (permanent === void 0 || daily === void 0 || data?.availableBalance !== void 0 && available2 === void 0) return null;
+  const total = available2 ?? permanent + daily;
+  if (Math.abs(total-permanent-daily)>=1e-6) return null;''',
+        'loomy-strict-wallet-reconciliation',
     ))
     patches.append((
         'dailyConsumed: readNumber(result.data?.dailyConsumed),\n    dailyCycleDate:',

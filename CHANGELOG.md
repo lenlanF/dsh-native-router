@@ -1,5 +1,11 @@
 # Change Log
 
+## 1.0.0-rc.149 — Loomy 每日额度与 MiMo 主体核验
+
+- Loomy 兼容明确 dailyLimitPoints/dailyRemainingPoints 与旧三字段，拒绝冲突、缺失和不合法数字；永久、每日与官方总余额严格对账，不再把缺失余额当作零。
+- MiMo 当前用户资料与明确的小米授权主体不一致时停止资料/额度读取并失效缓存；不将服务内部 ID 与小米账号 ID 混淆。
+- 保留原有独立授权路径，不移植 Magpie 的 Token Plan 计费回退；两种原生包重新生成。
+
 ## 1.0.0-rc.148 — CodeArts 钱包和 WorkBuddy 限流恢复
 
 - CodeArts 按需、基础、赠送积分与独立总额对账，支持零容量分项被省略；拒绝重复、不明或不一致分项。

@@ -9,6 +9,20 @@ const sha=value=>createHash('sha256').update(value).digest('hex');
 // Canonicalize source text only. Never transform WASM or other binary blobs.
 const canonicalText=value=>Buffer.from(value.toString('utf8').replace(/\r\n/g,'\n'),'utf8');
 
+test('Loomy daily limit/remaining pair and legacy wallet are reconciled without fabricating zero balances',async()=>{
+ const src=file('vendor/channel-pack/pack-native.js').toString('utf8');
+ const a=src.indexOf('function nativeRouterLoomyWalletNumber('),b=src.indexOf('function makePackage(',a);
+ const parse=new Function('tryRequestLoomy','sanitizingFetch','readNumber',src.slice(a,b)+'\nreturn {daily:nativeRouterLoomyDailyEvidence,detail:fetchLoomyCreditDetail};')(async(c,p,path,opts,fetcher)=>fetcher(),()=>{},v=>Number.isFinite(Number(v))?Number(v):undefined);
+ assert.deepEqual(parse.daily({dailyLimitPoints:2000,dailyRemainingPoints:1500}),{quota:2000,balance:1500,consumed:500});
+ assert.equal(parse.daily({dailyLimitPoints:2000,dailyRemainingPoints:1500,dailyBalance:1400}),undefined);
+ assert.equal(parse.daily({dailyQuota:2000,dailyBalance:1500,dailyConsumed:500,dailyLimitPoints:2000,dailyRemainingPoints:1400}),undefined);
+ assert.equal(parse.daily({dailyLimitPoints:2000,dailyRemainingPoints:null}),undefined);
+ const read=data=>parse.detail({}, {}, async()=>({ok:true,data}));
+ const wallet=await read({balance:100,dailyLimitPoints:2000,dailyRemainingPoints:1500,availableBalance:1600});
+ assert.equal(wallet.daily,1500);assert.equal(wallet.total,1600);
+ for(const data of [{balance:null,dailyBalance:20},{balance:100},{balance:100,dailyBalance:null},{balance:100,dailyBalance:20,availableBalance:999},{balance:100,dailyBalance:20,dailyRemainingPoints:10}])assert.equal(await read(data),null);
+ assert.equal((await read({balance:100,dailyBalance:0})).daily,0);
+});
 test('CodeArts signed current-user profile recovers missing identity, rejects foreign subjects and never emits internal ID',async()=>{
  const source=file('vendor/channel-pack/pack-native.js').toString('utf8');
  const start=source.indexOf('async function nativeRouterCodeartsProfile('),end=source.indexOf('async function fetchCodeArtsAccountInfoDetailed(',start);
@@ -57,7 +71,7 @@ test('the DSH-native bundle is deterministically derived from unchanged pinned M
   const crlf=Buffer.from(original.toString('utf8').replace(/\n/g,'\r\n'),'utf8');
   assert.equal(sha(canonicalText(crlf)),sha(original));
  assert.equal(sha(bundled),native.generatedSha256);
-    assert.equal(native.patches.length,87);assert.ok(native.patches.includes('lobster-official-action-eligibility'));assert.ok(native.patches.includes('loomy-strict-daily-quota-evidence'));assert.ok(native.patches.includes('trae-explicit-official-daily-booleans'));assert.ok(native.patches.includes('loomy-sms-sender-requires-existing-owned-account'));
+    assert.equal(native.patches.length,88);assert.ok(native.patches.includes('lobster-official-action-eligibility'));assert.ok(native.patches.includes('loomy-strict-daily-quota-evidence'));assert.ok(native.patches.includes('trae-explicit-official-daily-booleans'));assert.ok(native.patches.includes('loomy-sms-sender-requires-existing-owned-account'));
     for(const patch of ['lobster-official-status-renewal','lobster-renewal-cooldown','lobster-wire-official-read-renewal'])assert.ok(native.patches.includes(patch));
     assert.ok(native.patches.includes('loomy-sms-submit-refuses-cross-provider-credential-overwrite'));
    assert.ok(native.patches.includes('codearts-exact-official-credit-ratio'));

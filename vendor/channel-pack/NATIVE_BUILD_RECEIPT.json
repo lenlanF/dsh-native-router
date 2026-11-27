@@ -4,8 +4,8 @@
   "originalFile": "pack.js",
   "originalSha256": "5b933808951453cab76227e68cea480c6321e746e152f9e78963d5562faceb27",
   "generatedFile": "pack-native.js",
-  "generatedBytes": 3052306,
-  "generatedSha256": "c7e774f72cb5228e1d3e0ca7c929e5477a0bd63592ead1c746a4a5ee7d0f2567",
+  "generatedBytes": 3053382,
+  "generatedSha256": "fc88d06d8f9889b59007c85a98277918d3f2d4821db22412c6c1e5277ea6a7b4",
   "patches": [
     "private-settings-namespace",
     "private-profile-subdirectory",
@@ -61,6 +61,7 @@
     "loomy-preserve-http-retry-after",
     "loomy-rate-window-honors-official-delay",
     "loomy-strict-daily-quota-evidence",
+    "loomy-strict-wallet-reconciliation",
     "loomy-wallet-daily-evidence",
     "loomy-status-daily-evidence",
     "loomy-first-login-official-receipt",

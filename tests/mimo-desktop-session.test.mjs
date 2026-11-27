@@ -4,7 +4,7 @@ import {createMimoDesktopSessionTransport,parseMimoRollingUsage} from '../src/ch
 const own={region:'cn',passToken:'owner-desktop-private-pass-123',userId:'account-101'};
 function fixture({invalidRedirect=false,auth=0,expectedModel='mimo-v2.6-pro',
    membership={planCode:'plus',planTier:2,percent:77.5,nextResetTime:'2026-11-30T00:00:00Z'},
-   missingMembership=false,malformedMembership=false,
+   missingMembership=false,malformedMembership=false,profileId='account-101',
    allowance={percent:70,resetDate:'2026-12-05'}}={}){
  const calls=[];let handshakes=0;
  const fetchImpl=async(url,init={})=>{
@@ -28,7 +28,7 @@ function fixture({invalidRedirect=false,auth=0,expectedModel='mimo-v2.6-pro',
   assert.equal(init.headers.Cookie?.includes('private-service-session-123'),true);
   assert.equal(init.headers.Cookie?.includes('owner-desktop-private-pass'),false);
    if(url.endsWith('/api/user/xiaomi/me'))
-    return new Response(JSON.stringify({code:0,data:{userId:'account-101',nickName:'真实小米账户'}}),{status:200});
+    return new Response(JSON.stringify({code:0,data:{userId:profileId,nickName:'真实小米账户'}}),{status:200});
    if(url.endsWith('/api/user/xiaomi/subscription/self'))
     return missingMembership?new Response('',{status:404}):
      new Response(JSON.stringify(malformedMembership?{code:0,data:{}}:
@@ -58,6 +58,13 @@ test('real Desktop passToken SSO path (mock server) verifies account and perform
  assert.equal(rig.handshakes,1,'SSO should be cached for the same adopted account');
  assert.equal(rig.calls.filter(x=>x.url.includes('/api/route/chat/completions')).length,1);
  assert.equal(JSON.stringify(reply).includes(own.passToken),false);
+});
+test('MiMo mismatched Xiaomi userId never attaches another account profile or quota',async()=>{
+ const rig=fixture({profileId:'different-account'});
+ const result=await rig.transport.probe({session:own});
+ assert.equal(result.authVerified,false);assert.equal(result.accountName,undefined);
+ assert.equal(result.usagePercentRemaining,undefined);
+ assert.equal(rig.calls.some(c=>c.url.endsWith('/api/user/usage')||c.url.endsWith('/api/user/xiaomi/subscription/self')),false);
 });
 test('MiMo model-directory identity probe does not depend on slow quota endpoints',async()=>{
  const rig=fixture();

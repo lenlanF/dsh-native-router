@@ -217,6 +217,13 @@ export function createMimoDesktopSessionTransport({
       const verified=result?.code===0&&user&&typeof user==='object'
         &&(typeof identity==='string'&&identity.trim()||Number.isSafeInteger(identity)&&identity>0);
       if(!verified)return {state:'pending',authVerified:false};
+      // Only explicit Xiaomi subject fields are comparable to the SSO userId;
+      // the service's generic internal id may belong to another namespace.
+      const subject=validate(session).userId;
+      const reported=[user?.userId,user?.user_id].filter(v=>v!==undefined&&v!==null).map(String);
+      if(reported.some(v=>!v.trim())||new Set(reported).size>1||subject&&reported.some(v=>v!==subject)){
+        invalidate(session);return {state:'expired',authVerified:false};
+      }
       const accountName=publicAccountName({
        displayName:user?.displayName,nickname:user?.nickName,
        name:user?.name,userName:user?.userName,username:user?.username},user);
