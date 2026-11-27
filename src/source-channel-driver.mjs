@@ -174,7 +174,7 @@ export async function collectSourceDshStream(stream,{tools=[],signal,onProgress,
  return validateModelCalls(output,tools);
 }
 // The legacy ZCode source adapter targets the official-client-only Start Plan endpoint.
-export function createSourceChannelDriver({providerId,embeddedPack,accountProviderId=providerId,streamIdleTimeoutMs=120000}={}){
+export function createSourceChannelDriver({providerId,embeddedPack,accountProviderId=providerId,streamIdleTimeoutMs=120000,streamTotalTimeoutMs=600000}={}){
  if(!validSource(providerId)||!embeddedPack
    ||![providerId,'own_'+providerId].includes(accountProviderId))
    throw Error('Unknown embedded source provider');
@@ -194,6 +194,7 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
   const invalidateWallet=account=>{const id=account.id;walletRevision.set(id,(walletRevision.get(id)??0)+1);const row=liveFacts.get(id);if(row)liveFacts.set(id,staleGiftWallet(row))};
   const forgetAuth=account=>{if(!account?.id)return;inferenceProof.delete(account.id);const row=liveFacts.get(account.id);if(row)liveFacts.set(account.id,{...staleGiftWallet(row),authVerified:false,profileState:'cached'})};
   const idleMs=Number.isFinite(streamIdleTimeoutMs)?Math.max(10,Math.min(120000,streamIdleTimeoutMs)):120000;
+  const totalMs=Number.isFinite(streamTotalTimeoutMs)?Math.max(10,Math.min(600000,streamTotalTimeoutMs)):600000;
   async function readLiveFacts(account,{includeActivities=true,signal}={}){
     if(signal?.aborted)return {state:'unavailable',authVerified:false};
     const selected=await resolve(account);
@@ -332,8 +333,8 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
    const assertAvailable=()=>{
      if(signal?.aborted)throw unable('Source request cancelled','CANCELLED');
      for(const [key,until] of rateUntil)if(until<=Date.now())rateUntil.delete(key);
-     const remaining=(rateUntil.get(limitKey)??0)-Date.now();
-     if(remaining>0)throw new UpstreamError('Source model is cooling down',{code:'RATE_LIMIT',status:429,retryAfterMs:remaining});
+     const remaining=Math.max(rateUntil.get(limitKey)??0,rateUntil.get(streamKey)??0)-Date.now();
+     if(remaining>0)throw new UpstreamError('Source account or model is cooling down',{code:'RATE_LIMIT',status:429,retryAfterMs:remaining});
      if(providerId==='loomy'&&activeStreams.has(streamKey))throw unable('Source account already has an active stream','SOURCE_BUSY');
    };
    assertAvailable();
@@ -396,14 +397,16 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
      assertAvailable();
      if(providerId==='loomy')activeStreams.add(streamKey);
      const controller=new AbortController();
-     let timer,timedOut=false,onAbort,openingStarted=false;
+     let timer,totalTimer,timedOut=false,onAbort,openingStarted=false;
      const stop=()=>controller.abort();
-     const arm=()=>{clearTimeout(timer);timer=setTimeout(()=>{timedOut=true;stop()},idleMs)};
+     const expire=()=>{timedOut=true;stop()};
+     const arm=()=>{clearTimeout(timer);timer=setTimeout(expire,idleMs)};
+     const cool=(key,wait)=>rateUntil.set(key,Math.max(rateUntil.get(key)??0,Date.now()+wait));
      if(signal?.aborted)stop();else signal?.addEventListener('abort',stop,{once:true});
      request.signal=controller.signal;
      try{
        if(controller.signal.aborted)throw unable('Source request cancelled','CANCELLED');
-       arm();phase('STREAM_OPEN');
+       totalTimer=setTimeout(expire,totalMs);arm();phase('STREAM_OPEN');
        const cancelled=new Promise((_,reject)=>{onAbort=()=>reject(unable('Source stream stopped','CANCELLED'));controller.signal.addEventListener('abort',onAbort,{once:true});if(controller.signal.aborted)onAbort()});
        const opening=Promise.resolve().then(async()=>{
          if(controller.signal.aborted)throw unable('Source request cancelled','CANCELLED');
@@ -424,17 +427,19 @@ export function createSourceChannelDriver({providerId,embeddedPack,accountProvid
     // The pack can fail before emitting the first event. Keep only vetted
     // machine failure facts for failover. Never expose arbitrary upstream
     // Error.message, even when the upstream happens to use UpstreamError.
-    if(signal?.aborted){if(openingStarted)rateUntil.set(limitKey,Math.max(rateUntil.get(limitKey)??0,Date.now()+60000));throw unable('Isolated source request cancelled','CANCELLED')}
+     if(signal?.aborted){if(openingStarted)cool(providerId==='loomy'?streamKey:limitKey,60000);throw unable('Isolated source request cancelled','CANCELLED')}
      const failure=new UpstreamError('Isolated DSH native source request failed',
        timedOut?{code:'TIMEOUT',status:408}:safeDshFailureFacts(error));
      if(['AUTH','CREDENTIAL','MISSING_CREDENTIAL'].includes(failure.code)||[401,403].includes(failure.status))forgetAuth(account);
      if(failure.code==='RATE_LIMIT'||failure.code==='TIMEOUT'||failure.status===429){
        const wait=failure.retryAfterMs||60000;
-       rateUntil.set(limitKey,Math.max(rateUntil.get(limitKey)??0,Date.now()+wait));
+       // Loomy has one active request per account. A timeout or ambiguous
+       // rate-limit scope cannot safely be bypassed by changing models.
+       cool(providerId==='loomy'?streamKey:limitKey,wait);
      }
      if(['UPSTREAM_FINISH_ERROR','MISSING_NATIVE_FINISH','UNCLOSED_NATIVE_BLOCK']
        .includes(error?.safeStreamPhase))failure.safeStreamPhase=error.safeStreamPhase;
       throw failure;
-    }finally{if(openingStarted)invalidateWallet(account);clearTimeout(timer);signal?.removeEventListener('abort',stop);if(onAbort)controller.signal.removeEventListener('abort',onAbort);activeStreams.delete(streamKey)}  },
+    }finally{if(openingStarted)invalidateWallet(account);clearTimeout(timer);clearTimeout(totalTimer);signal?.removeEventListener('abort',stop);if(onAbort)controller.signal.removeEventListener('abort',onAbort);activeStreams.delete(streamKey)}  },
  };
 }
