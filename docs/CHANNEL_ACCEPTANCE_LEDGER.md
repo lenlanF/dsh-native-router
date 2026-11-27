@@ -75,3 +75,4 @@
 | 2026-11-27 | ACT-01 rc.146 活动身份防重 | rc.145 PR #77 CI #291 Windows ACL 启动超时后重跑通过，合并 90f23e5；红测复现固定任务金额/到期漂移绕过防重；专项49/49，旧回执兼容、变化参数不复用到账证据 | 成长任务跨周期需要独立官方实例证据；未新增生产领取，继续自有渠道活动资格与回执实测 |
 | 2026-11-27 | ID-01 / GIFT-01 rc.147 Magpie 参考移植 | rc.146 PR #78 CI #294 合并 f220ac8；实际克隆116目录，CodeArts current/user、Raccoon daily_points 两路差异修复，原生包重建，账号中心接入钱包；专项78/78 | CodeArts 正常授权状态刷新及真实名称，Raccoon 实际积分分项；仍缺赠送消费硬保护；参考清单见 MAGPIE_REFERENCE_PLAN.md |
 | 2026-11-27 | GIFT-01 / ROUTE-01 / SRC-01 rc.148 钱包及限流 | rc.147 PR #79 CI #297 合并 a7fcbfa；红测复现 CodeArts 按需分项漏识别、WorkBuddy 429 丢失官方恢复时刻；参考 Magpie 双区错误实现，严格余额对账与明确恢复等待 | OfficeAce 官方赠送活动已核查，独立授权和免费推理未证实；生产验证 CodeArts、WorkBuddy 新版行为 |
+| 2026-11-27 | LOOMY-01 / MIMO-01 rc.149 额度及主体 | rc.148 PR #80 CI #300 合并 bb8c759；Loomy 兼容明确额度字段并拒绝不一致/缺失分项，MiMo 拒绝明确冲突主体；专项104/104，双包重建 | Loomy 新字段生产响应尚待验证，MiMo 正常授权复核；Qoder 尚无代码改动，不扩大付费调用资格 |
