@@ -262,10 +262,12 @@ export function createQwenWorkDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
    const conflict=peers.some(x=>x.enable===false)||new Set(rates.filter(x=>x!==null)).size>1;
    const incomplete=!rates.length||rates.some(x=>x===null);
    const rate=!conflict&&!incomplete?rates[0]:null;
-   const zeroConfirmed=selectedScene==='qwork'&&rate===0&&peers.every(x=>x.enable===true&&x.isFree!==false&&x.is_free!==false&&x.promotion==null&&x.promotion_info==null&&x.discount==null&&[x.original_price_factor,x.originalPriceFactor].every(v=>v==null||v===0))&&!['auto','default'].includes(row.id.toLowerCase());
+    const zeroBlock=rate!==0?null:selectedScene!=='qwork'?'SCENE_UNCONFIRMED':['auto','default'].includes(row.id.toLowerCase())?'AUTOMATIC_MODEL':peers.some(x=>x.enable!==true)?'ENABLE_UNCONFIRMED':peers.some(x=>x.isFree===false||x.is_free===false)?'EXPLICIT_NOT_FREE':peers.some(x=>x.promotion!=null||x.promotion_info!=null||x.discount!=null||[x.original_price_factor,x.originalPriceFactor].some(v=>v!=null&&v!==0))?'PROMOTION_UNCONFIRMED':null;
+    const zeroConfirmed=rate===0&&zeroBlock===null;
    return {id:row.id,name:row.shortName+(rate!==null?' · x'+rate.toFixed(2):' · 费率待确认'),
     ...(conflict?{pricingConflict:true,isFree:false}:incomplete?{pricingIncomplete:true}:{}),
-    ...(rate!==null?{billingRate:rate,costMultiplier:rate,...(zeroConfirmed?{isFree:true,priceSource:'qwenwork-official-qwork-credit-ratio'}:rate>0?{isFree:false}:{})}:{})};
+     ...(zeroBlock?{freeEligibilityBlock:zeroBlock}:{}),
+     ...(rate!==null?{billingRate:rate,costMultiplier:rate,...(zeroConfirmed?{isFree:true,priceSource:'qwenwork-official-qwork-credit-ratio'}:rate>0?{isFree:false}:{})}:{})};
   });
   modelsCache.set(account.id,models);
   return models;
@@ -276,7 +278,7 @@ export function createQwenWorkDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
   const models=await listModels({account,signal});
    const selected=models.find(x=>x.id===model);
    if(!selected)throw err('MODEL');
-   if((options.officialFreeOnly===true||options.autoFreeSelection===true)&&!(selected.isFree===true&&selected.costMultiplier===0&&selected.priceSource==='qwenwork-official-qwork-credit-ratio'))throw err('COST_NOT_CONFIRMED_FREE');
+   if((options.freeOnly===true||options.officialFreeOnly===true||options.autoFreeSelection===true)&&!(selected.isFree===true&&selected.costMultiplier===0&&selected.priceSource==='qwenwork-official-qwork-credit-ratio'))throw err('COST_NOT_CONFIRMED_FREE');
   const credential=await currentCredential(account,signal);
   const session=await createSignerSession({credential,
     identity:{env:{QWEN_COSY_VERSION:'1.1.32'}}});

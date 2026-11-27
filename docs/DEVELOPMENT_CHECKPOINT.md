@@ -2,6 +2,12 @@
 
 此处记录工程证据和可复用方法，生产状态每轮重新读取。按 [自有渠道业务验收台账](CHANNEL_ACCEPTANCE_LEDGER.md) 的任务 ID 续跑，不再逐版重复已通过验收。
 
+## rc.157 生产专项验收 / SRC-01 ROUTE-01
+
+- rc.156 PR #88 CI #324 通过，合并97f656f；实测安装rc.156，6渠道8账号正式 inventory 全部在线、目录ready，今日签到3成功、累计3到账且无待确认；未新领取。千问办公14/14已知率/1零率/0候选；CodeArts 11/11/0、最低0.07、钱包verified且赠送存在、套餐标志已知但套餐名和active状态未知、名称未返回；WorkBuddy CN两账号各17/16/1免费，Global两账号各35/33/3免费，四主体均独立，Global一账号钱包verified无正赠送，其余三个仍未分类。Loomy 10/6/0最低0.5、赠送确认但日额度三字段未齐；ZCode 2模型无已知率、无Start Plan、无真实名称。未请求这些未确认免费的模型。
+- 正式 owned-autofree-route 一次返回 failed/DSH_STREAM_INCOMPLETE，内部completedProvider=own_workbuddy-cn、failedAttempts=0、无跨渠道切换；此前rc151成功不覆盖本次失败。两次临时Owner授权均撤销。
+- 红测复现QwenWork自定义free路由仅freeOnly不触发驱动二次核价；修复三个free标志均受保护，并将零倍率排除原因按固定枚举贯通账号目录/匿名报告；不放宽官方证据。补齐ownedRoute.hostPhase（底层已存在），不把截断或无正文当成功。专项56/56、全量947/947通过；新版结果尚待验证。下次优先查看真实排除原因及流终止阶段，再针对原因修复，不重复完整inventory。
+
 ## rc.156 LOOMY-01 / ROUTE-01 请求边界
 
 - rc.155 PR #87 CI #321 通过，合并 8951d7c。继续最近 rc.151 生产验收断点，不重复库存。

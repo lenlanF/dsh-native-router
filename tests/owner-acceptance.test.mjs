@@ -168,3 +168,8 @@ test('owned free host proof is one explicitly authorized stream with correlated 
  f.service.start({requestId:id,mode:'owned-autofree-route',consent:true});const result=await done(f.service);
  assert.deepEqual(result.ownedRoute,{state:'verified',code:'DSH_HOST_ROUTE_COMPLETE',failedAttempts:1,failedProviderCount:1,completedProvider:'own_demo',crossChannelSwitch:true});assert.equal(sent,1);assert.equal(closed,1);assert.doesNotMatch(JSON.stringify(result),/private-output|private-trace|private-ref/);
 });
+test('owned route incomplete proof retains exact terminal phase, never marks internal success as complete',async()=>{
+ const f=fixture({adapter:{beginOwnedFreeProof:()=>()=>({completedProvider:'own_demo',failedAttempts:0})},llm:{async *stream(){yield {type:'reasoning-delta',text:'private reasoning'};yield {type:'finish',reason:{kind:'max-tokens'}}}}});
+ f.service.start({requestId:id,mode:'owned-autofree-route',consent:true});const r=await done(f.service);
+ assert.equal(r.ownedRoute.state,'failed');assert.equal(r.ownedRoute.hostPhase,'MAX_TOKENS');assert.equal(r.ownedRoute.completedProvider,'own_demo');assert.doesNotMatch(JSON.stringify(r),/private reasoning/);
+});
