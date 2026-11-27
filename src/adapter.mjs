@@ -9,7 +9,7 @@ import {toDshEvents} from './protocol.mjs';
 import {RoutingError} from './router.mjs';
 import {toSourceMessages,collectSourceDshStream} from './source-channel-driver.mjs';
 import {visibleTools} from './host-tools.mjs';
-import {createAutoFreePool} from './auto-free.mjs';
+import {createAutoFreePool,freeEvidence} from './auto-free.mjs';
 import {allowsHostModel,filterHostRoutes} from './host-model-selection.mjs';
 
 export const PROVIDER='native-router';
@@ -41,6 +41,27 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
           {code:'MODEL_NOT_ALLOWED'});
       if(typeof hostProviderInventory?.streamHost!=='function')
         throw new UpstreamError('Original DSH provider is not connected',{code:'PROVIDER_NOT_READY'});
+      if(arg.options.autoFreeSelection===true){
+        const before=configStore.get(),policy=JSON.stringify(before.freePool??{});
+        const rule=before.freePool?.models?.find(x=>x.providerId===arg.provider.id&&x.model===arg.model);
+        const manual=rule?.free===true||(!rule&&before.freePool?.providerIds?.includes(arg.provider.id));
+        if(!manual){
+          let timer,onAbort;
+          try{
+            const live=await Promise.race([
+              Promise.resolve().then(()=>hostProviderInventory.listHostModels(arg.provider.id)).catch(()=>null),
+              new Promise(resolve=>{timer=setTimeout(()=>resolve(null),10000);onAbort=()=>resolve(null);arg.signal?.addEventListener('abort',onAbort,{once:true});if(arg.signal?.aborted)onAbort()})
+            ]);
+            if(arg.signal?.aborted)throw new UpstreamError('Model request cancelled',{code:'CANCELLED'});
+            const peers=live?.state==='ready'&&Array.isArray(live.models)?live.models.filter(m=>m?.id===arg.model):[];
+            if(!peers.some(m=>freeEvidence(m,arg.provider.id,peers)))throw new UpstreamError('Current host free entitlement not confirmed',{code:'COST_NOT_CONFIRMED_FREE'});
+          }finally{clearTimeout(timer);if(onAbort)arg.signal?.removeEventListener('abort',onAbort)}
+        }
+        if(arg.signal?.aborted)throw new UpstreamError('Model request cancelled',{code:'CANCELLED'});
+        const current=configStore.get();
+        if(rule?.free===false||policy!==JSON.stringify(current.freePool??{})||!getConfig().providers.some(p=>p.id===arg.provider.id&&p.enabled&&p.protocol==='dsh-host')||!allowsHostModel(current,arg.provider.id,arg.model))
+          throw new UpstreamError('Free host route authorization changed',{code:'COST_NOT_CONFIRMED_FREE'});
+      }
       try{
         const native=await hostProviderInventory.streamHost({providerId:arg.provider.id,model:arg.model,
           messages:toSourceMessages(arg.options,arg.provider.id,arg.model),

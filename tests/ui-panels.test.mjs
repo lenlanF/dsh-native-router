@@ -1217,7 +1217,7 @@ test('native account page renders WorkBuddy monthly grant and independent MiMo f
    connectionState:'online',enabled:true,configuredEnabled:true,weight:1,
    runtimeMode:'owned',credentialKind:'driver',
     balance:121.98,balanceState:'available',balanceUnit:'积分',
-    expiringPoints:81.23,expiringAt:Date.parse('2026-11-27T00:00:00Z'),
+    expiringPoints:81.23,expiringAt:Date.now()+3*86400000,
    quotaWindows:[{kind:'monthly',label:'月基础积分',left:81.23,total:500,used:418.77},
     {kind:'grant',label:'活动赠送',left:40.75,total:100,used:59.25}],
    benefits:[{kind:'compensation',active:true,claimed:false,credit:300}]},
@@ -1225,7 +1225,7 @@ test('native account page renders WorkBuddy monthly grant and independent MiMo f
    connectionState:'online',enabled:true,configuredEnabled:true,weight:1,
    runtimeMode:'owned',credentialKind:'driver',
    membershipState:'not_subscribed',usageState:'available',usagePercentRemaining:70,
-   usageResetAt:Date.parse('2026-12-05T00:00:00+08:00')},
+   usageResetAt:Date.now()+7*86400000},
  ],embeddedAccounts:{state:'disabled',accounts:[]},pools:[]};
  const rig=createUiRig(new Map(),null,{state:'disabled'},{},[],
   undefined,()=>true,inventory);

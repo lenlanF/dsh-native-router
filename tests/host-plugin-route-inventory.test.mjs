@@ -47,6 +47,23 @@ test('original DSH provider models are queried read-only and only on owner deman
  assert.deepEqual(calls,['workbuddy-global']);
  existing.dispose();
 });
+test('host directory preserves explicit negative fee and duplicate contradiction before AutoFree',async()=>{
+ const llm={listProviders:()=>[{id:'workbuddy'}],listModels:async()=>[
+  {id:'explicit-paid',isFree:false,name:'Model x0.00'},
+  {id:'duplicate',isFree:true},{id:'duplicate',costMultiplier:1},
+  {id:'positive',free:true,pricing:{input:1}},
+  {id:'restricted',name:'Model x0.00',accessRestriction:'OFFICIAL_CLIENT_ONLY'},
+  {id:'safe',free:true}
+ ]};
+ const existing=createExistingDshChannelFacade({ctx:{llm}});
+ const {freeEvidence}=await import('../src/auto-free.mjs');
+ const result=await existing.listHostModels('workbuddy');
+ assert.equal(result.models.length,5);
+ assert.equal(result.models.find(r=>r.id==='restricted').accessRestriction,'OFFICIAL_CLIENT_ONLY');
+ assert.deepEqual(result.models.filter(row=>freeEvidence(row,'workbuddy')).map(row=>row.id),['safe']);
+ existing.dispose();
+});
+
 test('account provenance survives source changes and rejects invalid metadata',async()=>{
  const {createAccountCenter}=await import('../src/account-center.mjs');
  const id='sp_'+'a'.repeat(24);
