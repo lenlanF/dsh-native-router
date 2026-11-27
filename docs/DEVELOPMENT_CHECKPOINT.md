@@ -2,6 +2,12 @@
 
 此处记录工程证据和可复用方法，生产状态每轮重新读取。按 [自有渠道业务验收台账](CHANNEL_ACCEPTANCE_LEDGER.md) 的任务 ID 续跑，不再逐版重复已通过验收。
 
+## rc.152 SRC-01 Qoder 双区公开 SDK 只读目录
+
+- rc.151 PR #83 CI #309 通过，合并 08ed759。已有生产安装 rc.137 尚待集中升级；本轮未改生产配置或调用推理。
+- 公开官方 SDK 1.0.61 npm 元数据已查，两区分别 @qoder-ai/qoder-agent-sdk / @qodercn-ai/qodercn-agent-sdk。实际国际版 tarball 类型核实 accountInfo、getAvailableModels({fetchStrategy:'live'})、abortController；jobToken 虽导出但声明仅第一方宿主内部，不使用。国内版下载首次 ECONNRESET，正常重试成功，实际两区 1.0.61 类型均核实；未安装 SDK 或连接真实账号。
+- src/channels/qoder-sdk-catalog.mjs 实现公开 PAT 查询、无用户消息、账号/组织主体前后核验、明确费率和优惠区分、超时终止、最小输出；tools/qoder-sdk-catalog-readonly.mjs 显式授权诊断，单独 SDK 根目录，不读取生产凭据、只输出匿名统计，不修改生产路由。专项4/4、无授权拒绝实测通过、全量939/939、隐私/双原生包/打包预检通过。实际运行需另行提供正常授权 PAT，尚无实际账号调用证据；下一步验证公开授权与现有独立账号身份关联及同一推理路由，不能混用凭据。
+
 ## rc.151 ROUTE-01 / SRC-01 自有目录费用一致性
 
 - rc.150 PR #82 CI #306 双平台通过，合并 92bc5ea。生产 rc.137，只读今日签到0、确认回执3；未生成、领取或修改生产配置。

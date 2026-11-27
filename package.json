@@ -1,6 +1,6 @@
 {
   "name": "dsh-native-router",
-  "version": "1.0.0-rc.151", "private": false, "type": "module", "license": "MIT", "engines": {"node": ">=22.10.0"}, "keywords": ["deepseek-harness", "cordis", "model-routing", "autofree", "model-pool", "failover"], "description": "Native DSH provider reuse, independent login, dynamic free model pool, manual model chains, and agent failover", "main": "./src/index.mjs", "exports": {
+  "version": "1.0.0-rc.152", "private": false, "type": "module", "license": "MIT", "engines": {"node": ">=22.10.0"}, "keywords": ["deepseek-harness", "cordis", "model-routing", "autofree", "model-pool", "failover"], "description": "Native DSH provider reuse, independent login, dynamic free model pool, manual model chains, and agent failover", "main": "./src/index.mjs", "exports": {
     ".": "./src/index.mjs",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json",
@@ -32,6 +32,7 @@
     "docs/WORKBUDDY_NATIVE.md",
     "docs/MEOO_QWENWORK_NATIVE.md",
     "docs/RC83_ACCOUNT_HYDRATION.md",
+    "tools/qoder-sdk-catalog-readonly.mjs",
     "tools/owner-acceptance-cli.mjs",
     "tools/local-owner-jobs-cli.mjs",
     "docs/RC113_LOCAL_OWNER_JOBS.md",
