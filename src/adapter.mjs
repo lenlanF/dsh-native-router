@@ -102,7 +102,13 @@ export function createNativeRouterAdapter({configStore,fetchImpl=fetch,env=proce
         options:arg.options,signal:arg.signal});
       if(!result||typeof result!=='object'||!['stop','tool_calls','length'].includes(result.finishReason))
         throw new UpstreamError('Native provider returned invalid completed response',{code:'TOOL_PROTOCOL'});
-      return validateModelCalls(result,arg.options.tools);
+      const validated=validateModelCalls(result,arg.options.tools);
+      // An atomic native reply with no usable text or validated tool call
+      // must not commit a route or expose reasoning from a failed attempt.
+      // A genuine partial text at the caller's output limit is still valid.
+      if(!(typeof validated.text==='string'&&validated.text.trim())&&!validated.toolCalls.length)
+        throw new UpstreamError('Native provider returned no usable reply',{code:'EMPTY'});
+      return validated;
     }
     return (arg.provider.protocol==='anthropic-messages'?requestAnthropic:requestOpenAI)(arg,{fetchImpl,env,vault});
   };
