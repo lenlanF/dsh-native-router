@@ -76,3 +76,4 @@
 | 2026-11-27 | ID-01 / GIFT-01 rc.147 Magpie 参考移植 | rc.146 PR #78 CI #294 合并 f220ac8；实际克隆116目录，CodeArts current/user、Raccoon daily_points 两路差异修复，原生包重建，账号中心接入钱包；专项78/78 | CodeArts 正常授权状态刷新及真实名称，Raccoon 实际积分分项；仍缺赠送消费硬保护；参考清单见 MAGPIE_REFERENCE_PLAN.md |
 | 2026-11-27 | GIFT-01 / ROUTE-01 / SRC-01 rc.148 钱包及限流 | rc.147 PR #79 CI #297 合并 a7fcbfa；红测复现 CodeArts 按需分项漏识别、WorkBuddy 429 丢失官方恢复时刻；参考 Magpie 双区错误实现，严格余额对账与明确恢复等待 | OfficeAce 官方赠送活动已核查，独立授权和免费推理未证实；生产验证 CodeArts、WorkBuddy 新版行为 |
 | 2026-11-27 | LOOMY-01 / MIMO-01 rc.149 额度及主体 | rc.148 PR #80 CI #300 合并 bb8c759；Loomy 兼容明确额度字段并拒绝不一致/缺失分项，MiMo 拒绝明确冲突主体；专项104/104，双包重建 | Loomy 新字段生产响应尚待验证，MiMo 正常授权复核；Qoder 尚无代码改动，不扩大付费调用资格 |
+| 2026-11-27 | SRC-01 / GIFT-01 rc.150 TRAE 积分 | rc.149 PR #81 CI #303 合并 1cb7183；修复过期包计入余额与缺失用量误判，赠送分类、近期到期、账号中心联动；专项73/73 | 生产实测待新版；Qoder 十字段请求已具备，后续独立账户目录证明；TRAE Global 未新增，不扩大付费资格 |

@@ -64148,12 +64148,15 @@ async function fetchTraeCreditBalance(credential, _product, fetcher = sanitizing
     if (typeof base !== "object" || base === null) continue;
     const quota = base.quota;
     if (typeof quota !== "object" || quota === null) continue;
-    const creditsLimit = readNumber9(quota, "credits_limit");
-    if (creditsLimit <= 0) continue;
-    const usage = entry.usage;
-    const used = typeof usage === "object" && usage !== null ? readNumber9(usage, "credits_amount") : 0;
-    const expireSec = readNumber9(entry, "expire_time");
-    const deductionEndMs = expireSec > 0 ? expireSec * 1e3 : void 0;
+    const creditsLimit = quota.credits_limit;
+    const used = entry.usage?.credits_amount;
+    const expireSec = entry.expire_time;
+    if (typeof creditsLimit !== "number" || !Number.isFinite(creditsLimit) || creditsLimit < 0 || creditsLimit > 1e12 || typeof used !== "number" || !Number.isFinite(used) || used < 0 || used > creditsLimit || !Number.isSafeInteger(expireSec) || expireSec <= 0 || expireSec > 253402300799) return null;
+    const deductionEndMs = expireSec * 1e3;
+    if (deductionEndMs <= Date.now()) {
+      expiredTotal += creditsLimit - used;
+      continue;
+    }
     const pkg = {
       // ⚠️ 包名用 `display_desc`（实测"每月登录赠送"/"签到奖励"/"免费"），
       // 不是 `base.name` —— 后者实测为 undefined，旧代码全部回退成了"资源包"。
@@ -64165,8 +64168,8 @@ async function fetchTraeCreditBalance(credential, _product, fetcher = sanitizing
       active: true,
       cycleStartTime: "",
       cycleEndTime: "",
-      expiredTime: "",
-      ...deductionEndMs !== void 0 ? { deductionEndTime: deductionEndMs } : {}
+      expiredTime: new Date(deductionEndMs).toISOString(),
+      deductionEndTime: deductionEndMs
     };
     packages.push(pkg);
     total += pkg.remaining;
