@@ -249,11 +249,11 @@ export function createQwenWorkDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
   const raw=await parseBody(response);
   // Use the exact same scene for model identity and rate evidence. An
   // empty preferred scene is not evidence that all fallback rates are unknown.
-  let source=[],rows=[];
+  let source=[],rows=[],selectedScene='';
   for(const scene of ['qwork','app','chat']){
    if(!Array.isArray(raw?.[scene]))continue;
    const parsed=parseCatalog({[scene]:raw[scene]});
-   if(parsed.length){source=raw[scene];rows=parsed;break}
+   if(parsed.length){source=raw[scene];rows=parsed;selectedScene=scene;break}
   }
   if(!rows.length)throw err('MODEL');
   const models=rows.filter(x=>typeof x.id==='string'&&x.id.length<=120).map(row=>{
@@ -262,9 +262,10 @@ export function createQwenWorkDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
    const conflict=peers.some(x=>x.enable===false)||new Set(rates.filter(x=>x!==null)).size>1;
    const incomplete=!rates.length||rates.some(x=>x===null);
    const rate=!conflict&&!incomplete?rates[0]:null;
+   const zeroConfirmed=selectedScene==='qwork'&&rate===0&&peers.every(x=>x.enable===true&&x.isFree!==false&&x.is_free!==false&&x.promotion==null&&x.promotion_info==null&&x.discount==null&&[x.original_price_factor,x.originalPriceFactor].every(v=>v==null||v===0))&&!['auto','default'].includes(row.id.toLowerCase());
    return {id:row.id,name:row.shortName+(rate!==null?' · x'+rate.toFixed(2):' · 费率待确认'),
     ...(conflict?{pricingConflict:true,isFree:false}:incomplete?{pricingIncomplete:true}:{}),
-    ...(rate!==null?{billingRate:rate,costMultiplier:rate,...(rate>0?{isFree:false}:{})}:{})};
+    ...(rate!==null?{billingRate:rate,costMultiplier:rate,...(zeroConfirmed?{isFree:true,priceSource:'qwenwork-official-qwork-credit-ratio'}:rate>0?{isFree:false}:{})}:{})};
   });
   modelsCache.set(account.id,models);
   return models;
@@ -273,7 +274,9 @@ export function createQwenWorkDriver({vault,fetchImpl=fetch,now=()=>Date.now(),
   if(signal?.aborted)throw err('CANCELLED');
   if(visibleTools(options.tools).length)throw err('TOOL_PROTOCOL');
   const models=await listModels({account,signal});
-  if(!models.some(x=>x.id===model))throw err('MODEL');
+   const selected=models.find(x=>x.id===model);
+   if(!selected)throw err('MODEL');
+   if((options.officialFreeOnly===true||options.autoFreeSelection===true)&&!(selected.isFree===true&&selected.costMultiplier===0&&selected.priceSource==='qwenwork-official-qwork-credit-ratio'))throw err('COST_NOT_CONFIRMED_FREE');
   const credential=await currentCredential(account,signal);
   const session=await createSignerSession({credential,
     identity:{env:{QWEN_COSY_VERSION:'1.1.32'}}});

@@ -454,7 +454,7 @@ export function createAccountCenter({
      if(controller.signal.aborted)return {id,state:'skipped',code:'CANCELLED',at:now(),phase,message:'验收已取消，未发送推理请求'};
      generationStarted=true;phase='DRIVER_PRECHECK';
      const reply=await Promise.race([driver.generate({account,provider,model:chosen.id,
-     options:{messages:[{role:'user',content:[{type:'text',text:'请只回复 OK'}]}],
+     options:{officialFreeOnly:officialOnly,messages:[{role:'user',content:[{type:'text',text:'请只回复 OK'}]}],
       maxTokens:(provider.id==='own_loomy'&&chosen.id==='spark-x2.6')||
         (officialOnly&&['own_workbuddy-cn','own_workbuddy-global'].includes(provider.id))?128:32,
       sessionId:'native-router-test-'+id,onVerificationPhase:value=>{if(['DRIVER_PRECHECK','ENTITLEMENT_READ','STREAM_OPEN','STREAM_READ','STREAM_FIRST_EVENT','STREAM_REASONING','STREAM_TEXT','STREAM_FINISH'].includes(value))phase=value}},signal:controller.signal}),cancelled]);    if(reply?.finishReason!=='stop'||typeof reply?.text!=='string'||!reply.text.trim()
