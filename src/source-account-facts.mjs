@@ -53,7 +53,7 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
     &&packages.every(x=>x?.unit==='credit')?'积分':null;
   const rawUnit=safeUnit(balanceRow?.balanceUnit)??safeUnit(structured?.unit)??
     codeArtsTotal??reconciledUnit??soleUnit;
-  const unit=providerId==='codearts'&&rawUnit==='credit'?'积分':rawUnit;
+  const unit=(providerId==='codearts'&&rawUnit==='credit'||providerId==='trae'&&rawUnit==='credits')?'积分':rawUnit;
   const liveStatus=!statusRow?.error&&status!==null&&(
     typeof status.todayCheckedIn==='boolean'||
     Array.isArray(status.checkinDates)||
@@ -76,7 +76,7 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
   // consists solely of free daily credit. Never equate aggregate balance
   // with free allocation or infer a gift when the bucket is absent.
   let giftWallet={};
-  if(['loomy','codearts','raccoon'].includes(providerId))giftWallet={giftCreditState:'unconfirmed'};
+  if(['loomy','codearts','raccoon','trae'].includes(providerId))giftWallet={giftCreditState:'unconfirmed'};
   const exactBuckets=(names,expectedUnit)=>!balanceRow?.error&&balanceValue!==null&&packages.length===names.length&&names.every(name=>packages.filter(p=>p?.name===name).length===1)&&packages.every(p=>p.unit===expectedUnit&&numeric(p.remaining)!==null&&p.active!==false);
   if(providerId==='loomy'&&exactBuckets(['每日赠送','永久积分'],'积分')){
     const gift=packages.find(p=>p.name==='每日赠送').remaining,ordinary=packages.find(p=>p.name==='永久积分').remaining;
@@ -103,6 +103,14 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
     const ordinary=packages.filter(p=>['充值积分','会员积分'].includes(p.name)).reduce((sum,p)=>sum+p.remaining,0);
     const unknown=packages.filter(p=>p.name==='奖励积分').reduce((sum,p)=>sum+p.remaining,0);
     giftWallet=giftWalletFacts({balance:balanceValue,gift,ordinary,unknown,now:observedAt});
+  }
+  // TRAE consumer packs explicitly label daily/monthly login gifts. Do not
+  // interpret an unknown subscription or a generic free label as gift credit.
+  if(providerId==='trae'&&!balanceRow?.error&&balanceValue!==null&&reconciledUnit==='credits'&&packages.length&&packages.every(p=>p.active!==false&&typeof p.expiredTime==='string'&&Date.parse(p.expiredTime)>observedAt)){
+    const gifts=packages.filter(p=>['签到奖励','每月登录赠送'].includes(p.name));
+    const gifted=gifts.reduce((s,p)=>s+p.remaining,0);
+    const unknown=packages.filter(p=>!gifts.includes(p)).reduce((s,p)=>s+p.remaining,0);
+    giftWallet=giftWalletFacts({balance:balanceValue,gift:gifted,ordinary:0,unknown,now:observedAt,expiryKnown:true,expiresAt:gifted>0?Math.min(...gifts.filter(p=>p.remaining>0).map(p=>Date.parse(p.expiredTime))):null});
   }
   const loomyDailyGift=providerId==='loomy'&&giftWallet.giftCreditState==='verified'?giftWallet.giftedBalance:0;
   // ZCode's signed Start Plan balance names the MODEL (GLM-5.3-Flash),
@@ -143,7 +151,7 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
     if(unit!=='积分'||balanceValue===null||!packages.length)return null;
     const entries=packages.map(pkg=>{
       const left=numeric(pkg?.remaining);
-      const u=safeUnit(pkg?.unit);
+      const rawU=safeUnit(pkg?.unit); const u=providerId==='trae'&&rawU==='credits'?'积分':rawU;
       const raw=pkg?.expiredTime??pkg?.expiresAt??pkg?.endAt;
       const end=typeof raw==='number'&&raw>0?
         raw<1e11?raw*1000:raw:

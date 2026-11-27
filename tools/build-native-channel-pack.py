@@ -458,6 +458,26 @@ async function fetchZcodeClaimablePlans(credential,fetchImpl=sanitizingFetch){
             'case "' + method + '": {\n        const req = payload;\n        const accounts = await nativeRouterCreditAccounts(req);',
             'source-exact-account-' + method,
         ))
+    # TRAE consumer credits: never count expired entitlements, unknown usage
+    # or an unlimited sentinel as a finite spendable balance.
+    patches.append((
+        'const creditsLimit = readNumber9(quota, "credits_limit");\n    if (creditsLimit <= 0) continue;\n    const usage = entry.usage;\n    const used = typeof usage === "object" && usage !== null ? readNumber9(usage, "credits_amount") : 0;\n    const expireSec = readNumber9(entry, "expire_time");\n    const deductionEndMs = expireSec > 0 ? expireSec * 1e3 : void 0;',
+        '''const creditsLimit = quota.credits_limit;
+    const used = entry.usage?.credits_amount;
+    const expireSec = entry.expire_time;
+    if (typeof creditsLimit !== "number" || !Number.isFinite(creditsLimit) || creditsLimit < 0 || creditsLimit > 1e12 || typeof used !== "number" || !Number.isFinite(used) || used < 0 || used > creditsLimit || !Number.isSafeInteger(expireSec) || expireSec <= 0 || expireSec > 253402300799) return null;
+    const deductionEndMs = expireSec * 1e3;
+    if (deductionEndMs <= Date.now()) {
+      expiredTotal += creditsLimit - used;
+      continue;
+    }''',
+        'trae-reconciled-active-credit-entitlements',
+    ))
+    patches.append((
+        'expiredTime: "",\n      ...deductionEndMs !== void 0 ? { deductionEndTime: deductionEndMs } : {}',
+        'expiredTime: new Date(deductionEndMs).toISOString(),\n      deductionEndTime: deductionEndMs',
+        'trae-official-credit-expiry',
+    ))
     # TRAE must provide both official booleans, not inferred defaults.
     patches.append((
         'async function fetchTraeCheckinStatus(credential, _product, fetcher = sanitizingFetch) {\n  const result = await postJson3(TRAE_CHECKIN_STATUS_PATH, credential, "{}", fetcher, credential.uid);\n  if (!result.ok) return null;\n  const body = result.body;\n  const code = readClaimCode(body);\n  if (code !== 0) return null;',

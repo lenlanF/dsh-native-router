@@ -10,8 +10,8 @@
 | packages/loomy | 双钱包、官方每日额度/余额与过期、短信登录 | 已有独立渠道；继续对照响应解析及真实流异常，确认每日额度和永久余额分别展示。参考实现允许永久余额回退，不符合本项目免费限定，不移植该回退 |
 | packages/zcode | Coding Plan 登录、独立 Trial 命名、赠送与付费区分 | 仅借鉴权益隔离原则；历史 Start Plan 仅官方客户端限制仍有效，不能把社区实现当作允许转接的证明；寻找官方授权的独立免费路线 |
 | packages/mimo | 小米账号 SSO、七日额度、订阅与额度 | 已有对应独立渠道；对比正常授权刷新、可用权益接口和自然恢复窗口；不把独立订阅、活动或商业 API 混同 |
-| packages/trae | CN/Global 分服务，模型、额度及日签到相关测试 | 评估分别注册与官方地域账号一致性，不能把同名模型目录混用 |
-| packages/qoder | Global/CN/Team 和 QwenWork 独立入口、目录、签到及错误测试 | 对比现有 Qoder/Qoder CN/QwenWork 的授权主体、目录和额度；Team/Enterprise 不假定可免费接入 |
+| packages/trae | CN/Global 分服务，模型、额度及日签到相关测试 | rc.150 国内消费积分排除过期包、明确签到和月度赠送、账号中心展示；Global/企业不同计量单位和独立授权仍待验证 |
+| packages/qoder | Global/CN/Team 和 QwenWork 独立入口、目录、签到及错误测试 | rc.150 确认十字段 model_config 已实现；下一步独立账号当前官方目录与费率，不能由静态免费标签推断；Team/Enterprise 不假定可免费接入 |
 | packages/free-tokens | 第三方活动索引，本机读取且有专门授权 | 作为人工发现线索；不复制其数据源分发权，不作为可自动领取或免费调用证据 |
 | packages/page-model-quota | 跨渠道额度窗口聚合 | 借鉴统一视图，官方剩余与估算分别展示，不虚构 token 余额 |
 

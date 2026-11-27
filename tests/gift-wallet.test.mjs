@@ -7,6 +7,20 @@ import {freeEvidence} from '../src/auto-free.mjs';
 import {createAccountCenter} from '../src/account-center.mjs';
 import {normalizeConfig} from '../src/config.mjs';
 const now=Date.parse('2026-11-25T00:00:00Z');
+test('TRAE active signup and monthly login gifts are separately presented, unknown packs stay unclassified',()=>{
+ const end=new Date(now+86400000).toISOString();
+ const p=(name,remaining)=>({name,remaining,unit:'credits',expiredTime:end,active:true});
+ const read=(packages,total)=>sourceAccountFacts({providerId:'trae',observedAt:now,balanceRow:{balance:{total,packages}}});
+ const facts=read([p('签到奖励',20),p('每月登录赠送',30),p('普通未知套餐',50)],100);
+ assert.equal(facts.balanceUnit,'积分');assert.equal(facts.giftedBalance,50);assert.equal(facts.unclassifiedBalance,50);assert.equal(facts.giftCreditState,'partial');
+ assert.equal(facts.expiringPoints,100);assert.equal(facts.giftExpiresAt,Date.parse(end));
+ assert.equal(read([p('签到奖励',20),p('普通未知套餐',50)],71).giftCreditState,'unconfirmed');
+ assert.equal(read([{...p('签到奖励',20),expiredTime:new Date(now-1).toISOString()}],20).giftCreditState,'unconfirmed');
+ const providerId='own_trae',id='sp_'+'a'.repeat(24);
+ const cfg=normalizeConfig({providers:[{id:providerId,protocol:'native-channel',enabled:true}],accounts:[{id,providerId,credentialRef:'driver:'+providerId+':'+id,enabled:true}]});
+ const center=createAccountCenter({configStore:{get:()=>cfg,replace(){}},drivers:new Map([[providerId,{accountSnapshot:()=>facts}]]),now:()=>now});
+ assert.equal(center.list().accounts[0].giftedBalance,50);
+});
 test('official gift facts are separate from model cost, stale snapshots and inconsistent balances fail closed',()=>{
  const facts=giftWalletFacts({balance:100,gift:25,ordinary:75,now});const balance={balance:100,balanceUnit:'积分',balanceState:'available'};
  assert.equal(publicGiftWallet(facts,balance,{now}).giftedBalance,25);
