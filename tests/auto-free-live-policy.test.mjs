@@ -4,6 +4,17 @@ import {createNativeRouterAdapter} from '../src/adapter.mjs';
 import {normalizeConfig} from '../src/config.mjs';
 import {UpstreamError} from '../src/failure.mjs';
 
+test('host AutoFree rechecks current fee before sending and falls back when directory changes',async()=>{
+ const cfg=normalizeConfig({});const reads=new Map(),sends=[];
+ const host={status:()=>({hostProviders:[{providerId:'host-a'},{providerId:'host-b'}]}),
+  async listHostModels(id){const n=(reads.get(id)??0)+1;reads.set(id,n);return {state:'ready',models:[{id:'flash',isFree:id==='host-b'||n===1}]}},
+  async *streamHost({providerId}){sends.push(providerId);yield {type:'block-start',index:0,blockType:'text'};yield {type:'text-delta',index:0,text:'OK'};yield {type:'block-end',index:0};yield {type:'finish',reason:{kind:'stop'}}}};
+ const adapter=createNativeRouterAdapter({configStore:{get:()=>cfg},hostProviderInventory:host});
+ const events=[];for await(const event of adapter.stream({model:'autofree',messages:[{role:'user',content:'OK'}]}))events.push(event);
+ assert.deepEqual(sends,['host-b']);assert.equal(reads.get('host-a'),2);assert.equal(reads.get('host-b'),2);
+ assert.ok(events.some(e=>e.type==='finish'&&e.reason.kind==='stop'));
+});
+
 test('owned AutoFree audit passes cancellation signal to exact account catalog resolver',async()=>{
  const providerId='own_loomy',cfg=normalizeConfig({providers:[{id:providerId,protocol:'native-channel',enabled:true}],accounts:[{id:'a',providerId,credentialRef:'driver:'+providerId+':a',enabled:true}]});
  const adapter=createNativeRouterAdapter({configStore:{get:()=>cfg},channelDrivers:new Map([[providerId,{generate:async()=>{throw Error('unexpected inference')}}]])});

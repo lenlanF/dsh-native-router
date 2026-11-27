@@ -1,6 +1,7 @@
 import {isRetiredProvider} from './config.mjs';
 import {SOURCE_PACK_PROVIDERS} from './embedded-pack.mjs';
 import {UpstreamError} from './failure.mjs';
+import {contradictsFree,freeEvidence} from './auto-free.mjs';
 
 /**
  * DSH-host provider reuse; does not install source pack, copy credentials or
@@ -159,18 +160,31 @@ async function listHostModels(providerId){
    if(rows===timeout||!Array.isArray(rows)||disposed
      ||!hostProviders().some(p=>p.providerId===providerId))
     return {state:'unavailable',providerId,models:[]};
-   const models=[],seen=new Set();
+   const models=[],seen=new Map();
    for(const row of rows){
-    if(models.length>=500)break;
-    if(row?.provider&&row.provider!==providerId)continue;
-    const id=typeof row==='string'?row:row?.id;
-    if(typeof id!=='string'||!id.trim()||id.length>160||/[\u0000-\u001f]/.test(id)||seen.has(id))continue;
-    seen.add(id);models.push({id,name:typeof row?.name==='string'?row.name.slice(0,120):id,
-     ...(row?.isFree===true||row?.free===true?{isFree:true}:{}),
-     ...(row?.pricing&&typeof row.pricing==='object'
-        &&['number','string'].includes(typeof row.pricing.input)
-        &&['number','string'].includes(typeof row.pricing.output)
-        ?{pricing:{input:row.pricing.input,output:row.pricing.output}}:{})});
+     if(row?.provider&&row.provider!==providerId)continue;
+     const id=typeof row==='string'?row:row?.id;
+     if(!safeModel(id))continue;
+     const restricted=row?.accessRestriction==='OFFICIAL_CLIENT_ONLY'||row?.freeAllowance==='zcode-start-plan-gift';
+     const giftOnly=row?.freeAllowance==='loomy-daily-gift';
+     const negative=restricted||giftOnly||contradictsFree(row,providerId);
+     const confirmed=freeEvidence(row,providerId)!==null;
+     const previous=seen.get(id);
+     if(previous){
+       if(restricted)previous.model.accessRestriction='OFFICIAL_CLIENT_ONLY';
+       if(negative||previous.negative)previous.model.pricingConflict=true;
+       else if(previous.confirmed!==confirmed)previous.model.pricingIncomplete=true;
+       continue;
+     }
+     if(models.length>=500)continue;
+     const model={id,name:typeof row?.name==='string'?row.name.slice(0,120):id,
+       ...(restricted?{accessRestriction:'OFFICIAL_CLIENT_ONLY'}:{}),
+       ...(negative?{isFree:false}:confirmed?{isFree:true}:{}),
+       ...(typeof row?.costMultiplier==='number'&&Number.isFinite(row.costMultiplier)&&row.costMultiplier>=0?{costMultiplier:row.costMultiplier}:{}),
+       ...(row?.pricing&&typeof row.pricing==='object'&&
+         [row.pricing.input,row.pricing.output].every(x=>(typeof x==='number'||typeof x==='string'&&x.trim()!=='')&&Number.isFinite(Number(x))&&Number(x)>=0)
+         ?{pricing:{input:row.pricing.input,output:row.pricing.output}}:{})};
+     seen.set(id,{model,negative,confirmed});models.push(model);
    }
    return {state:'ready',providerId,models,loginVerified:false};
   }catch{return {state:'unavailable',providerId,models:[]}}
