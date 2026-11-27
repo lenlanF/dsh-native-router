@@ -50,6 +50,16 @@ test('CodeArts total metric is not a second wallet; explicit gift and base compo
  const r=sourceAccountFacts({providerId:'codearts',observedAt:now,balanceRow:{balance:{total:300,packages}}});
  assert.equal(r.giftedBalance,50);assert.equal(r.ordinaryBalance,250);assert.equal(r.giftRouteState,'cost_bound_unverified');
 });
+test('CodeArts gift balance reconciles with optional on-demand and absent zero buckets',()=>{
+ const p=(name,remaining)=>({name,remaining,unit:'credit'});
+ const read=(packages,total)=>sourceAccountFacts({providerId:'codearts',observedAt:now,balanceRow:{balance:{total,packages}}});
+ const a=read([p('总积分包',300),p('基础积分包',200),p('赠送积分包',50),p('按需积分包',50)],300);
+ assert.equal(a.giftedBalance,50);assert.equal(a.ordinaryBalance,250);
+ assert.equal(read([p('总积分包',50),p('赠送积分包',50)],50).giftedBalance,50);
+ assert.equal(read([p('总积分包',100),p('赠送积分包',50)],100).giftCreditState,'unconfirmed');
+ assert.equal(read([p('总积分包',100),p('赠送积分包',50),p('赠送积分包',50)],100).giftCreditState,'unconfirmed');
+ assert.equal(read([p('总积分包',100),p('赠送积分包',50),p('未知积分包',50)],100).giftCreditState,'unconfirmed');
+});
 test('WorkBuddy a nonmonthly bucket is not automatically a gift; explicit active gift is identified',()=>{
  const read=PackageName=>parseWorkBuddyCredits({data:{Response:{Data:{Accounts:[{CapacityType:4,CycleCapacityRemainPrecise:50,CycleEndTime:'2026-12-01T00:00:00Z'},{CapacityType:1,PackageName,CapacityRemainPrecise:20,ExpiredTime:'2026-12-01T00:00:00Z'}]}}}},{now});
  assert.equal(read('活动赠送积分').giftedBalance,20);assert.equal(read('活动赠送积分').ordinaryBalance,50);
