@@ -2,6 +2,13 @@
 
 此处记录工程证据和可复用方法，生产状态每轮重新读取。按 [自有渠道业务验收台账](CHANNEL_ACCEPTANCE_LEDGER.md) 的任务 ID 续跑，不再逐版重复已通过验收。
 
+## rc.160 WB-01 / GIFT-01 / ROUTE-01 真实验收与积分明细
+
+- rc.159 已实际安装；PR #92 CI #335 合并657ab0d。真实 Owner 专项：WorkBuddy CN 2/2在线、17模型1免费各；Global 2/2在线、35模型3免费各。Global 两主体确认独立、CN一主体确认另一名称缓存；钱包分类仍仅Global第二账号verified、无赠送余额，其他三个未分类。千问办公在线14模型1零率0免费，真实排除原因为PROMOTION_UNCONFIRMED。未调用受限优惠。
+- 正式 owned-autofree-route 成功 DSH_HOST_ROUTE_COMPLETE，WorkBuddy CN，4.789秒任务耗时，0失败，无跨渠道切换。rc.156不完整流本次未出现；不能据一次成功断言全场景修复或新版本真实切换通过。临时Owner授权已撤销，未领取新活动。
+- 参考 MIT https://github.com/magpie-community/plugins 固定提交3feae3425239c2ed01bd8b2f745bd7dec911bf51 packages/workbuddy/index.mjs 4054–4267，发现商品编码的 benefit/addon 分类、CapacityType4 日切片以及DeductionEndTime和北京时间解析。仅使用现有授权余额响应，不引入新请求；按精确公开商品编码识别赠送与充值，冲突留未知；明确日切片取当前余额及结束时刻，不计入临期积分。无有效或重复日切片拒绝推断。新测试复现两项缺陷后转绿，专项41/41、全量952/952。生产是否包含这些字段、映射是否命中三个未分类钱包，须新版专项确认；第三方参考不构成计费授权。未新增非零倍率自动调用。
+- 下一步按新版钱包分类与实际渠道活动缺口验收，不重复已成功正式路由。CodeArts、ZCode名称与赠送扣费边界仍未结案。
+
 ## 2026-11-28 核心业务验收优先级调整
 
 - rc.159 PR #91 CI #333 已通过，main 合并 a4a5063；实际安装仍为 rc.156。停止累积未实测版本，下一动作集中升级 rc.159 后按既有 Owner 接口验证实际失败阶段和零率排除原因。
