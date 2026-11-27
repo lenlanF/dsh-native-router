@@ -470,19 +470,40 @@ async function fetchZcodeClaimablePlans(credential,fetchImpl=sanitizingFetch){
     patches.append((
         'async function fetchCodeArtsAccountInfoDetailed(credential, fetcher = directFetch, renew) {',
         """async function nativeRouterCodeartsProfile(credential, fetcher = directFetch) {
-  const id = credential?.user_id;
-  if (typeof id !== "string" || !/^[a-zA-Z0-9_-]{8,128}$/.test(id) || !credential.access_key_id || !credential.secret_access_key || !credential.security_token) return null;
-  const url = "https://iam.myhuaweicloud.com/v3/users/" + encodeURIComponent(id);
-  try {
-    const headers = await signRequestHuawei(credential.access_key_id, credential.secret_access_key, credential.security_token, "GET", url, new Uint8Array());
-    headers.delete("host");
-    const res = await fetcher(url, { method: "GET", headers: new Headers(Object.fromEntries(headers)), signal: AbortSignal.timeout(4000), redirect: "error" });
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data?.user?.id !== id) return null;
-    const name = nativeRouterLoginPublicName(data.user);
-    return name ? {accountName:name} : null;
-  } catch { return null; }
+  const id = nativeRouterLoginId(credential?.user_id);
+  if (!credential?.access_key_id || !credential.secret_access_key || !credential.security_token) return null;
+  const nameOf = user => {
+    const name = nativeRouterLoginPublicName(user);
+    return name && !/::|^urn:|^hw[0-9a-f]{6,}$|^[0-9a-f]{8}-[0-9a-f]{4}-|^[0-9a-f]{16,}$/i.test(name) ? {accountName:name} : null;
+  };
+  const read = async (url, extra = {}) => {
+    try {
+      const signed = await signRequestHuawei(credential.access_key_id, credential.secret_access_key, credential.security_token, "GET", url, new Uint8Array());
+      signed.delete("host");
+      const headers = new Headers(Object.fromEntries(signed));
+      for (const [key, value] of Object.entries(extra)) headers.set(key, value);
+      const res = await fetcher(url, {method:"GET",headers,signal:AbortSignal.timeout(4000),redirect:"error"});
+      if (!res.ok) return null;
+      const doc = await res.json();
+      if (!doc || typeof doc !== "object" || (doc.code !== undefined && ![0,200,"0","200"].includes(doc.code)) || doc.error_code) return null;
+      return doc;
+    } catch { return null; }
+  };
+  // Reference: magpie-community/plugins packages/codearts, MIT, current/user.
+  // Use the current authorized account's signed self endpoint, not a guessed IAM ID.
+  const profile = await read(CODEARTS_SNAP_ENGINE_URL + "/snap-manager/v1/current/user", SNAP_EXTRA_HEADERS);
+  if (profile) {
+    const user = profile.data ?? profile;
+    const subject = nativeRouterLoginId(user?.user_id,user?.userId);
+    if (subject === null || (id && subject && subject !== id)) return null;
+    if (subject) {
+      const name = nameOf(user);
+      if (name) return name;
+    }
+  }
+  if (!id) return null;
+  const data = await read("https://iam.myhuaweicloud.com/v3/users/" + encodeURIComponent(id));
+  return data?.user?.id === id ? nameOf(data.user) : null;
 }
 async function fetchCodeArtsAccountInfoDetailed(credential, fetcher = directFetch, renew) {""",
         'codearts-official-iam-self-profile',

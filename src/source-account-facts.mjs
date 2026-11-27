@@ -76,7 +76,7 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
   // consists solely of free daily credit. Never equate aggregate balance
   // with free allocation or infer a gift when the bucket is absent.
   let giftWallet={};
-  if(['loomy','codearts'].includes(providerId))giftWallet={giftCreditState:'unconfirmed'};
+  if(['loomy','codearts','raccoon'].includes(providerId))giftWallet={giftCreditState:'unconfirmed'};
   const exactBuckets=(names,expectedUnit)=>!balanceRow?.error&&balanceValue!==null&&packages.length===names.length&&names.every(name=>packages.filter(p=>p?.name===name).length===1)&&packages.every(p=>p.unit===expectedUnit&&numeric(p.remaining)!==null&&p.active!==false);
   if(providerId==='loomy'&&exactBuckets(['每日赠送','永久积分'],'积分')){
     const gift=packages.find(p=>p.name==='每日赠送').remaining,ordinary=packages.find(p=>p.name==='永久积分').remaining;
@@ -84,6 +84,17 @@ export function sourceAccountFacts({providerId,identity,statusRow,balanceRow,
   }
   if(providerId==='codearts'&&exactBuckets(['总积分包','基础积分包','赠送积分包'],'credit')&&packages.find(p=>p.name==='总积分包').remaining===balanceValue){
     giftWallet=giftWalletFacts({balance:balanceValue,gift:packages.find(p=>p.name==='赠送积分包').remaining,ordinary:packages.find(p=>p.name==='基础积分包').remaining,now:observedAt});
+  }
+  // Magpie Raccoon reference: daily_points is the authoritative daily-grant
+  // remainder, not the total wallet. Reward points have ambiguous provenance.
+  if(providerId==='raccoon'&&reconciledUnit==='积分'&&!balanceRow?.error
+     &&packages.some(p=>p?.name==='每日积分')
+     &&new Set(packages.map(p=>p.name)).size===packages.length
+     &&packages.every(p=>['每日积分','奖励积分','充值积分','会员积分'].includes(p.name)&&p.active!==false)){
+    const gift=packages.find(p=>p.name==='每日积分').remaining;
+    const ordinary=packages.filter(p=>['充值积分','会员积分'].includes(p.name)).reduce((sum,p)=>sum+p.remaining,0);
+    const unknown=packages.filter(p=>p.name==='奖励积分').reduce((sum,p)=>sum+p.remaining,0);
+    giftWallet=giftWalletFacts({balance:balanceValue,gift,ordinary,unknown,now:observedAt});
   }
   const loomyDailyGift=providerId==='loomy'&&giftWallet.giftCreditState==='verified'?giftWallet.giftedBalance:0;
   // ZCode's signed Start Plan balance names the MODEL (GLM-5.3-Flash),

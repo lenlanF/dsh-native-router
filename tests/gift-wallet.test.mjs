@@ -4,6 +4,8 @@ import {giftWalletFacts,publicGiftWallet,staleGiftWallet} from '../src/gift-wall
 import {sourceAccountFacts} from '../src/source-account-facts.mjs';
 import {parseWorkBuddyCredits} from '../src/channels/workbuddy-members.mjs';
 import {freeEvidence} from '../src/auto-free.mjs';
+import {createAccountCenter} from '../src/account-center.mjs';
+import {normalizeConfig} from '../src/config.mjs';
 const now=Date.parse('2026-11-25T00:00:00Z');
 test('official gift facts are separate from model cost, stale snapshots and inconsistent balances fail closed',()=>{
  const facts=giftWalletFacts({balance:100,gift:25,ordinary:75,now});const balance={balance:100,balanceUnit:'积分',balanceState:'available'};
@@ -20,6 +22,29 @@ test('Loomy requires exactly reconciled official buckets; duplicates or mismatch
  assert.equal(read([...packages,packages[0]],4100).loomyDailyGift,undefined);
  assert.equal(read(packages,2101).loomyDailyGift,undefined);
 });
+test('Raccoon daily points are a distinct gift wallet, never the aggregate or ambiguous rewards',()=>{
+ const daily={name:'每日积分',unit:'积分',remaining:300},paid={name:'充值积分',unit:'积分',remaining:100},reward={name:'奖励积分',unit:'积分',remaining:50};
+ const read=(packages,total)=>sourceAccountFacts({providerId:'raccoon',observedAt:now,balanceRow:{balance:{total,packages}}});
+ const exact=read([daily,paid],400);assert.equal(exact.giftedBalance,300);assert.equal(exact.ordinaryBalance,100);assert.equal(exact.giftCreditState,'verified');
+ const partial=read([daily,paid,reward],450);assert.equal(partial.giftedBalance,300);assert.equal(partial.unclassifiedBalance,50);assert.equal(partial.giftCreditState,'partial');
+ assert.equal(partial.giftRouteState,'cost_bound_unverified');
+ assert.equal(read([daily,daily,paid],700).giftCreditState,'unconfirmed');
+ assert.equal(read([daily,paid],399).giftCreditState,'unconfirmed');
+ assert.equal(read([{name:'可用积分',unit:'积分',remaining:400}],400).giftCreditState,'unconfirmed');
+ assert.equal(read([daily,{...paid,active:false}],400).giftCreditState,'unconfirmed');
+});
+
+test('Raccoon verified gift wallet reaches account center and stale wallet is hidden',()=>{
+ const providerId='own_raccoon',id='sp_'+'a'.repeat(24),config=normalizeConfig({providers:[{id:providerId,protocol:'native-channel',enabled:true}],accounts:[{id,providerId,credentialRef:'driver:'+providerId+':'+id,enabled:true}]});
+ let clock=now;
+ const facts=sourceAccountFacts({providerId:'raccoon',observedAt:now,balanceRow:{balance:{total:400,packages:[{name:'每日积分',unit:'积分',remaining:300},{name:'充值积分',unit:'积分',remaining:100}]}}});
+ const center=createAccountCenter({configStore:{get:()=>config,replace(){}},drivers:new Map([[providerId,{accountSnapshot:()=>facts}]]),now:()=>clock});
+ assert.equal(center.list().accounts[0].giftedBalance,300);
+ clock+=180001;
+ assert.equal(center.list().accounts[0].giftCreditState,'unconfirmed');
+ assert.equal(center.list().accounts[0].giftedBalance,undefined);
+});
+
 test('CodeArts total metric is not a second wallet; explicit gift and base components reconcile',()=>{
  const packages=[{name:'总积分包',unit:'credit',remaining:300},{name:'基础积分包',unit:'credit',remaining:250},{name:'赠送积分包',unit:'credit',remaining:50}];
  const r=sourceAccountFacts({providerId:'codearts',observedAt:now,balanceRow:{balance:{total:300,packages}}});

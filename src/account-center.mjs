@@ -165,7 +165,7 @@ export function createAccountCenter({
              ...(maskedPhone?{maskedPhone}:{}),
              profileState:name||maskedPhone?profileFromCache||live.profileState==='cached'?'cached':'verified':'not_returned',
              ...balance,quotaWindows,
-             ...(['own_lingxi','own_loomy','own_workbuddy-cn','own_workbuddy-global','codearts','own_codearts'].includes(account.providerId)?publicGiftWallet(live,balance,{now:now(),fromCache}):{}),
+             ...(['own_lingxi','own_loomy','own_workbuddy-cn','own_workbuddy-global','codearts','own_codearts','raccoon','own_raccoon'].includes(account.providerId)?publicGiftWallet(live,balance,{now:now(),fromCache}):{}),
              ...(balance.balanceUnit==='积分'
                &&Number.isFinite(fromCache?cached?.expiringPoints:live.expiringPoints)
                &&(fromCache?cached.expiringPoints:live.expiringPoints)>0

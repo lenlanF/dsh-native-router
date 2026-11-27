@@ -9,6 +9,22 @@ const sha=value=>createHash('sha256').update(value).digest('hex');
 // Canonicalize source text only. Never transform WASM or other binary blobs.
 const canonicalText=value=>Buffer.from(value.toString('utf8').replace(/\r\n/g,'\n'),'utf8');
 
+test('CodeArts signed current-user profile recovers missing identity, rejects foreign subjects and never emits internal ID',async()=>{
+ const source=file('vendor/channel-pack/pack-native.js').toString('utf8');
+ const start=source.indexOf('async function nativeRouterCodeartsProfile('),end=source.indexOf('async function fetchCodeArtsAccountInfoDetailed(',start);
+ const helperStart=source.indexOf('function nativeRouterLoginId('),helperEnd=source.indexOf('function parseCredentialResponse(',helperStart);
+ const read=new Function('signRequestHuawei','CODEARTS_SNAP_ENGINE_URL','SNAP_EXTRA_HEADERS',source.slice(helperStart,helperEnd)+source.slice(start,end)+'\nreturn nativeRouterCodeartsProfile;')(async()=>new Headers(),'https://snap-access.cn-north-4.myhuaweicloud.com',{'Agent-Type':'PromptCenter','X-Language':'zh-cn'});
+ const cred={access_key_id:'FAKE_AK',secret_access_key:'FAKE_SK',security_token:'FAKE_STS'};
+ const urls=[];
+ const fetcher=async(url,opts)=>{urls.push(url);assert.equal(opts.method,'GET');assert.equal(opts.redirect,'error');return new Response(JSON.stringify({data:{userId:'member-123',userName:'Example Member'}}))};
+ assert.deepEqual(await read(cred,fetcher),{accountName:'Example Member'});
+ assert.deepEqual(urls,['https://snap-access.cn-north-4.myhuaweicloud.com/snap-manager/v1/current/user']);
+ assert.equal(await read({...cred,user_id:'other-456'},fetcher),null);
+ assert.equal(await read(cred,async()=>new Response(JSON.stringify({data:{userName:'Unknown Subject'}}))),null);
+ assert.equal(await read(cred,async()=>new Response(JSON.stringify({data:{user_id:'member-123',user_name:'hw123456789012345'}}))),null);
+ assert.equal(await read(cred,async()=>new Response(JSON.stringify({code:403,data:{user_id:'member-123',user_name:'Not Authorized'}}))),null);
+});
+
 test('CodeArts login retains explicit IAM subject across both response envelopes without accepting conflicts',()=>{
  const source=file('vendor/channel-pack/pack-native.js').toString('utf8');
  const start=source.indexOf('function nativeRouterLoginId('),end=source.indexOf('function expiresFromCredential(',start);
