@@ -71,7 +71,12 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
   const dailySuccess=(row)=>({date:today(),accountId:row.id,providerId:row.providerId,
     state:'success',message:'官方每日额度初始化回执与钱包回查一致（非永久积分新增）',
     dailyQuotaInitialized:true,at:now(),source:'status'});
-  const raccoonOffer=Object.freeze({kind:'raccoon_login'});
+   const raccoonDailyBill=status=>status?.authVerified===true&&status.todayCheckedIn===true
+     &&status.activityRewardProof==='official_daily_grant_bill'
+     &&status.activityRewardUnit==='积分'&&Number.isFinite(status.activityRewardAmount)&&status.activityRewardAmount>0
+     &&Number.isSafeInteger(status.activityRewardVerifiedAt)&&status.activityRewardVerifiedAt<=now()
+     &&now()-status.activityRewardVerifiedAt<=180000;
+   const raccoonOffer=Object.freeze({kind:'raccoon_login'});
   const raccoonAccount=row=>({providerId:'own_raccoon',id:row.id,
     credentialRef:bindingFor(row)??'source:'+row.providerId+':'+row.id});
   const raccoonReceipt=row=>activityStore?.receipt?.(raccoonAccount(row),raccoonOffer)??null;
@@ -258,7 +263,7 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
            // Close an existing daily pending record using fresh official
            // confirmation, never create a claim or conflate Raccoon login gifts.
            if(entry.authVerified===true&&entry.todayCheckedIn===true&&supported.has(row.providerId)
-             &&row.providerId!=='raccoon'&&!pending.has(row.id)&&!store.blocked
+              &&(row.providerId!=='raccoon'||raccoonDailyBill(entry))&&!pending.has(row.id)&&!store.blocked
              &&latest(row.id)?.state==='pending_confirmation'
              &&!history(row.id).some(x=>x.state==='success')){
              try{store.append({date:today(),accountId:row.id,providerId:row.providerId,
@@ -479,7 +484,7 @@ export function createSourceCheckinCenter({sourcePack,configStore,store,now=()=>
         await refresh({force:true,onlyProviderId:row.providerId});
         const observed=statusCache.get(id);
         const current=observed!==priorObservation&&observed?.day===today()&&observed?.authVerified===true;
-        if(current&&observed.todayCheckedIn===true){
+         if(current&&observed.todayCheckedIn===true&&(row.providerId!=='raccoon'||raccoonDailyBill(observed))){
           state='success';message='上游签到状态已回查确认';
         }else if(current&&row.providerId==='loomy'&&reply.dailyInitializationDay===today()
           &&loomyDailyConfirmation(reply.dailyInitialization,observed,today())===null){

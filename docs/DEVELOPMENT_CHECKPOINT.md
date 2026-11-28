@@ -2,6 +2,13 @@
 
 此处记录工程证据和可复用方法，生产状态每轮重新读取。按 [自有渠道业务验收台账](CHANNEL_ACCEPTANCE_LEDGER.md) 的任务 ID 续跑，不再逐版重复已通过验收。
 
+## rc.165 ACT-01 / GIFT-01 持续性与待确认回执
+
+- rc.164 PR #98 CI #353通过合并583f426；实际安装仍rc.163。只读持久化采样12/12 online、七份verified钱包（WB四、Lingxi、Loomy、CodeArts）年龄19至98秒；此前四个未复核过期账号已恢复记录。该证据非本轮主动API/推理；说明后台状态改善，但不能归因于尚未安装rc.164，也未证明每次续期无空窗或长期不触发限流。
+- 今日11签到：6 success、3 no_task、2 pending_confirmation；3确认奖励回执。已用真实rc.163 Owner activity-reconcile loomy完成只读对账：pendingBefore1 confirmed0 pending1 unresolved0，临时授权已撤销，未领取。Raccoon旧入口不支持同类对账。
+- 修复Raccoon现有readRaccoonLoginTask正则误拒正常小写r/n；原本通用对账排除Raccoon，导致即使官方日账单也不能关闭历史pending。现在要求本次已鉴权、当日完成标志、明确official_daily_grant_bill、正积分及180秒内核实时间才关闭；即时回查也使用该证据。仅扩展受限activity-reconcile到Raccoon，不新增网络请求、自动领取或付费调用。三项红测转绿、专项81/81、全量958/958通过；Raccoon生产回执尚待新版只读对账。Loomy仍未到账，不强行结案。
+- 下一步新版CI通过合并后集中升级，再验证Raccoon对账、宿主重启状态；CodeArts/ZCode正常重新授权后名称核验及非零倍率赠送专用安全消费仍未完成。
+
 ## rc.164 ID-01 / GIFT-01 生产连续性及宿主就绪保护
 
 - rc.163 PR #97 CI #350成功并合并d432b68，实际安装rc.163。只读文件采样发现12个启用账号中7个同秒标记expired，无钱包历史；最小Owner复核国内WorkBuddy两个及千问办公均在线，无重新登录，国内两个真实钱包verified且历史实际写入。其余四账号尚未复核；同秒过期的具体生产触发条件未证实。

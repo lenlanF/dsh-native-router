@@ -31,6 +31,22 @@ function fixture({rows=[],enabled=true,autoSourceAccounts=true,
 }
 const row=(providerId,id='acct-1',enabled=true)=>({id,providerId,nickname:providerId+' account',enabled});
 
+test('Raccoon daily pending history settles only on a fresh official credited bill without re-claiming',async()=>{
+ let official={authVerified:true,todayCheckedIn:false};
+ const h=fixture({rows:[row('raccoon')],enabled:false,handler:async()=>({state:'pending_confirmation',accepted:true}),
+  statusQuery:async()=>({state:'ready',accounts:[{accountId:'acct-1',...official}]})});
+ try{
+  await h.center.refreshSources({force:true});const id=sourceAccountOpaqueId('raccoon','acct-1');
+  assert.equal((await h.center.run(id)).record.state,'pending_confirmation');
+  official={authVerified:true,todayCheckedIn:true,loginRewardTaskVerified:true,loginRewardPending:false};
+  await h.center.refreshSources({force:true});
+  assert.equal(h.records.at(-1).state,'pending_confirmation');
+  official={...official,activityRewardProof:'official_daily_grant_bill',activityRewardVerifiedAt:NOW,activityRewardAmount:20,activityRewardUnit:'积分'};
+  await h.center.refreshSources({force:true});
+  assert.equal(h.records.at(-1).state,'success');assert.equal(h.calls.length,1);
+  await h.center.refreshSources({force:true});assert.equal(h.records.filter(x=>x.state==='success').length,1);
+ }finally{h.center.stop()}
+});
 test('selected source verification reads only unverified account IDs and discovers newly added member',async()=>{
  const rows=[row('loomy','already-online'),row('qoder','unselected')],calls=[];
  const h=fixture({rows,enabled:false,statusQuery:async(provider,id)=>{
