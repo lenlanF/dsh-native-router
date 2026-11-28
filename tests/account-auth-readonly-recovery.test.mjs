@@ -137,6 +137,26 @@ test('transient auto verification error retries after a bounded short interval, 
  assert.equal((await r.center.autoCheckDue()).attempted,0,
   'successful accounts retain the original long cooldown');
 });
+test('confirmed wallet is refreshed before its proof expires without repeated auth probes or outage storms',async()=>{
+ let clock=Date.now(),reads=0,probes=0,available=true;
+ const account=original.accounts[0],store=createAccountVerificationStore();
+ const wallet=()=>({authVerified:true,nickname:'Confirmed member',balance:100,balanceUnit:'积分',balanceState:'available',balanceCheckedAt:clock,giftCreditState:'verified',giftCreditCheckedAt:clock,giftedBalance:30,ordinaryBalance:70});
+ let facts=wallet();store.set(account,{state:'online',at:clock});
+ const center=createAccountCenter({configStore:{get:()=>original,replace(){}},verificationStore:store,now:()=>clock,
+  drivers:new Map([[pid,{refresh:async()=>{probes++;return {state:'online'}},accountSnapshot:()=>facts,
+   refreshAccountStatus:async({force})=>{reads++;assert.equal(force,true);if(!available)return {state:'unavailable',authVerified:false};facts=wallet();return {state:'ready',authVerified:true}}
+  }]])});
+ clock+=119999;assert.equal((await center.autoCheckDue()).attempted,0);
+ clock++;assert.equal((await center.autoCheckDue()).attempted,1);assert.equal(reads,1);assert.equal(probes,0);
+ assert.equal(center.list().accounts[0].giftCreditState,'verified');
+ assert.equal((await center.autoCheckDue()).attempted,0);
+ clock+=120000;available=false;assert.equal((await center.autoCheckDue()).attempted,1);
+ assert.equal(center.list().accounts[0].connectionState,'online');
+ clock+=60000;assert.equal((await center.autoCheckDue()).attempted,0);
+ clock+=60000;assert.equal((await center.autoCheckDue()).attempted,0);
+ assert.equal(center.list().accounts[0].giftCreditState,'unconfirmed','old proof must still expire during outage');
+ assert.equal(reads,2);assert.equal(probes,0);center.stop();
+});
 test('confirmed expired account gets a slower retry than network errors, preventing login-refresh storms',async()=>{
  let outcome={state:'expired'};
  const r=rig({refresh:()=>outcome});
