@@ -157,6 +157,26 @@ test('confirmed wallet is refreshed before its proof expires without repeated au
  assert.equal(center.list().accounts[0].giftCreditState,'unconfirmed','old proof must still expire during outage');
  assert.equal(reads,2);assert.equal(probes,0);center.stop();
 });
+test('host credential readiness is not definitive expiry at startup or during a probe',async()=>{
+ let clock=Date.now(),ready=false,reads=0,probes=0,detach=false,expired=false;
+ const providerId='own_workbuddy-cn',account={id:'wbp_'+'b'.repeat(24),providerId,credentialRef:'driver:'+providerId+':wbp_'+'b'.repeat(24),enabled:true};
+ const cfg=normalizeConfig({providers:[{id:providerId,protocol:'native-channel',enabled:true}],accounts:[account]});
+ const store=createAccountVerificationStore();store.set(account,{state:'online',at:clock-16*60000});
+ const driver={refresh:async()=>{probes++;if(detach)ready=false;return {state:expired||detach?'expired':'online'}},
+ refreshAccountStatus:async()=>{reads++;if(detach)ready=false;return {state:expired||detach?'expired':'ready',authVerified:!expired&&!detach}}};
+ const center=createAccountCenter({configStore:{get:()=>cfg,replace(){}},verificationStore:store,credentialServiceReady:()=>ready,drivers:new Map([[providerId,driver]]),now:()=>clock});
+ const prior=store.get(account);
+ assert.equal((await center.autoCheckDue()).attempted,0);
+ assert.equal((await center.refreshReadOnly({force:true}))[0].state,'unavailable');
+ assert.equal((await center.verify(account.id)).state,'pending');
+ assert.equal(probes+reads,0);assert.deepEqual(store.get(account),prior);
+ ready=true;detach=true;await center.verify(account.id);assert.deepEqual(store.get(account),prior);
+ ready=true;await center.refreshReadOnly({force:true});assert.deepEqual(store.get(account),prior);
+ ready=true;detach=false;assert.equal((await center.refreshReadOnly({force:true}))[0].authVerified,true);
+ assert.equal(store.get(account).state,'online');
+ expired=true;await center.refreshReadOnly({force:true});assert.equal(store.get(account).state,'expired');
+ center.stop();
+});
 test('confirmed expired account gets a slower retry than network errors, preventing login-refresh storms',async()=>{
  let outcome={state:'expired'};
  const r=rig({refresh:()=>outcome});

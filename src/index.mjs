@@ -123,7 +123,8 @@ export function applyWith(ctx,{configStore,adapter,createUserMessage,channelDriv
    const installedInventory=createInstalledPluginInventory();
     const accountCenter=createAccountCenter({configStore:ownStore,adapter:ownAdapter,
       drivers,fetchImpl,env,vault:ownedVault,getSourceStatus:()=>sourceFacade.status(),
-      verificationStore,publicFactsStore});  const sessionReuse=createSessionReuse({configStore:ownStore,drivers,
+       credentialServiceReady:()=>credentialsBridge.status().available,
+       verificationStore,publicFactsStore});  const sessionReuse=createSessionReuse({configStore:ownStore,drivers,
      embeddedPack:sourceFacade,adapter:ownAdapter,logger:ctx.logger,installedInventory});
   const workbuddyVaultAdoption=createWorkbuddyVaultAdoption({
       inventory:installedInventory,configStore:ownStore,vault:ownedVault,
