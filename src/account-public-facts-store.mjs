@@ -82,7 +82,7 @@ function safeRow(value,now){
   return row.name||row.maskedPhone||row.observation||hasOwn(row,'balance')?row:null;
 }
 export function createPublicAccountFactsStore({path,now=()=>Date.now()}={}){
-  let rows={},blocked=false;
+  let rows={},blocked=false,dirty=false,retryAt=0;
   if(path&&existsSync(path)){
     try{
       const data=JSON.parse(readFileSync(path,'utf8'));
@@ -103,7 +103,7 @@ export function createPublicAccountFactsStore({path,now=()=>Date.now()}={}){
     }catch{rows={};blocked=true}
   }
   const persist=()=>{
-    if(!path||blocked)return;
+    if(!path||blocked||!dirty||now()<retryAt)return;
     const next=Object.values(rows).sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,MAX);
     rows=Object.fromEntries(next.map(x=>[x.binding,x]));
     const tmp=path+'.tmp-'+process.pid+'-'+randomUUID();
@@ -111,11 +111,12 @@ export function createPublicAccountFactsStore({path,now=()=>Date.now()}={}){
       mkdirSync(dirname(path),{recursive:true});
       writeFileSync(tmp,JSON.stringify({version:VERSION,rows:next})+'\n',
         {mode:0o600,flag:'wx'});
-      renameSync(tmp,path);
+      renameSync(tmp,path);dirty=false;retryAt=0;
     }catch(error){
       try{unlinkSync(tmp)}catch{}
-      // A read-only cache failure must never affect model dispatch or account I/O.
-      blocked=true;
+      // Transient write failure retains newer in-memory facts and retries on
+      // the next observation after backoff. Invalid initial files stay blocked.
+      retryAt=now()+60000;
     }
   };
   function get(account){
@@ -175,13 +176,13 @@ export function createPublicAccountFactsStore({path,now=()=>Date.now()}={}){
         next.lastGiftWallet=history;changed=true;
       }
     }
-    if(!changed)return false;
-    rows[next.binding]=next;persist();return true;
+    if(!changed){persist();return false;}
+    rows[next.binding]=next;dirty=true;persist();return true;
   }
   function forget(account){
     if(!account?.credentialRef)return;
     const key=hash(account);
-    if(hasOwn(rows,key)){delete rows[key];persist()}
+    if(hasOwn(rows,key)){delete rows[key];dirty=true;persist()}
   }
   return {get,observe,forget,get blocked(){return blocked}};
 }

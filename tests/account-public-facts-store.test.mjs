@@ -11,6 +11,25 @@ const base=process.platform==='win32'?'E:\\Temp':tmpdir();
 const setup=()=>{mkdirSync(base,{recursive:true});return mkdtempSync(join(base,'dsh-public-facts-'))};
 const account={id:'acct_demo',providerId:'own_lingxi',
  credentialRef:'driver:own_lingxi:acct_demo',enabled:true};
+test('transient public facts write failure recovers without discarding latest observations',()=>{
+ const dir=setup();try{
+  let clock=Date.parse('2026-11-23T04:00:00Z');const path=join(dir,'facts.json');
+  const store=createPublicAccountFactsStore({path,now:()=>clock});
+  mkdirSync(path); // temporary target obstruction makes atomic replacement fail
+  const snapshot={nickname:'Member',balance:100,balanceUnit:'积分',balanceCheckedAt:clock};
+  store.observe(account,snapshot,{verifiedAt:clock});
+  assert.equal(store.get(account).balance,100);
+  rmSync(path,{recursive:true,force:true});
+  clock+=1000;
+  store.observe(account,{...snapshot,balance:90,balanceCheckedAt:clock},{verifiedAt:clock});
+  assert.equal(store.get(account).balance,90);
+  clock+=60000;
+  store.observe(account,{...snapshot,balance:90,balanceCheckedAt:clock-60000},{verifiedAt:clock-60000});
+  const restored=createPublicAccountFactsStore({path,now:()=>clock});
+  assert.equal(restored.get(account).balance,90);
+  assert.equal(restored.blocked,false);
+ }finally{rmSync(dir,{recursive:true,force:true})}
+});
 test('last verified public balance/name persists through restart but never exposes private binding',()=>{
  const dir=setup();try{
   let clock=Date.parse('2026-11-23T04:00:00Z');

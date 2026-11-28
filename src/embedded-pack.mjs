@@ -8,7 +8,7 @@ import {installSourceAccountSelection} from './source-account-selection.mjs';
 import {ownCredentialRef} from './credential-ref.mjs';
 import {startRaccoonAuthorizeFlow} from './channels/raccoon-authorize.mjs';
 import {readRaccoonLoginTask,triggerRaccoonFreeDaily} from './channels/raccoon-rewards.mjs';
-import {readLoomyFreeTasks,claimLoomyFreeTasks,loomyDailyQuota,loomyDailyReceipt,loomyDailyConfirmation} from './channels/loomy-rewards.mjs';// The bundled MIT derivative runs INSIDE the DSH Cordis host. No external
+import {readLoomyFreeTasks,claimLoomyFreeTasks,loomyDailyQuota,loomyDailyReceipt,loomyDailyConfirmation,readLoomyDailyStatement} from './channels/loomy-rewards.mjs';// The bundled MIT derivative runs INSIDE the DSH Cordis host. No external
 // OpenAI gateway, agent-resume daemon or independent check-in scheduler.
 export const SOURCE_PACK_PROVIDERS=Object.freeze([
   'codearts','buddy','workbuddy','lobsterai','qoder','qodercn','trae',
@@ -944,11 +944,20 @@ export function createEmbeddedChannelPack({ctx,getConfig,env=process.env,
           &&upstreamCheckedInToday(exact,today)===true
           &&typeof exact?.todayCredit==='number'&&Number.isFinite(exact.todayCredit)
           &&exact.todayCredit>0;
+        let dailyEvidence=providerId==='loomy'&&facts.authVerified===true&&exact?.active===true?loomyDailyQuota(exact.dailyQuotaEvidence):null;
+        let dailyCycleDate=typeof exact?.dailyCycleDate==='string'?exact.dailyCycleDate.slice(0,10):'';
+        if(includeActivities&&providerId==='loomy'&&facts.authVerified===true&&exact?.active===true&&!dailyEvidence){
+          const statement=await withOwnedSourceCredential(scope,'loomy',accountId,null,
+            credential=>readLoomyDailyStatement({credential,fetchImpl:loomyFetchImpl}));
+          if(scope!==mountedScope())return {state:'unavailable',accounts:[]};
+          if(statement?.state==='available'&&(!dailyCycleDate||!statement.dailyCycleDate||dailyCycleDate===statement.dailyCycleDate)){
+            dailyEvidence=loomyDailyQuota(statement.dailyQuotaEvidence);
+            dailyCycleDate=statement.dailyCycleDate||dailyCycleDate;
+          }
+        }
         accounts.push({accountId,...facts,nickname:facts.nickname??'',          ...(phone?{maskedPhone:phone}:{}),
            todayCheckedIn:upstreamCheckedInToday(exact,today),
-           ...(providerId==='loomy'&&facts.authVerified===true&&exact?.active===true&&loomyDailyQuota(exact.dailyQuotaEvidence)
-             ?{dailyQuotaEvidence:loomyDailyQuota(exact.dailyQuotaEvidence),
-               dailyCycleDate:typeof exact.dailyCycleDate==='string'?exact.dailyCycleDate.slice(0,10):''}:{}),
+           ...(dailyEvidence?{dailyQuotaEvidence:dailyEvidence,dailyCycleDate}:{}),
            ...(typeof exact?.claimable==='boolean'?{claimable:exact.claimable}:{}),
            ...(exact?.noClaimablePlans===true?{noClaimablePlans:true}:{}),
            ...freeReward,

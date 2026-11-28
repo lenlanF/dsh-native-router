@@ -43,6 +43,27 @@ const responseBody=async response=>{
     ?obj.data??null:null;
  }catch{return null}
 };
+// Read-only v2 points statement, referenced by Magpie's Loomy usage reader.
+// No inferred limit from the remaining balance, no claim or model request.
+export async function readLoomyDailyStatement({credential,fetchImpl=fetch}={}){
+ const token=tokenOf(credential);
+ if(!token)return {state:'unavailable'};
+ try{
+  const data=await responseBody(await fetchImpl('https://loomyad.xunfei.cn/api/v2/points/records?pageNo=1&pageSize=1&direction=debit&granularity=chat',{
+   method:'GET',redirect:'error',headers:{Accept:'application/json',token,Authorization:'Bearer '+token},
+   signal:AbortSignal.timeout(5000)}));
+  const wallet=data?.data??data;
+  const n=v=>(typeof v==='number'||typeof v==='string'&&/^\d+(?:\.\d+)?$/.test(v))&&Number.isFinite(Number(v))&&Number(v)>=0&&Number(v)<=1e12?Number(v):NaN;
+  const quota=n(wallet?.dailyLimitPoints),balance=n(wallet?.dailyRemainingPoints);
+  const evidence=loomyDailyQuota({quota,balance,consumed:quota-balance});
+  if(!evidence)return {state:'unavailable'};
+  for(const [key,value] of [['dailyQuota',quota],['dailyBalance',balance],['dailyConsumed',quota-balance]])
+   if(wallet[key]!==undefined&&Math.abs(n(wallet[key])-value)>=1e-6||wallet[key]!==undefined&&!Number.isFinite(n(wallet[key])))return {state:'unavailable'};
+  const day=wallet.dailyCycleDate;
+  if(day!==undefined&&(typeof day!=='string'||!/^\d{4}-\d{2}-\d{2}(?:$|T| )/.test(day)))return {state:'unavailable'};
+  return {state:'available',dailyQuotaEvidence:evidence,dailyCycleDate:day?.slice(0,10)??''};
+ }catch{return {state:'unavailable'}}
+}
 async function request(c,path,{fetchImpl=fetch}={}){
  const token=tokenOf(c);
  if(!token)return null;

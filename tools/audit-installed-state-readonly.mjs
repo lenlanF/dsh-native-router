@@ -92,11 +92,18 @@ export function auditInstalledDsh({dshHome=join(homedir(),'.dsh'),
  }
  const history=Array.isArray(signins?.history)?signins.history:[];
  const todayHistory=history.filter(x=>x?.date===today&&!isRetiredProvider(x?.providerId)&&!retiredIds.has(x?.accountId));
- const todayByState=todayHistory.reduce((out,x)=>{
+ const countStates=rows=>rows.reduce((out,x)=>{
    const state=['success','failed','pending_confirmation','no_task',
      'client_required','unsupported'].includes(x?.state)?x.state:'other';
    out[state]=(out[state]??0)+1;return out;
  },{});
+ const latest=new Map();
+ for(const [i,row] of todayHistory.entries()){
+   const key=typeof row.accountId==='string'&&row.accountId?JSON.stringify([row.providerId??'',row.accountId]):'unknown:'+i;
+   const old=latest.get(key);
+   if(!old||old.state!=='success'&&(row.state==='success'||(row.at??0)>=(old.at??0)))latest.set(key,row);
+ }
+ const todayFinal=[...latest.values()];
  const rewardRows=(Array.isArray(receipts?.receipts)?receipts.receipts:[]).filter(x=>!retiredBindings.has(x?.binding)&&!String(x?.kind??'').startsWith('doubao_task_'));
  return {auditedAt:new Date(now).toISOString(),installedVersion:pkg?.version??'missing',
   configStatus:cfg?.invalid?'invalid':cfg?'present':'missing',
@@ -108,7 +115,8 @@ export function auditInstalledDsh({dshHome=join(homedir(),'.dsh'),
   routeCount:Array.isArray(cfg?.routes)?cfg.routes.filter(r=>!Array.isArray(r?.tiers)||!r.tiers.length||r.tiers.some(t=>!isRetiredProvider(t?.providerId))).length:0,
   accounts:total,channels:[...groups.values()].sort((a,b)=>a.channel.localeCompare(b.channel)),
   todayShanghai:today,
-  todayCheckins:{count:todayHistory.length,byState:todayByState},
+   todayCheckins:{count:todayFinal.length,byState:countStates(todayFinal)},
+   todayCheckinAttempts:{count:todayHistory.length,byState:countStates(todayHistory)},
   rewardReceipts:{count:rewardRows.length,
    confirmed:rewardRows.filter(x=>x?.state==='confirmed').length,
    pending:rewardRows.filter(x=>x?.state!=='confirmed').length},
