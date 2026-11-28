@@ -1059,7 +1059,10 @@ test('authenticated source identity recovers only explicit public login fields f
  const bridge=createEmbeddedChannelPack({ctx:{inject(_names,cb){cb(scope)}},
   getConfig:()=>({embeddedPack:{enabled:true}}),
   env:isolatedEnv,
-   loomyFetchImpl:async()=>{activityReads++;return new Response('{}',{status:401})},
+   loomyFetchImpl:async(url,init)=>{activityReads++;assert.equal(init.method,'GET');
+    if(url==='https://loomyad.xunfei.cn/api/v2/points/records?pageNo=1&pageSize=1&direction=debit&granularity=chat')
+      return new Response(JSON.stringify({code:'000000',data:{data:{dailyLimitPoints:2000,dailyRemainingPoints:1500}}}));
+    return new Response('{}',{status:401})},
   loadPack:async()=>({apply(){pool={listAllAccounts:async()=>[row]}}})});
  bridge.attach();
  await new Promise(resolve=>setImmediate(resolve));
@@ -1068,6 +1071,7 @@ test('authenticated source identity recovers only explicit public login fields f
    const minimal=await bridge.readSourceStatuses('loomy',row.id,{includeActivities:false});
    assert.equal(minimal.accounts[0].authVerified,true);assert.equal(activityReads,0);
    const data=await bridge.readSourceStatuses('loomy');
+  assert.deepEqual(data.accounts[0].dailyQuotaEvidence,{quota:2000,balance:1500,consumed:500});
   assert.equal(data.accounts[0].nickname,'真实登录昵称');
   assert.equal(data.accounts[0].maskedPhone,'138****5678');
   assert.doesNotMatch(JSON.stringify(data),/SYNTHETIC_FIXTURE_ONLY|13812345678|NATIVE_ROUTER_PRIVATE_PACK/);

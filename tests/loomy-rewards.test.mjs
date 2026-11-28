@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readLoomyFreeTasks,readLoomyWallet,claimLoomyFreeTasks,LOOMY_FREE_TASKS}
+import {readLoomyFreeTasks,readLoomyWallet,claimLoomyFreeTasks,LOOMY_FREE_TASKS,readLoomyDailyStatement}
  from '../src/channels/loomy-rewards.mjs';
 import {createActivityClaimStore} from '../src/activity-claims.mjs';
 
@@ -9,6 +9,21 @@ const ok=data=>new Response(JSON.stringify({code:'000000',data}),{status:200});
 test('Loomy wallet accepts decimal strings and refuses nonnumeric or negative balances',async()=>{
  for(const balance of ['1200','1200.25',1200.25])assert.deepEqual(await readLoomyWallet({credential,fetchImpl:async()=>ok({balance})}),{state:'available',permanent:Number(balance)});
  for(const balance of ['',null,'-1','1e6',' 12 ',Infinity])assert.deepEqual(await readLoomyWallet({credential,fetchImpl:async()=>ok({balance})}),{state:'unavailable'});
+});
+test('Loomy v2 daily statement requires a positive explicit limit and consistent remaining/used fields',async()=>{
+ const read=data=>readLoomyDailyStatement({credential,fetchImpl:async(url,init)=>{
+  assert.equal(url,'https://loomyad.xunfei.cn/api/v2/points/records?pageNo=1&pageSize=1&direction=debit&granularity=chat');
+  assert.equal(init.method,'GET');assert.equal(init.redirect,'error');assert.equal(init.headers.token,credential.access_token);
+  return ok(data);
+ }});
+ assert.deepEqual(await read({data:{dailyLimitPoints:'2000',dailyRemainingPoints:'1500',dailyCycleDate:'2026-11-28'}}),{
+  state:'available',dailyQuotaEvidence:{quota:2000,balance:1500,consumed:500},dailyCycleDate:'2026-11-28'});
+ for(const data of [{dailyBalance:1500},{dailyLimitPoints:2000,dailyRemainingPoints:3000},
+  {dailyLimitPoints:0,dailyRemainingPoints:0},{dailyLimitPoints:2000,dailyRemainingPoints:null},
+  {dailyLimitPoints:2000,dailyRemainingPoints:1500,dailyConsumed:400},
+  {dailyLimitPoints:2000,dailyRemainingPoints:1500,dailyBalance:'invalid'},
+  {dailyLimitPoints:2000,dailyRemainingPoints:1500,dailyCycleDate:123}])
+  assert.deepEqual(await read(data),{state:'unavailable'});
 });
 test('Loomy eight independent on-board offers total official 10000 points',()=>{
  assert.equal(Object.keys(LOOMY_FREE_TASKS).length,8);

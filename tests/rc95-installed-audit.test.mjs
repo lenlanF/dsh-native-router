@@ -93,6 +93,20 @@ test('retired channel is excluded from active audit without deleting historical 
   assert.equal(readFileSync(join(place,'config.json'),'utf8'),cfg);
  }finally{rmSync(root,{recursive:true,force:true})}
 });
+test('daily audit separates historical attempts from final same-account state',()=>{
+ const root=mkdtempSync(join(process.platform==='win32'?'E:\\Temp':tmpdir(),'dsh-audit-rollup-'));
+ const place=join(root,'plugins','dsh-native-router');mkdirSync(place,{recursive:true});
+ try{
+  const row=(accountId,providerId,state,at)=>({accountId,providerId,state,at,date:'2026-11-23'});
+  writeFileSync(join(place,'checkins.json'),JSON.stringify({history:[
+   row('a','raccoon','pending_confirmation',day-4000),row('a','raccoon','success',day-3000),
+   row('a','raccoon','failed',day-1000),row('b','loomy','failed',day-5000),
+   row('b','loomy','pending_confirmation',day-2000),row('b','loomy','failed',day-4000)]}));
+  const out=auditInstalledDsh({dshHome:root,now:day});
+  assert.deepEqual(out.todayCheckins,{count:2,byState:{success:1,pending_confirmation:1}});
+  assert.equal(out.todayCheckinAttempts.count,6);
+ }finally{rmSync(root,{recursive:true,force:true})}
+});
 test('missing or damaged installed metadata yields a diagnostic, never invented success',()=>{
  const base=process.platform==='win32'?'E:\\Temp':tmpdir();
  const root=mkdtempSync(join(base,'dsh-audit-damaged-'));
