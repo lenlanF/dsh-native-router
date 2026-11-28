@@ -19,6 +19,7 @@ export function createAccountCenter({
   if(!configStore?.get||!configStore?.replace)throw Error('ConfigStore must support get and replace');
    const checks=new Map(),pending=new Set(),discoverCache=new Map(),profileWarmup=new Map(),
     inferenceProof=new Map(),inferenceFailures=new Map(),readOnlyPending=new Map();
+  const walletRefreshAfter=new Map(),walletRefreshMs=120000;
   let automaticTimer=null,initialTimer=null,autoBusy=false,disposed=false;
   const storedFor=account=>verificationStore?.get?.(account)??null;
   function checkFor(account){
@@ -693,7 +694,27 @@ export function createAccountCenter({
     const cacheKey=account.id+'\0'+account.credentialRef;
     if(pending.has(account.id)||
        readOnlyPending.get(account.id)?.credentialRef===account.credentialRef)continue;
-    // Persistent verification proves an earlier login, but the driver snapshot
+     // Refresh only wallets with a prior classified observation, before the
+     // 180s live proof expires. Read-only refresh shares the existing pending
+     // guard; failed/unsupported classification backs off to the normal cycle.
+     if(fresh&&last?.state==='online'&&typeof driver?.refreshAccountStatus==='function'){
+      let facts={};try{facts=driver.accountSnapshot?.(account)??{}}catch{}
+      const giftAt=['verified','partial'].includes(facts.giftCreditState)?facts.giftCreditCheckedAt:0;
+      const previousAt=Math.max(Number.isFinite(giftAt)?giftAt:0,publicFactsStore?.get?.(account)?.lastGiftWallet?.checkedAt??0);
+      const at=now();
+      if(previousAt>0&&previousAt<=at&&at-previousAt>=walletRefreshMs&&at>=(walletRefreshAfter.get(cacheKey)??0)){
+       attempted++;walletRefreshAfter.set(cacheKey,at+Math.max(walletRefreshMs,autoVerifyMs));
+       try{
+        const result=(await refreshReadOnly({accountId:account.id,force:true}))[0];
+        const updated=driver.accountSnapshot?.(account)??{};
+        const proof=publicGiftWallet(updated,publicBalance(updated),{now:now()});
+        if(result?.authVerified===true&&['verified','partial'].includes(proof.giftCreditState)&&proof.giftCreditCheckedAt>previousAt)
+         walletRefreshAfter.set(cacheKey,now()+walletRefreshMs);
+       }catch{}
+       continue;
+      }
+     }
+     // Persistent verification proves an earlier login, but the driver snapshot
     // is memory-only. Without this one-time hydration, the whole page shows
     // "account 1 / balance unknown" after every DSH restart for up to 30 min.
     if(fresh){
