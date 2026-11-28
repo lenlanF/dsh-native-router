@@ -1,5 +1,11 @@
 # Change Log
 
+## 1.0.0-rc.161 — CodeArts / ZCode 授权资料解析
+
+- 保留 CodeArts 登录响应嵌套用户主体及公开昵称；已有签名 self 资料支持嵌套 user，拒绝与当前账号冲突的主体。
+- ZCode 从正常 OAuth data.user 取得名称，公开资料的空 username 不遮蔽 preferred_username；通用身份字段支持 nick_name，过滤不同主体的嵌套资料。
+- 不增加新的认证接口或付费调用权限，旧账号名称仍需生产复验。
+
 ## 1.0.0-rc.160 — WorkBuddy 积分明细与日额度
 
 - 参考 MIT Magpie WorkBuddy 的公开商品编码区分明确平台奖励和充值包，名称矛盾或未知包保留未知分类；不授予非零倍率免费调用。

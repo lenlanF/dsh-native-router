@@ -29330,14 +29330,21 @@ function nativeRouterLoginId(...values) {
   const ids = [...new Set(values.filter(v => typeof v === "string" && /^[a-zA-Z0-9_-]{8,128}$/.test(v)))];
   return ids.length > 1 ? null : ids[0];
 }
+function nativeRouterLoginSubject(...sources) {
+  return nativeRouterLoginId(...sources.flatMap(root => [root?.user_id, root?.userId, root?.user?.id, root?.user?.user_id, root?.user?.userId]));
+}
 function nativeRouterLoginPublicName(...sources) {
+  const subject = nativeRouterLoginSubject(...sources);
+  if (subject === null) return "";
   for (const root of sources) {
     for (const obj of [root, root?.user, root?.profile, root?.account, root?.userInfo, root?.user_info]) {
-      for (const key of ["displayName", "display_name", "nickname", "nickName", "user_name", "userName", "username", "account_name", "accountName", "name", "email"]) {
+      const explicit = [obj?.user_id,obj?.userId,obj?.sub,obj?.uid,...(obj !== root ? [obj?.id] : [])].filter(v => typeof v === "string" && v.trim());
+      if (subject && explicit.some(v => v !== subject)) continue;
+      for (const key of ["displayName", "display_name", "nickname", "nickName", "nick_name", "user_name", "userName", "username", "preferred_username", "account_name", "accountName", "name", "email"]) {
         const v = obj?.[key];
         if (typeof v !== "string") continue;
         const name = v.trim();
-        if (name && name.length <= 120 && name !== obj?.id && name !== obj?.user_id && name !== obj?.userId && !/^(?:hid_|device[_-]|账号\s*\d+|[0-9a-f]{24,})/i.test(name) && !/[\x00-\x1f]/.test(name)) return name;
+        if (name && name.length <= 120 && name !== subject && ![obj?.id,obj?.user_id,obj?.userId,obj?.sub,obj?.uid].includes(name) && !/^(?:hid_|device[_-]|账号\s*\d+|[0-9a-f]{24,})/i.test(name) && !/[\x00-\x1f]/.test(name)) return name;
       }
     }
   }
@@ -29354,8 +29361,8 @@ function parseCredentialResponse(data) {
         security_token: st,
         expires_at: data.credential.expires_at ?? data.credential.expiresAt ?? "",
         domain_id: nativeRouterLoginId(data.domain_id, data.domainId, data.credential.domain_id, data.credential.domainId) ?? "",
-        user_id: nativeRouterLoginId(data.user_id, data.userId, data.credential.user_id, data.credential.userId) ?? "",
-        user_name: nativeRouterLoginId(data.user_id, data.userId, data.credential.user_id, data.credential.userId) === null ? "" : nativeRouterLoginPublicName(data, data.credential)
+        user_id: nativeRouterLoginSubject(data, data.credential) ?? "",
+        user_name: nativeRouterLoginSubject(data, data.credential) === null ? "" : nativeRouterLoginPublicName(data, data.credential)
       };
     }
   }
@@ -29368,9 +29375,9 @@ function parseCredentialResponse(data) {
         secret_access_key: data.result.secretAccessKey ?? "",
         security_token: st,
         expires_at: data.result.expiration ?? data.result.expiresAt ?? "",
-        user_id: nativeRouterLoginId(data.result.user_id, data.result.userId, data.user_id, data.userId) ?? "",
+        user_id: nativeRouterLoginSubject(data.result, data) ?? "",
         domain_id: nativeRouterLoginId(data.result.domain_id, data.result.domainId, data.domain_id, data.domainId) ?? "",
-        user_name: nativeRouterLoginId(data.result.user_id, data.result.userId, data.user_id, data.userId) === null ? "" : nativeRouterLoginPublicName(data.result, data)
+        user_name: nativeRouterLoginSubject(data.result, data) === null ? "" : nativeRouterLoginPublicName(data.result, data)
       };
     }
   }
@@ -53938,7 +53945,7 @@ async function pollZcodeLogin(flow, fetchImpl = sanitizingFetch, appVersion = "3
     };
   }
   const refreshRaw = data.bigmodel?.refresh_token ?? data.bigmodel?.refreshToken ?? data.zai?.refresh_token ?? data.zai?.refreshToken;
-  const displayName = nativeRouterLoginPublicName(data.user, data.profile, data.userInfo, data.user_info);
+  const displayName = nativeRouterLoginPublicName(data.user);
   return {
     kind: "ready",
     result: {
@@ -60023,7 +60030,7 @@ async function nativeRouterCodeartsProfile(credential, fetcher = directFetch) {
   const profile = await read(CODEARTS_SNAP_ENGINE_URL + "/snap-manager/v1/current/user", SNAP_EXTRA_HEADERS);
   if (profile) {
     const user = profile.data ?? profile;
-    const subject = nativeRouterLoginId(user?.user_id,user?.userId);
+    const subject = nativeRouterLoginSubject(user);
     if (subject === null || (id && subject && subject !== id)) return null;
     if (subject) {
       const name = nameOf(user);
