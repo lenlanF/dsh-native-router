@@ -14,6 +14,7 @@ function accountNotFound(id){const e=new Error('Account not configured: '+String
 export function createAccountCenter({
  configStore,adapter,drivers=new Map(),fetchImpl=fetch,env=process.env,vault,now=()=>Date.now(),
    getSourceStatus=()=>({state:'unavailable'}),verificationStore,publicFactsStore,
+   credentialServiceReady=()=>true,
    autoVerifyMs=AUTO_VERIFY_MS,
    readOnlyTimeoutMs,readOnlyConcurrency=4,}={}){
   if(!configStore?.get||!configStore?.replace)throw Error('ConfigStore must support get and replace');
@@ -22,6 +23,8 @@ export function createAccountCenter({
   const walletRefreshAfter=new Map(),walletRefreshMs=120000;
   let automaticTimer=null,initialTimer=null,autoBusy=false,disposed=false;
   const storedFor=account=>verificationStore?.get?.(account)??null;
+  const hostVaultProviders=new Set(['own_workbuddy-cn','own_workbuddy-global','own_lingxi','own_mimo_desktop','own_meoo_web','own_qwenwork','own_aws_quick']);
+  const canReadCredentials=account=>!(hostVaultProviders.has(account.providerId)||account.credentialRef?.startsWith('host:'))||credentialServiceReady()===true;
   function checkFor(account){
     const stored=storedFor(account),cached=checks.get(account.id);
     const live=cached?.bindingRef===account.credentialRef?cached:null;
@@ -269,6 +272,8 @@ export function createAccountCenter({
      const error=new Error('Account read-only refresh already in progress');error.status=409;throw error;
    }
    if(!entry.account.enabled||!entry.provider.enabled){const e=new Error('Account or provider is disabled');e.status=409;throw e}
+   if(!canReadCredentials(entry.account))return {id,state:'pending',message:'宿主凭据服务尚未就绪，保留上次鉴权记录'};
+   const priorCheck=checks.get(id);
    const method=login?'login':'refresh',driver=entry.driver;
    if(!driver?.[method]&&!['openai-chat','anthropic-messages'].includes(entry.provider.protocol)){
      const e=new Error('此渠道尚未接入原生登录或刷新适配器');e.status=501;throw e
@@ -304,7 +309,11 @@ export function createAccountCenter({
       checks.delete(id);
       return {id,state:'error',at:now(),message:'账号绑定已改变，等待重新校验'};
     }
-    checks.set(id,{...result,bindingRef:entry.account.credentialRef});
+     if(!canReadCredentials(entry.account)){
+       if(priorCheck)checks.set(id,priorCheck);else checks.delete(id);
+       return {id,state:'pending',message:'宿主凭据服务暂不可用，保留上次鉴权记录'};
+     }
+     checks.set(id,{...result,bindingRef:entry.account.credentialRef});
     try{verificationStore?.set?.(entry.account,result)}catch{}
     if(result.state==='online'&&!controller.signal.aborted)
       observeRefreshedFacts(entry.account,driver,result.at);
@@ -690,6 +699,7 @@ export function createAccountCenter({
     // starts. A not-yet-mounted PRIVATE pack is not an authentication failure:
     // defer the verification and preserve the last known bound status.
     if(driver?.isSourceBridge===true&&driver.runtimeReady!==true)continue;
+    if(!canReadCredentials(account))continue;
     const last=storedFor(account),fresh=verificationWithinPeriod(last,now(),autoVerifyMs);
     const cacheKey=account.id+'\0'+account.credentialRef;
     if(pending.has(account.id)||
@@ -759,7 +769,8 @@ export function createAccountCenter({
           const at=cursor++,account=targets[at];
           if(pending.has(account.id)){results[at]={state:'busy',authVerified:false};continue;}
           const driver=driverFor(account.providerId);
-          const previous=storedFor(account);
+           if(!canReadCredentials(account)){results[at]={state:'unavailable',authVerified:false};continue;}
+           const previous=storedFor(account);
           // A persisted ONLINE proof is not a persisted profile or quota.
           // After each Host restart, every native owned account starts with
           // an empty in-memory snapshot; skipping this request caused
@@ -809,7 +820,8 @@ export function createAccountCenter({
               // updates the durable status: positive auth, or a definitive
               // credential expiration. Transport outages, catalog metadata and
               // missing accounts are NOT proof that login was revoked.
-              const positive=remote?.authVerified===true
+               if(!canReadCredentials(account))return {state:'unavailable',authVerified:false};
+               const positive=remote?.authVerified===true
                 &&['ready','online'].includes(remote?.state);
               const expired=remote?.authVerified===false&&remote?.state==='expired';
               if(!disposed&&!controller.signal.aborted&&!pending.has(account.id)
