@@ -89,3 +89,4 @@
 | 2026-11-28 | SRC-01 真实权益范围 | rc.159 CI #333合并a4a5063，安装仍rc.156；千问办公标准模式须个人订阅，MiniMax限免明确仅官方客户端 | 不据此授予非官方路由资格；升级后验证实际零率排除原因及其他明确免费候选 |
 | 2026-11-28 | ROUTE-01/WB-01/GIFT-01 rc.160 | 实际rc.159，五账号在线；正式 owned-autofree-route 成功 WorkBuddy CN 4.789秒0失败；千问办公1零率PROMOTION_UNCONFIRMED；WorkBuddy三钱包未分类；参考Magpie修复商品编码分类与日切片余额 | 新版钱包需实测；CN一主体未确认、未发生真实跨渠道切换；不新增付费调用 |
 | 2026-11-28 | ID-01/ID-02 rc.161 授权资料 | rc.160 CI #338合并dd37723；补齐CodeArts嵌套主体和nick_name、ZCode data.user和preferred_username，四处红测转绿、专项21/21 | 旧授权是否存在实际昵称未确认；真实名称仍待新版核验，必要时正常重新授权；不新增认证权限 |
+| 2026-11-28 | WB-01/GIFT-01/ID-01/ID-02 rc.161生产 | rc.161 CI #341合并207cc93，实际6账号在线；WorkBuddy钱包4/4真实分类通过，3有赠送、4有普通积分、无未知；CodeArts/ZCode名称仍未返回 | WorkBuddy钱包分类结案，不重复；赠送专用安全扣费未结案；仅CodeArts/ZCode正常重新授权后核验；未重复推理或领取 |
