@@ -210,7 +210,7 @@ export function createOwnerAcceptance({configStore,accountCenter,checkinCenter,o
   if(disposed)reject('Acceptance service stopped',503);
   if(typeof requestId!=='string'||!requestPattern.test(requestId)||!modes.has(mode)||consent!==true
     ||channel!==undefined&&(typeof channel!=='string'||!channelPattern.test(channel))
-    ||['channel-activity','host-route','activity-reconcile'].includes(mode)&&channel===undefined||mode==='activity-reconcile'&&channelKey(channel)!=='loomy'||['all-channel-activity','autofree-audit','owned-autofree-audit','owned-autofree-route'].includes(mode)&&channel!==undefined)reject('Invalid explicit acceptance request');
+    ||['channel-activity','host-route','activity-reconcile'].includes(mode)&&channel===undefined||mode==='activity-reconcile'&&!['loomy','raccoon'].includes(channelKey(channel))||['all-channel-activity','autofree-audit','owned-autofree-audit','owned-autofree-route'].includes(mode)&&channel!==undefined)reject('Invalid explicit acceptance request');
   const selected=channel===undefined?undefined:channelKey(channel);
   const signature=JSON.stringify([mode,selected]);
   const old=jobs.get(requestId);

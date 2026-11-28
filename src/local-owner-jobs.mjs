@@ -99,7 +99,7 @@ export function revokeLocalOwnerJobs(dir){dir=resolve(dir);enabled(dir);unlinkSy
 function validate(body,now,grantId){
  if(!body||body.grantId!==grantId||body.consent!==true||typeof body.requestId!=='string'||!ID.test(body.requestId)||!modes.has(body.mode)||
  (body.channel!==undefined&&!CHANNEL.test(body.channel))||
- (['channel-activity','host-route','activity-reconcile'].includes(body.mode)&&!body.channel)||(body.mode==='activity-reconcile'&&!['loomy','own_loomy'].includes(body.channel))||(['all-channel-activity','autofree-audit','owned-autofree-audit','owned-autofree-route'].includes(body.mode)&&body.channel!==undefined)||
+ (['channel-activity','host-route','activity-reconcile'].includes(body.mode)&&!body.channel)||(body.mode==='activity-reconcile'&&!['loomy','own_loomy','raccoon','own_raccoon'].includes(body.channel))||(['all-channel-activity','autofree-audit','owned-autofree-audit','owned-autofree-route'].includes(body.mode)&&body.channel!==undefined)||
  !Number.isSafeInteger(body.issuedAt)||!Number.isSafeInteger(body.expiresAt)||
  body.issuedAt>now+10000||body.expiresAt<=now||body.expiresAt-body.issuedAt>TTL||
  body.expiresAt<=body.issuedAt)throw Error('Invalid local owner request');

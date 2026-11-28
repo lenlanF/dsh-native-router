@@ -59,7 +59,7 @@ export async function readRaccoonLoginTask({credential,fetchImpl=fetch,
  timeoutMs=9500}={}){
  const token=credential?.access_token;
  if(typeof token!=='string'||token.length<12||token.length>8192||
-   /[\\r\\n]/.test(token))return {state:'unavailable'};
+   /[\r\n]/.test(token))return {state:'unavailable'};
  const host='https://xiaohuanxiong.com';
  try{
   const response=await fetchImpl(ENDPOINT,{

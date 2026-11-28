@@ -108,6 +108,18 @@ test('Loomy receipt reconciliation forces only selected read and reports anonymo
  assert.equal(service.start({requestId:id,mode:'activity-reconcile',channel:'loomy',consent:true}).state,'complete');assert.equal(reads,1);
 });
 
+test('Raccoon receipt-only owner mode performs only selected status read',async()=>{
+ const day='2026-11-26',rows=[{id:'private-row',providerId:'raccoon',enabled:true,sourceAccount:true}];
+ const history=[{date:day,accountId:rows[0].id,providerId:'raccoon',state:'pending_confirmation'}];let reads=0;
+ const service=createOwnerAcceptance({configStore:{get:()=>({providers:[],accounts:[]})},accountCenter:{list:()=>({accounts:[]})},checkinCenter:{
+ snapshot:()=>({accounts:rows}),store:{all:()=>history},
+ refreshSources:async opts=>{reads++;assert.deepEqual(opts,{force:true,onlyProviderId:'raccoon'});history.push({...history[0],state:'success'})},
+ runActivityChannel:async()=>{throw Error('must not claim')}
+ },now:()=>Date.parse(day+'T04:00:00Z')});
+ service.start({requestId:id,mode:'activity-reconcile',channel:'raccoon',consent:true});
+ const report=await done(service);assert.deepEqual(report.reconciliation,{pendingBefore:1,confirmed:1,pending:0,unresolved:0});assert.equal(reads,1);
+ assert.doesNotMatch(JSON.stringify(report),/private-row/);
+});
 test('all-channel free activity runs eligible channels serially, isolates failures, and deduplicates the job',async()=>{
  const rows=[
   {providerId:'own_alpha',enabled:true,checkinSupported:true},

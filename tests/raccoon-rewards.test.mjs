@@ -40,6 +40,14 @@ test('Raccoon task verifier only performs a bounded official GET and never retur
 });
 
 
+test('Raccoon read-only task accepts ordinary lowercase r and n but rejects control characters',async()=>{
+ let hits=0;const fetchImpl=async()=>{hits++;return new Response(JSON.stringify(body('completed')))};
+ for(const token of ['fake_normal_grant_test','fake_raccoon_session_test'])
+  assert.deepEqual(await readRaccoonLoginTask({credential:{access_token:token},fetchImpl}),{state:'completed'});
+ for(const token of ['fake_token_with\rnewline','fake_token_with\nnewline'])
+  assert.deepEqual(await readRaccoonLoginTask({credential:{access_token:token},fetchImpl}),{state:'unavailable'});
+ assert.equal(hits,2);
+});
 test('Raccoon free daily trigger only sends official GET requests, never purchase or model calls',async()=>{
  const calls=[];
  const credential={access_token:syntheticBearer};
