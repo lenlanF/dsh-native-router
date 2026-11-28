@@ -118,6 +118,29 @@ test('account center does not lose identity and spendable points on an empty/fai
  assert.equal(row.balanceState,'available');
  center.stop();
 });
+test('verified gift history survives refresh failure, expiry and restart without becoming live spend evidence',()=>{
+ const dir=setup();try{
+  let clock=Date.parse('2026-11-23T04:00:00Z'),now=()=>clock;
+  const path=join(dir,'wallet-history.json'),cfg=normalizeConfig({providers:[{id:account.providerId,protocol:'native-channel',enabled:true}],accounts:[account]});
+  let store=createPublicAccountFactsStore({path,now});
+  const start=clock,live={authVerified:true,balance:100,balanceUnit:'积分',balanceCheckedAt:start,balanceState:'available',giftCreditState:'verified',giftedBalance:30,ordinaryBalance:70,giftCreditCheckedAt:start,giftExpiresAt:start+600000,giftExpiryKnown:true};
+  let current=live;
+  const center=()=>createAccountCenter({configStore:{get:()=>cfg,replace:()=>{}},publicFactsStore:store,drivers:new Map([[account.providerId,{accountSnapshot:()=>current}]]),now});
+  let c=center(),row=c.list().accounts[0];assert.equal(row.giftCreditState,'verified');
+  assert.equal(row.lastGiftWallet.giftedBalance,30);
+  clock+=180001;row=c.list().accounts[0];
+  assert.equal(row.giftCreditState,'unconfirmed');assert.equal(row.giftedBalance,undefined);assert.equal(row.lastGiftWallet.checkedAt,start);
+  current={authVerified:true,balance:80,balanceUnit:'积分',balanceCheckedAt:clock,balanceState:'available',giftCreditState:'unconfirmed'};
+  row=c.list().accounts[0];assert.equal(row.balance,80);assert.equal(row.lastGiftWallet.balance,100);assert.equal(row.giftCreditState,'unconfirmed');
+  c.stop();clock=start+600001;store=createPublicAccountFactsStore({path,now});current={};c=center();row=c.list().accounts[0];
+  assert.equal(row.lastGiftWallet.giftedBalance,30);assert.equal(row.lastGiftWallet.expiresAt,start+600000);assert.equal(row.giftedBalance,undefined);
+  assert.equal(store.get({...account,credentialRef:'driver:replacement'}),null);
+  current={...live,balance:70,balanceCheckedAt:clock,giftCreditCheckedAt:clock,giftedBalance:0,ordinaryBalance:70,giftExpiresAt:null};row=c.list().accounts[0];
+  assert.equal(row.giftCreditState,'verified');assert.equal(row.lastGiftWallet.giftedBalance,0);assert.equal(row.lastGiftWallet.checkedAt,clock);
+  store.observe(account,live);assert.equal(store.get(account).lastGiftWallet.giftedBalance,0);
+  c.stop();
+ }finally{rmSync(dir,{recursive:true,force:true})}
+});
 test('background read-only and explicit refresh persist facts without opening account list',async()=>{
  const dir=setup();
  try{

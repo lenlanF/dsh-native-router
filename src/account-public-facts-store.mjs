@@ -6,6 +6,8 @@ import {dirname} from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {publicAccountName,publicBalance,publicMaskedPhone} from './account-facts.mjs';
 
+import {publicGiftWallet} from './gift-wallet.mjs';
+
 const MAX=200,VERSION=1,MAX_AGE=7*86400000;
 const hash=account=>createHash('sha256').update(
   account.providerId+'\0'+account.id+'\0'+account.credentialRef).digest('hex');
@@ -41,6 +43,20 @@ function observationFrom(snapshot,at,now){
     membershipPercentObserved:validPercent(snapshot.membershipPercentRemaining),
     rollingPercentObserved:validPercent(snapshot.usagePercentRemaining)},now);
 }
+// Historical classification is a separate as-of snapshot, never a live wallet.
+function safeGiftHistory(value,now){
+  if(!value||!validTime(value.checkedAt,now)||value.checkedAt>now||
+     !['verified','partial'].includes(value.state))return null;
+  const {balance,giftedBalance,ordinaryBalance,checkedAt}=value;
+  const unknown=value.unclassifiedBalance??0;
+  if(![balance,giftedBalance,ordinaryBalance,unknown].every(validNumber)||
+     Math.abs(giftedBalance+ordinaryBalance+unknown-balance)>0.0001||
+     (value.state==='partial')!==(unknown>0))return null;
+  const expiresAt=value.expiresAt;
+  if(expiresAt!=null&&(!Number.isSafeInteger(expiresAt)||expiresAt<=checkedAt))return null;
+  return {state:value.state,balance,giftedBalance,ordinaryBalance,checkedAt,
+    ...(unknown>0?{unclassifiedBalance:unknown}:{}),expiresAt:expiresAt??null};
+}
 function safeRow(value,now){
   if(!value||typeof value!=='object'||Array.isArray(value)||
     !/^[a-f0-9]{64}$/.test(value.binding)||!validTime(value.updatedAt,now))
@@ -61,6 +77,8 @@ function safeRow(value,now){
       row.expiringPoints=value.expiringPoints;row.expiringAt=value.expiringAt;
     }
   }
+  const history=safeGiftHistory(value.lastGiftWallet,now);
+  if(history)row.lastGiftWallet=history;
   return row.name||row.maskedPhone||row.observation||hasOwn(row,'balance')?row:null;
 }
 export function createPublicAccountFactsStore({path,now=()=>Date.now()}={}){
@@ -104,7 +122,7 @@ export function createPublicAccountFactsStore({path,now=()=>Date.now()}={}){
     if(!account?.id||!account.providerId||!account.credentialRef)return null;
     const record=rows[hash(account)];
     if(!record||!safeRow(record,now()))return null;
-    return {...record};
+     return safeRow(record,now());
   }
   function observe(account,snapshot,{verifiedAt}={}){
     if(blocked||!account?.credentialRef||!snapshot||
@@ -143,6 +161,18 @@ export function createPublicAccountFactsStore({path,now=()=>Date.now()}={}){
       }else if(hasOwn(next,'expiringPoints')&&
         (snapshot.expiringPoints===0||next.expiringAt<=time)){
         delete next.expiringPoints;delete next.expiringAt;changed=true;
+      }
+    }
+    const wallet=snapshot.authVerified===false?null:publicGiftWallet(snapshot,raw,{now:time});
+    if(wallet&&['verified','partial'].includes(wallet.giftCreditState)){
+      const history=safeGiftHistory({state:wallet.giftCreditState,balance:raw.balance,
+        giftedBalance:wallet.giftedBalance,ordinaryBalance:wallet.ordinaryBalance,
+        unclassifiedBalance:wallet.unclassifiedBalance,checkedAt:wallet.giftCreditCheckedAt,
+        expiresAt:wallet.giftExpiresAt},time);
+      if(history&&history.checkedAt>=(before?.lastGiftWallet?.checkedAt??0)&&
+         history.checkedAt>=(before?.balanceCheckedAt??0)&&
+         JSON.stringify(history)!==JSON.stringify(before?.lastGiftWallet)){
+        next.lastGiftWallet=history;changed=true;
       }
     }
     if(!changed)return false;
